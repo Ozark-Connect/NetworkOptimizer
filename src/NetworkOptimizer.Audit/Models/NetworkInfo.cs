@@ -1,0 +1,88 @@
+namespace NetworkOptimizer.Audit.Models;
+
+/// <summary>
+/// Network classification types based on purpose
+/// </summary>
+public enum NetworkPurpose
+{
+    /// <summary>
+    /// Corporate/business network for general use
+    /// </summary>
+    Corporate,
+
+    /// <summary>
+    /// IoT devices (smart home, automation, etc.)
+    /// </summary>
+    IoT,
+
+    /// <summary>
+    /// Security cameras and surveillance equipment
+    /// </summary>
+    Security,
+
+    /// <summary>
+    /// Guest network for visitors
+    /// </summary>
+    Guest,
+
+    /// <summary>
+    /// Management/admin network for infrastructure
+    /// </summary>
+    Management,
+
+    /// <summary>
+    /// Unknown or unclassified network
+    /// </summary>
+    Unknown
+}
+
+/// <summary>
+/// Represents a network/VLAN configuration
+/// </summary>
+public class NetworkInfo
+{
+    /// <summary>
+    /// Network ID (from UniFi)
+    /// </summary>
+    public required string Id { get; init; }
+
+    /// <summary>
+    /// Network name
+    /// </summary>
+    public required string Name { get; init; }
+
+    /// <summary>
+    /// VLAN ID (1 for native/untagged)
+    /// </summary>
+    public required int VlanId { get; init; }
+
+    /// <summary>
+    /// Purpose/classification of the network
+    /// </summary>
+    public NetworkPurpose Purpose { get; init; }
+
+    /// <summary>
+    /// IP subnet (e.g., "192.168.1.0/24")
+    /// </summary>
+    public string? Subnet { get; init; }
+
+    /// <summary>
+    /// Gateway IP address
+    /// </summary>
+    public string? Gateway { get; init; }
+
+    /// <summary>
+    /// DNS servers for this network
+    /// </summary>
+    public List<string>? DnsServers { get; init; }
+
+    /// <summary>
+    /// Whether this is the native/default VLAN
+    /// </summary>
+    public bool IsNative => VlanId == 1;
+
+    /// <summary>
+    /// Whether inter-VLAN routing is enabled
+    /// </summary>
+    public bool AllowsRouting { get; init; }
+}

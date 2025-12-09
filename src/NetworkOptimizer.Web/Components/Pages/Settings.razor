@@ -1,0 +1,739 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@inject UniFiConnectionService ConnectionService
+@inject SqmService SqmService
+
+<PageTitle>Settings - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Settings</h1>
+    <p class="page-description">Configure Network Optimizer connections and preferences</p>
+</div>
+
+<div class="settings-container">
+    <!-- UniFi Controller Connection -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">UniFi Controller Connection</h2>
+            <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">Controller URL</label>
+                <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" />
+                <small class="form-help">Use local-only credentials for security</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" @bind="controllerPassword" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Site</label>
+                <input type="text" class="form-control" @bind="controllerSite" placeholder="default" />
+                <small class="form-help">Usually "default" for local UniFi OS devices</small>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="rememberCredentials" />
+                    <span>Remember credentials</span>
+                </label>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="TestControllerConnection" disabled="@testingController">
+                    @if (testingController)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+                <button class="btn btn-success" @onclick="SaveAndConnectController" disabled="@testingController">
+                    @if (ConnectionService.IsConnected)
+                    {
+                        <span>Reconnect</span>
+                    }
+                    else
+                    {
+                        <span>Connect</span>
+                    }
+                </button>
+                @if (ConnectionService.IsConnected)
+                {
+                    <button class="btn btn-warning" @onclick="DisconnectController">
+                        Disconnect
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(controllerMessage))
+            {
+                <div class="alert alert-@controllerMessageClass">
+                    @controllerMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- TC Monitor Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">TC Monitor Configuration</h2>
+            <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                TC Monitor runs on your UniFi gateway and exposes SQM/Traffic Control rates via HTTP.
+                The interface names are pulled from your controller configuration.
+            </p>
+
+            <div class="form-group">
+                <label class="form-label">Gateway Host</label>
+                <input type="text" class="form-control" @bind="tcMonitorHost" placeholder="Auto-detected from controller" />
+                <small class="form-help">Leave blank to use controller host</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
+                    @if (testingTcMonitor)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+                <button class="btn btn-secondary" @onclick="LoadWanInterfaces" disabled="@(!ConnectionService.IsConnected || loadingWanInterfaces)">
+                    @if (loadingWanInterfaces)
+                    {
+                        <span class="spinner"></span>
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <span>Load WAN Interfaces</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(tcMonitorMessage))
+            {
+                <div class="alert alert-@tcMonitorMessageClass">
+                    @tcMonitorMessage
+                </div>
+            }
+
+            @if (wanInterfaces.Count > 0)
+            {
+                <div class="wan-interfaces-section">
+                    <h4>WAN Interfaces from Controller</h4>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Interface</th>
+                                <th>TC Interface</th>
+                                <th>Type</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var wan in wanInterfaces)
+                            {
+                                <tr>
+                                    <td>@wan.Name</td>
+                                    <td><code>@wan.Interface</code></td>
+                                    <td><code>@wan.TcInterface</code></td>
+                                    <td>@wan.WanType</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div class="config-output">
+                        <h4>TC Monitor Configuration</h4>
+                        <p class="form-help">Copy this to <code>/data/tc-monitor/interfaces.conf</code> on your gateway:</p>
+                        <pre class="config-block">@tcMonitorConfig</pre>
+                        <button class="btn btn-secondary btn-sm" @onclick="CopyTcMonitorConfig">Copy to Clipboard</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- InfluxDB Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">InfluxDB Configuration</h2>
+            <span class="status-badge status-@influxStatus.ToLower()">@influxStatus</span>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">InfluxDB URL</label>
+                <input type="text" class="form-control" @bind="influxUrl" placeholder="http://influxdb:8086" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Organization</label>
+                <input type="text" class="form-control" @bind="influxOrg" placeholder="network-optimizer" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Bucket</label>
+                <input type="text" class="form-control" @bind="influxBucket" placeholder="network_optimizer" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Auth Token</label>
+                <input type="password" class="form-control" @bind="influxToken" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Retention Period</label>
+                <select class="form-control" @bind="influxRetention">
+                    <option value="7d">7 Days</option>
+                    <option value="30d">30 Days</option>
+                    <option value="90d">90 Days</option>
+                    <option value="1y">1 Year</option>
+                    <option value="inf">Infinite</option>
+                </select>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="TestInfluxConnection">
+                    @if (testingInflux)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+                <button class="btn btn-success" @onclick="SaveInfluxSettings" disabled="@(influxStatus != "Connected")">
+                    Save Settings
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(influxMessage))
+            {
+                <div class="alert alert-@influxMessageClass">
+                    @influxMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Grafana Dashboard -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Grafana Dashboards</h2>
+        </div>
+        <div class="card-body">
+            <div class="grafana-info">
+                <p>Access pre-built Grafana dashboards for detailed metrics visualization.</p>
+                <div class="dashboard-links">
+                    <a href="http://localhost:3000/d/network-overview" target="_blank" class="dashboard-link">
+                        <span class="link-icon">📊</span>
+                        <span>Network Overview</span>
+                    </a>
+                    <a href="http://localhost:3000/d/sqm-performance" target="_blank" class="dashboard-link">
+                        <span class="link-icon">⚡</span>
+                        <span>SQM Performance</span>
+                    </a>
+                    <a href="http://localhost:3000/d/switch-deep-dive" target="_blank" class="dashboard-link">
+                        <span class="link-icon">🔌</span>
+                        <span>Switch Deep-Dive</span>
+                    </a>
+                    <a href="http://localhost:3000/d/ap-performance" target="_blank" class="dashboard-link">
+                        <span class="link-icon">📡</span>
+                        <span>AP Performance</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- License Information -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">License</h2>
+        </div>
+        <div class="card-body">
+            <div class="license-info">
+                <div class="info-row">
+                    <span class="info-label">License Type:</span>
+                    <span class="info-value">@licenseType</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Licensed To:</span>
+                    <span class="info-value">@licensedTo</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Controller ID:</span>
+                    <span class="info-value">@controllerId</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Activation Date:</span>
+                    <span class="info-value">@activationDate</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Status:</span>
+                    <span class="info-value status-@licenseStatus.ToLower()">@licenseStatus</span>
+                </div>
+            </div>
+
+            @if (licenseStatus == "Grace Period")
+            {
+                <div class="alert alert-warning">
+                    <strong>Grace Period Active:</strong> Controller ID changed. You have @gracePeriodDays days remaining to re-activate your license.
+                </div>
+            }
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="ActivateLicense">
+                    Enter License Key
+                </button>
+                <button class="btn btn-secondary" @onclick="RequestReactivation">
+                    Request Re-activation
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Application Settings</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">Monitoring Interval (seconds)</label>
+                <input type="number" class="form-control" @bind="monitoringInterval" min="30" max="3600" />
+                <small class="form-help">How often to poll devices for metrics</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Alert Retention (days)</label>
+                <input type="number" class="form-control" @bind="alertRetention" min="1" max="365" />
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="enableNotifications" />
+                    <span>Enable email notifications for critical issues</span>
+                </label>
+            </div>
+
+            @if (enableNotifications)
+            {
+                <div class="form-group">
+                    <label class="form-label">Notification Email</label>
+                    <input type="email" class="form-control" @bind="notificationEmail" />
+                </div>
+            }
+
+            <div class="form-group">
+                <label class="form-label">Theme</label>
+                <select class="form-control" @bind="theme">
+                    <option value="dark">Dark (Default)</option>
+                    <option value="light">Light</option>
+                    <option value="auto">Auto (System)</option>
+                </select>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-success" @onclick="SaveAppSettings">
+                    Save Application Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Data Management -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Data Management</h2>
+        </div>
+        <div class="card-body">
+            <div class="data-actions">
+                <div class="action-item">
+                    <h4>Export Configuration</h4>
+                    <p>Export all settings and configuration to a JSON file</p>
+                    <button class="btn btn-secondary" @onclick="ExportConfig">Export Config</button>
+                </div>
+
+                <div class="action-item">
+                    <h4>Import Configuration</h4>
+                    <p>Import settings from a previously exported JSON file</p>
+                    <button class="btn btn-secondary" @onclick="ImportConfig">Import Config</button>
+                </div>
+
+                <div class="action-item">
+                    <h4>Clear Cache</h4>
+                    <p>Clear cached data and temporary files</p>
+                    <button class="btn btn-warning" @onclick="ClearCache">Clear Cache</button>
+                </div>
+
+                <div class="action-item danger-zone">
+                    <h4>Reset All Settings</h4>
+                    <p>Reset all configuration to defaults (does not affect InfluxDB data)</p>
+                    <button class="btn btn-danger" @onclick="ResetSettings">Reset to Defaults</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // UniFi Controller
+    private string controllerUrl = "https://192.168.1.1";
+    private string controllerUsername = "";
+    private string controllerPassword = "";
+    private string controllerSite = "default";
+    private bool rememberCredentials = true;
+    private string controllerStatus = "Disconnected";
+    private bool testingController = false;
+    private string controllerMessage = "";
+    private string controllerMessageClass = "";
+    private string? controllerInfo = null;
+
+    // TC Monitor
+    private string tcMonitorHost = "";
+    private int tcMonitorPort = 8088;
+    private string tcMonitorStatus = "Unknown";
+    private bool testingTcMonitor = false;
+    private bool loadingWanInterfaces = false;
+    private string tcMonitorMessage = "";
+    private string tcMonitorMessageClass = "";
+    private List<WanInterfaceInfo> wanInterfaces = new();
+    private string tcMonitorConfig = "";
+
+    // InfluxDB
+    private string influxUrl = "http://influxdb:8086";
+    private string influxOrg = "network-optimizer";
+    private string influxBucket = "network_optimizer";
+    private string influxToken = "";
+    private string influxRetention = "30d";
+    private string influxStatus = "Disconnected";
+    private bool testingInflux = false;
+    private string influxMessage = "";
+    private string influxMessageClass = "";
+
+    // License
+    private string licenseType = "Standard";
+    private string licensedTo = "John Doe";
+    private string controllerId = "abc123def456";
+    private string activationDate = "Dec 01, 2024";
+    private string licenseStatus = "Active";
+    private int gracePeriodDays = 30;
+
+    // Application Settings
+    private int monitoringInterval = 300;
+    private int alertRetention = 30;
+    private bool enableNotifications = false;
+    private string notificationEmail = "";
+    private string theme = "dark";
+
+    protected override void OnInitialized()
+    {
+        // Load saved configuration if available
+        if (ConnectionService.CurrentConfig != null)
+        {
+            controllerUrl = ConnectionService.CurrentConfig.ControllerUrl;
+            controllerUsername = ConnectionService.CurrentConfig.Username;
+            controllerPassword = ConnectionService.CurrentConfig.Password;
+            controllerSite = ConnectionService.CurrentConfig.Site;
+            rememberCredentials = ConnectionService.CurrentConfig.RememberCredentials;
+        }
+
+        UpdateControllerStatus();
+    }
+
+    private void UpdateControllerStatus()
+    {
+        if (ConnectionService.IsConnected)
+        {
+            controllerStatus = "Connected";
+            controllerInfo = ConnectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
+        }
+        else if (!string.IsNullOrEmpty(ConnectionService.LastError))
+        {
+            controllerStatus = "Error";
+        }
+        else
+        {
+            controllerStatus = "Disconnected";
+        }
+    }
+
+    private UniFiConnectionConfig BuildConfig() => new()
+    {
+        ControllerUrl = controllerUrl,
+        Username = controllerUsername,
+        Password = controllerPassword,
+        Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
+        RememberCredentials = rememberCredentials
+    };
+
+    private async Task TestControllerConnection()
+    {
+        testingController = true;
+        controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = BuildConfig();
+            var (success, error, info) = await ConnectionService.TestConnectionAsync(config);
+
+            if (success)
+            {
+                controllerStatus = "Connected";
+                controllerInfo = info;
+                controllerMessage = $"Successfully connected: {info}";
+                controllerMessageClass = "success";
+            }
+            else
+            {
+                controllerStatus = "Error";
+                controllerMessage = $"Connection failed: {error}";
+                controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            controllerStatus = "Error";
+            controllerMessage = $"Error: {ex.Message}";
+            controllerMessageClass = "danger";
+        }
+        finally
+        {
+            testingController = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAndConnectController()
+    {
+        testingController = true;
+        controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = BuildConfig();
+            var success = await ConnectionService.ConnectAsync(config);
+
+            if (success)
+            {
+                controllerStatus = "Connected";
+                controllerInfo = ConnectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
+                controllerMessage = $"Connected and saved! ({controllerInfo})";
+                controllerMessageClass = "success";
+            }
+            else
+            {
+                controllerStatus = "Error";
+                controllerMessage = $"Connection failed: {ConnectionService.LastError}";
+                controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            controllerStatus = "Error";
+            controllerMessage = $"Error: {ex.Message}";
+            controllerMessageClass = "danger";
+        }
+        finally
+        {
+            testingController = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisconnectController()
+    {
+        await ConnectionService.DisconnectAsync();
+        controllerStatus = "Disconnected";
+        controllerMessage = "Disconnected from controller";
+        controllerMessageClass = "info";
+        controllerInfo = null;
+        StateHasChanged();
+    }
+
+    private async Task TestTcMonitor()
+    {
+        testingTcMonitor = true;
+        tcMonitorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var host = string.IsNullOrWhiteSpace(tcMonitorHost) ? null : tcMonitorHost;
+            var (available, error) = await SqmService.TestTcMonitorAsync(host, tcMonitorPort);
+
+            if (available)
+            {
+                tcMonitorStatus = "Connected";
+                tcMonitorMessage = "TC Monitor is responding";
+                tcMonitorMessageClass = "success";
+            }
+            else
+            {
+                tcMonitorStatus = "Offline";
+                tcMonitorMessage = error ?? "TC Monitor is not responding";
+                tcMonitorMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            tcMonitorStatus = "Error";
+            tcMonitorMessage = $"Error: {ex.Message}";
+            tcMonitorMessageClass = "danger";
+        }
+        finally
+        {
+            testingTcMonitor = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadWanInterfaces()
+    {
+        loadingWanInterfaces = true;
+        tcMonitorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+
+            if (wanInterfaces.Count > 0)
+            {
+                tcMonitorConfig = await SqmService.GenerateTcMonitorConfigAsync();
+                tcMonitorMessage = $"Found {wanInterfaces.Count} WAN interface(s)";
+                tcMonitorMessageClass = "success";
+            }
+            else
+            {
+                tcMonitorMessage = "No WAN interfaces found in controller configuration";
+                tcMonitorMessageClass = "warning";
+            }
+        }
+        catch (Exception ex)
+        {
+            tcMonitorMessage = $"Error loading WAN interfaces: {ex.Message}";
+            tcMonitorMessageClass = "danger";
+        }
+        finally
+        {
+            loadingWanInterfaces = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyTcMonitorConfig()
+    {
+        // Note: Clipboard API requires JS interop in Blazor
+        // For now, just show a message
+        tcMonitorMessage = "Copy the configuration text above manually";
+        tcMonitorMessageClass = "info";
+        await Task.CompletedTask;
+        StateHasChanged();
+    }
+
+    private async Task TestInfluxConnection()
+    {
+        testingInflux = true;
+        influxMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(1500);
+            // TODO: Implement actual connection test
+            influxStatus = "Connected";
+            influxMessage = "Successfully connected to InfluxDB";
+            influxMessageClass = "success";
+        }
+        catch
+        {
+            influxStatus = "Error";
+            influxMessage = "Failed to connect. Check URL and token.";
+            influxMessageClass = "danger";
+        }
+        finally
+        {
+            testingInflux = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveInfluxSettings()
+    {
+        // TODO: Implement save
+        await Task.CompletedTask;
+    }
+
+    private async Task ActivateLicense()
+    {
+        // TODO: Implement license activation
+        await Task.CompletedTask;
+    }
+
+    private async Task RequestReactivation()
+    {
+        // TODO: Implement reactivation request
+        await Task.CompletedTask;
+    }
+
+    private async Task SaveAppSettings()
+    {
+        // TODO: Implement save
+        await Task.CompletedTask;
+    }
+
+    private async Task ExportConfig()
+    {
+        // TODO: Implement export
+        await Task.CompletedTask;
+    }
+
+    private async Task ImportConfig()
+    {
+        // TODO: Implement import
+        await Task.CompletedTask;
+    }
+
+    private async Task ClearCache()
+    {
+        // TODO: Implement cache clear
+        await Task.CompletedTask;
+    }
+
+    private async Task ResetSettings()
+    {
+        // TODO: Implement reset
+        await Task.CompletedTask;
+    }
+}

@@ -1,0 +1,52 @@
+# Docker Compose Override for Development
+# Copy this file to docker-compose.override.yml for local development
+#
+# docker-compose automatically merges docker-compose.yml with
+# docker-compose.override.yml if it exists
+
+version: '3.8'
+
+services:
+  network-optimizer:
+    # Use local build instead of pulling image
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+
+    # Mount source code for hot reload (if using development mode)
+    volumes:
+      - ../src:/app/src:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+    # Enable debug environment
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - DEBUG=true
+      - Logging__LogLevel__Default=Debug
+
+    # Expose debugger port
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "5000:5000"  # Debugger port
+
+  influxdb:
+    # Expose InfluxDB port for direct access during development
+    ports:
+      - "8086:8086"
+
+    # Shorter retention for dev
+    environment:
+      - DOCKER_INFLUXDB_INIT_RETENTION=7d
+
+  grafana:
+    # Enable development mode
+    environment:
+      - GF_LOG_LEVEL=debug
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/network-overview.json
+
+    # Allow iframe embedding for testing
+    environment:
+      - GF_SECURITY_ALLOW_EMBEDDING=true

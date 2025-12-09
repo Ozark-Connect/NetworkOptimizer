@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vs
+.vscode
+.idea
+*.user
+*.suo
+
+# Build outputs
+**/bin
+**/obj
+**/out
+
+# Test results
+**/TestResults
+**/coverage
+
+# Temporary files
+**/tmp
+**/temp
+*.tmp
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node (if any frontend build tools)
+**/node_modules
+
+# Docker
+docker/data
+docker/logs
+docker/ssh-keys
+.env
+*.env.local
+
+# Documentation build
+docs/_site
+
+# Secrets (never include)
+*.pfx
+*.key
+*.pem
+credentials.json
+secrets.json

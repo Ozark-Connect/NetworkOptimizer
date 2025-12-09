@@ -1,0 +1,66 @@
+@inject NavigationManager NavigationManager
+
+<nav class="nav-menu">
+    <ul class="nav-list">
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">Dashboard</span>
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/audit">
+                <span class="nav-icon">🔍</span>
+                <span class="nav-text">Security Audit</span>
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/sqm">
+                <span class="nav-icon">⚡</span>
+                <span class="nav-text">SQM Manager</span>
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/agents">
+                <span class="nav-icon">🤖</span>
+                <span class="nav-text">Agents</span>
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/reports">
+                <span class="nav-icon">📄</span>
+                <span class="nav-text">Reports</span>
+            </NavLink>
+        </li>
+        <li class="nav-item">
+            <NavLink class="nav-link" href="/settings">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">Settings</span>
+            </NavLink>
+        </li>
+    </ul>
+
+    <div class="nav-footer">
+        <div class="license-status">
+            <span class="license-icon">✓</span>
+            <span class="license-text">Licensed</span>
+        </div>
+    </div>
+</nav>
+
+@code {
+    protected override void OnInitialized()
+    {
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

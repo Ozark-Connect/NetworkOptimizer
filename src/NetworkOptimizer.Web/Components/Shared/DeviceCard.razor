@@ -1,0 +1,65 @@
+@if (Device != null)
+{
+    <div class="device-card device-@Device.Status.ToLower()">
+        <div class="device-header">
+            <div class="device-icon">
+                @GetDeviceIcon(Device.Type)
+            </div>
+            <div class="device-info">
+                <h4 class="device-name">@Device.Name</h4>
+                <p class="device-type">@Device.Type</p>
+            </div>
+            <div class="device-status">
+                <span class="status-dot"></span>
+                <span class="status-text">@Device.Status</span>
+            </div>
+        </div>
+        <div class="device-body">
+            <div class="device-detail">
+                <span class="detail-label">IP Address:</span>
+                <span class="detail-value">@Device.IpAddress</span>
+            </div>
+            @if (!string.IsNullOrEmpty(Device.Model))
+            {
+                <div class="device-detail">
+                    <span class="detail-label">Model:</span>
+                    <span class="detail-value">@Device.Model</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Device.Uptime))
+            {
+                <div class="device-detail">
+                    <span class="detail-label">Uptime:</span>
+                    <span class="detail-value">@Device.Uptime</span>
+                </div>
+            }
+            @if (Device.ClientCount.HasValue)
+            {
+                <div class="device-detail">
+                    <span class="detail-label">Clients:</span>
+                    <span class="detail-value">@Device.ClientCount</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@using NetworkOptimizer.Web.Services
+
+@code {
+    [Parameter]
+    public DeviceInfo? Device { get; set; }
+
+    private string GetDeviceIcon(string deviceType)
+    {
+        return deviceType.ToLower() switch
+        {
+            "gateway" => "🌐",
+            "switch" => "🔌",
+            "access point" => "📡",
+            "ap" => "📡",
+            "camera" => "📹",
+            _ => "🖥️"
+        };
+    }
+}

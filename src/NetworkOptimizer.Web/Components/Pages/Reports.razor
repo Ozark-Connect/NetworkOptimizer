@@ -1,0 +1,310 @@
+@page "/reports"
+@rendermode InteractiveServer
+
+<PageTitle>Reports - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Report Generation</h1>
+    <p class="page-description">Generate and download professional network reports</p>
+</div>
+
+<div class="reports-container">
+    <!-- Report Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Generate New Report</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">Report Type</label>
+                <select class="form-control" @bind="reportType">
+                    <option value="security-audit">Security Audit Report</option>
+                    <option value="network-health">Network Health Report</option>
+                    <option value="sqm-performance">SQM Performance Report</option>
+                    <option value="comprehensive">Comprehensive Report (All)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Report Format</label>
+                <div class="format-selector">
+                    <label class="radio-card @(selectedFormat == "pdf" ? "selected" : "")" @onclick='() => selectedFormat = "pdf"'>
+                        <input type="radio" name="format" value="pdf" checked="@(selectedFormat == "pdf")" />
+                        <div class="card-icon">📄</div>
+                        <div class="card-title">PDF</div>
+                        <div class="card-description">Polished, branded deliverable</div>
+                    </label>
+
+                    <label class="radio-card @(selectedFormat == "markdown" ? "selected" : "")" @onclick='() => selectedFormat = "markdown"'>
+                        <input type="radio" name="format" value="markdown" checked="@(selectedFormat == "markdown")" />
+                        <div class="card-icon">📝</div>
+                        <div class="card-title">Markdown</div>
+                        <div class="card-description">Wiki, ticketing, version control</div>
+                    </label>
+
+                    <label class="radio-card @(selectedFormat == "html" ? "selected" : "")" @onclick='() => selectedFormat = "html"'>
+                        <input type="radio" name="format" value="html" checked="@(selectedFormat == "html")" />
+                        <div class="card-icon">🌐</div>
+                        <div class="card-title">HTML</div>
+                        <div class="card-description">Email delivery, web viewing</div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Report Sections</label>
+                <div class="checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeExecutiveSummary" />
+                        <span>Executive Summary</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeNetworkTopology" />
+                        <span>Network Topology Overview</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeCriticalIssues" />
+                        <span>Critical Issues</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeRecommendations" />
+                        <span>Recommended Improvements</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeDeviceDetails" />
+                        <span>Per-Device Analysis</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeHistoricalTrends" />
+                        <span>Historical Trends</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Time Period</label>
+                <select class="form-control" @bind="timePeriod">
+                    <option value="current">Current State (Snapshot)</option>
+                    <option value="24h">Last 24 Hours</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                    <option value="custom">Custom Range...</option>
+                </select>
+            </div>
+
+            @if (timePeriod == "custom")
+            {
+                <div class="form-group">
+                    <div class="input-row">
+                        <input type="date" class="form-control" @bind="customStartDate" />
+                        <input type="date" class="form-control" @bind="customEndDate" />
+                    </div>
+                </div>
+            }
+
+            <div class="action-buttons">
+                <button class="btn btn-primary btn-lg" @onclick="GenerateReport" disabled="@isGenerating">
+                    @if (isGenerating)
+                    {
+                        <span class="spinner"></span>
+                        <span>Generating Report...</span>
+                    }
+                    else
+                    {
+                        <span>Generate Report</span>
+                    }
+                </button>
+            </div>
+
+            @if (isGenerating)
+            {
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: @(reportProgress)%"></div>
+                </div>
+                <p class="progress-text">@currentGenerationStep (@reportProgress%)</p>
+            }
+        </div>
+    </div>
+
+    <!-- Recent Reports -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Recent Reports</h2>
+        </div>
+        <div class="card-body">
+            <div class="reports-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Report Name</th>
+                            <th>Type</th>
+                            <th>Format</th>
+                            <th>Generated</th>
+                            <th>Size</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var report in recentReports)
+                        {
+                            <tr>
+                                <td>@report.Name</td>
+                                <td>@report.Type</td>
+                                <td>
+                                    <span class="badge badge-@report.Format">@report.Format.ToUpper()</span>
+                                </td>
+                                <td>@report.GeneratedAt.ToString("MMM dd, yyyy HH:mm")</td>
+                                <td>@report.Size</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary" @onclick="() => DownloadReport(report.Id)">
+                                        Download
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteReport(report.Id)">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (!recentReports.Any())
+                {
+                    <div class="empty-state">
+                        <div class="empty-icon">📄</div>
+                        <h3>No Reports Generated</h3>
+                        <p>Generate your first report to see it here.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Templates (MSP Feature) -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Report Templates</h2>
+            <span class="badge badge-premium">MSP License</span>
+        </div>
+        <div class="card-body">
+            <div class="template-info">
+                <p>Custom report templates with white-label branding are available with an MSP license.</p>
+                <ul>
+                    <li>Custom logo and company name</li>
+                    <li>Remove Network Optimizer branding</li>
+                    <li>Custom color schemes</li>
+                    <li>Template management</li>
+                </ul>
+                <button class="btn btn-secondary">Upgrade to MSP License</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string reportType = "security-audit";
+    private string selectedFormat = "pdf";
+    private string timePeriod = "current";
+    private DateTime customStartDate = DateTime.Today.AddDays(-7);
+    private DateTime customEndDate = DateTime.Today;
+
+    private bool includeExecutiveSummary = true;
+    private bool includeNetworkTopology = true;
+    private bool includeCriticalIssues = true;
+    private bool includeRecommendations = true;
+    private bool includeDeviceDetails = false;
+    private bool includeHistoricalTrends = false;
+
+    private bool isGenerating = false;
+    private int reportProgress = 0;
+    private string currentGenerationStep = "";
+
+    private List<ReportInfo> recentReports = new()
+    {
+        new ReportInfo
+        {
+            Id = 1,
+            Name = "Security Audit - Dec 2024",
+            Type = "Security Audit",
+            Format = "pdf",
+            GeneratedAt = DateTime.Now.AddHours(-2),
+            Size = "2.4 MB"
+        },
+        new ReportInfo
+        {
+            Id = 2,
+            Name = "Network Health - Weekly",
+            Type = "Network Health",
+            Format = "markdown",
+            GeneratedAt = DateTime.Now.AddDays(-1),
+            Size = "145 KB"
+        }
+    };
+
+    private async Task GenerateReport()
+    {
+        isGenerating = true;
+        reportProgress = 0;
+        StateHasChanged();
+
+        try
+        {
+            var steps = new[]
+            {
+                ("Collecting network data...", 20),
+                ("Running security analysis...", 40),
+                ("Generating visualizations...", 60),
+                ("Formatting report...", 80),
+                ("Finalizing document...", 100)
+            };
+
+            foreach (var (step, progress) in steps)
+            {
+                currentGenerationStep = step;
+                reportProgress = progress;
+                StateHasChanged();
+                await Task.Delay(800);
+            }
+
+            // TODO: Implement actual report generation
+            // Add to recent reports list
+            recentReports.Insert(0, new ReportInfo
+            {
+                Id = recentReports.Count + 1,
+                Name = $"{reportType} - {DateTime.Now:MMM yyyy}",
+                Type = reportType,
+                Format = selectedFormat,
+                GeneratedAt = DateTime.Now,
+                Size = "1.8 MB"
+            });
+        }
+        finally
+        {
+            isGenerating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadReport(int reportId)
+    {
+        // TODO: Implement report download
+        await Task.CompletedTask;
+    }
+
+    private async Task DeleteReport(int reportId)
+    {
+        recentReports.RemoveAll(r => r.Id == reportId);
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    public class ReportInfo
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public string Type { get; set; } = "";
+        public string Format { get; set; } = "";
+        public DateTime GeneratedAt { get; set; }
+        public string Size { get; set; } = "";
+    }
+}

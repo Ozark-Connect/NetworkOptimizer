@@ -1,0 +1,161 @@
+@using NetworkOptimizer.Web.Services
+@inject UniFiConnectionService ConnectionService
+@inject AuditService AuditService
+
+<div class="alerts-list">
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Loading alerts...</span>
+        </div>
+    }
+    else if (!ConnectionService.IsConnected)
+    {
+        <div class="no-alerts">
+            <div class="no-alerts-icon">!</div>
+            <p>Connect to a UniFi controller to view alerts.</p>
+            <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
+        </div>
+    }
+    else if (!alerts.Any())
+    {
+        <div class="no-alerts">
+            <div class="no-alerts-icon">check</div>
+            <p>No active alerts. Your network is running smoothly!</p>
+        </div>
+    }
+    else
+    {
+        @foreach (var alert in GetDisplayAlerts())
+        {
+            <div class="alert-item alert-@alert.Severity.ToLower()">
+                <div class="alert-icon">@GetAlertIcon(alert.Severity)</div>
+                <div class="alert-content">
+                    <div class="alert-header">
+                        <h4 class="alert-title">@alert.Title</h4>
+                        <span class="alert-time">@alert.Time</span>
+                    </div>
+                    <p class="alert-message">@alert.Message</p>
+                    @if (!string.IsNullOrEmpty(alert.Source))
+                    {
+                        <div class="alert-source">Source: @alert.Source</div>
+                    }
+                </div>
+                <div class="alert-actions">
+                    <button class="btn btn-sm btn-ghost" @onclick="() => DismissAlert(alert.Id)">
+                        Dismiss
+                    </button>
+                    @if (!string.IsNullOrEmpty(alert.ActionUrl))
+                    {
+                        <a href="@alert.ActionUrl" class="btn btn-sm btn-primary">
+                            View Details
+                        </a>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int? MaxItems { get; set; }
+
+    private List<AlertInfo> alerts = new();
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAlerts();
+    }
+
+    private Task LoadAlerts()
+    {
+        isLoading = true;
+        try
+        {
+            alerts.Clear();
+
+            // If we have a cached audit result, convert issues to alerts
+            if (AuditService.LastAuditResult != null)
+            {
+                var auditResult = AuditService.LastAuditResult;
+                var id = 1;
+                var timeAgo = AuditService.LastAuditTime.HasValue
+                    ? FormatTimeAgo(AuditService.LastAuditTime.Value)
+                    : "Recently";
+
+                foreach (var issue in auditResult.Issues.Take(10))
+                {
+                    alerts.Add(new AlertInfo
+                    {
+                        Id = id++,
+                        Severity = issue.Severity,
+                        Title = issue.Title,
+                        Message = issue.Description,
+                        Source = issue.Category,
+                        Time = timeAgo,
+                        ActionUrl = "/audit"
+                    });
+                }
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private string FormatTimeAgo(DateTime time)
+    {
+        var elapsed = DateTime.UtcNow - time;
+        if (elapsed.TotalMinutes < 1)
+            return "Just now";
+        if (elapsed.TotalMinutes < 60)
+            return $"{(int)elapsed.TotalMinutes} mins ago";
+        if (elapsed.TotalHours < 24)
+            return $"{(int)elapsed.TotalHours} hours ago";
+        return $"{(int)elapsed.TotalDays} days ago";
+    }
+
+    private IEnumerable<AlertInfo> GetDisplayAlerts()
+    {
+        var displayAlerts = alerts.AsEnumerable();
+        if (MaxItems.HasValue)
+        {
+            displayAlerts = displayAlerts.Take(MaxItems.Value);
+        }
+        return displayAlerts;
+    }
+
+    private string GetAlertIcon(string severity)
+    {
+        return severity.ToLower() switch
+        {
+            "critical" => "!",
+            "warning" => "warn",
+            "info" => "i",
+            _ => "pin"
+        };
+    }
+
+    private void DismissAlert(int alertId)
+    {
+        alerts.RemoveAll(a => a.Id == alertId);
+        StateHasChanged();
+    }
+
+    public class AlertInfo
+    {
+        public int Id { get; set; }
+        public string Severity { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Message { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string Time { get; set; } = "";
+        public string? ActionUrl { get; set; }
+    }
+}

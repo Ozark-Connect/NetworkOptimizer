@@ -1,0 +1,166 @@
+@page "/"
+@using NetworkOptimizer.Web.Services
+@inject DashboardService DashboardService
+@inject UniFiConnectionService ConnectionService
+@rendermode InteractiveServer
+
+<PageTitle>Dashboard - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p class="page-description">Network overview and health status</p>
+</div>
+
+@if (!ConnectionService.IsConnected)
+{
+    <div class="connection-banner">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>Not Connected</strong>
+                <span>Connect to your UniFi controller to view real network data.</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Connect Now</a>
+        </div>
+    </div>
+}
+
+<div class="dashboard-grid">
+    <!-- Quick Stats -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-icon">🖥️</div>
+            <div class="stat-content">
+                <div class="stat-value">@deviceCount</div>
+                <div class="stat-label">Total Devices</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-icon">🛡️</div>
+            <div class="stat-content">
+                <div class="stat-value">@securityScore</div>
+                <div class="stat-label">Security Score</div>
+            </div>
+        </div>
+
+        <div class="stat-card stat-success">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-content">
+                <div class="stat-value">@sqmStatus</div>
+                <div class="stat-label">SQM Status</div>
+            </div>
+        </div>
+
+        <div class="stat-card stat-warning">
+            <div class="stat-icon">⚠️</div>
+            <div class="stat-content">
+                <div class="stat-value">@alertCount</div>
+                <div class="stat-label">Active Alerts</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <div class="content-grid">
+        <!-- Security Score Gauge -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Security Posture</h2>
+            </div>
+            <div class="card-body">
+                <SecurityScoreGauge Score="@securityScore" />
+                <div class="security-summary">
+                    <div class="summary-item">
+                        <span class="summary-label">Critical Issues:</span>
+                        <span class="summary-value critical">@criticalIssues</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Warnings:</span>
+                        <span class="summary-value warning">@warningIssues</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Last Audit:</span>
+                        <span class="summary-value">@lastAuditTime</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SQM Status Panel -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">SQM Performance</h2>
+            </div>
+            <div class="card-body">
+                <SqmStatusPanel />
+            </div>
+        </div>
+
+        <!-- Recent Alerts -->
+        <div class="card card-span-2">
+            <div class="card-header">
+                <h2 class="card-title">Recent Alerts</h2>
+                <a href="/audit" class="card-action">View All</a>
+            </div>
+            <div class="card-body">
+                <AlertsList MaxItems="5" />
+            </div>
+        </div>
+
+        <!-- Device Overview -->
+        <div class="card card-span-2">
+            <div class="card-header">
+                <h2 class="card-title">Device Status</h2>
+            </div>
+            <div class="card-body">
+                <div class="device-grid">
+                    @foreach (var device in devices)
+                    {
+                        <DeviceCard Device="@device" />
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Status -->
+        <div class="card card-span-2">
+            <div class="card-header">
+                <h2 class="card-title">Agent Health</h2>
+                <a href="/agents" class="card-action">Manage Agents</a>
+            </div>
+            <div class="card-body">
+                <AgentStatusTable MaxAgents="5" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int deviceCount = 0;
+    private int securityScore = 85;
+    private string sqmStatus = "Active";
+    private int alertCount = 3;
+    private int criticalIssues = 1;
+    private int warningIssues = 5;
+    private string lastAuditTime = "2 hours ago";
+    private List<Services.DeviceInfo> devices = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+
+    private async Task LoadDashboardData()
+    {
+        var data = await DashboardService.GetDashboardDataAsync();
+        deviceCount = data.DeviceCount;
+        securityScore = data.SecurityScore;
+        sqmStatus = data.SqmStatus;
+        alertCount = data.AlertCount;
+        criticalIssues = data.CriticalIssues;
+        warningIssues = data.WarningIssues;
+        lastAuditTime = data.LastAuditTime;
+        devices = data.Devices;
+    }
+}

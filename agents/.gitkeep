@@ -1,0 +1,4 @@
+# Agent deployment scripts will be placed here
+# - sqm-agent.sh: SQM monitoring agent for UCG/UDM
+# - speedtest-agent.sh: Automated speedtest runner
+# - snmp-agent.sh: SNMP collection agent

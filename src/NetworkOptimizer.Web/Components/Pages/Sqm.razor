@@ -1,0 +1,250 @@
+@page "/sqm"
+@inject SqmService SqmService
+@rendermode InteractiveServer
+
+<PageTitle>SQM Manager - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Adaptive SQM Manager</h1>
+    <p class="page-description">Dynamic bandwidth optimization and bufferbloat prevention</p>
+</div>
+
+<div class="sqm-container">
+    <!-- SQM Status Overview -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">SQM Status</h2>
+            <span class="status-badge status-@sqmStatus.ToLower()">@sqmStatus</span>
+        </div>
+        <div class="card-body">
+            <div class="sqm-metrics">
+                <div class="metric">
+                    <div class="metric-label">Current Rate</div>
+                    <div class="metric-value">@currentRate <span class="metric-unit">Mbps</span></div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Baseline Rate</div>
+                    <div class="metric-value">@baselineRate <span class="metric-unit">Mbps</span></div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Current Latency</div>
+                    <div class="metric-value">@currentLatency <span class="metric-unit">ms</span></div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Last Adjustment</div>
+                    <div class="metric-value">@lastAdjustment</div>
+                </div>
+            </div>
+
+            @if (isLearning)
+            {
+                <div class="learning-status">
+                    <div class="learning-header">
+                        <span class="learning-icon">📚</span>
+                        <span class="learning-label">Learning Mode Active</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: @(learningProgress)%"></div>
+                    </div>
+                    <p class="progress-text">@learningProgress% complete (@hoursLearned/168 hours)</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">SQM Configuration</h2>
+        </div>
+        <div class="card-body">
+            <div class="form-group">
+                <label class="form-label">WAN Interface</label>
+                <select class="form-control" @bind="selectedInterface">
+                    <option value="eth2">eth2 (Primary WAN)</option>
+                    <option value="eth3">eth3 (Secondary WAN)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Speed Tier (Mbps)</label>
+                <div class="input-row">
+                    <input type="number" class="form-control" @bind="downloadSpeed" placeholder="Download" />
+                    <input type="number" class="form-control" @bind="uploadSpeed" placeholder="Upload" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Monitoring Schedule</label>
+                <div class="schedule-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="enableSpeedtest" />
+                        <span>Enable scheduled speedtests (6AM/6PM)</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="enableLatencyMonitoring" />
+                        <span>Enable continuous latency monitoring (5 min intervals)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Blending Algorithm</label>
+                <select class="form-control" @bind="blendingRatio">
+                    <option value="6040">60/40 (Baseline/Measured) - Conservative</option>
+                    <option value="8020">80/20 (Baseline/Measured) - Aggressive</option>
+                </select>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="DeploySqm">
+                    Deploy SQM Scripts
+                </button>
+                <button class="btn btn-secondary" @onclick="GenerateScripts">
+                    Generate Scripts Only
+                </button>
+                <button class="btn btn-danger" @onclick="DisableSqm" disabled="@(sqmStatus == "Inactive")">
+                    Disable SQM
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Speedtest History -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Speedtest History</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="RunSpeedtest">Run Speedtest Now</button>
+        </div>
+        <div class="card-body">
+            <div class="speedtest-table">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Download (Mbps)</th>
+                            <th>Upload (Mbps)</th>
+                            <th>Latency (ms)</th>
+                            <th>Server</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var test in speedtestHistory)
+                        {
+                            <tr>
+                                <td>@test.Timestamp.ToString("MMM dd HH:mm")</td>
+                                <td>@test.Download</td>
+                                <td>@test.Upload</td>
+                                <td>@test.Latency</td>
+                                <td>@test.Server</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (!speedtestHistory.Any())
+                {
+                    <div class="empty-state">
+                        <p>No speedtest results yet. Run a speedtest to see results.</p>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Baseline Data -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">7-Day Baseline (168 Hours)</h2>
+        </div>
+        <div class="card-body">
+            <div class="baseline-chart">
+                <p class="chart-placeholder">📊 Baseline chart would be displayed here</p>
+                <p class="chart-note">Shows hourly baseline rates by day of week</p>
+            </div>
+
+            <div class="baseline-stats">
+                <div class="stat">
+                    <span class="stat-label">Mean Download:</span>
+                    <span class="stat-value">@baselineStats.MeanDownload Mbps</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Std Dev:</span>
+                    <span class="stat-value">@baselineStats.StdDev Mbps</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Min/Max:</span>
+                    <span class="stat-value">@baselineStats.Min / @baselineStats.Max Mbps</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string sqmStatus = "Active";
+    private double currentRate = 265.5;
+    private double baselineRate = 270.0;
+    private double currentLatency = 18.2;
+    private string lastAdjustment = "2 mins ago";
+
+    private bool isLearning = true;
+    private int learningProgress = 45;
+    private int hoursLearned = 76;
+
+    private string selectedInterface = "eth2";
+    private int downloadSpeed = 300;
+    private int uploadSpeed = 35;
+    private bool enableSpeedtest = true;
+    private bool enableLatencyMonitoring = true;
+    private string blendingRatio = "6040";
+
+    private List<Services.SpeedtestResult> speedtestHistory = new();
+    private Services.BaselineStats baselineStats = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSqmData();
+    }
+
+    private async Task LoadSqmData()
+    {
+        var data = await SqmService.GetSqmStatusAsync();
+        sqmStatus = data.Status;
+        currentRate = data.CurrentRate;
+        baselineRate = data.BaselineRate;
+        currentLatency = data.CurrentLatency;
+        lastAdjustment = data.LastAdjustment;
+        isLearning = data.IsLearning;
+        learningProgress = data.LearningProgress;
+        hoursLearned = data.HoursLearned;
+        speedtestHistory = data.SpeedtestHistory;
+        baselineStats = data.BaselineStats;
+    }
+
+    private async Task DeploySqm()
+    {
+        // TODO: Implement SQM deployment
+        await Task.CompletedTask;
+    }
+
+    private async Task GenerateScripts()
+    {
+        // TODO: Implement script generation
+        await Task.CompletedTask;
+    }
+
+    private async Task DisableSqm()
+    {
+        // TODO: Implement SQM disable
+        sqmStatus = "Inactive";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task RunSpeedtest()
+    {
+        // TODO: Implement speedtest execution
+        await Task.CompletedTask;
+    }
+}

@@ -1,0 +1,34 @@
+# Build outputs
+bin/
+obj/
+out/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# .NET
+*.dll
+*.pdb
+*.cache
+
+# Docker data (keep structure, ignore runtime data)
+docker/data/*
+!docker/data/.gitkeep
+docker/logs/
+
+# Secrets
+*.env
+!*.env.example
+docker/.env
+
+# OS files
+.DS_Store
+Thumbs.db
+nul
+
+# Temp files
+*.tmp
+*.log

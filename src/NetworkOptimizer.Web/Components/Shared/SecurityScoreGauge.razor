@@ -1,0 +1,89 @@
+<div class="security-score-gauge">
+    <div class="gauge-container">
+        <svg viewBox="0 0 200 120" class="gauge-svg">
+            <!-- Background arc -->
+            <path d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="#2a2a2a"
+                  stroke-width="20"
+                  stroke-linecap="round"/>
+
+            <!-- Score arc -->
+            <path d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="@GetScoreColor()"
+                  stroke-width="20"
+                  stroke-linecap="round"
+                  stroke-dasharray="@GetDashArray()"
+                  stroke-dashoffset="0"/>
+
+            <!-- Score text -->
+            <text x="100" y="90" text-anchor="middle" class="gauge-score">@Score</text>
+            <text x="100" y="110" text-anchor="middle" class="gauge-label">Security Score</text>
+        </svg>
+    </div>
+
+    <div class="gauge-rating">
+        <span class="rating-badge rating-@GetRatingClass()">@GetRatingLabel()</span>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int Score { get; set; } = 0;
+
+    private string GetScoreColor()
+    {
+        return Score switch
+        {
+            >= 90 => "#10b981", // Green - Excellent
+            >= 75 => "#3b82f6", // Blue - Good
+            >= 60 => "#f59e0b", // Orange - Fair
+            _ => "#ef4444"      // Red - Needs Work
+        };
+    }
+
+    private string GetDashArray()
+    {
+        // Total circumference of half circle (π * r)
+        double totalLength = Math.PI * 160;
+        double scoreLength = (Score / 100.0) * totalLength;
+        double remainingLength = totalLength - scoreLength;
+        return $"{scoreLength} {remainingLength}";
+    }
+
+    private string GetRatingClass()
+    {
+        return Score switch
+        {
+            >= 90 => "excellent",
+            >= 75 => "good",
+            >= 60 => "fair",
+            _ => "poor"
+        };
+    }
+
+    private string GetRatingLabel()
+    {
+        return Score switch
+        {
+            >= 90 => "EXCELLENT ✓",
+            >= 75 => "GOOD",
+            >= 60 => "FAIR ⚠",
+            _ => "NEEDS WORK ✗"
+        };
+    }
+}
+
+<style>
+    .gauge-score {
+        font-size: 32px;
+        font-weight: bold;
+        fill: currentColor;
+    }
+
+    .gauge-label {
+        font-size: 12px;
+        fill: #888;
+    }
+</style>

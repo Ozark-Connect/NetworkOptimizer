@@ -1,0 +1,131 @@
+@using NetworkOptimizer.Web.Services
+@inject SqmService SqmService
+
+<div class="sqm-status-panel">
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Loading SQM status...</span>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(statusData?.StatusMessage))
+    {
+        <div class="sqm-unavailable">
+            <div class="sqm-status">
+                <span class="status-indicator status-@statusData.Status.ToLower().Replace(" ", "-")"></span>
+                <span class="status-label">@statusData.Status</span>
+            </div>
+            <p class="status-message">@statusData.StatusMessage</p>
+            <div class="sqm-actions">
+                <a href="/sqm" class="btn btn-sm btn-primary">Configure SQM</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-active"></span>
+                <span class="status-label">@statusData?.Status</span>
+            </div>
+            @if (statusData?.TcMonitorTimestamp != null)
+            {
+                <div class="tc-timestamp">
+                    <small>Updated: @statusData.TcMonitorTimestamp.Value.ToLocalTime().ToString("HH:mm:ss")</small>
+                </div>
+            }
+        </div>
+
+        @if (statusData?.TcInterfaces?.Any() == true)
+        {
+            <div class="tc-interfaces-grid">
+                @foreach (var iface in statusData.TcInterfaces)
+                {
+                    <div class="tc-interface-card @(iface.Status == "active" ? "active" : "inactive")">
+                        <div class="interface-header">
+                            <span class="interface-name">@iface.Name</span>
+                            <span class="interface-status status-@iface.Status">@iface.Status</span>
+                        </div>
+                        <div class="interface-rate">
+                            <span class="rate-value">@iface.RateMbps.ToString("F1")</span>
+                            <span class="rate-unit">Mbps</span>
+                        </div>
+                        <div class="interface-details">
+                            <small>@iface.Interface</small>
+                            @if (!string.IsNullOrEmpty(iface.RateRaw))
+                            {
+                                <small class="rate-raw">(@iface.RateRaw)</small>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="sqm-metrics-grid">
+                <div class="metric-box">
+                    <div class="metric-content">
+                        <div class="metric-value">@statusData?.CurrentRate.ToString("F1") <span class="unit">Mbps</span></div>
+                        <div class="metric-label">Current Rate</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="sqm-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+                @if (isRefreshing)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+            <a href="/sqm" class="btn btn-sm btn-primary">Manage SQM</a>
+        </div>
+    }
+</div>
+
+@code {
+    private SqmStatusData? statusData;
+    private bool isLoading = true;
+    private bool isRefreshing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatus();
+    }
+
+    private async Task LoadStatus()
+    {
+        isLoading = true;
+        try
+        {
+            statusData = await SqmService.GetSqmStatusAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        isRefreshing = true;
+        StateHasChanged();
+
+        try
+        {
+            statusData = await SqmService.GetSqmStatusAsync();
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+}

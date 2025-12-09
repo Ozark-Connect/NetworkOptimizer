@@ -1,0 +1,100 @@
+using Microsoft.AspNetCore.Components;
+using NetworkOptimizer.Web;
+using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Audit;
+using NetworkOptimizer.Audit.Analyzers;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// Configure logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// Register UniFi connection service (singleton - maintains connection state)
+builder.Services.AddSingleton<UniFiConnectionService>();
+
+// Register audit engine and analyzers
+builder.Services.AddTransient<VlanAnalyzer>();
+builder.Services.AddTransient<SecurityAuditEngine>();
+builder.Services.AddTransient<FirewallRuleAnalyzer>();
+builder.Services.AddTransient<AuditScorer>();
+builder.Services.AddTransient<ConfigAuditEngine>();
+
+// Register TC Monitor client (singleton - shared HTTP client)
+builder.Services.AddSingleton<TcMonitorClient>();
+
+// Register application services (scoped per request/circuit)
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<SqmService>();
+builder.Services.AddScoped<AgentService>();
+
+// Configure HTTP client for API calls
+builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("TcMonitor", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+
+// Add CORS for API endpoints (if needed for agents)
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error");
+}
+
+// Only use HTTPS redirection if not in Docker/container (check for DOTNET_RUNNING_IN_CONTAINER)
+if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    app.UseHttpsRedirection();
+    app.UseHsts();
+}
+app.UseStaticFiles();
+app.UseAntiforgery();
+app.UseCors();
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+// API endpoints for agent metrics ingestion
+app.MapPost("/api/metrics", async (HttpContext context) =>
+{
+    // TODO: Implement metrics ingestion from agents
+    var metrics = await context.Request.ReadFromJsonAsync<Dictionary<string, object>>();
+    // Store in InfluxDB or queue for processing
+    return Results.Ok(new { status = "accepted" });
+});
+
+app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+// Debug endpoint to see raw device JSON (temporary)
+app.MapGet("/api/debug/devices", async (UniFiConnectionService connectionService) =>
+{
+    if (!connectionService.IsConnected || connectionService.Client == null)
+        return Results.BadRequest(new { error = "Not connected to controller" });
+
+    var rawJson = await connectionService.Client.GetDevicesRawJsonAsync();
+    if (rawJson == null)
+        return Results.NotFound(new { error = "Could not fetch devices" });
+
+    return Results.Content(rawJson, "application/json");
+});
+
+app.Run();

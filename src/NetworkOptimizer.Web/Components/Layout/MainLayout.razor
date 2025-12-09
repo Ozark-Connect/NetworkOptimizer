@@ -1,0 +1,56 @@
+@inherits LayoutComponentBase
+@using NetworkOptimizer.Web.Services
+@inject UniFiConnectionService ConnectionService
+
+<div class="app-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <img src="images/ozark-connect-logo.png" alt="Ozark Connect" class="sidebar-logo" />
+            <h2 class="app-title">Network Optimizer</h2>
+            <p class="app-subtitle">for UniFi</p>
+        </div>
+        <NavMenu />
+    </div>
+
+    <div class="main-content">
+        <header class="top-bar">
+            <div class="status-indicators">
+                @if (ConnectionService.IsConnected)
+                {
+                    <div class="status-item status-connected">
+                        <span class="status-icon">●</span>
+                        <span>Controller Connected</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="status-item status-disconnected">
+                        <span class="status-icon">●</span>
+                        <span>Controller Disconnected</span>
+                    </div>
+                }
+                <div class="status-item">
+                    <span class="status-icon">●</span>
+                    <span>InfluxDB: Ready</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-icon">●</span>
+                    <span>Agents: 0 Active</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <span class="timestamp">@DateTime.Now.ToString("MMM dd, yyyy HH:mm")</span>
+            </div>
+        </header>
+
+        <main class="page-content">
+            <article class="content">
+                @Body
+            </article>
+        </main>
+
+        <footer class="app-footer">
+            <p>&copy; 2025 Ozark Connect - Network Optimizer v1.0.0</p>
+        </footer>
+    </div>
+</div>

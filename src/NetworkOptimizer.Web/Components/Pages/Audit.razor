@@ -1,0 +1,248 @@
+@page "/audit"
+@inject AuditService AuditService
+@rendermode InteractiveServer
+
+<PageTitle>Security Audit - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Security & Configuration Audit</h1>
+    <p class="page-description">Comprehensive network security analysis</p>
+</div>
+
+<div class="audit-container">
+    <!-- Audit Controls -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Audit Controls</h2>
+        </div>
+        <div class="card-body">
+            <div class="audit-controls">
+                <button class="btn btn-primary" @onclick="RunAudit" disabled="@isRunning">
+                    @if (isRunning)
+                    {
+                        <span class="spinner"></span>
+                        <span>Running Audit...</span>
+                    }
+                    else
+                    {
+                        <span>Run Full Audit</span>
+                    }
+                </button>
+
+                <button class="btn btn-secondary" @onclick="ExportReport" disabled="@(!hasResults)">
+                    Export Report
+                </button>
+
+                <div class="audit-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeFirewallRules" />
+                        <span>Firewall Rules</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeVlanSecurity" />
+                        <span>VLAN Security</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includePortSecurity" />
+                        <span>Port Security</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="includeDnsLeakDetection" />
+                        <span>DNS Leak Detection</span>
+                    </label>
+                </div>
+            </div>
+
+            @if (auditProgress > 0 && isRunning)
+            {
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: @(auditProgress)%"></div>
+                </div>
+                <p class="progress-text">@currentStep (@auditProgress%)</p>
+            }
+        </div>
+    </div>
+
+    <!-- Audit Results Summary -->
+    @if (hasResults)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Audit Results Summary</h2>
+                <span class="audit-timestamp">Last run: @lastAuditTime</span>
+            </div>
+            <div class="card-body">
+                <div class="results-summary">
+                    <div class="summary-score">
+                        <div class="score-circle score-@scoreClass">
+                            <span class="score-value">@securityScore</span>
+                            <span class="score-max">/100</span>
+                        </div>
+                        <div class="score-label">@scoreLabel</div>
+                    </div>
+
+                    <div class="issue-counts">
+                        <div class="issue-count critical">
+                            <span class="count">@criticalCount</span>
+                            <span class="label">Critical</span>
+                        </div>
+                        <div class="issue-count warning">
+                            <span class="count">@warningCount</span>
+                            <span class="label">Warnings</span>
+                        </div>
+                        <div class="issue-count info">
+                            <span class="count">@infoCount</span>
+                            <span class="label">Info</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Issues -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Issues Found</h2>
+                <div class="filter-tabs">
+                    <button class="tab @(selectedFilter == "all" ? "active" : "")" @onclick='() => selectedFilter = "all"'>All</button>
+                    <button class="tab @(selectedFilter == "critical" ? "active" : "")" @onclick='() => selectedFilter = "critical"'>Critical</button>
+                    <button class="tab @(selectedFilter == "warning" ? "active" : "")" @onclick='() => selectedFilter = "warning"'>Warnings</button>
+                    <button class="tab @(selectedFilter == "info" ? "active" : "")" @onclick='() => selectedFilter = "info"'>Info</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="issues-list">
+                    @foreach (var issue in GetFilteredIssues())
+                    {
+                        <div class="issue-item issue-@issue.Severity.ToLower()">
+                            <div class="issue-header">
+                                <span class="issue-severity">@issue.Severity</span>
+                                <span class="issue-category">@issue.Category</span>
+                            </div>
+                            <div class="issue-title">@issue.Title</div>
+                            <div class="issue-description">@issue.Description</div>
+                            @if (!string.IsNullOrEmpty(issue.Recommendation))
+                            {
+                                <div class="issue-recommendation">
+                                    <strong>Recommendation:</strong> @issue.Recommendation
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @if (!GetFilteredIssues().Any())
+                    {
+                        <div class="no-issues">
+                            <p>No issues found in this category.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+    else if (!isRunning)
+    {
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="empty-state">
+                    <div class="empty-icon">🔍</div>
+                    <h3>No Audit Results</h3>
+                    <p>Run an audit to analyze your network security and configuration.</p>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isRunning = false;
+    private bool hasResults = false;
+    private int auditProgress = 0;
+    private string currentStep = "";
+    private string lastAuditTime = "";
+
+    private bool includeFirewallRules = true;
+    private bool includeVlanSecurity = true;
+    private bool includePortSecurity = true;
+    private bool includeDnsLeakDetection = true;
+
+    private int securityScore = 0;
+    private string scoreLabel = "";
+    private string scoreClass = "";
+    private int criticalCount = 0;
+    private int warningCount = 0;
+    private int infoCount = 0;
+
+    private string selectedFilter = "all";
+    private List<Services.AuditIssue> issues = new();
+
+    private async Task RunAudit()
+    {
+        isRunning = true;
+        auditProgress = 0;
+        currentStep = "Initializing audit...";
+        StateHasChanged();
+
+        try
+        {
+            await SimulateAuditProgress();
+
+            var result = await AuditService.RunAuditAsync(new Services.AuditOptions
+            {
+                IncludeFirewallRules = includeFirewallRules,
+                IncludeVlanSecurity = includeVlanSecurity,
+                IncludePortSecurity = includePortSecurity,
+                IncludeDnsLeakDetection = includeDnsLeakDetection
+            });
+
+            securityScore = result.Score;
+            scoreLabel = result.ScoreLabel;
+            scoreClass = result.ScoreClass;
+            criticalCount = result.CriticalCount;
+            warningCount = result.WarningCount;
+            infoCount = result.InfoCount;
+            issues = result.Issues;
+            lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
+            hasResults = true;
+        }
+        finally
+        {
+            isRunning = false;
+            auditProgress = 100;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SimulateAuditProgress()
+    {
+        var steps = new[]
+        {
+            ("Connecting to UniFi Controller...", 20),
+            ("Analyzing firewall rules...", 40),
+            ("Checking VLAN configuration...", 60),
+            ("Validating port security...", 80),
+            ("Finalizing results...", 100)
+        };
+
+        foreach (var (step, progress) in steps)
+        {
+            currentStep = step;
+            auditProgress = progress;
+            StateHasChanged();
+            await Task.Delay(500);
+        }
+    }
+
+    private async Task ExportReport()
+    {
+        // TODO: Implement report export
+        await Task.CompletedTask;
+    }
+
+    private IEnumerable<Services.AuditIssue> GetFilteredIssues()
+    {
+        if (selectedFilter == "all")
+            return issues;
+        return issues.Where(i => i.Severity.ToLower() == selectedFilter);
+    }
+}

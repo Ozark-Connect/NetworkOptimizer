@@ -1,0 +1,312 @@
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Models;
+
+namespace NetworkOptimizer.Audit;
+
+/// <summary>
+/// Main orchestrator for comprehensive UniFi network configuration audits
+/// Coordinates all analyzers and generates complete audit results
+/// </summary>
+public class ConfigAuditEngine
+{
+    private readonly ILogger<ConfigAuditEngine> _logger;
+    private readonly VlanAnalyzer _vlanAnalyzer;
+    private readonly SecurityAuditEngine _securityEngine;
+    private readonly FirewallRuleAnalyzer _firewallAnalyzer;
+    private readonly AuditScorer _scorer;
+
+    public ConfigAuditEngine(ILogger<ConfigAuditEngine> logger)
+    {
+        _logger = logger;
+        _vlanAnalyzer = new VlanAnalyzer(CreateLogger<VlanAnalyzer>());
+        _securityEngine = new SecurityAuditEngine(CreateLogger<SecurityAuditEngine>());
+        _firewallAnalyzer = new FirewallRuleAnalyzer(CreateLogger<FirewallRuleAnalyzer>());
+        _scorer = new AuditScorer(CreateLogger<AuditScorer>());
+    }
+
+    /// <summary>
+    /// Create a logger for a specific type (helper for constructors)
+    /// </summary>
+    private ILogger<T> CreateLogger<T>()
+    {
+        // Use the factory from the main logger
+        var loggerFactory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Information));
+        return loggerFactory.CreateLogger<T>();
+    }
+
+    /// <summary>
+    /// Run a comprehensive audit on UniFi device data
+    /// </summary>
+    /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
+    /// <param name="clientName">Optional client/site name for the report</param>
+    /// <returns>Complete audit results</returns>
+    public AuditResult RunAudit(string deviceDataJson, string? clientName = null)
+    {
+        _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
+
+        // Parse JSON
+        var deviceData = JsonDocument.Parse(deviceDataJson).RootElement;
+
+        // Extract network topology
+        _logger.LogInformation("Phase 1: Extracting network topology");
+        var networks = _vlanAnalyzer.ExtractNetworks(deviceData);
+        _logger.LogInformation("Found {NetworkCount} networks", networks.Count);
+
+        // Extract switches and ports
+        _logger.LogInformation("Phase 2: Extracting switch configurations");
+        var switches = _securityEngine.ExtractSwitches(deviceData, networks);
+        _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
+            switches.Count, switches.Sum(s => s.Ports.Count));
+
+        // Run security analysis on ports
+        _logger.LogInformation("Phase 3: Analyzing port security");
+        var portIssues = _securityEngine.AnalyzePorts(switches, networks);
+        _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
+
+        // Analyze network configuration
+        _logger.LogInformation("Phase 4: Analyzing network configuration");
+        var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(networks);
+        var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(networks);
+        _logger.LogInformation("Found {DnsIssues} DNS issues and {GatewayIssues} gateway issues",
+            dnsIssues.Count, gatewayIssues.Count);
+
+        // Extract and analyze firewall rules
+        _logger.LogInformation("Phase 5: Analyzing firewall rules");
+        var firewallRules = _firewallAnalyzer.ExtractFirewallRules(deviceData);
+        var firewallIssues = firewallRules.Any()
+            ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, networks)
+            : new List<AuditIssue>();
+        _logger.LogInformation("Found {IssueCount} firewall issues", firewallIssues.Count);
+
+        // Combine all issues
+        var allIssues = new List<AuditIssue>();
+        allIssues.AddRange(portIssues);
+        allIssues.AddRange(dnsIssues);
+        allIssues.AddRange(gatewayIssues);
+        allIssues.AddRange(firewallIssues);
+
+        // Analyze hardening measures
+        _logger.LogInformation("Phase 6: Analyzing hardening measures");
+        var hardeningMeasures = _securityEngine.AnalyzeHardening(switches, networks);
+        _logger.LogInformation("Found {MeasureCount} hardening measures in place", hardeningMeasures.Count);
+
+        // Calculate statistics
+        var statistics = _securityEngine.CalculateStatistics(switches);
+
+        // Build audit result
+        var auditResult = new AuditResult
+        {
+            Timestamp = DateTime.UtcNow,
+            ClientName = clientName,
+            Networks = networks,
+            Switches = switches,
+            Issues = allIssues,
+            HardeningMeasures = hardeningMeasures,
+            Statistics = statistics
+        };
+
+        // Calculate security score
+        _logger.LogInformation("Phase 7: Calculating security score");
+        var score = _scorer.CalculateScore(auditResult);
+        var posture = _scorer.DeterminePosture(score, auditResult.CriticalIssues.Count);
+
+        auditResult.SecurityScore = score;
+        auditResult.Posture = posture;
+
+        _logger.LogInformation("Audit complete: {Posture} (Score: {Score}/100, {Critical} critical, {Recommended} recommended)",
+            posture, score, auditResult.CriticalIssues.Count, auditResult.RecommendedIssues.Count);
+
+        return auditResult;
+    }
+
+    /// <summary>
+    /// Run audit from a JSON file
+    /// </summary>
+    public AuditResult RunAuditFromFile(string jsonFilePath, string? clientName = null)
+    {
+        _logger.LogInformation("Loading device data from {FilePath}", jsonFilePath);
+
+        if (!File.Exists(jsonFilePath))
+        {
+            throw new FileNotFoundException($"Device data file not found: {jsonFilePath}");
+        }
+
+        var json = File.ReadAllText(jsonFilePath);
+        return RunAudit(json, clientName);
+    }
+
+    /// <summary>
+    /// Get recommendations for improving security posture
+    /// </summary>
+    public List<string> GetRecommendations(AuditResult auditResult)
+    {
+        return _scorer.GetRecommendations(auditResult);
+    }
+
+    /// <summary>
+    /// Generate executive summary
+    /// </summary>
+    public string GenerateExecutiveSummary(AuditResult auditResult)
+    {
+        return _scorer.GenerateExecutiveSummary(auditResult);
+    }
+
+    /// <summary>
+    /// Get detailed report as formatted text
+    /// </summary>
+    public string GenerateTextReport(AuditResult auditResult)
+    {
+        var report = new System.Text.StringBuilder();
+
+        // Header
+        report.AppendLine("================================================================================");
+        report.AppendLine($"        UniFi Network Security Audit Report");
+        if (!string.IsNullOrEmpty(auditResult.ClientName))
+        {
+            report.AppendLine($"        Client: {auditResult.ClientName}");
+        }
+        report.AppendLine($"        Generated: {auditResult.Timestamp:yyyy-MM-dd HH:mm:ss} UTC");
+        report.AppendLine("================================================================================");
+        report.AppendLine();
+
+        // Executive Summary
+        report.AppendLine("EXECUTIVE SUMMARY");
+        report.AppendLine("--------------------------------------------------------------------------------");
+        report.AppendLine(GenerateExecutiveSummary(auditResult));
+        report.AppendLine();
+
+        // Hardening Measures
+        if (auditResult.HardeningMeasures.Any())
+        {
+            report.AppendLine("HARDENING MEASURES IN PLACE");
+            report.AppendLine("--------------------------------------------------------------------------------");
+            foreach (var measure in auditResult.HardeningMeasures)
+            {
+                report.AppendLine($"  ✓ {measure}");
+            }
+            report.AppendLine();
+        }
+
+        // Networks
+        report.AppendLine("NETWORK TOPOLOGY");
+        report.AppendLine("--------------------------------------------------------------------------------");
+        report.AppendLine($"{"Network",-30} {"VLAN",-8} {"Purpose",-15} {"Subnet",-20}");
+        report.AppendLine(new string('-', 80));
+        foreach (var network in auditResult.Networks.OrderBy(n => n.VlanId))
+        {
+            var vlanStr = network.IsNative ? $"{network.VlanId} (native)" : network.VlanId.ToString();
+            report.AppendLine($"{network.Name,-30} {vlanStr,-8} {network.Purpose,-15} {network.Subnet ?? "N/A",-20}");
+        }
+        report.AppendLine();
+
+        // Statistics
+        report.AppendLine("PORT SECURITY STATISTICS");
+        report.AppendLine("--------------------------------------------------------------------------------");
+        report.AppendLine($"  Total Ports:              {auditResult.Statistics.TotalPorts}");
+        report.AppendLine($"  Active Ports:             {auditResult.Statistics.ActivePorts}");
+        report.AppendLine($"  Disabled Ports:           {auditResult.Statistics.DisabledPorts}");
+        report.AppendLine($"  MAC Restricted:           {auditResult.Statistics.MacRestrictedPorts}");
+        report.AppendLine($"  Isolated Ports:           {auditResult.Statistics.IsolatedPorts}");
+        report.AppendLine($"  Unprotected Active:       {auditResult.Statistics.UnprotectedActivePorts}");
+        report.AppendLine($"  Hardening Percentage:     {auditResult.Statistics.HardeningPercentage:F1}%");
+        report.AppendLine();
+
+        // Critical Issues
+        if (auditResult.CriticalIssues.Any())
+        {
+            report.AppendLine("CRITICAL ISSUES (Immediate Action Required)");
+            report.AppendLine("================================================================================");
+            foreach (var issue in auditResult.CriticalIssues)
+            {
+                report.AppendLine($"[!] {issue.DeviceName} - Port {issue.Port} ({issue.PortName})");
+                report.AppendLine($"    Issue: {issue.Message}");
+                if (!string.IsNullOrEmpty(issue.RecommendedAction))
+                {
+                    report.AppendLine($"    Action: {issue.RecommendedAction}");
+                }
+                report.AppendLine();
+            }
+        }
+
+        // Recommended Issues
+        if (auditResult.RecommendedIssues.Any())
+        {
+            report.AppendLine("RECOMMENDED IMPROVEMENTS");
+            report.AppendLine("================================================================================");
+            foreach (var issue in auditResult.RecommendedIssues)
+            {
+                var location = !string.IsNullOrEmpty(issue.DeviceName)
+                    ? $"{issue.DeviceName} - Port {issue.Port}"
+                    : "Network-wide";
+                report.AppendLine($"[*] {location}");
+                report.AppendLine($"    {issue.Message}");
+                report.AppendLine();
+            }
+        }
+
+        // Recommendations
+        var recommendations = GetRecommendations(auditResult);
+        if (recommendations.Any())
+        {
+            report.AppendLine("RECOMMENDATIONS");
+            report.AppendLine("================================================================================");
+            for (int i = 0; i < recommendations.Count; i++)
+            {
+                report.AppendLine($"{i + 1}. {recommendations[i]}");
+            }
+            report.AppendLine();
+        }
+
+        // Switch Details
+        report.AppendLine("SWITCH DETAILS");
+        report.AppendLine("================================================================================");
+        foreach (var sw in auditResult.Switches)
+        {
+            var deviceType = sw.IsGateway ? "[Gateway]" : "[Switch]";
+            report.AppendLine($"{deviceType} {sw.Name} ({sw.ModelName})");
+            report.AppendLine($"  IP: {sw.IpAddress ?? "N/A"}");
+            report.AppendLine($"  Ports: {sw.Ports.Count}");
+            report.AppendLine($"  Active: {sw.Ports.Count(p => p.IsUp)}");
+            report.AppendLine($"  MAC ACL Support: {(sw.Capabilities.MaxCustomMacAcls > 0 ? $"Yes ({sw.Capabilities.MaxCustomMacAcls} max)" : "No")}");
+            report.AppendLine();
+        }
+
+        report.AppendLine("================================================================================");
+        report.AppendLine("End of Report");
+        report.AppendLine("================================================================================");
+
+        return report.ToString();
+    }
+
+    /// <summary>
+    /// Export audit results to JSON
+    /// </summary>
+    public string ExportToJson(AuditResult auditResult)
+    {
+        var options = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        return JsonSerializer.Serialize(auditResult, options);
+    }
+
+    /// <summary>
+    /// Save audit results to file
+    /// </summary>
+    public void SaveResults(AuditResult auditResult, string outputPath, string format = "json")
+    {
+        var content = format.ToLowerInvariant() switch
+        {
+            "json" => ExportToJson(auditResult),
+            "text" or "txt" => GenerateTextReport(auditResult),
+            _ => throw new ArgumentException($"Unsupported format: {format}")
+        };
+
+        File.WriteAllText(outputPath, content);
+        _logger.LogInformation("Audit results saved to {OutputPath}", outputPath);
+    }
+}
