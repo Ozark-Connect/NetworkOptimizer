@@ -259,16 +259,26 @@ public class CellularModemService : IDisposable
 
     private async Task<(bool success, string output)> RunSshCommandAsync(ModemConfiguration config, string command)
     {
+        var usePassword = !string.IsNullOrEmpty(config.Password) && string.IsNullOrEmpty(config.PrivateKeyPath);
+
         var sshArgs = new List<string>
         {
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10",
-            "-o", "BatchMode=yes",
-            "-p", config.Port.ToString()
+            "-o", "ConnectTimeout=10"
         };
 
-        // Add authentication
+        // BatchMode=yes disables password prompts, only use with key auth
+        if (!usePassword)
+        {
+            sshArgs.Add("-o");
+            sshArgs.Add("BatchMode=yes");
+        }
+
+        sshArgs.Add("-p");
+        sshArgs.Add(config.Port.ToString());
+
+        // Add key authentication
         if (!string.IsNullOrEmpty(config.PrivateKeyPath))
         {
             sshArgs.Add("-i");
@@ -280,22 +290,25 @@ public class CellularModemService : IDisposable
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "ssh",
-            Arguments = string.Join(" ", sshArgs),
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
 
-        // If password auth, we need sshpass (or rely on ssh-agent/key)
-        if (!string.IsNullOrEmpty(config.Password) && string.IsNullOrEmpty(config.PrivateKeyPath))
+        // If password auth, use sshpass with environment variable (more secure than command line)
+        if (usePassword)
         {
-            // Decrypt the password before use
             var decryptedPassword = _credentialProtection.Decrypt(config.Password);
-            // Use sshpass for password authentication
             startInfo.FileName = "sshpass";
-            startInfo.Arguments = $"-p {decryptedPassword} ssh {string.Join(" ", sshArgs)}";
+            startInfo.Arguments = $"-e ssh {string.Join(" ", sshArgs)}";
+            startInfo.Environment["SSHPASS"] = decryptedPassword;
+        }
+        else
+        {
+            startInfo.FileName = "ssh";
+            startInfo.Arguments = string.Join(" ", sshArgs);
         }
 
         using var process = new Process { StartInfo = startInfo };
