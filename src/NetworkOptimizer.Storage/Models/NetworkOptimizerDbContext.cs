@@ -16,6 +16,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<SqmBaseline> SqmBaselines { get; set; }
     public DbSet<AgentConfiguration> AgentConfigurations { get; set; }
     public DbSet<LicenseInfo> Licenses { get; set; }
+    public DbSet<ModemConfiguration> ModemConfigurations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +56,14 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.LicenseKey).IsUnique();
             entity.HasIndex(e => e.IsActive);
             entity.HasIndex(e => e.ExpirationDate);
+        });
+
+        // ModemConfiguration configuration
+        modelBuilder.Entity<ModemConfiguration>(entity =>
+        {
+            entity.ToTable("ModemConfigurations");
+            entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
         });
     }
 }

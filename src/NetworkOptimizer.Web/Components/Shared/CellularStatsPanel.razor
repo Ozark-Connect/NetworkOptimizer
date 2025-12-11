@@ -1,0 +1,399 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Monitoring.Models
+@inject CellularModemService ModemService
+
+<div class="cellular-stats-panel">
+    @if (isLoading)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Loading cellular stats...</span>
+        </div>
+    }
+    else if (modemStats == null)
+    {
+        <div class="sqm-unavailable">
+            <div class="sqm-status">
+                <span class="status-indicator status-disconnected"></span>
+                <span class="status-label">No Data</span>
+            </div>
+            <p class="status-message">No cellular modem configured or no data available yet.</p>
+            <div class="sqm-actions">
+                <a href="/settings" class="btn btn-sm btn-primary">Configure Modem</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="sqm-header">
+            <div class="sqm-status">
+                <span class="status-indicator status-@GetConnectionStatus().ToLower()"></span>
+                <span class="status-label">@modemStats.ModemName</span>
+            </div>
+            <div class="tc-timestamp">
+                <small>Updated: @modemStats.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+            </div>
+        </div>
+
+        <!-- Signal Quality Bar -->
+        <div class="signal-quality-section">
+            <div class="signal-bars">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    <div class="signal-bar @(i <= GetSignalBars() ? "active" : "")"></div>
+                }
+            </div>
+            <div class="signal-quality-text">
+                <span class="quality-value">@modemStats.SignalQuality%</span>
+                <span class="quality-label">Signal Quality</span>
+            </div>
+        </div>
+
+        <!-- Carrier Info -->
+        <div class="carrier-info">
+            <span class="carrier-name">@modemStats.Carrier</span>
+            @if (modemStats.IsRoaming)
+            {
+                <span class="roaming-badge">Roaming</span>
+            }
+            <span class="registration-state">@modemStats.RegistrationState</span>
+        </div>
+
+        <!-- Signal Metrics Grid -->
+        <div class="sqm-metrics-grid cellular-metrics">
+            @if (modemStats.Nr5g != null)
+            {
+                <div class="metric-box metric-5g">
+                    <div class="metric-header">5G NR</div>
+                    <div class="metric-content">
+                        <div class="metric-row">
+                            <span class="metric-label">RSRP:</span>
+                            <span class="metric-value @GetSignalClass(modemStats.Nr5g.Rsrp, -80, -100)">@modemStats.Nr5g.Rsrp?.ToString("F1") dBm</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">RSRQ:</span>
+                            <span class="metric-value">@modemStats.Nr5g.Rsrq?.ToString("F1") dB</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">SNR:</span>
+                            <span class="metric-value @GetSnrClass(modemStats.Nr5g.Snr)">@modemStats.Nr5g.Snr?.ToString("F1") dB</span>
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (modemStats.Lte != null)
+            {
+                <div class="metric-box metric-lte">
+                    <div class="metric-header">LTE</div>
+                    <div class="metric-content">
+                        <div class="metric-row">
+                            <span class="metric-label">RSRP:</span>
+                            <span class="metric-value @GetSignalClass(modemStats.Lte.Rsrp, -80, -100)">@modemStats.Lte.Rsrp?.ToString("F1") dBm</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">RSRQ:</span>
+                            <span class="metric-value">@modemStats.Lte.Rsrq?.ToString("F1") dB</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">SNR:</span>
+                            <span class="metric-value @GetSnrClass(modemStats.Lte.Snr)">@modemStats.Lte.Snr?.ToString("F1") dB</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Band and Cell Info -->
+        @if (modemStats.ActiveBand != null || modemStats.ServingCell != null)
+        {
+            <div class="cell-info">
+                @if (modemStats.ActiveBand != null)
+                {
+                    <div class="info-item">
+                        <span class="info-label">Band:</span>
+                        <span class="info-value">@modemStats.ActiveBand.BandClass (@modemStats.ActiveBand.RadioInterface)</span>
+                    </div>
+                }
+                @if (modemStats.ServingCell != null)
+                {
+                    <div class="info-item">
+                        <span class="info-label">Cell:</span>
+                        <span class="info-value">PCI @modemStats.ServingCell.PhysicalCellId, EARFCN @modemStats.ServingCell.Earfcn</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(modemStats.ServingCell.BandDescription))
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Freq:</span>
+                            <span class="info-value">@modemStats.ServingCell.BandDescription</span>
+                        </div>
+                    }
+                }
+                @if (modemStats.NeighborCells?.Count > 0)
+                {
+                    <div class="info-item">
+                        <span class="info-label">Neighbors:</span>
+                        <span class="info-value">@modemStats.NeighborCells.Count cells visible</span>
+                    </div>
+                }
+            </div>
+        }
+
+        <div class="sqm-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+                @if (isRefreshing)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+            <a href="/settings" class="btn btn-sm btn-primary">Modem Settings</a>
+        </div>
+    }
+</div>
+
+<style>
+    .cellular-stats-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .signal-quality-section {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: var(--card-bg-secondary, #1a1d23);
+        border-radius: 8px;
+    }
+
+    .signal-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 28px;
+    }
+
+    .signal-bar {
+        width: 6px;
+        background: var(--text-muted, #666);
+        border-radius: 2px;
+    }
+
+    .signal-bar:nth-child(1) { height: 20%; }
+    .signal-bar:nth-child(2) { height: 40%; }
+    .signal-bar:nth-child(3) { height: 60%; }
+    .signal-bar:nth-child(4) { height: 80%; }
+    .signal-bar:nth-child(5) { height: 100%; }
+
+    .signal-bar.active {
+        background: var(--success-color, #22c55e);
+    }
+
+    .signal-quality-text {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .quality-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary, #fff);
+    }
+
+    .quality-label {
+        font-size: 0.75rem;
+        color: var(--text-muted, #888);
+    }
+
+    .carrier-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .carrier-name {
+        font-weight: 600;
+        color: var(--text-primary, #fff);
+    }
+
+    .roaming-badge {
+        padding: 2px 8px;
+        background: var(--warning-color, #f59e0b);
+        color: #000;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+    }
+
+    .registration-state {
+        color: var(--text-muted, #888);
+        font-size: 0.85rem;
+    }
+
+    .cellular-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .metric-box {
+        background: var(--card-bg-secondary, #1a1d23);
+        border-radius: 8px;
+        padding: 0.75rem;
+    }
+
+    .metric-header {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--accent-color, #3b82f6);
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+    }
+
+    .metric-5g .metric-header {
+        color: var(--success-color, #22c55e);
+    }
+
+    .metric-lte .metric-header {
+        color: var(--info-color, #0ea5e9);
+    }
+
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        padding: 2px 0;
+    }
+
+    .metric-label {
+        color: var(--text-muted, #888);
+    }
+
+    .metric-value {
+        font-family: monospace;
+        color: var(--text-primary, #fff);
+    }
+
+    .metric-value.good { color: var(--success-color, #22c55e); }
+    .metric-value.fair { color: var(--warning-color, #f59e0b); }
+    .metric-value.poor { color: var(--danger-color, #ef4444); }
+
+    .cell-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0.5rem;
+        background: var(--card-bg-secondary, #1a1d23);
+        border-radius: 8px;
+        font-size: 0.8rem;
+    }
+
+    .info-item {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .info-label {
+        color: var(--text-muted, #888);
+        min-width: 60px;
+    }
+
+    .info-value {
+        color: var(--text-primary, #fff);
+        font-family: monospace;
+    }
+</style>
+
+@code {
+    private CellularModemStats? modemStats;
+    private bool isLoading = true;
+    private bool isRefreshing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStats();
+    }
+
+    private async Task LoadStats()
+    {
+        isLoading = true;
+        try
+        {
+            modemStats = ModemService.GetLastStats();
+
+            // If no cached stats, try to poll the first enabled modem
+            if (modemStats == null)
+            {
+                var modems = await ModemService.GetModemsAsync();
+                var enabledModem = modems.FirstOrDefault(m => m.Enabled);
+                if (enabledModem != null)
+                {
+                    modemStats = await ModemService.PollModemAsync(enabledModem);
+                }
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        isRefreshing = true;
+        StateHasChanged();
+
+        try
+        {
+            var modems = await ModemService.GetModemsAsync();
+            var enabledModem = modems.FirstOrDefault(m => m.Enabled);
+            if (enabledModem != null)
+            {
+                modemStats = await ModemService.PollModemAsync(enabledModem);
+            }
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetConnectionStatus()
+    {
+        if (modemStats == null) return "disconnected";
+        if (modemStats.RegistrationState?.Contains("registered", StringComparison.OrdinalIgnoreCase) == true)
+            return "active";
+        return "warning";
+    }
+
+    private string GetSignalClass(double? rsrp, double good, double poor)
+    {
+        if (!rsrp.HasValue) return "";
+        if (rsrp >= good) return "good";
+        if (rsrp >= poor) return "fair";
+        return "poor";
+    }
+
+    private string GetSnrClass(double? snr)
+    {
+        if (!snr.HasValue) return "";
+        if (snr >= 20) return "good";
+        if (snr >= 10) return "fair";
+        return "poor";
+    }
+
+    private int GetSignalBars()
+    {
+        if (modemStats == null) return 0;
+        // Use 5G signal if available, otherwise LTE
+        var signal = modemStats.Nr5g ?? modemStats.Lte;
+        return signal?.Bars ?? 0;
+    }
+}

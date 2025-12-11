@@ -1,0 +1,184 @@
+using System.Text.Json.Serialization;
+
+namespace NetworkOptimizer.Monitoring.Models;
+
+/// <summary>
+/// Comprehensive cellular modem statistics from qmicli commands
+/// Supports LTE and 5G NR data from UniFi U5G-Max and similar modems
+/// </summary>
+public class CellularModemStats
+{
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public string ModemHost { get; set; } = "";
+    public string ModemName { get; set; } = "";
+
+    // Connection status
+    public string RegistrationState { get; set; } = "";
+    public string Carrier { get; set; } = "";
+    public string CarrierMcc { get; set; } = "";
+    public string CarrierMnc { get; set; } = "";
+    public bool IsRoaming { get; set; }
+
+    // Signal info
+    public SignalInfo? Lte { get; set; }
+    public SignalInfo? Nr5g { get; set; }
+
+    // Cell info
+    public CellInfo? ServingCell { get; set; }
+    public List<CellInfo> NeighborCells { get; set; } = new();
+
+    // Band info
+    public BandInfo? ActiveBand { get; set; }
+
+    // Computed signal quality (0-100)
+    public int SignalQuality => CalculateSignalQuality();
+
+    private int CalculateSignalQuality()
+    {
+        // Use 5G if available, otherwise LTE
+        var signal = Nr5g ?? Lte;
+        if (signal == null) return 0;
+
+        // RSRP-based quality: -80 dBm = excellent, -120 dBm = poor
+        if (signal.Rsrp.HasValue)
+        {
+            var rsrp = signal.Rsrp.Value;
+            if (rsrp >= -80) return 100;
+            if (rsrp <= -120) return 0;
+            return (int)((rsrp + 120) * 2.5); // Linear scale
+        }
+
+        return 50; // Unknown
+    }
+}
+
+/// <summary>
+/// Signal strength and quality metrics
+/// </summary>
+public class SignalInfo
+{
+    /// <summary>Reference Signal Received Power (dBm) - primary signal strength indicator</summary>
+    public double? Rsrp { get; set; }
+
+    /// <summary>Reference Signal Received Quality (dB) - signal quality</summary>
+    public double? Rsrq { get; set; }
+
+    /// <summary>Received Signal Strength Indicator (dBm)</summary>
+    public double? Rssi { get; set; }
+
+    /// <summary>Signal-to-Noise Ratio (dB)</summary>
+    public double? Snr { get; set; }
+
+    /// <summary>Signal bars (1-5) based on RSRP</summary>
+    public int Bars => CalculateBars();
+
+    private int CalculateBars()
+    {
+        if (!Rsrp.HasValue) return 0;
+        var rsrp = Rsrp.Value;
+
+        if (rsrp >= -80) return 5;
+        if (rsrp >= -90) return 4;
+        if (rsrp >= -100) return 3;
+        if (rsrp >= -110) return 2;
+        if (rsrp >= -120) return 1;
+        return 0;
+    }
+
+    /// <summary>Human-readable signal quality</summary>
+    public string Quality => Bars switch
+    {
+        5 => "Excellent",
+        4 => "Good",
+        3 => "Fair",
+        2 => "Poor",
+        1 => "Very Poor",
+        _ => "No Signal"
+    };
+}
+
+/// <summary>
+/// Cell tower information
+/// </summary>
+public class CellInfo
+{
+    /// <summary>Physical Cell ID</summary>
+    public int PhysicalCellId { get; set; }
+
+    /// <summary>Global Cell ID</summary>
+    public string? GlobalCellId { get; set; }
+
+    /// <summary>Tracking Area Code</summary>
+    public string? Tac { get; set; }
+
+    /// <summary>EARFCN (LTE) or ARFCN (5G NR) - frequency channel number</summary>
+    public int? Earfcn { get; set; }
+
+    /// <summary>Band description (e.g., "E-UTRA band 2: 1900 PCS")</summary>
+    public string? BandDescription { get; set; }
+
+    /// <summary>PLMN (MCC + MNC)</summary>
+    public string? Plmn { get; set; }
+
+    /// <summary>Signal metrics for this cell</summary>
+    public SignalInfo? Signal { get; set; }
+
+    /// <summary>Timing advance in microseconds</summary>
+    public int? TimingAdvance { get; set; }
+
+    /// <summary>Is this the serving cell?</summary>
+    public bool IsServing { get; set; }
+}
+
+/// <summary>
+/// Active RF band information
+/// </summary>
+public class BandInfo
+{
+    /// <summary>Radio interface type (lte, nr5g, etc.)</summary>
+    public string RadioInterface { get; set; } = "";
+
+    /// <summary>Active band class (e.g., "eutran-2", "n77")</summary>
+    public string BandClass { get; set; } = "";
+
+    /// <summary>Active channel number</summary>
+    public int Channel { get; set; }
+
+    /// <summary>Bandwidth in MHz</summary>
+    public int? BandwidthMhz { get; set; }
+
+    /// <summary>Human-readable band name</summary>
+    public string BandName => GetBandName();
+
+    private string GetBandName()
+    {
+        // Common LTE/5G band mappings
+        return BandClass.ToLowerInvariant() switch
+        {
+            "eutran-2" => "Band 2 (1900 MHz PCS)",
+            "eutran-3" => "Band 3 (1800 MHz)",
+            "eutran-4" => "Band 4 (AWS-1)",
+            "eutran-5" => "Band 5 (850 MHz)",
+            "eutran-7" => "Band 7 (2600 MHz)",
+            "eutran-12" => "Band 12 (700 MHz)",
+            "eutran-13" => "Band 13 (700 MHz)",
+            "eutran-14" => "Band 14 (700 MHz FirstNet)",
+            "eutran-17" => "Band 17 (700 MHz)",
+            "eutran-25" => "Band 25 (1900 MHz)",
+            "eutran-26" => "Band 26 (850 MHz)",
+            "eutran-30" => "Band 30 (2300 MHz)",
+            "eutran-41" => "Band 41 (2500 MHz TDD)",
+            "eutran-66" => "Band 66 (AWS-3)",
+            "eutran-71" => "Band 71 (600 MHz)",
+            "n2" => "n2 (1900 MHz)",
+            "n5" => "n5 (850 MHz)",
+            "n41" => "n41 (2500 MHz)",
+            "n71" => "n71 (600 MHz)",
+            "n77" => "n77 (3700 MHz C-Band)",
+            "n78" => "n78 (3500 MHz)",
+            "n260" => "n260 (39 GHz mmWave)",
+            "n261" => "n261 (28 GHz mmWave)",
+            _ => BandClass
+        };
+    }
+}

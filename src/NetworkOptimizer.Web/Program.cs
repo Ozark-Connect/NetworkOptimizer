@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.EntityFrameworkCore;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Storage.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +29,19 @@ builder.Services.AddTransient<ConfigAuditEngine>();
 
 // Register TC Monitor client (singleton - shared HTTP client)
 builder.Services.AddSingleton<TcMonitorClient>();
+
+// Register SQLite database context
+// In Docker, use /app/data; otherwise use LocalApplicationData
+var isDocker = string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
+var dbPath = isDocker
+    ? "/app/data/network_optimizer.db"
+    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer", "network_optimizer.db");
+Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}"));
+
+// Register Cellular Modem service (singleton - maintains polling timer)
+builder.Services.AddSingleton<CellularModemService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -53,6 +68,16 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Ensure database is created and credential key exists
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+    db.Database.EnsureCreated();
+}
+
+// Pre-generate the credential encryption key
+NetworkOptimizer.Storage.Services.CredentialProtectionService.EnsureKeyExists();
 
 // Configure the HTTP request pipeline
 if (!app.Environment.IsDevelopment())
