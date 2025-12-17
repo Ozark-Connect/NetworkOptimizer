@@ -47,12 +47,12 @@ dotnet publish -c Release -o C:/NetworkOptimizer
 
 3. Rebuild and restart Docker:
    ```bash
-   ssh root@nas "cd /opt/network-optimizer/docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
+   ssh root@nas "cd /opt/network-optimizer/docker && docker compose -f docker-compose.linux.yml build --no-cache network-optimizer && docker compose -f docker-compose.linux.yml up -d network-optimizer"
    ```
 
 ### Quick Deploy (all-in-one)
 ```bash
-git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
+git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose -f docker-compose.linux.yml build --no-cache network-optimizer && docker compose -f docker-compose.linux.yml up -d network-optimizer"
 ```
 
 ### First-Time Setup
@@ -66,9 +66,7 @@ ssh root@nas "cd /opt/network-optimizer/docker && cp .env.example .env"
 
 | Service | Port | URL |
 |---------|------|-----|
-| Web UI | 8042 | http://nas:8042 |
-| Grafana | 3000 | http://nas:3000 |
-| InfluxDB | 8087 | http://nas:8087 |
+| Web UI | 8042 | http://localhost:8042 (localhost only) |
 
 ### Check Status
 ```bash
