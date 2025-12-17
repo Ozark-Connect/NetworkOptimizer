@@ -77,16 +77,16 @@
         {
             alerts.Clear();
 
-            // If we have a cached audit result, convert issues to alerts
-            if (AuditService.LastAuditResult != null)
+            // Use active (non-dismissed) issues
+            var activeIssues = AuditService.GetActiveIssues();
+            if (activeIssues.Any())
             {
-                var auditResult = AuditService.LastAuditResult;
                 var id = 1;
                 var timeAgo = AuditService.LastAuditTime.HasValue
                     ? FormatTimeAgo(AuditService.LastAuditTime.Value)
                     : "Recently";
 
-                foreach (var issue in auditResult.Issues.Take(10))
+                foreach (var issue in activeIssues.Take(10))
                 {
                     alerts.Add(new AlertInfo
                     {
@@ -96,7 +96,8 @@
                         Message = issue.Description,
                         Source = issue.Category,
                         Time = timeAgo,
-                        ActionUrl = "/audit"
+                        ActionUrl = "/audit",
+                        IssueKey = AuditService.GetIssueKey(issue)
                     });
                 }
             }
@@ -144,7 +145,18 @@
 
     private void DismissAlert(int alertId)
     {
-        alerts.RemoveAll(a => a.Id == alertId);
+        var alert = alerts.FirstOrDefault(a => a.Id == alertId);
+        if (alert != null)
+        {
+            // Find the original issue and dismiss it in the service
+            var activeIssues = AuditService.GetActiveIssues();
+            var issue = activeIssues.FirstOrDefault(i => AuditService.GetIssueKey(i) == alert.IssueKey);
+            if (issue != null)
+            {
+                AuditService.DismissIssue(issue);
+            }
+            alerts.Remove(alert);
+        }
         StateHasChanged();
     }
 
@@ -157,5 +169,6 @@
         public string Source { get; set; } = "";
         public string Time { get; set; } = "";
         public string? ActionUrl { get; set; }
+        public string IssueKey { get; set; } = "";
     }
 }

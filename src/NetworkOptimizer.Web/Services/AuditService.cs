@@ -19,6 +19,9 @@ public class AuditService
     private AuditResult? _lastAuditResult;
     private DateTime? _lastAuditTime;
 
+    // Track dismissed issues (by unique key: Title + DeviceName + Port)
+    private readonly HashSet<string> _dismissedIssues = new();
+
     public AuditService(
         ILogger<AuditService> logger,
         UniFiConnectionService connectionService,
@@ -33,6 +36,51 @@ public class AuditService
 
     public AuditResult? LastAuditResult => _lastAuditResult;
     public DateTime? LastAuditTime => _lastAuditTime;
+
+    /// <summary>
+    /// Get a unique key for an issue (for tracking dismissals)
+    /// </summary>
+    public static string GetIssueKey(AuditIssue issue) =>
+        $"{issue.Title}|{issue.DeviceName}|{issue.Port}";
+
+    /// <summary>
+    /// Dismiss an issue (excludes it from counts until next audit)
+    /// </summary>
+    public void DismissIssue(AuditIssue issue)
+    {
+        var key = GetIssueKey(issue);
+        _dismissedIssues.Add(key);
+        _logger.LogInformation("Dismissed issue: {Key}", key);
+    }
+
+    /// <summary>
+    /// Check if an issue has been dismissed
+    /// </summary>
+    public bool IsIssueDismissed(AuditIssue issue) =>
+        _dismissedIssues.Contains(GetIssueKey(issue));
+
+    /// <summary>
+    /// Get active (non-dismissed) issues
+    /// </summary>
+    public List<AuditIssue> GetActiveIssues() =>
+        _lastAuditResult?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+
+    /// <summary>
+    /// Get count of active critical issues
+    /// </summary>
+    public int ActiveCriticalCount =>
+        GetActiveIssues().Count(i => i.Severity == "Critical");
+
+    /// <summary>
+    /// Get count of active warning issues
+    /// </summary>
+    public int ActiveWarningCount =>
+        GetActiveIssues().Count(i => i.Severity == "Warning");
+
+    /// <summary>
+    /// Clear dismissed issues (called when running a new audit)
+    /// </summary>
+    public void ClearDismissedIssues() => _dismissedIssues.Clear();
 
     /// <summary>
     /// Load the most recent audit result from the database
@@ -95,16 +143,17 @@ public class AuditService
     /// </summary>
     public async Task<AuditSummary> GetAuditSummaryAsync()
     {
-        // Try memory cache first
+        // Try memory cache first (use active counts to exclude dismissed issues)
         if (_lastAuditResult != null && _lastAuditTime != null)
         {
+            var activeIssues = GetActiveIssues();
             return new AuditSummary
             {
                 Score = _lastAuditResult.Score,
-                CriticalCount = _lastAuditResult.CriticalCount,
-                WarningCount = _lastAuditResult.WarningCount,
+                CriticalCount = activeIssues.Count(i => i.Severity == "Critical"),
+                WarningCount = activeIssues.Count(i => i.Severity == "Warning"),
                 LastAuditTime = _lastAuditTime.Value,
-                RecentIssues = _lastAuditResult.Issues.Take(5).ToList()
+                RecentIssues = activeIssues.Take(5).ToList()
             };
         }
 
