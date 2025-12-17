@@ -98,6 +98,55 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
     app.UseHttpsRedirection();
     app.UseHsts();
 }
+
+// Simple basic auth middleware (optional - set APP_PASSWORD env var to enable)
+var appPassword = Environment.GetEnvironmentVariable("APP_PASSWORD");
+if (!string.IsNullOrEmpty(appPassword))
+{
+    app.Use(async (context, next) =>
+    {
+        // Skip auth for health endpoint and static files
+        if (context.Request.Path.StartsWithSegments("/api/health") ||
+            context.Request.Path.StartsWithSegments("/downloads"))
+        {
+            await next();
+            return;
+        }
+
+        // Check for basic auth header
+        var authHeader = context.Request.Headers.Authorization.ToString();
+        if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+        {
+            var encoded = authHeader["Basic ".Length..].Trim();
+            var credentials = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+            var parts = credentials.Split(':', 2);
+            if (parts.Length == 2 && parts[1] == appPassword)
+            {
+                await next();
+                return;
+            }
+        }
+
+        // Check for session cookie (set after successful auth)
+        if (context.Request.Cookies.TryGetValue("auth", out var cookie) && cookie == ComputeHash(appPassword))
+        {
+            await next();
+            return;
+        }
+
+        // Return 401 with basic auth challenge
+        context.Response.StatusCode = 401;
+        context.Response.Headers.WWWAuthenticate = "Basic realm=\"Network Optimizer\"";
+        await context.Response.WriteAsync("Unauthorized");
+    });
+}
+
+static string ComputeHash(string input)
+{
+    var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+    return Convert.ToBase64String(bytes)[..16];
+}
+
 // Configure static files with custom MIME types for package downloads
 var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings[".ipk"] = "application/octet-stream";

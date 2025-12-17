@@ -169,17 +169,14 @@ public class VlanAnalyzer
     {
         var nameLower = networkName.ToLowerInvariant();
 
-        // Check explicit purpose first
-        if (!string.IsNullOrEmpty(purpose))
+        // Check explicit UniFi "guest" purpose first (UniFi marks guest networks specially)
+        if (!string.IsNullOrEmpty(purpose) && purpose.Equals("guest", StringComparison.OrdinalIgnoreCase))
         {
-            var purposeLower = purpose.ToLowerInvariant();
-            if (purposeLower == "guest")
-                return NetworkPurpose.Guest;
-            if (purposeLower == "corporate")
-                return NetworkPurpose.Corporate;
+            return NetworkPurpose.Guest;
         }
 
-        // Check patterns - Security first to avoid false positives with "Security Devices" matching IoT
+        // Check name patterns - these take priority over UniFi's generic "corporate" purpose
+        // Security first to avoid false positives with "Security Devices" matching IoT
         if (SecurityPatterns.Any(p => nameLower.Contains(p)))
             return NetworkPurpose.Security;
 

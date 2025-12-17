@@ -2,6 +2,8 @@
 
 ## Local Development (Windows)
 
+**Note:** Local Docker container removed for security. Use NAS deployment for testing.
+
 ### Run with Docker
 ```bash
 cd docker
