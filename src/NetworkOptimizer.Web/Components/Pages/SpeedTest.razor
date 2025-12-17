@@ -7,6 +7,7 @@
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
+@inject GatewaySpeedTestService GatewaySpeedTestService
 
 <PageTitle>Speed Test - Network Optimizer</PageTitle>
 
@@ -16,6 +17,151 @@
 </div>
 
 <div class="speedtest-container">
+    <!-- Gateway Speed Test Section -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Gateway Speed Test</h2>
+            @if (gatewayLastResult != null)
+            {
+                <span class="status-badge status-@(gatewayLastResult.Success ? "connected" : "disconnected")">
+                    @(gatewayLastResult.Success ? "Success" : "Failed")
+                </span>
+            }
+        </div>
+        <div class="card-body">
+            @if (gatewayLoading)
+            {
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Loading...</span>
+                </div>
+            }
+            else if (!gatewayConfigured)
+            {
+                <div class="alert alert-warning">
+                    <strong>Gateway SSH not configured.</strong>
+                    Go to <a href="/settings">Settings</a> to configure Gateway SSH credentials before running gateway speed tests.
+                </div>
+            }
+            else
+            {
+                <p class="section-description">
+                    Test internet bandwidth from the gateway using its built-in iperf3 client connecting to a public server.
+                </p>
+
+                <!-- iperf3 Status -->
+                @if (gatewayIperf3Status != null)
+                {
+                    <div class="iperf3-status">
+                        <div class="status-row">
+                            <span class="status-label">iperf3 Status:</span>
+                            @if (gatewayIperf3Status.IsInstalled)
+                            {
+                                <span class="status-badge status-connected">Installed</span>
+                            }
+                            else
+                            {
+                                <span class="status-badge status-disconnected">Not Found</span>
+                            }
+                        </div>
+                        @if (gatewayIperf3Status.IsRunning)
+                        {
+                            <div class="status-row">
+                                <span class="status-label">Server Running:</span>
+                                <span class="status-badge status-connected">Port @gatewayIperf3Status.Port</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(gatewayIperf3Status.Version))
+                        {
+                            <div class="status-row">
+                                <span class="status-label">Version:</span>
+                                <span>@gatewayIperf3Status.Version</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- Last Result -->
+                @if (gatewayLastResult != null && gatewayLastResult.Success)
+                {
+                    <div class="speed-results gateway-results">
+                        <div class="speed-result download">
+                            <div class="speed-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="speed-details">
+                                <div class="speed-label">Download</div>
+                                <div class="speed-value">@gatewayLastResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                            </div>
+                        </div>
+                        <div class="speed-result upload">
+                            <div class="speed-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="speed-details">
+                                <div class="speed-label">Upload</div>
+                                <div class="speed-value">@gatewayLastResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                            </div>
+                        </div>
+                    </div>
+                    @if (gatewayLastResult.DownloadRetransmits > 0 || gatewayLastResult.UploadRetransmits > 0)
+                    {
+                        <div class="retransmits-info">
+                            <small>Retransmits: @gatewayLastResult.DownloadRetransmits down / @gatewayLastResult.UploadRetransmits up</small>
+                        </div>
+                    }
+                    <div class="test-timestamp">
+                        <small>Last test: @gatewayLastResult.TestTime.ToLocalTime().ToString("g")</small>
+                    </div>
+                }
+                else if (gatewayLastResult != null && !gatewayLastResult.Success)
+                {
+                    <div class="alert alert-danger">
+                        <strong>Test Failed:</strong> @gatewayLastResult.Error
+                    </div>
+                }
+
+                <!-- Actions -->
+                <div class="action-buttons gateway-actions">
+                    <button class="btn btn-primary" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                        @if (gatewayRunning)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing... (@gatewayProgress)</span>
+                        }
+                        else
+                        {
+                            <span>Run Gateway Test</span>
+                        }
+                    </button>
+                    <button class="btn btn-secondary" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
+                        @if (gatewayCheckingIperf3)
+                        {
+                            <span class="spinner"></span>
+                            <span>Checking...</span>
+                        }
+                        else
+                        {
+                            <span>Check iperf3</span>
+                        }
+                    </button>
+                    <a href="/settings" class="btn btn-secondary">Settings</a>
+                </div>
+
+                @if (!string.IsNullOrEmpty(gatewayMessage))
+                {
+                    <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
+                        @gatewayMessage
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
     <!-- SSH Credentials Status -->
     @if (!sshConfigured)
     {
@@ -496,6 +642,72 @@
         display: flex;
         gap: 0.5rem;
     }
+
+    /* Gateway Speed Test Styles */
+    .gateway-results {
+        justify-content: flex-start;
+        margin: 1.5rem 0;
+    }
+
+    .gateway-results .speed-result {
+        flex: 1;
+        max-width: 250px;
+    }
+
+    .gateway-results .speed-icon {
+        color: var(--text-secondary);
+    }
+
+    .gateway-results .speed-result.download .speed-icon {
+        color: #22c55e;
+    }
+
+    .gateway-results .speed-result.upload .speed-icon {
+        color: #0ea5e9;
+    }
+
+    .iperf3-status {
+        background: var(--card-bg-secondary, #1a1d23);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .status-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.25rem 0;
+    }
+
+    .status-row .status-label {
+        color: var(--text-secondary);
+        min-width: 120px;
+    }
+
+    .retransmits-info {
+        text-align: center;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+    }
+
+    .test-timestamp {
+        text-align: center;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+    }
+
+    .gateway-actions {
+        margin-top: 1.5rem;
+    }
+
+    .loading-state {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--text-secondary);
+        padding: 1rem 0;
+    }
 </style>
 
 @code {
@@ -515,12 +727,121 @@
     private string message = "";
     private string messageClass = "";
 
+    // Gateway Speed Test state
+    private bool gatewayLoading = true;
+    private bool gatewayConfigured = false;
+    private bool gatewayRunning = false;
+    private bool gatewayCheckingIperf3 = false;
+    private string gatewayProgress = "";
+    private string gatewayMessage = "";
+    private string gatewayMessageClass = "";
+    private GatewaySpeedTestResult? gatewayLastResult;
+    private Iperf3Status? gatewayIperf3Status;
+
     protected override async Task OnInitializedAsync()
     {
         await CheckSshConfiguration();
+        await LoadGatewayConfiguration();
         await LoadDevices();
         await LoadHistory();
         await LoadDiscoveredDevices();
+    }
+
+    private async Task LoadGatewayConfiguration()
+    {
+        gatewayLoading = true;
+        try
+        {
+            var settings = await GatewaySpeedTestService.GetSettingsAsync();
+            gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
+            gatewayLastResult = GatewaySpeedTestService.GetLastResult();
+        }
+        finally
+        {
+            gatewayLoading = false;
+        }
+    }
+
+    private async Task CheckGatewayIperf3()
+    {
+        gatewayCheckingIperf3 = true;
+        gatewayMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            gatewayIperf3Status = await GatewaySpeedTestService.CheckIperf3StatusAsync();
+
+            if (gatewayIperf3Status.IsInstalled)
+            {
+                if (gatewayIperf3Status.IsRunning)
+                {
+                    gatewayMessage = $"iperf3 is installed and running on port {gatewayIperf3Status.Port}";
+                    gatewayMessageClass = "success";
+                }
+                else
+                {
+                    gatewayMessage = "iperf3 is installed but server is not running";
+                    gatewayMessageClass = "info";
+                }
+            }
+            else
+            {
+                gatewayMessage = "iperf3 not found on gateway. Please install it.";
+                gatewayMessageClass = "warning";
+            }
+        }
+        catch (Exception ex)
+        {
+            gatewayMessage = $"Error checking iperf3: {ex.Message}";
+            gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            gatewayCheckingIperf3 = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RunGatewaySpeedTest()
+    {
+        gatewayRunning = true;
+        gatewayProgress = "Starting...";
+        gatewayMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            gatewayProgress = "Checking iperf3...";
+            StateHasChanged();
+            await Task.Delay(100);
+
+            gatewayProgress = "Download test...";
+            StateHasChanged();
+
+            gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync(durationSeconds: 10, parallelStreams: 4);
+
+            if (gatewayLastResult.Success)
+            {
+                gatewayMessage = $"Test completed: {gatewayLastResult.DownloadMbps:F1} Mbps down / {gatewayLastResult.UploadMbps:F1} Mbps up";
+                gatewayMessageClass = "success";
+            }
+            else
+            {
+                gatewayMessage = $"Test failed: {gatewayLastResult.Error}";
+                gatewayMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            gatewayMessage = $"Error running test: {ex.Message}";
+            gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            gatewayRunning = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CheckSshConfiguration()

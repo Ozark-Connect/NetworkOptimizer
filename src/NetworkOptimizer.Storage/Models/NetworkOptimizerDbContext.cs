@@ -20,6 +20,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DeviceSshConfiguration> DeviceSshConfigurations { get; set; }
     public DbSet<Iperf3Result> Iperf3Results { get; set; }
     public DbSet<UniFiSshSettings> UniFiSshSettings { get; set; }
+    public DbSet<GatewaySshSettings> GatewaySshSettings { get; set; }
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -91,6 +92,12 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<UniFiSshSettings>(entity =>
         {
             entity.ToTable("UniFiSshSettings");
+        });
+
+        // GatewaySshSettings configuration (singleton - only one row)
+        modelBuilder.Entity<GatewaySshSettings>(entity =>
+        {
+            entity.ToTable("GatewaySshSettings");
         });
 
         // DismissedIssue configuration

@@ -343,6 +343,56 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.ToTable("UniFiSshSettings", (string)null);
                 });
 
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.GatewaySshSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Host")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Iperf3Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastTestResult")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastTestedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Password")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PrivateKeyPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GatewaySshSettings", (string)null);
+                });
+
             modelBuilder.Entity("NetworkOptimizer.Storage.Models.DismissedIssue", b =>
                 {
                     b.Property<int>("Id")

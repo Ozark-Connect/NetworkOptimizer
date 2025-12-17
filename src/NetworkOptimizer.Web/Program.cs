@@ -51,6 +51,9 @@ builder.Services.AddSingleton<CellularModemService>();
 // Register iperf3 Speed Test service (singleton - tracks running tests, uses UniFiSshService)
 builder.Services.AddSingleton<Iperf3SpeedTestService>();
 
+// Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
+builder.Services.AddSingleton<GatewaySpeedTestService>();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
