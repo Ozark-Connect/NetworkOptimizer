@@ -289,9 +289,11 @@
                 issues.Count, lastResult.Networks.Count, lastResult.Switches.Count);
 
             // Build report data from audit results
+            // Use gateway name as client name, fallback to "Network"
+            var gatewayName = lastResult.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Network";
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
-                ClientName = "Network",
+                ClientName = gatewayName,
                 GeneratedAt = DateTime.Now,
                 SecurityScore = new NetworkOptimizer.Reports.SecurityScore
                 {
