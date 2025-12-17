@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NetworkOptimizer.Audit.Models;
 
 namespace NetworkOptimizer.Audit.Rules;
@@ -14,6 +15,11 @@ public class UnusedPortRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 2;
 
+    // Default port name patterns - ports with these names are considered unnamed
+    private static readonly Regex DefaultPortNamePattern = new(
+        @"^(Port\s*\d+|SFP\+?\s*\d+)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
     {
         // Only check ports that are down
@@ -28,6 +34,10 @@ public class UnusedPortRule : AuditRuleBase
         if (port.ForwardMode == "disabled")
             return null; // Correctly configured
 
+        // If port has a custom name (not default), skip it - device might just be off
+        if (!string.IsNullOrEmpty(port.Name) && !IsDefaultPortName(port.Name))
+            return null;
+
         return CreateIssue(
             "Unused port not disabled - should set forward mode to 'disabled'",
             port,
@@ -36,5 +46,10 @@ public class UnusedPortRule : AuditRuleBase
                 { "current_forward_mode", port.ForwardMode ?? "unknown" },
                 { "recommendation", "Set forward mode to 'disabled' to harden the switch" }
             });
+    }
+
+    private static bool IsDefaultPortName(string name)
+    {
+        return string.IsNullOrWhiteSpace(name) || DefaultPortNamePattern.IsMatch(name.Trim());
     }
 }
