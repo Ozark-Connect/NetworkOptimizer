@@ -183,18 +183,19 @@
         </div>
     </div>
 
-    <!-- Gateway SSH Configuration (for Speed Tests) -->
+    <!-- Gateway SSH Configuration -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Gateway SSH (Speed Tests)</h2>
+            <h2 class="card-title">Gateway SSH</h2>
             <span class="status-badge status-@(gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
                 @(gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
             </span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                Configure SSH credentials for your UniFi Gateway/UDM for iperf3 speed tests.
-                The gateway typically has different SSH credentials than network devices.
+                Configure SSH credentials for your UniFi Gateway/UDM. Used for gateway agents,
+                speed tests, and direct gateway management. The gateway typically has different
+                SSH credentials than network devices.
             </p>
 
             <div class="form-row">
@@ -235,7 +236,7 @@
             <div class="form-group">
                 <label class="form-check">
                     <input type="checkbox" @bind="gatewayEnabled" />
-                    <span>Enable gateway SSH access for speed tests</span>
+                    <span>Enable gateway SSH access</span>
                 </label>
             </div>
 
@@ -876,7 +877,7 @@
     private bool loadingDiscoveredModems = false;
     private bool modemFormExpanded = false;
 
-    // Gateway SSH (for Speed Tests)
+    // Gateway SSH
     private GatewaySshSettings? gatewaySettings;
     private string gatewayHost = "";
     private string gatewayUsername = "root";
