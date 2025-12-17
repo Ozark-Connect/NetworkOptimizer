@@ -428,6 +428,7 @@ public class PdfReportGenerator
     private void ComposeSwitchDetails(IContainer container, ReportData data)
     {
         var primaryColor = GetColor(_branding.Colors.Primary);
+        var criticalColor = GetColor(_branding.Colors.Critical);
 
         container.Column(column =>
         {
@@ -447,9 +448,21 @@ public class PdfReportGenerator
 
                 // Notes
                 var notes = new List<string>();
+
+                // MAC ACL support note
                 if (switchDevice.MaxCustomMacAcls == 0)
                 {
                     notes.Add($"Note: {switchDevice.ModelName} doesn't support MAC ACLs (max_custom_mac_acls=0)");
+                }
+
+                // Excluded VLANs notes
+                foreach (var port in switchDevice.Ports)
+                {
+                    if (port.ExcludedNetworks.Any())
+                    {
+                        var excludedStr = string.Join(", ", port.ExcludedNetworks);
+                        notes.Add($"Port {port.PortIndex} excludes: {excludedStr}");
+                    }
                 }
 
                 foreach (var note in notes)
@@ -460,6 +473,21 @@ public class PdfReportGenerator
                         .FontSize(8)
                         .Italic()
                         .FontColor(Colors.Grey.Medium);
+                }
+
+                // Critical issue callouts for this switch
+                var switchIssues = data.CriticalIssues.Where(i => i.SwitchName == switchDevice.Name).ToList();
+                foreach (var issue in switchIssues)
+                {
+                    var portDisplay = issue.PortIndex.HasValue
+                        ? $"Port {issue.PortIndex} ({issue.PortName})"
+                        : issue.PortName;
+
+                    column.Item()
+                        .PaddingTop(2)
+                        .Text($"■ {portDisplay}: {issue.RecommendedAction}")
+                        .FontSize(8)
+                        .FontColor(criticalColor);
                 }
 
                 column.Item().PaddingBottom(15);
