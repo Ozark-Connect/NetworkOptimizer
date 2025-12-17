@@ -120,6 +120,9 @@ public class VlanAnalyzer
         // Classify network
         var purpose = ClassifyNetwork(name, purposeStr);
 
+        // DEBUG: Log network classification
+        Console.WriteLine($"[VlanAnalyzer] Network '{name}' classified as: {purpose}");
+
         // Get subnet
         var subnet = network.TryGetProperty("ip_subnet", out var subnetProp)
             ? subnetProp.GetString()

@@ -30,6 +30,9 @@ public class CameraVlanRule : AuditRuleBase
             return null;
 
         // Check if it's on a security network
+        // DEBUG: Log network purpose for troubleshooting
+        Console.WriteLine($"[CameraVlanRule] Camera '{port.Name}' on network '{network.Name}' (ID: {network.Id}) has Purpose: {network.Purpose}");
+
         if (network.Purpose == NetworkPurpose.Security)
             return null; // Correctly placed
 
