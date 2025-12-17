@@ -149,9 +149,9 @@ public class PortDetail
     public string GetLinkStatus()
     {
         if (!IsUp) return "DOWN";
-        if (Speed >= 10000) return $"UP {Speed / 1000}G";
-        if (Speed >= 1000) return $"UP {Speed / 1000}G";
-        if (Speed > 0) return $"UP {Speed}M";
+        if (Speed >= 10000) return $"UP {Speed / 1000} G";
+        if (Speed >= 1000) return $"UP {Speed / 1000} G";
+        if (Speed > 0) return $"UP {Speed} M";
         return "DOWN";
     }
 
@@ -175,9 +175,9 @@ public class PortDetail
 
     public (string Status, PortStatusType StatusType) GetStatus(bool supportsAcls = true)
     {
-        // Check for critical issues first
+        // Check for possible IoT device on wrong VLAN (warning, not critical - needs user verification)
         if (IsIoTDeviceOnWrongVlan())
-            return ("Wrong VLAN", PortStatusType.Critical);
+            return ("Possible Wrong VLAN", PortStatusType.Warning);
 
         if (Forward == "disabled")
             return ("Disabled", PortStatusType.Ok);
