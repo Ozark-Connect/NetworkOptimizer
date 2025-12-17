@@ -1,6 +1,33 @@
 # Claude Code Project Notes
 
-## Deployment
+## Local Development (Windows)
+
+### Run with Docker
+```bash
+cd docker
+docker compose build --no-cache network-optimizer
+docker compose up -d
+```
+
+### Run without Docker
+```bash
+cd src/NetworkOptimizer.Web
+dotnet run
+```
+Access at http://localhost:5000
+
+### Build Only
+```bash
+dotnet build
+```
+
+### Publish
+```bash
+cd src/NetworkOptimizer.Web
+dotnet publish -c Release -o C:/NetworkOptimizer
+```
+
+## Production Deployment
 
 **Production Server:** `root@nas:/opt/network-optimizer`
 
