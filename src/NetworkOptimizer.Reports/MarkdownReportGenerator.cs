@@ -62,7 +62,7 @@ public class MarkdownReportGenerator
 
     private void ComposeHeader(StringBuilder sb, ReportData data)
     {
-        sb.AppendLine($"# {data.ClientName} Network Port Audit Report");
+        sb.AppendLine($"# {data.ClientName} Port Audit Report");
         sb.AppendLine();
         sb.AppendLine($"**Generated:** {data.GeneratedAt:MMMM dd, yyyy}");
         sb.AppendLine();
