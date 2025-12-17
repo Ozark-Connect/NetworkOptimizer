@@ -213,6 +213,29 @@
     private List<Services.AuditIssue> issues = new();
     private Services.AuditResult? lastResult;
 
+    protected override async Task OnInitializedAsync()
+    {
+        // Load previous audit results from database/cache
+        var previousResult = await AuditService.LoadLastAuditFromDatabaseAsync();
+        if (previousResult != null)
+        {
+            lastResult = previousResult;
+            securityScore = previousResult.Score;
+            scoreLabel = previousResult.ScoreLabel;
+            scoreClass = previousResult.ScoreClass;
+
+            // Use active (non-dismissed) issues
+            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            criticalCount = activeIssues.Count(i => i.Severity == "Critical");
+            warningCount = activeIssues.Count(i => i.Severity == "Warning");
+            infoCount = activeIssues.Count(i => i.Severity == "Info");
+            issues = activeIssues;
+
+            lastAuditTime = previousResult.CompletedAt.ToString("MMM dd, yyyy HH:mm");
+            hasResults = true;
+        }
+    }
+
     private async Task RunAudit()
     {
         isRunning = true;
@@ -236,10 +259,14 @@
             securityScore = result.Score;
             scoreLabel = result.ScoreLabel;
             scoreClass = result.ScoreClass;
-            criticalCount = result.CriticalCount;
-            warningCount = result.WarningCount;
-            infoCount = result.InfoCount;
-            issues = result.Issues;
+
+            // Use active (non-dismissed) issues
+            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            criticalCount = activeIssues.Count(i => i.Severity == "Critical");
+            warningCount = activeIssues.Count(i => i.Severity == "Warning");
+            infoCount = activeIssues.Count(i => i.Severity == "Info");
+            issues = activeIssues;
+
             lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
         }
