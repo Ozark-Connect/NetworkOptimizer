@@ -152,11 +152,11 @@
         if (alert != null)
         {
             // Find the original issue and dismiss it in the service
-            var activeIssues = AuditService.GetActiveIssues();
+            var activeIssues = await AuditService.GetActiveIssuesAsync();
             var issue = activeIssues.FirstOrDefault(i => AuditService.GetIssueKey(i) == alert.IssueKey);
             if (issue != null)
             {
-                AuditService.DismissIssue(issue);
+                await AuditService.DismissIssueAsync(issue);
             }
             alerts.Remove(alert);
 

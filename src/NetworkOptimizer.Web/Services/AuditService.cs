@@ -21,6 +21,7 @@ public class AuditService
 
     // Track dismissed issues (by unique key: Title + DeviceName + Port)
     private readonly HashSet<string> _dismissedIssues = new();
+    private bool _dismissedIssuesLoaded = false;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -34,6 +35,33 @@ public class AuditService
         _serviceProvider = serviceProvider;
     }
 
+    /// <summary>
+    /// Ensure dismissed issues are loaded from database
+    /// </summary>
+    private async Task EnsureDismissedIssuesLoadedAsync()
+    {
+        if (_dismissedIssuesLoaded) return;
+
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var dismissed = await db.DismissedIssues.ToListAsync();
+            foreach (var issue in dismissed)
+            {
+                _dismissedIssues.Add(issue.IssueKey);
+            }
+            _dismissedIssuesLoaded = true;
+            _logger.LogInformation("Loaded {Count} dismissed issues from database", dismissed.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load dismissed issues from database");
+            _dismissedIssuesLoaded = true; // Don't retry on every call
+        }
+    }
+
     public AuditResult? LastAuditResult => _lastAuditResult;
     public DateTime? LastAuditTime => _lastAuditTime;
 
@@ -44,13 +72,39 @@ public class AuditService
         $"{issue.Title}|{issue.DeviceName}|{issue.Port}";
 
     /// <summary>
-    /// Dismiss an issue (excludes it from counts until next audit)
+    /// Dismiss an issue (excludes it from counts, persisted to database)
+    /// </summary>
+    public async Task DismissIssueAsync(AuditIssue issue)
+    {
+        var key = GetIssueKey(issue);
+        if (_dismissedIssues.Add(key))
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+                db.DismissedIssues.Add(new DismissedIssue
+                {
+                    IssueKey = key,
+                    DismissedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+                _logger.LogInformation("Dismissed and persisted issue: {Key}", key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to persist dismissed issue: {Key}", key);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dismiss an issue (sync wrapper for backward compatibility)
     /// </summary>
     public void DismissIssue(AuditIssue issue)
     {
-        var key = GetIssueKey(issue);
-        _dismissedIssues.Add(key);
-        _logger.LogInformation("Dismissed issue: {Key}", key);
+        _ = DismissIssueAsync(issue);
     }
 
     /// <summary>
@@ -62,8 +116,21 @@ public class AuditService
     /// <summary>
     /// Get active (non-dismissed) issues
     /// </summary>
-    public List<AuditIssue> GetActiveIssues() =>
-        _lastAuditResult?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+    public List<AuditIssue> GetActiveIssues()
+    {
+        // Synchronously ensure loaded (will be a no-op after first call)
+        EnsureDismissedIssuesLoadedAsync().GetAwaiter().GetResult();
+        return _lastAuditResult?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+    }
+
+    /// <summary>
+    /// Get active (non-dismissed) issues (async version)
+    /// </summary>
+    public async Task<List<AuditIssue>> GetActiveIssuesAsync()
+    {
+        await EnsureDismissedIssuesLoadedAsync();
+        return _lastAuditResult?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+    }
 
     /// <summary>
     /// Get count of active critical issues
@@ -78,9 +145,31 @@ public class AuditService
         GetActiveIssues().Count(i => i.Severity == "Warning");
 
     /// <summary>
-    /// Clear dismissed issues (called when running a new audit)
+    /// Clear all dismissed issues (removes from database too)
     /// </summary>
-    public void ClearDismissedIssues() => _dismissedIssues.Clear();
+    public async Task ClearDismissedIssuesAsync()
+    {
+        _dismissedIssues.Clear();
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var all = await db.DismissedIssues.ToListAsync();
+            db.DismissedIssues.RemoveRange(all);
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Cleared {Count} dismissed issues from database", all.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear dismissed issues from database");
+        }
+    }
+
+    /// <summary>
+    /// Clear dismissed issues (sync wrapper)
+    /// </summary>
+    public void ClearDismissedIssues() => ClearDismissedIssuesAsync().GetAwaiter().GetResult();
 
     /// <summary>
     /// Load the most recent audit result from the database

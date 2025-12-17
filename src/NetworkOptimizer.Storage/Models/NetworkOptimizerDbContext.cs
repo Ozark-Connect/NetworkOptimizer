@@ -20,6 +20,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DeviceSshConfiguration> DeviceSshConfigurations { get; set; }
     public DbSet<Iperf3Result> Iperf3Results { get; set; }
     public DbSet<UniFiSshSettings> UniFiSshSettings { get; set; }
+    public DbSet<DismissedIssue> DismissedIssues { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -90,6 +91,13 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<UniFiSshSettings>(entity =>
         {
             entity.ToTable("UniFiSshSettings");
+        });
+
+        // DismissedIssue configuration
+        modelBuilder.Entity<DismissedIssue>(entity =>
+        {
+            entity.ToTable("DismissedIssues");
+            entity.HasIndex(e => e.IssueKey).IsUnique();
         });
     }
 }
