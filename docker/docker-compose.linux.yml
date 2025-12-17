@@ -13,7 +13,7 @@ services:
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-America/Chicago}
-      - ASPNETCORE_URLS=http://127.0.0.1:8042
+      - ASPNETCORE_URLS=http://0.0.0.0:8042
       # Point to existing InfluxDB if desired (optional)
       # - INFLUXDB_URL=http://localhost:8086
       # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
