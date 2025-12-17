@@ -1,5 +1,6 @@
 @page "/audit"
 @inject AuditService AuditService
+@inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
 
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
@@ -121,10 +122,37 @@
                             </div>
                             <div class="issue-title">@issue.Title</div>
                             <div class="issue-description">@issue.Description</div>
+
+                            @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
+                            {
+                                <div class="issue-context">
+                                    @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                    {
+                                        <span class="context-item"><strong>Switch:</strong> @issue.DeviceName</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(issue.Port))
+                                    {
+                                        <span class="context-item"><strong>Port:</strong> @issue.Port</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(issue.PortName))
+                                    {
+                                        <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
+                                    {
+                                        <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                    }
+                                </div>
+                            }
+
                             @if (!string.IsNullOrEmpty(issue.Recommendation))
                             {
                                 <div class="issue-recommendation">
                                     <strong>Recommendation:</strong> @issue.Recommendation
+                                    @if (!string.IsNullOrEmpty(issue.RecommendedNetwork))
+                                    {
+                                        <span> → Move to @issue.RecommendedNetwork@(issue.RecommendedVlan.HasValue ? $" (VLAN {issue.RecommendedVlan})" : "")</span>
+                                    }
                                 </div>
                             }
                         </div>
@@ -235,8 +263,67 @@
 
     private async Task ExportReport()
     {
-        // TODO: Implement report export
-        await Task.CompletedTask;
+        if (!hasResults || !issues.Any())
+            return;
+
+        try
+        {
+            // Build report data from audit results
+            var reportData = new NetworkOptimizer.Reports.ReportData
+            {
+                ClientName = "Network",
+                GeneratedAt = DateTime.Now,
+                SecurityScore = new NetworkOptimizer.Reports.SecurityScore
+                {
+                    Rating = securityScore >= 90 ? NetworkOptimizer.Reports.SecurityRating.Excellent
+                           : securityScore >= 75 ? NetworkOptimizer.Reports.SecurityRating.Good
+                           : securityScore >= 60 ? NetworkOptimizer.Reports.SecurityRating.Fair
+                           : NetworkOptimizer.Reports.SecurityRating.NeedsWork,
+                    CriticalIssueCount = criticalCount,
+                    WarningCount = warningCount
+                },
+                CriticalIssues = issues
+                    .Where(i => i.Severity == "Critical")
+                    .Select(i => new NetworkOptimizer.Reports.AuditIssue
+                    {
+                        Severity = NetworkOptimizer.Reports.IssueSeverity.Critical,
+                        SwitchName = i.DeviceName ?? "Unknown",
+                        PortIndex = int.TryParse(i.Port, out var p) ? p : null,
+                        PortName = i.PortName ?? "",
+                        CurrentNetwork = i.CurrentNetwork ?? "",
+                        CurrentVlan = i.CurrentVlan,
+                        Message = i.Description,
+                        RecommendedAction = i.Recommendation
+                    })
+                    .ToList(),
+                RecommendedImprovements = issues
+                    .Where(i => i.Severity == "Warning")
+                    .Select(i => new NetworkOptimizer.Reports.AuditIssue
+                    {
+                        Severity = NetworkOptimizer.Reports.IssueSeverity.Warning,
+                        SwitchName = i.DeviceName ?? "Unknown",
+                        PortIndex = int.TryParse(i.Port, out var p) ? p : null,
+                        PortName = i.PortName ?? "",
+                        CurrentNetwork = i.CurrentNetwork ?? "",
+                        CurrentVlan = i.CurrentVlan,
+                        Message = i.Description,
+                        RecommendedAction = i.Recommendation
+                    })
+                    .ToList()
+            };
+
+            // Generate PDF
+            var generator = new NetworkOptimizer.Reports.PdfReportGenerator();
+            var pdfBytes = generator.GenerateReportBytes(reportData);
+
+            // Download file via JS interop
+            var fileName = $"NetworkAudit_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/pdf", Convert.ToBase64String(pdfBytes));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error generating PDF: {ex.Message}");
+        }
     }
 
     private IEnumerable<Services.AuditIssue> GetFilteredIssues()

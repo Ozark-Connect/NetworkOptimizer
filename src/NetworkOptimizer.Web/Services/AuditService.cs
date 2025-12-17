@@ -281,7 +281,15 @@ public class AuditService
                 Category = category,
                 Title = GetIssueTitle(issue.Type, issue.Message),
                 Description = issue.Message,
-                Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type)
+                Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
+                // Context fields
+                DeviceName = issue.DeviceName,
+                Port = issue.Port,
+                PortName = issue.PortName,
+                CurrentNetwork = issue.CurrentNetwork,
+                CurrentVlan = issue.CurrentVlan,
+                RecommendedNetwork = issue.RecommendedNetwork,
+                RecommendedVlan = issue.RecommendedVlan
             });
         }
 
@@ -428,6 +436,15 @@ public class AuditIssue
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
     public string Recommendation { get; set; } = "";
+
+    // Context fields
+    public string? DeviceName { get; set; }
+    public string? Port { get; set; }
+    public string? PortName { get; set; }
+    public string? CurrentNetwork { get; set; }
+    public int? CurrentVlan { get; set; }
+    public string? RecommendedNetwork { get; set; }
+    public int? RecommendedVlan { get; set; }
 }
 
 public class AuditSummary
