@@ -13,13 +13,14 @@ services:
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-America/Chicago}
+      - ASPNETCORE_URLS=http://+:8042
       # Point to existing InfluxDB if desired (optional)
       # - INFLUXDB_URL=http://localhost:8086
       # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
       # - INFLUXDB_ORG=${INFLUXDB_ORG:-network-optimizer}
       # - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
