@@ -109,12 +109,18 @@ public class SecurityAuditEngine
             ? macAddrProp.GetString()
             : null;
 
-        // Get model
+        // Get model info
         var model = device.TryGetProperty("model", out var modelProp)
             ? modelProp.GetString()
             : null;
+        var shortname = device.TryGetProperty("shortname", out var shortnameProp)
+            ? shortnameProp.GetString()
+            : null;
+        var modelDisplay = device.TryGetProperty("model_display", out var modelDisplayProp)
+            ? modelDisplayProp.GetString()
+            : null;
 
-        var modelName = GetFriendlyModelName(model);
+        var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
 
         // Get IP
         var ip = device.TryGetProperty("ip", out var ipProp)
@@ -310,35 +316,6 @@ public class SecurityAuditEngine
         if (name.StartsWith("[Switch] "))
             return name.Substring(9);
         return name;
-    }
-
-    /// <summary>
-    /// Get friendly model name
-    /// </summary>
-    private string GetFriendlyModelName(string? modelCode)
-    {
-        if (string.IsNullOrEmpty(modelCode))
-            return "Unknown";
-
-        var modelMap = new Dictionary<string, string>
-        {
-            { "UCG-Ultra", "UCG-Ultra" },
-            { "UCGULTRA", "UCG-Ultra" },
-            { "UDMA6A8", "UCG-Ultra" },
-            { "USW-Enterprise-8-PoE", "USW-Enterprise-8-PoE" },
-            { "USWENTERPRISE8POE", "USW-Enterprise-8-PoE" },
-            { "USWED76", "USW-Enterprise-8-PoE" },
-            { "USW-Flex-Mini", "USW-Flex-Mini" },
-            { "USWFLEXMINI", "USW-Flex-Mini" },
-            { "USMINI", "USW-Flex-Mini" },
-            { "USW-Lite-8-PoE", "USW-Lite-8-PoE" },
-            { "USWLITE8POE", "USW-Lite-8-PoE" },
-            { "USL8LPB", "USW-Lite-8-PoE" },
-            { "USW-Pro-24-PoE", "USW-Pro-24-PoE" },
-            { "USW-Pro-48-PoE", "USW-Pro-48-PoE" }
-        };
-
-        return modelMap.TryGetValue(modelCode, out var friendlyName) ? friendlyName : modelCode;
     }
 
     /// <summary>
