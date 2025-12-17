@@ -52,11 +52,15 @@
         <!-- Carrier Info -->
         <div class="carrier-info">
             <span class="carrier-name">@modemStats.Carrier</span>
+            <span class="network-mode-badge @GetNetworkModeBadgeClass()">@modemStats.NetworkModeLabel</span>
             @if (modemStats.IsRoaming)
             {
                 <span class="roaming-badge">Roaming</span>
             }
             <span class="registration-state">@modemStats.RegistrationState</span>
+        </div>
+        <div class="network-mode-description">
+            @modemStats.NetworkModeDescription
         </div>
 
         <!-- Signal Metrics Grid -->
@@ -219,6 +223,39 @@
     .carrier-name {
         font-weight: 600;
         color: var(--text-primary, #fff);
+    }
+
+    .network-mode-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .network-mode-badge.mode-5g-sa {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        color: #fff;
+    }
+
+    .network-mode-badge.mode-5g-nsa {
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+        color: #fff;
+    }
+
+    .network-mode-badge.mode-lte {
+        background: linear-gradient(135deg, #0ea5e9, #0284c7);
+        color: #fff;
+    }
+
+    .network-mode-badge.mode-unknown {
+        background: var(--text-muted, #666);
+        color: #fff;
+    }
+
+    .network-mode-description {
+        font-size: 0.75rem;
+        color: var(--text-muted, #888);
+        font-style: italic;
     }
 
     .roaming-badge {
@@ -395,5 +432,18 @@
         // Use 5G signal if available, otherwise LTE
         var signal = modemStats.Nr5g ?? modemStats.Lte;
         return signal?.Bars ?? 0;
+    }
+
+    private string GetNetworkModeBadgeClass()
+    {
+        if (modemStats == null) return "mode-unknown";
+
+        return modemStats.NetworkMode switch
+        {
+            CellularNetworkMode.Nr5gSa => "mode-5g-sa",
+            CellularNetworkMode.Nr5gNsa => "mode-5g-nsa",
+            CellularNetworkMode.Lte => "mode-lte",
+            _ => "mode-unknown"
+        };
     }
 }

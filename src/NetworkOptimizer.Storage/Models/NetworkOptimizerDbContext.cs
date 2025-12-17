@@ -17,6 +17,9 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<AgentConfiguration> AgentConfigurations { get; set; }
     public DbSet<LicenseInfo> Licenses { get; set; }
     public DbSet<ModemConfiguration> ModemConfigurations { get; set; }
+    public DbSet<DeviceSshConfiguration> DeviceSshConfigurations { get; set; }
+    public DbSet<Iperf3Result> Iperf3Results { get; set; }
+    public DbSet<UniFiSshSettings> UniFiSshSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,6 +67,29 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("ModemConfigurations");
             entity.HasIndex(e => e.Host);
             entity.HasIndex(e => e.Enabled);
+        });
+
+        // DeviceSshConfiguration configuration
+        modelBuilder.Entity<DeviceSshConfiguration>(entity =>
+        {
+            entity.ToTable("DeviceSshConfigurations");
+            entity.HasIndex(e => e.Host);
+            entity.HasIndex(e => e.Enabled);
+        });
+
+        // Iperf3Result configuration
+        modelBuilder.Entity<Iperf3Result>(entity =>
+        {
+            entity.ToTable("Iperf3Results");
+            entity.HasIndex(e => e.DeviceHost);
+            entity.HasIndex(e => e.TestTime);
+            entity.HasIndex(e => new { e.DeviceHost, e.TestTime });
+        });
+
+        // UniFiSshSettings configuration (singleton - only one row)
+        modelBuilder.Entity<UniFiSshSettings>(entity =>
+        {
+            entity.ToTable("UniFiSshSettings");
         });
     }
 }

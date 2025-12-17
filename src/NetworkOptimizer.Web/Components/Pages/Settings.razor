@@ -5,6 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject SqmService SqmService
 @inject CellularModemService ModemService
+@inject UniFiSshService SshService
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
 
@@ -181,6 +182,92 @@
         </div>
     </div>
 
+    <!-- UniFi Device SSH Configuration -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">UniFi Device SSH</h2>
+            <span class="status-badge status-@(sshSettings?.Enabled == true ? "connected" : "disconnected")">
+                @(sshSettings?.Enabled == true ? "Configured" : "Not Configured")
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure shared SSH credentials for UniFi network devices (Access Points, Switches, Modems).
+                All UniFi devices on a network share the same SSH credentials.
+                These credentials are used for cellular modem monitoring and speed tests.
+            </p>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                    <label class="form-label">Username</label>
+                    <input type="text" class="form-control" @bind="sshUsername" placeholder="root" />
+                    <small class="form-help">Usually 'root' for UniFi devices</small>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label">Port</label>
+                    <input type="number" class="form-control" @bind="sshPort" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="SSH password" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Private Key Path (alternative to password)</label>
+                <input type="text" class="form-control" @bind="sshPrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
+                <small class="form-help">Leave blank to use password authentication</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-check">
+                    <input type="checkbox" @bind="sshEnabled" />
+                    <span>Enable SSH access for device operations</span>
+                </label>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveSshSettings" disabled="@savingSshSettings">
+                    @if (savingSshSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save SSH Settings</span>
+                    }
+                </button>
+                <button class="btn btn-secondary" @onclick="TestSshConnection" disabled="@testingSshConnection">
+                    @if (testingSshConnection)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test Connection</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(sshMessage))
+            {
+                <div class="alert alert-@sshMessageClass">
+                    @sshMessage
+                </div>
+            }
+
+            @if (sshSettings?.LastTestedAt != null)
+            {
+                <div class="form-help" style="margin-top: 1rem;">
+                    Last tested: @sshSettings.LastTestedAt?.ToString("g") - @sshSettings.LastTestResult
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- Cellular Modem Configuration -->
     <div class="card">
         <div class="card-header">
@@ -189,10 +276,84 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Configure SSH access to cellular modems (U5G-Max, etc.) for signal strength and cell info monitoring.
-                Stats are polled every 5 minutes.
+                Monitor cellular modems (U5G-Max, etc.) for signal strength and cell info.
+                Stats are polled every 5 minutes. Requires SSH credentials configured above.
             </p>
 
+            <!-- Discovered Modems from UniFi Controller -->
+            <h4>Auto-Discovered Modems</h4>
+            <div class="action-buttons" style="margin-bottom: 1rem;">
+                <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
+                    @if (loadingDiscoveredModems)
+                    {
+                        <span class="spinner"></span>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <span>Scan for Modems</span>
+                    }
+                </button>
+            </div>
+
+            @if (!ConnectionService.IsConnected)
+            {
+                <p class="form-help">Connect to UniFi controller above to discover modems automatically.</p>
+            }
+            else if (discoveredModems.Count > 0)
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Model</th>
+                            <th>Host</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var discovered in discoveredModems)
+                        {
+                            var isConfigured = modemConfigs.Any(m => m.Host == discovered.Host);
+                            <tr>
+                                <td>@discovered.Name</td>
+                                <td><code>@discovered.Model</code></td>
+                                <td><code>@discovered.Host</code></td>
+                                <td>
+                                    @if (discovered.IsOnline)
+                                    {
+                                        <span class="status-badge status-connected">Online</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Offline</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (isConfigured)
+                                    {
+                                        <span class="status-badge status-connected">Configured</span>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-success btn-sm" @onclick="() => AddDiscoveredModem(discovered)" disabled="@savingModem">
+                                            Add
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else if (ConnectionService.IsConnected && !loadingDiscoveredModems)
+            {
+                <p class="form-help">No cellular modems (U5G-Max, U-LTE) found. Click "Scan for Modems" to search.</p>
+            }
+
+            <!-- Configured Modems -->
+            <h4 style="margin-top: 1.5rem;">Configured Modems</h4>
             @if (modemConfigs.Count > 0)
             {
                 <table class="data-table">
@@ -234,82 +395,69 @@
             }
             else
             {
-                <p class="empty-state">No modems configured. Add a modem to monitor cellular signal stats.</p>
+                <p class="empty-state">No modems configured. Scan for modems above or add one manually.</p>
             }
 
-            <h4 style="margin-top: 1.5rem;">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem")</h4>
+            <!-- Manual Add Form (collapsed by default) -->
+            <details style="margin-top: 1.5rem;">
+                <summary style="cursor: pointer; font-weight: 500;">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+                <div style="padding-top: 1rem;">
+                    <p class="form-help">
+                        Only use manual entry if auto-discovery doesn't find your modem.
+                    </p>
 
-            <div class="form-group">
-                <label class="form-label">Name</label>
-                <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
-            </div>
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
+                        </div>
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Host / IP</label>
+                            <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                        </div>
+                    </div>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 2;">
-                    <label class="form-label">Host</label>
-                    <input type="text" class="form-control" @bind="editingModem.Host" placeholder="modem-5g or 192.168.1.100" />
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">QMI Device Path</label>
+                            <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Polling Interval (sec)</label>
+                            <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-check">
+                            <input type="checkbox" @bind="editingModem.Enabled" />
+                            <span>Enable polling</span>
+                        </label>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveModem" disabled="@savingModem">
+                            @if (savingModem)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(editingModem?.Id > 0 ? "Update Modem" : "Add Modem")</span>
+                            }
+                        </button>
+                        @if (editingModem?.Id > 0)
+                        {
+                            <button class="btn btn-secondary" @onclick="CancelEditModem">Cancel</button>
+                        }
+                    </div>
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label class="form-label">Port</label>
-                    <input type="number" class="form-control" @bind="editingModem.Port" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="editingModem.Username" placeholder="root" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Password (or leave blank for SSH key)</label>
-                <input type="password" class="form-control" @bind="editingModem.Password" placeholder="SSH password" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Private Key Path (optional)</label>
-                <input type="text" class="form-control" @bind="editingModem.PrivateKeyPath" placeholder="/app/ssh-keys/id_rsa" />
-                <small class="form-help">Leave blank to use password or SSH agent</small>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">QMI Device Path</label>
-                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Polling Interval (seconds)</label>
-                <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
-                <small class="form-help">Minimum 60 seconds, recommended 300 (5 minutes)</small>
-            </div>
-
-            <div class="form-group">
-                <label class="form-check">
-                    <input type="checkbox" @bind="editingModem.Enabled" />
-                    <span>Enable polling</span>
-                </label>
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="SaveModem" disabled="@savingModem">
-                    @if (savingModem)
-                    {
-                        <span class="spinner"></span>
-                        <span>Saving...</span>
-                    }
-                    else
-                    {
-                        <span>@(editingModem?.Id > 0 ? "Update Modem" : "Add Modem")</span>
-                    }
-                </button>
-                @if (editingModem?.Id > 0)
-                {
-                    <button class="btn btn-secondary" @onclick="CancelEditModem">Cancel</button>
-                }
-            </div>
+            </details>
 
             @if (!string.IsNullOrEmpty(modemMessage))
             {
-                <div class="alert alert-@modemMessageClass">
+                <div class="alert alert-@modemMessageClass" style="margin-top: 1rem;">
                     @modemMessage
                 </div>
             }
@@ -572,6 +720,20 @@
     private bool savingModem = false;
     private string modemMessage = "";
     private string modemMessageClass = "";
+    private List<DiscoveredModem> discoveredModems = new();
+    private bool loadingDiscoveredModems = false;
+
+    // UniFi Device SSH
+    private UniFiSshSettings? sshSettings;
+    private string sshUsername = "root";
+    private string sshPassword = "";
+    private string sshPrivateKeyPath = "";
+    private int sshPort = 22;
+    private bool sshEnabled = false;
+    private bool savingSshSettings = false;
+    private bool testingSshConnection = false;
+    private string sshMessage = "";
+    private string sshMessageClass = "";
 
     // InfluxDB
     private string influxUrl = "http://influxdb:8086";
@@ -612,7 +774,114 @@
         }
 
         UpdateControllerStatus();
+        await LoadSshSettings();
         await LoadModemConfigs();
+        await LoadDiscoveredModems();
+    }
+
+    private async Task LoadSshSettings()
+    {
+        try
+        {
+            sshSettings = await SshService.GetSettingsAsync();
+            sshUsername = sshSettings.Username;
+            sshPort = sshSettings.Port;
+            sshPrivateKeyPath = sshSettings.PrivateKeyPath ?? "";
+            sshEnabled = sshSettings.Enabled;
+            // Don't load password - keep it empty for security
+        }
+        catch (Exception ex)
+        {
+            sshMessage = $"Error loading SSH settings: {ex.Message}";
+            sshMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveSshSettings()
+    {
+        savingSshSettings = true;
+        sshMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var settings = sshSettings ?? new UniFiSshSettings();
+            settings.Username = sshUsername;
+            settings.Port = sshPort;
+            settings.PrivateKeyPath = string.IsNullOrWhiteSpace(sshPrivateKeyPath) ? null : sshPrivateKeyPath;
+            settings.Enabled = sshEnabled;
+
+            // Only update password if a new one was entered
+            if (!string.IsNullOrEmpty(sshPassword))
+            {
+                settings.Password = sshPassword;
+            }
+
+            sshSettings = await SshService.SaveSettingsAsync(settings);
+            sshPassword = ""; // Clear password field
+            sshMessage = "SSH settings saved successfully";
+            sshMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            sshMessage = $"Error saving SSH settings: {ex.Message}";
+            sshMessageClass = "danger";
+        }
+        finally
+        {
+            savingSshSettings = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestSshConnection()
+    {
+        // Need a host to test - prompt user or use first configured device
+        var devices = await SshService.GetDevicesAsync();
+        if (!devices.Any())
+        {
+            sshMessage = "No devices configured. Add a device in the Speed Test page first, then test the connection.";
+            sshMessageClass = "warning";
+            StateHasChanged();
+            return;
+        }
+
+        testingSshConnection = true;
+        sshMessage = $"Testing SSH connection to {devices.First().Name}...";
+        sshMessageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            // Save settings first if password was entered
+            if (!string.IsNullOrEmpty(sshPassword))
+            {
+                await SaveSshSettings();
+            }
+
+            var (success, message) = await SshService.TestConnectionAsync(devices.First().Host);
+            if (success)
+            {
+                sshMessage = $"SSH connection to {devices.First().Name} successful!";
+                sshMessageClass = "success";
+                await LoadSshSettings(); // Refresh to show last tested time
+            }
+            else
+            {
+                sshMessage = $"SSH connection failed: {message}";
+                sshMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            sshMessage = $"Error: {ex.Message}";
+            sshMessageClass = "danger";
+        }
+        finally
+        {
+            testingSshConnection = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadModemConfigs()
@@ -627,6 +896,78 @@
             modemStatus = "Error";
             modemMessage = $"Error loading modem configs: {ex.Message}";
             modemMessageClass = "danger";
+        }
+    }
+
+    private async Task LoadDiscoveredModems()
+    {
+        if (!ConnectionService.IsConnected)
+        {
+            return;
+        }
+
+        loadingDiscoveredModems = true;
+        StateHasChanged();
+
+        try
+        {
+            discoveredModems = await ModemService.DiscoverModemsAsync();
+        }
+        catch (Exception ex)
+        {
+            modemMessage = $"Error discovering modems: {ex.Message}";
+            modemMessageClass = "warning";
+        }
+        finally
+        {
+            loadingDiscoveredModems = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddDiscoveredModem(DiscoveredModem discovered)
+    {
+        // Check if already configured
+        if (modemConfigs.Any(m => m.Host == discovered.Host))
+        {
+            modemMessage = $"{discovered.Name} is already configured";
+            modemMessageClass = "warning";
+            StateHasChanged();
+            return;
+        }
+
+        savingModem = true;
+        modemMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = new ModemConfiguration
+            {
+                Name = discovered.Name,
+                Host = discovered.Host,
+                Port = 22,
+                Username = "root",
+                ModemType = discovered.Model,
+                QmiDevice = "/dev/wwan0qmi0",
+                PollingIntervalSeconds = 300,
+                Enabled = true
+            };
+
+            await ModemService.SaveModemAsync(config);
+            modemMessage = $"Added {discovered.Name} to monitored modems";
+            modemMessageClass = "success";
+            await LoadModemConfigs();
+        }
+        catch (Exception ex)
+        {
+            modemMessage = $"Error adding modem: {ex.Message}";
+            modemMessageClass = "danger";
+        }
+        finally
+        {
+            savingModem = false;
+            StateHasChanged();
         }
     }
 
@@ -918,7 +1259,7 @@
 
         try
         {
-            var (success, message) = await ModemService.TestConnectionAsync(modem);
+            var (success, message) = await ModemService.TestConnectionAsync(modem.Host);
             if (success)
             {
                 modemMessage = $"Connection to {modem.Name} successful!";

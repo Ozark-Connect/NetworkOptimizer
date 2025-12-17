@@ -1,31 +1,41 @@
-using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Storage.Models;
-using NetworkOptimizer.Storage.Services;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Service for polling cellular modem stats via SSH
+/// Service for polling cellular modem stats via SSH.
+/// Uses shared UniFiSshService for SSH operations.
+/// Auto-discovers U5G-Max modems from UniFi device list.
 /// </summary>
 public class CellularModemService : IDisposable
 {
     private readonly ILogger<CellularModemService> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly CredentialProtectionService _credentialProtection;
+    private readonly UniFiSshService _sshService;
+    private readonly UniFiConnectionService _connectionService;
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
     private CellularModemStats? _lastStats;
     private bool _isPolling;
 
-    public CellularModemService(ILogger<CellularModemService> logger, IServiceProvider serviceProvider)
+    // Default QMI device path for U5G-Max
+    private const string DefaultQmiDevice = "/dev/wwan0qmi0";
+    private const int DefaultPollingIntervalSeconds = 300;
+
+    public CellularModemService(
+        ILogger<CellularModemService> logger,
+        IServiceProvider serviceProvider,
+        UniFiSshService sshService,
+        UniFiConnectionService connectionService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _credentialProtection = new CredentialProtectionService();
+        _sshService = sshService;
+        _connectionService = connectionService;
 
         // Start polling timer (checks every minute, but respects per-modem intervals)
         _pollingTimer = new Timer(PollAllModems, null, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
@@ -43,26 +53,80 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Poll a specific modem immediately
+    /// Auto-discover U5G-Max modems from UniFi device list
     /// </summary>
-    public async Task<CellularModemStats?> PollModemAsync(ModemConfiguration config)
+    public async Task<List<DiscoveredModem>> DiscoverModemsAsync()
     {
-        _logger.LogInformation("Polling modem {Name} at {Host}", config.Name, config.Host);
+        var discovered = new List<DiscoveredModem>();
+
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogWarning("Cannot discover modems: UniFi controller not connected");
+            return discovered;
+        }
+
+        try
+        {
+            var devices = await _connectionService.Client.GetDevicesAsync();
+
+            foreach (var device in devices)
+            {
+                // Look for U5G-Max devices - check model, shortname, and type
+                var model = device.Model?.ToUpperInvariant() ?? "";
+                var shortname = device.Shortname?.ToUpperInvariant() ?? "";
+                var type = device.Type?.ToUpperInvariant() ?? "";
+
+                // U5G-Max appears as shortname "U5GMAX" or type "umbb"
+                bool isCellularModem = model.Contains("U5G") || model.Contains("ULTE") || model.Contains("U-LTE") ||
+                                       shortname.Contains("U5G") || shortname.Contains("ULTE") || shortname.Contains("U-LTE") ||
+                                       type.Contains("UMBB") || type == "LTE";
+
+                if (isCellularModem)
+                {
+                    var displayModel = !string.IsNullOrEmpty(device.Shortname) ? device.Shortname : device.Model ?? "Unknown";
+                    discovered.Add(new DiscoveredModem
+                    {
+                        DeviceId = device.Id,
+                        Name = device.Name,
+                        Model = displayModel,
+                        Host = device.Ip ?? "",
+                        MacAddress = device.Mac,
+                        IsOnline = device.State == 1 && device.Adopted
+                    });
+                    _logger.LogInformation("Discovered cellular modem: {Name} ({Model}/{Shortname}) at {Host}",
+                        device.Name, device.Model, device.Shortname, device.Ip);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error discovering modems from UniFi controller");
+        }
+
+        return discovered;
+    }
+
+    /// <summary>
+    /// Poll a modem by host IP using shared SSH credentials
+    /// </summary>
+    public async Task<CellularModemStats?> PollModemAsync(string host, string name, string qmiDevice = DefaultQmiDevice)
+    {
+        _logger.LogInformation("Polling modem {Name} at {Host}", name, host);
 
         try
         {
             var stats = new CellularModemStats
             {
-                ModemHost = config.Host,
-                ModemName = config.Name,
+                ModemHost = host,
+                ModemName = name,
                 Timestamp = DateTime.UtcNow
             };
 
-            // Run all qmicli commands
-            var signalTask = RunSshCommandAsync(config, $"qmicli -d {config.QmiDevice} --device-open-proxy --nas-get-signal-info");
-            var servingTask = RunSshCommandAsync(config, $"qmicli -d {config.QmiDevice} --device-open-proxy --nas-get-serving-system");
-            var cellTask = RunSshCommandAsync(config, $"qmicli -d {config.QmiDevice} --device-open-proxy --nas-get-cell-location-info");
-            var bandTask = RunSshCommandAsync(config, $"qmicli -d {config.QmiDevice} --device-open-proxy --nas-get-rf-band-info");
+            // Run all qmicli commands using shared SSH service
+            var signalTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info");
+            var servingTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system");
+            var cellTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info");
+            var bandTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info");
 
             await Task.WhenAll(signalTask, servingTask, cellTask, bandTask);
 
@@ -105,44 +169,36 @@ public class CellularModemService : IDisposable
                 _lastStats = stats;
             }
 
-            // Update config in database
-            await UpdateModemConfigAsync(config.Id, null);
-
             _logger.LogInformation("Successfully polled modem {Name}: {Carrier}, Signal Quality: {Quality}%",
-                config.Name, stats.Carrier, stats.SignalQuality);
+                name, stats.Carrier, stats.SignalQuality);
 
             return stats;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error polling modem {Name}", config.Name);
-            await UpdateModemConfigAsync(config.Id, ex.Message);
+            _logger.LogError(ex, "Error polling modem {Name}", name);
             return null;
         }
     }
 
     /// <summary>
-    /// Test SSH connection to a modem
+    /// Poll a modem using legacy ModemConfiguration (for backward compatibility)
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync(ModemConfiguration config)
+    public async Task<CellularModemStats?> PollModemAsync(ModemConfiguration config)
     {
-        try
-        {
-            var result = await RunSshCommandAsync(config, "echo 'Connection successful'");
-            if (result.success && result.output.Contains("Connection successful"))
-            {
-                return (true, "SSH connection successful");
-            }
-            return (false, result.output);
-        }
-        catch (Exception ex)
-        {
-            return (false, ex.Message);
-        }
+        return await PollModemAsync(config.Host, config.Name, config.QmiDevice);
     }
 
     /// <summary>
-    /// Get all configured modems
+    /// Test SSH connection to a modem using shared credentials
+    /// </summary>
+    public async Task<(bool success, string message)> TestConnectionAsync(string host)
+    {
+        return await _sshService.TestConnectionAsync(host);
+    }
+
+    /// <summary>
+    /// Get all configured modems (legacy)
     /// </summary>
     public async Task<List<ModemConfiguration>> GetModemsAsync()
     {
@@ -152,7 +208,7 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Add or update a modem configuration
+    /// Add or update a modem configuration (simplified - no SSH creds needed)
     /// </summary>
     public async Task<ModemConfiguration> SaveModemAsync(ModemConfiguration config)
     {
@@ -160,12 +216,6 @@ public class CellularModemService : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
 
         config.UpdatedAt = DateTime.UtcNow;
-
-        // Encrypt password if provided and not already encrypted
-        if (!string.IsNullOrEmpty(config.Password) && !_credentialProtection.IsEncrypted(config.Password))
-        {
-            config.Password = _credentialProtection.Encrypt(config.Password);
-        }
 
         if (config.Id == 0)
         {
@@ -205,6 +255,21 @@ public class CellularModemService : IDisposable
         {
             _isPolling = true;
 
+            // Check if SSH is configured
+            var sshSettings = await _sshService.GetSettingsAsync();
+            if (!sshSettings.Enabled || !sshSettings.HasCredentials)
+            {
+                return; // SSH not configured, skip polling
+            }
+
+            // First try auto-discovered modems
+            var discovered = await DiscoverModemsAsync();
+            foreach (var modem in discovered.Where(m => m.IsOnline && !string.IsNullOrEmpty(m.Host)))
+            {
+                await PollModemAsync(modem.Host, modem.Name);
+            }
+
+            // Also poll any legacy configured modems
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
 
@@ -223,6 +288,7 @@ public class CellularModemService : IDisposable
                 }
 
                 await PollModemAsync(modem);
+                await UpdateModemConfigAsync(modem.Id, null);
             }
         }
         catch (Exception ex)
@@ -257,98 +323,21 @@ public class CellularModemService : IDisposable
         }
     }
 
-    private async Task<(bool success, string output)> RunSshCommandAsync(ModemConfiguration config, string command)
-    {
-        var usePassword = !string.IsNullOrEmpty(config.Password) && string.IsNullOrEmpty(config.PrivateKeyPath);
-
-        var sshArgs = new List<string>
-        {
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10"
-        };
-
-        // BatchMode=yes disables password prompts, only use with key auth
-        if (!usePassword)
-        {
-            sshArgs.Add("-o");
-            sshArgs.Add("BatchMode=yes");
-        }
-
-        sshArgs.Add("-p");
-        sshArgs.Add(config.Port.ToString());
-
-        // Add key authentication
-        if (!string.IsNullOrEmpty(config.PrivateKeyPath))
-        {
-            sshArgs.Add("-i");
-            sshArgs.Add(config.PrivateKeyPath);
-        }
-
-        sshArgs.Add($"{config.Username}@{config.Host}");
-        sshArgs.Add(command);
-
-        var startInfo = new ProcessStartInfo
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        // If password auth, use sshpass with environment variable (more secure than command line)
-        if (usePassword)
-        {
-            var decryptedPassword = _credentialProtection.Decrypt(config.Password);
-            startInfo.FileName = "sshpass";
-            startInfo.Arguments = $"-e ssh {string.Join(" ", sshArgs)}";
-            startInfo.Environment["SSHPASS"] = decryptedPassword;
-        }
-        else
-        {
-            startInfo.FileName = "ssh";
-            startInfo.Arguments = string.Join(" ", sshArgs);
-        }
-
-        using var process = new Process { StartInfo = startInfo };
-
-        try
-        {
-            process.Start();
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            var completed = await Task.WhenAny(
-                Task.Run(() => process.WaitForExit(30000)),
-                Task.Delay(30000)
-            );
-
-            if (!process.HasExited)
-            {
-                process.Kill();
-                return (false, "SSH command timed out");
-            }
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                return (false, string.IsNullOrEmpty(error) ? output : error);
-            }
-
-            return (true, output);
-        }
-        catch (Exception ex)
-        {
-            return (false, ex.Message);
-        }
-    }
-
     public void Dispose()
     {
         _pollingTimer?.Dispose();
     }
+}
+
+/// <summary>
+/// Represents a discovered cellular modem from UniFi
+/// </summary>
+public class DiscoveredModem
+{
+    public string DeviceId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Model { get; set; } = "";
+    public string Host { get; set; } = "";
+    public string MacAddress { get; set; } = "";
+    public bool IsOnline { get; set; }
 }

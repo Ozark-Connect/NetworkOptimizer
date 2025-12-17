@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   network-optimizer:
     build:
@@ -10,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8042}:8080"      # Blazor web UI + metrics API
+      - "5201:5201"                   # iperf3 server for speed tests
     volumes:
       - ./data:/app/data              # SQLite, configs, license
       - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment

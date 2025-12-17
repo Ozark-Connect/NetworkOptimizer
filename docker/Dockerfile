@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     iputils-ping \
     openssh-client \
     sshpass \
+    iperf3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy published application
