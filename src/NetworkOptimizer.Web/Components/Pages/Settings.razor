@@ -210,16 +210,9 @@
                 </div>
             </div>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 2;">
-                    <label class="form-label">Username</label>
-                    <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" />
-                </div>
-                <div class="form-group" style="flex: 1;">
-                    <label class="form-label">iperf3 Port</label>
-                    <input type="number" class="form-control" @bind="gatewayIperf3Port" />
-                    <small class="form-help">Usually 5201 or 5202</small>
-                </div>
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" />
             </div>
 
             <div class="form-group">
@@ -884,7 +877,6 @@
     private string gatewayPassword = "";
     private string gatewayPrivateKeyPath = "";
     private int gatewayPort = 22;
-    private int gatewayIperf3Port = 5201;
     private bool gatewayEnabled = false;
     private bool savingGatewaySettings = false;
     private bool testingGatewayConnection = false;
@@ -959,7 +951,6 @@
             gatewayHost = gatewaySettings.Host ?? "";
             gatewayUsername = gatewaySettings.Username;
             gatewayPort = gatewaySettings.Port;
-            gatewayIperf3Port = gatewaySettings.Iperf3Port;
             gatewayPrivateKeyPath = gatewaySettings.PrivateKeyPath ?? "";
             gatewayEnabled = gatewaySettings.Enabled;
             // Don't load password - keep it empty for security
@@ -983,7 +974,6 @@
             settings.Host = gatewayHost;
             settings.Username = gatewayUsername;
             settings.Port = gatewayPort;
-            settings.Iperf3Port = gatewayIperf3Port;
             settings.PrivateKeyPath = string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) ? null : gatewayPrivateKeyPath;
             settings.Enabled = gatewayEnabled;
 
@@ -1099,7 +1089,7 @@
 
         try
         {
-            var (success, message) = await GatewayService.StartIperf3ServerAsync(gatewayIperf3Port);
+            var (success, message) = await GatewayService.StartIperf3ServerAsync();
             if (success)
             {
                 gatewayMessage = message;
