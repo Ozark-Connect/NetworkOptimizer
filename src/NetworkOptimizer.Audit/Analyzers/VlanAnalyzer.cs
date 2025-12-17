@@ -48,7 +48,7 @@ public class VlanAnalyzer
                 continue;
 
             var deviceType = typeElement.GetString();
-            var isGateway = deviceType is "ugw" or "udm" or "uxg";
+            var isGateway = NetworkOptimizer.Core.Helpers.UniFiDeviceTypes.IsGateway(deviceType);
 
             // Check for network_table
             if (!device.TryGetProperty("network_table", out var networkTable))
