@@ -121,7 +121,7 @@
                 <a href="/audit" class="card-action">View All</a>
             </div>
             <div class="card-body">
-                <AlertsList MaxItems="5" />
+                <AlertsList MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
             </div>
         </div>
 
@@ -179,5 +179,12 @@
         warningIssues = data.WarningIssues;
         lastAuditTime = data.LastAuditTime;
         devices = data.Devices;
+    }
+
+    private async Task OnAlertDismissed()
+    {
+        // Refresh dashboard data when an alert is dismissed
+        await LoadDashboardData();
+        StateHasChanged();
     }
 }

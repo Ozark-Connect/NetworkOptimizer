@@ -398,9 +398,9 @@
                 <p class="empty-state">No modems configured. Scan for modems above or add one manually.</p>
             }
 
-            <!-- Manual Add Form (collapsed by default) -->
-            <details style="margin-top: 1.5rem;">
-                <summary style="cursor: pointer; font-weight: 500;">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+            <!-- Manual Add Form (collapsed by default, expands when editing) -->
+            <details style="margin-top: 1.5rem;" open="@modemFormExpanded">
+                <summary style="cursor: pointer; font-weight: 500;" @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
                 <div style="padding-top: 1rem;">
                     <p class="form-help">
                         Only use manual entry if auto-discovery doesn't find your modem.
@@ -722,6 +722,7 @@
     private string modemMessageClass = "";
     private List<DiscoveredModem> discoveredModems = new();
     private bool loadingDiscoveredModems = false;
+    private bool modemFormExpanded = false;
 
     // UniFi Device SSH
     private UniFiSshSettings? sshSettings;
@@ -1182,6 +1183,7 @@
             PollingIntervalSeconds = modem.PollingIntervalSeconds
         };
         modemMessage = "";
+        modemFormExpanded = true;  // Expand the form when editing
         StateHasChanged();
     }
 
@@ -1195,6 +1197,7 @@
             PollingIntervalSeconds = 300,
             Enabled = true
         };
+        modemFormExpanded = false;  // Collapse the form when canceling
         modemMessage = "";
         StateHasChanged();
     }
