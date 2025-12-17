@@ -47,12 +47,12 @@ dotnet publish -c Release -o C:/NetworkOptimizer
 
 3. Rebuild and restart Docker:
    ```bash
-   ssh root@nas "cd /opt/network-optimizer/docker && docker compose -f docker-compose.linux.yml build --no-cache network-optimizer && docker compose -f docker-compose.linux.yml up -d network-optimizer"
+   ssh root@nas "cd /opt/network-optimizer/docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
    ```
 
 ### Quick Deploy (all-in-one)
 ```bash
-git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose -f docker-compose.linux.yml build --no-cache network-optimizer && docker compose -f docker-compose.linux.yml up -d network-optimizer"
+git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
 ```
 
 ### First-Time Setup
@@ -89,8 +89,8 @@ ssh root@nas "docker logs -f network-optimizer"
 
 ## Key Files
 
-- `docker/docker-compose.yml` - Full stack (app + InfluxDB + Grafana)
-- `docker/docker-compose.linux.yml` - Lightweight (app only, host networking)
+- `docker/docker-compose.yml` - Production (app only, host networking, behind Caddy)
+- `docker/docker-compose.local.yml` - Local dev (app + InfluxDB + Grafana)
 - `docker/Dockerfile` - Container build
 
 ## Static File Downloads

@@ -6,100 +6,26 @@ services:
     image: ozark-connect/network-optimizer:latest
     container_name: network-optimizer
     restart: unless-stopped
-    ports:
-      - "${WEB_PORT:-8042}:8080"      # Blazor web UI + metrics API
+    network_mode: host
     volumes:
       - ./data:/app/data              # SQLite, configs, license
       - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment
       - ./logs:/app/logs              # Application logs
     environment:
-      - INFLUXDB_URL=http://influxdb:8086
-      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
-      - INFLUXDB_ORG=${INFLUXDB_ORG:-network-optimizer}
-      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
-      - GRAFANA_URL=http://grafana:3000
-      - TZ=${TZ:-UTC}
+      - TZ=${TZ:-America/Chicago}
+      - ASPNETCORE_URLS=http://127.0.0.1:8042
       - APP_PASSWORD=${APP_PASSWORD:-}
-    networks:
-      - network-optimizer
-    depends_on:
-      influxdb:
-        condition: service_healthy
-      grafana:
-        condition: service_healthy
+      # Point to existing InfluxDB if desired (optional)
+      # - INFLUXDB_URL=http://localhost:8086
+      # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      # - INFLUXDB_ORG=${INFLUXDB_ORG:-network-optimizer}
+      # - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  influxdb:
-    image: influxdb:2.7
-    container_name: network-optimizer-influxdb
-    restart: unless-stopped
-    ports:
-      - "${INFLUXDB_PORT:-8087}:8086"
-    volumes:
-      - influxdb-data:/var/lib/influxdb2
-      - influxdb-config:/etc/influxdb2
-    environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME:-admin}
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG:-network-optimizer}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
-      - DOCKER_INFLUXDB_INIT_RETENTION=${INFLUXDB_RETENTION:-30d}
-      - TZ=${TZ:-UTC}
-    networks:
-      - network-optimizer
-    healthcheck:
-      test: ["CMD", "influx", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: network-optimizer-grafana
-    restart: unless-stopped
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_USERNAME:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/network-overview.json
-      - GF_INSTALL_PLUGINS=
-      - TZ=${TZ:-UTC}
-    networks:
-      - network-optimizer
-    depends_on:
-      influxdb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-networks:
-  network-optimizer:
-    driver: bridge
-
-volumes:
-  influxdb-data:
-    driver: local
-  influxdb-config:
-    driver: local
-  grafana-data:
-    driver: local
+# Production config - host network mode, localhost only (behind Caddy)
+# For local dev with InfluxDB/Grafana, use docker-compose.local.yml
