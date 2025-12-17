@@ -3,30 +3,39 @@
    Modern, dark-mode friendly design
    ============================================ */
 
-/* CSS Variables for theming */
+/* CSS Variables for theming - Ozark Connect Brand Colors */
 :root {
-    --primary-color: #3b82f6;
-    --primary-hover: #2563eb;
-    --success-color: #10b981;
-    --warning-color: #f59e0b;
-    --danger-color: #ef4444;
-    --info-color: #06b6d4;
+    /* Brand Colors */
+    --primary-color: #0559C9;
+    --primary-hover: #044BA8;
+    --accent-color: #F97316;
+    --accent-hover: #EA580C;
 
+    /* Status Colors */
+    --success-color: #10b981;
+    --warning-color: #F97316;
+    --danger-color: #ef4444;
+    --info-color: #0559C9;
+
+    /* Dark Mode Backgrounds */
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #334155;
     --bg-card: #1e293b;
     --bg-hover: #334155;
 
+    /* Text Colors */
     --text-primary: #f1f5f9;
-    --text-secondary: #94a3b8;
+    --text-secondary: #cbd5e1;
     --text-muted: #64748b;
 
+    /* Borders & Effects */
     --border-color: #334155;
     --border-radius: 8px;
     --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
 
+    /* Layout */
     --sidebar-width: 260px;
     --topbar-height: 70px;
 }
@@ -927,7 +936,7 @@ html, body {
 .form-control:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(5, 89, 201, 0.2);
 }
 
 .form-help {
