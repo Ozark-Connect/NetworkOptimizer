@@ -91,27 +91,33 @@ using (var scope = app.Services.CreateScope())
 
     if (tableCount > 0)
     {
-        // Existing database - check if it has migration history
-        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory'";
-        var hasMigrationHistory = cmd.ExecuteScalar() != null;
+        // Existing database - ensure migration history table exists
+        cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS __EFMigrationsHistory (
+                MigrationId TEXT PRIMARY KEY,
+                ProductVersion TEXT NOT NULL
+            )";
+        cmd.ExecuteNonQuery();
 
-        if (!hasMigrationHistory)
+        // For each migration that created tables which already exist, mark as applied
+        // Using INSERT OR IGNORE so this works regardless of current history state
+        var migrationsToCheck = new[]
         {
-            // Database was created with EnsureCreated() - need to baseline
-            cmd.CommandText = @"
-                CREATE TABLE __EFMigrationsHistory (
-                    MigrationId TEXT PRIMARY KEY,
-                    ProductVersion TEXT NOT NULL
-                )";
-            cmd.ExecuteNonQuery();
+            ("20251208000000_InitialCreate", "AuditResults"),
+            ("20251210000000_AddModemAndSpeedTables", "ModemConfigurations"),
+            ("20251216000000_AddUniFiSshSettings", "UniFiSshSettings")
+        };
 
-            // Mark existing migrations as applied (these tables already exist)
-            cmd.CommandText = @"
-                INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES
-                ('20251208000000_InitialCreate', '9.0.0'),
-                ('20251210000000_AddModemAndSpeedTables', '9.0.0'),
-                ('20251216000000_AddUniFiSshSettings', '9.0.0')";
-            cmd.ExecuteNonQuery();
+        foreach (var (migrationId, tableName) in migrationsToCheck)
+        {
+            // Check if the table created by this migration exists
+            cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{tableName}'";
+            if (cmd.ExecuteScalar() != null)
+            {
+                // Table exists, mark migration as applied
+                cmd.CommandText = $"INSERT OR IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('{migrationId}', '9.0.0')";
+                cmd.ExecuteNonQuery();
+            }
         }
     }
     conn.Close();
