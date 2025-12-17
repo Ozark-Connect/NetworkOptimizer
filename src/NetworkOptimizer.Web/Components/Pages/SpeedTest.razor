@@ -1,0 +1,839 @@
+@page "/speedtest"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi.Models
+@inject Iperf3SpeedTestService SpeedTestService
+@inject UniFiSshService SshService
+@inject UniFiConnectionService ConnectionService
+
+<PageTitle>Speed Test - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Device Speed Test</h1>
+    <p class="page-description">Test network connectivity to UniFi devices using iperf3</p>
+</div>
+
+<div class="speedtest-container">
+    <!-- SSH Credentials Status -->
+    @if (!sshConfigured)
+    {
+        <div class="alert alert-warning">
+            <strong>SSH credentials not configured.</strong>
+            Go to <a href="/settings">Settings</a> to configure UniFi Device SSH credentials before running speed tests.
+        </div>
+    }
+
+    <!-- Discovered Devices from UniFi Controller -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">UniFi Devices</h2>
+            <div class="header-actions">
+                <button class="btn btn-sm btn-secondary" @onclick="LoadDiscoveredDevices" disabled="@(!ConnectionService.IsConnected || loadingDiscovered)">
+                    @if (loadingDiscovered)
+                    {
+                        <span class="spinner"></span>
+                        <span>Scanning...</span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Select any non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+            </p>
+
+            @if (!ConnectionService.IsConnected)
+            {
+                <div class="alert alert-warning">
+                    Connect to your UniFi controller in <a href="/settings">Settings</a> to discover devices.
+                </div>
+            }
+            else if (discoveredDevices.Count > 0)
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Model</th>
+                            <th>IP Address</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var device in discoveredDevices)
+                        {
+                            var isOnline = device.State == 1 && device.Adopted;
+                            <tr>
+                                <td>@device.Name</td>
+                                <td><code>@(device.Shortname ?? device.Model)</code></td>
+                                <td><code>@device.Ip</code></td>
+                                <td>@GetDeviceTypeDisplay(device.Type)</td>
+                                <td>
+                                    @if (isOnline)
+                                    {
+                                        <span class="status-badge status-connected">Online</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Offline</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-primary btn-sm"
+                                            @onclick="() => RunSpeedTestOnDiscovered(device)"
+                                            disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
+                                        @if (runningTestHost == device.Ip)
+                                        {
+                                            <span class="spinner"></span>
+                                            <span>Testing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Run Test</span>
+                                        }
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else if (!loadingDiscovered)
+            {
+                <p class="empty-state">No devices found. Click Refresh to scan for devices.</p>
+            }
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="alert alert-@messageClass" style="margin-top: 1rem;">
+                    @message
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Saved Devices (for repeated testing) -->
+    <details class="card-details">
+        <summary class="card-summary">
+            <h3>Saved Devices (@devices.Count)</h3>
+            <span class="expand-hint">Click to expand manual device configuration</span>
+        </summary>
+        <div class="card-details-content">
+            <p class="section-description">
+                Save devices for repeated testing. SSH credentials are configured in <a href="/settings">Settings</a>.
+            </p>
+
+            @if (devices.Count > 0)
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Host</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var device in devices)
+                        {
+                            <tr>
+                                <td>@device.Name</td>
+                                <td><code>@device.Host</code></td>
+                                <td>@device.DeviceType</td>
+                                <td>
+                                    @if (device.Enabled)
+                                    {
+                                        <span class="status-badge status-connected">Enabled</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected">Disabled</span>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-primary btn-sm" @onclick="() => RunSpeedTest(device)"
+                                            disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                        @if (runningTestHost == device.Host)
+                                        {
+                                            <span class="spinner"></span>
+                                            <span>Testing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Run Test</span>
+                                        }
+                                    </button>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
+                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <p class="empty-state">No saved devices. Use the discovered devices above for quick testing.</p>
+            }
+
+            <h4 style="margin-top: 1.5rem;">@(editingDevice.Id > 0 ? "Edit Device" : "Add Device Manually")</h4>
+
+            <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                    <label class="form-label">Device Name</label>
+                    <input type="text" class="form-control" @bind="editingDevice.Name" placeholder="Living Room AP" />
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label">Type</label>
+                    <select class="form-control" @bind="editingDevice.DeviceType">
+                        <option value="AccessPoint">Access Point</option>
+                        <option value="Switch">Switch</option>
+                        <option value="Gateway">Gateway</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Host / IP Address</label>
+                <input type="text" class="form-control" @bind="editingDevice.Host" placeholder="192.168.1.10" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-check">
+                    <input type="checkbox" @bind="editingDevice.Enabled" />
+                    <span>Enable for speed testing</span>
+                </label>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
+                    @if (savingDevice)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>@(editingDevice.Id > 0 ? "Update Device" : "Add Device")</span>
+                    }
+                </button>
+                @if (editingDevice.Id > 0)
+                {
+                    <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
+                }
+            </div>
+        </div>
+    </details>
+
+    <!-- Current Test Results -->
+    @if (currentResult != null)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Latest Test Result</h2>
+                <span class="status-badge status-@(currentResult.Success ? "connected" : "disconnected")">
+                    @(currentResult.Success ? "Success" : "Failed")
+                </span>
+            </div>
+            <div class="card-body">
+                @if (currentResult.Success)
+                {
+                    <div class="speed-results">
+                        <div class="speed-result upload">
+                            <div class="speed-icon">^</div>
+                            <div class="speed-details">
+                                <div class="speed-label">Upload</div>
+                                <div class="speed-value">@currentResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                <div class="speed-meta">@FormatBytes(currentResult.UploadBytes) transferred</div>
+                            </div>
+                        </div>
+                        <div class="speed-result download">
+                            <div class="speed-icon">v</div>
+                            <div class="speed-details">
+                                <div class="speed-label">Download</div>
+                                <div class="speed-value">@currentResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                <div class="speed-meta">@FormatBytes(currentResult.DownloadBytes) transferred</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="test-details">
+                        <span>Device: @currentResult.DeviceName (@currentResult.DeviceHost)</span>
+                        <span>Duration: @currentResult.DurationSeconds seconds</span>
+                        <span>Streams: @currentResult.ParallelStreams parallel</span>
+                        <span>Time: @currentResult.TestTime.ToString("g")</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-danger">
+                        <strong>Test Failed:</strong> @currentResult.ErrorMessage
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Test History -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Test History</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
+        </div>
+        <div class="card-body">
+            @if (testHistory.Count > 0)
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Device</th>
+                            <th>Upload (Mbps)</th>
+                            <th>Download (Mbps)</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var result in testHistory)
+                        {
+                            <tr class="@(result.Success ? "" : "error-row")">
+                                <td>@result.TestTime.ToString("MMM dd HH:mm")</td>
+                                <td>@(result.DeviceName ?? result.DeviceHost)</td>
+                                <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                <td>
+                                    @if (result.Success)
+                                    {
+                                        <span class="status-badge status-connected">OK</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge status-disconnected" title="@result.ErrorMessage">Failed</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="empty-state">
+                    <p>No test results yet. Configure a device and run a speed test to see results.</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- How it Works -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">How it Works</h2>
+        </div>
+        <div class="card-body">
+            <div class="info-section">
+                <p>This tool tests the network throughput between your Network Optimizer container and UniFi devices:</p>
+                <ol>
+                    <li><strong>SSH Connection:</strong> Connects to the device using the shared credentials from <a href="/settings">Settings</a></li>
+                    <li><strong>Start Server:</strong> Launches <code>iperf3 -s</code> on the UniFi device (all UniFi devices have iperf3 built-in)</li>
+                    <li><strong>Upload Test:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3</code> from the container to test upload speed</li>
+                    <li><strong>Download Test:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3 -R</code> to test download speed</li>
+                    <li><strong>Cleanup:</strong> Stops the iperf3 server on the device</li>
+                </ol>
+                <p class="form-help">
+                    <strong>Note:</strong> This tests the wired/wireless path between your Docker host and the device.
+                    For APs, this is useful to validate backhaul performance. For switches/gateways, it tests the internal network path.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .speedtest-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .speed-results {
+        display: flex;
+        gap: 2rem;
+        justify-content: center;
+        margin: 2rem 0;
+    }
+
+    .speed-result {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem 2rem;
+        background: var(--card-bg);
+        border-radius: 8px;
+        min-width: 200px;
+    }
+
+    .speed-result.upload {
+        border-left: 4px solid #4CAF50;
+    }
+
+    .speed-result.download {
+        border-left: 4px solid #2196F3;
+    }
+
+    .speed-icon {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--text-secondary);
+    }
+
+    .speed-label {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+    }
+
+    .speed-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--text-primary);
+    }
+
+    .speed-unit {
+        font-size: 1rem;
+        font-weight: normal;
+        color: var(--text-secondary);
+    }
+
+    .speed-meta {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .test-details {
+        display: flex;
+        gap: 2rem;
+        justify-content: center;
+        flex-wrap: wrap;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .error-row {
+        opacity: 0.7;
+    }
+
+    .info-section ol {
+        margin: 1rem 0;
+        padding-left: 1.5rem;
+    }
+
+    .info-section li {
+        margin-bottom: 0.5rem;
+    }
+
+    .info-section code {
+        background: var(--code-bg);
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+
+    .card-details {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .card-summary {
+        padding: 1rem 1.5rem;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--card-header-bg);
+        user-select: none;
+    }
+
+    .card-summary:hover {
+        background: var(--card-bg-hover);
+    }
+
+    .card-summary h3 {
+        margin: 0;
+        font-size: 1rem;
+        color: var(--text-primary);
+    }
+
+    .expand-hint {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .card-details[open] .expand-hint {
+        display: none;
+    }
+
+    .card-details-content {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+</style>
+
+@code {
+    private List<DeviceSshConfiguration> devices = new();
+    private DeviceSshConfiguration editingDevice = new() { DeviceType = "AccessPoint", Enabled = true };
+    private List<Iperf3Result> testHistory = new();
+    private Iperf3Result? currentResult;
+    private bool sshConfigured = false;
+
+    // Discovered devices from UniFi controller
+    private List<UniFiDeviceResponse> discoveredDevices = new();
+    private bool loadingDiscovered = false;
+
+    private bool savingDevice = false;
+    private bool isRunningTest = false;
+    private string? runningTestHost;
+    private string message = "";
+    private string messageClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckSshConfiguration();
+        await LoadDevices();
+        await LoadHistory();
+        await LoadDiscoveredDevices();
+    }
+
+    private async Task CheckSshConfiguration()
+    {
+        try
+        {
+            var settings = await SshService.GetSettingsAsync();
+            sshConfigured = settings.Enabled && settings.HasCredentials;
+        }
+        catch
+        {
+            sshConfigured = false;
+        }
+    }
+
+    private async Task LoadDevices()
+    {
+        try
+        {
+            devices = await SpeedTestService.GetDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error loading devices: {ex.Message}";
+            messageClass = "danger";
+        }
+    }
+
+    private async Task LoadHistory()
+    {
+        try
+        {
+            testHistory = await SpeedTestService.GetRecentResultsAsync(20);
+        }
+        catch (Exception ex)
+        {
+            message = $"Error loading history: {ex.Message}";
+            messageClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private void EditDevice(DeviceSshConfiguration device)
+    {
+        editingDevice = new DeviceSshConfiguration
+        {
+            Id = device.Id,
+            Name = device.Name,
+            Host = device.Host,
+            DeviceType = device.DeviceType,
+            Enabled = device.Enabled
+        };
+        message = "";
+        StateHasChanged();
+    }
+
+    private void CancelEdit()
+    {
+        editingDevice = new DeviceSshConfiguration
+        {
+            DeviceType = "AccessPoint",
+            Enabled = true
+        };
+        message = "";
+        StateHasChanged();
+    }
+
+    private async Task SaveDevice()
+    {
+        if (string.IsNullOrWhiteSpace(editingDevice.Name) || string.IsNullOrWhiteSpace(editingDevice.Host))
+        {
+            message = "Name and Host are required";
+            messageClass = "danger";
+            return;
+        }
+
+        savingDevice = true;
+        message = "";
+        StateHasChanged();
+
+        try
+        {
+            await SpeedTestService.SaveDeviceAsync(editingDevice);
+            message = editingDevice.Id > 0 ? "Device updated successfully" : "Device added successfully";
+            messageClass = "success";
+
+            await LoadDevices();
+            CancelEdit();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error saving device: {ex.Message}";
+            messageClass = "danger";
+        }
+        finally
+        {
+            savingDevice = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteDevice(DeviceSshConfiguration device)
+    {
+        try
+        {
+            await SpeedTestService.DeleteDeviceAsync(device.Id);
+            message = $"Deleted device: {device.Name}";
+            messageClass = "success";
+            await LoadDevices();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error deleting device: {ex.Message}";
+            messageClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestConnection(DeviceSshConfiguration device)
+    {
+        message = $"Testing SSH connection to {device.Name}...";
+        messageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, msg) = await SpeedTestService.TestConnectionAsync(device.Host);
+            if (success)
+            {
+                var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device.Host);
+                if (iperf3Available)
+                {
+                    message = $"SSH OK! iperf3 available: {version}";
+                    messageClass = "success";
+                }
+                else
+                {
+                    message = $"SSH OK, but iperf3 not found: {version}";
+                    messageClass = "warning";
+                }
+            }
+            else
+            {
+                message = $"SSH connection failed: {msg}";
+                messageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Error: {ex.Message}";
+            messageClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task RunSpeedTest(DeviceSshConfiguration device)
+    {
+        isRunningTest = true;
+        runningTestHost = device.Host;
+        message = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        messageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            currentResult = await SpeedTestService.RunSpeedTestAsync(device);
+
+            if (currentResult.Success)
+            {
+                message = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
+                messageClass = "success";
+            }
+            else
+            {
+                message = $"Speed test failed: {currentResult.ErrorMessage}";
+                messageClass = "danger";
+            }
+
+            await LoadHistory();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error running speed test: {ex.Message}";
+            messageClass = "danger";
+        }
+        finally
+        {
+            isRunningTest = false;
+            runningTestHost = null;
+            StateHasChanged();
+        }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+            return $"{bytes} B";
+        if (bytes < 1024 * 1024)
+            return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+
+    private async Task LoadDiscoveredDevices()
+    {
+        if (!ConnectionService.IsConnected || ConnectionService.Client == null)
+            return;
+
+        loadingDiscovered = true;
+        StateHasChanged();
+
+        try
+        {
+            var allDevices = await ConnectionService.Client.GetDevicesAsync();
+
+            // Filter out gateway devices (UDM, USG, etc.) - keep APs, switches, and other devices
+            discoveredDevices = allDevices
+                .Where(d => !IsGatewayDevice(d.Type))
+                .OrderBy(d => d.Name)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error loading devices: {ex.Message}";
+            messageClass = "danger";
+        }
+        finally
+        {
+            loadingDiscovered = false;
+            StateHasChanged();
+        }
+    }
+
+    private bool IsGatewayDevice(string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+            return false;
+
+        var t = type.ToLowerInvariant();
+        // Gateway types: udm (Dream Machine), ugw (USG), uxg (Next-Gen Gateway)
+        return t == "udm" || t == "ugw" || t == "uxg";
+    }
+
+    private async Task RunSpeedTestOnDiscovered(UniFiDeviceResponse device)
+    {
+        if (string.IsNullOrEmpty(device.Ip))
+        {
+            message = $"Device {device.Name} has no IP address";
+            messageClass = "danger";
+            return;
+        }
+
+        isRunningTest = true;
+        runningTestHost = device.Ip;
+        message = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        messageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            // Create a temporary device config for the test
+            var tempDevice = new DeviceSshConfiguration
+            {
+                Name = device.Name ?? "Unknown Device",
+                Host = device.Ip,
+                DeviceType = GetDeviceTypeDisplay(device.Type),
+                Enabled = true
+            };
+
+            currentResult = await SpeedTestService.RunSpeedTestAsync(tempDevice);
+
+            if (currentResult.Success)
+            {
+                message = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
+                messageClass = "success";
+            }
+            else
+            {
+                message = $"Speed test failed: {currentResult.ErrorMessage}";
+                messageClass = "danger";
+            }
+
+            await LoadHistory();
+        }
+        catch (Exception ex)
+        {
+            message = $"Error running speed test: {ex.Message}";
+            messageClass = "danger";
+        }
+        finally
+        {
+            isRunningTest = false;
+            runningTestHost = null;
+            StateHasChanged();
+        }
+    }
+
+    private string GetDeviceTypeDisplay(string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+            return "Unknown";
+
+        return type.ToLowerInvariant() switch
+        {
+            "uap" => "Access Point",
+            "usw" => "Switch",
+            "udm" => "Dream Machine",
+            "ugw" => "Gateway",
+            "uxg" => "Gateway",
+            "umbb" => "Cellular Modem",
+            "ubb" => "Building Bridge",
+            "uck" => "Cloud Key",
+            _ => type.ToUpperInvariant()
+        };
+    }
+}

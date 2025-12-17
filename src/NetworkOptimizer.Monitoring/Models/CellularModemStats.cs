@@ -3,6 +3,21 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.Monitoring.Models;
 
 /// <summary>
+/// Network mode for cellular connection
+/// </summary>
+public enum CellularNetworkMode
+{
+    /// <summary>Unknown or no signal</summary>
+    Unknown,
+    /// <summary>LTE only (4G)</summary>
+    Lte,
+    /// <summary>5G Non-Standalone - LTE anchor with 5G NR data (EN-DC)</summary>
+    Nr5gNsa,
+    /// <summary>5G Standalone - Pure 5G NR without LTE anchor</summary>
+    Nr5gSa
+}
+
+/// <summary>
 /// Comprehensive cellular modem statistics from qmicli commands
 /// Supports LTE and 5G NR data from UniFi U5G-Max and similar modems
 /// </summary>
@@ -30,8 +45,71 @@ public class CellularModemStats
     // Band info
     public BandInfo? ActiveBand { get; set; }
 
+    /// <summary>
+    /// Detected network mode (LTE, 5G NSA, 5G SA)
+    /// </summary>
+    public CellularNetworkMode NetworkMode => DetermineNetworkMode();
+
+    /// <summary>
+    /// Human-readable network mode string
+    /// </summary>
+    public string NetworkModeDisplay => NetworkMode switch
+    {
+        CellularNetworkMode.Lte => "LTE (4G)",
+        CellularNetworkMode.Nr5gNsa => "5G NSA (EN-DC)",
+        CellularNetworkMode.Nr5gSa => "5G SA",
+        _ => "Unknown"
+    };
+
+    /// <summary>
+    /// Short network mode label for UI badges
+    /// </summary>
+    public string NetworkModeLabel => NetworkMode switch
+    {
+        CellularNetworkMode.Lte => "LTE",
+        CellularNetworkMode.Nr5gNsa => "5G NSA",
+        CellularNetworkMode.Nr5gSa => "5G SA",
+        _ => "?"
+    };
+
+    /// <summary>
+    /// Description of the current network mode
+    /// </summary>
+    public string NetworkModeDescription => NetworkMode switch
+    {
+        CellularNetworkMode.Lte => "Connected to 4G LTE network",
+        CellularNetworkMode.Nr5gNsa => "5G Non-Standalone: LTE anchor with 5G NR for data (EN-DC mode)",
+        CellularNetworkMode.Nr5gSa => "5G Standalone: Pure 5G NR connection without LTE anchor",
+        _ => "No cellular connection detected"
+    };
+
     // Computed signal quality (0-100)
     public int SignalQuality => CalculateSignalQuality();
+
+    private CellularNetworkMode DetermineNetworkMode()
+    {
+        bool hasLte = Lte?.Rsrp.HasValue == true;
+        bool hasNr5g = Nr5g?.Rsrp.HasValue == true;
+
+        if (hasLte && hasNr5g)
+        {
+            // Both LTE and NR5G active = NSA (EN-DC)
+            // LTE is the anchor, NR5G provides additional capacity
+            return CellularNetworkMode.Nr5gNsa;
+        }
+        else if (hasNr5g && !hasLte)
+        {
+            // Only NR5G active = SA (Standalone)
+            return CellularNetworkMode.Nr5gSa;
+        }
+        else if (hasLte)
+        {
+            // Only LTE active
+            return CellularNetworkMode.Lte;
+        }
+
+        return CellularNetworkMode.Unknown;
+    }
 
     private int CalculateSignalQuality()
     {

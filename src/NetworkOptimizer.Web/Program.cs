@@ -40,8 +40,14 @@ Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
-// Register Cellular Modem service (singleton - maintains polling timer)
+// Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
+builder.Services.AddSingleton<UniFiSshService>();
+
+// Register Cellular Modem service (singleton - maintains polling timer, uses UniFiSshService)
 builder.Services.AddSingleton<CellularModemService>();
+
+// Register iperf3 Speed Test service (singleton - tracks running tests, uses UniFiSshService)
+builder.Services.AddSingleton<Iperf3SpeedTestService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -120,6 +126,36 @@ app.MapGet("/api/debug/devices", async (UniFiConnectionService connectionService
         return Results.NotFound(new { error = "Could not fetch devices" });
 
     return Results.Content(rawJson, "application/json");
+});
+
+// iperf3 Speed Test API endpoints
+app.MapGet("/api/iperf3/devices", async (Iperf3SpeedTestService service) =>
+{
+    var devices = await service.GetDevicesAsync();
+    return Results.Ok(devices);
+});
+
+app.MapPost("/api/iperf3/test/{deviceId:int}", async (int deviceId, Iperf3SpeedTestService service) =>
+{
+    var devices = await service.GetDevicesAsync();
+    var device = devices.FirstOrDefault(d => d.Id == deviceId);
+    if (device == null)
+        return Results.NotFound(new { error = "Device not found" });
+
+    var result = await service.RunSpeedTestAsync(device);
+    return Results.Ok(result);
+});
+
+app.MapGet("/api/iperf3/results", async (Iperf3SpeedTestService service, int count = 50) =>
+{
+    var results = await service.GetRecentResultsAsync(count);
+    return Results.Ok(results);
+});
+
+app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3SpeedTestService service, int count = 20) =>
+{
+    var results = await service.GetResultsForDeviceAsync(deviceHost, count);
+    return Results.Ok(results);
 });
 
 app.Run();
