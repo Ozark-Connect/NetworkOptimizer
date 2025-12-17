@@ -161,7 +161,7 @@ var accessibleBranding = new BrandingOptions
 
 ### 4. Per-Device Port Analysis
 - Port index and name
-- Link status (UP 1G, DOWN, etc.)
+- Link status (Up 1 GbE, Down, etc.)
 - Forward mode (native, all, disabled)
 - Native VLAN assignment
 - PoE power consumption

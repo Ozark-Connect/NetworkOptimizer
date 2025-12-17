@@ -148,11 +148,10 @@ public class PortDetail
 
     public string GetLinkStatus()
     {
-        if (!IsUp) return "DOWN";
-        if (Speed >= 10000) return $"UP {Speed / 1000} G";
-        if (Speed >= 1000) return $"UP {Speed / 1000} G";
-        if (Speed > 0) return $"UP {Speed} M";
-        return "DOWN";
+        if (!IsUp) return "Down";
+        if (Speed >= 1000) return $"Up {Speed / 1000} GbE";
+        if (Speed > 0) return $"Up {Speed} MbE";
+        return "Down";
     }
 
     public string GetPoeStatus()

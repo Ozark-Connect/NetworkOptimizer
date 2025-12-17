@@ -199,10 +199,10 @@ string markdown = mdGenerator.GenerateMarkdown(reportData);
 ### Per-Device Port Tables
 Columns:
 - Port # and Name
-- Link Status (UP 1G, DOWN, etc.)
+- Link Status (Up 1 GbE, Down, etc.)
 - Forward Mode (native, all, disabled, custom)
 - Native VLAN (e.g., "Main (1)")
-- PoE Power (e.g., "12.5W", "off")
+- PoE Power (e.g., "12.5 W", "off")
 - Port Security (✓ MAC, ✓ 2 MAC, —)
 - Isolation (✓ Yes, —) [when applicable]
 - Status (✓ OK, ⚠ No MAC, ■ Wrong VLAN)
