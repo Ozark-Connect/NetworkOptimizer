@@ -264,9 +264,11 @@
             await Task.Delay(200);
 
             // Build report data (complete data like Security Audit page)
+            // Use gateway name as client name, fallback to "Network"
+            var gatewayName = lastAudit.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Network";
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
-                ClientName = "Network",
+                ClientName = gatewayName,
                 GeneratedAt = DateTime.Now,
                 SecurityScore = new NetworkOptimizer.Reports.SecurityScore
                 {
