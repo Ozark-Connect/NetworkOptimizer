@@ -32,9 +32,9 @@ public class IotVlanRule : AuditRuleBase
         // DEBUG: Log IoT device detection
         Console.WriteLine($"[IotVlanRule] IoT device '{port.Name}' on network '{network.Name}' (ID: {network.Id}) has Purpose: {network.Purpose}");
 
-        // Check if it's on an IoT network
-        if (network.Purpose == NetworkPurpose.IoT)
-            return null; // Correctly placed
+        // Check if it's on an isolated network (IoT or Security are both acceptable)
+        if (network.Purpose == NetworkPurpose.IoT || network.Purpose == NetworkPurpose.Security)
+            return null; // Correctly placed on isolated network
 
         // Find the IoT network to recommend
         var iotNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.IoT);
