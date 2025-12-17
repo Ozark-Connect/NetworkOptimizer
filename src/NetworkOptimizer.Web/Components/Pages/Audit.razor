@@ -211,6 +211,7 @@
 
     private string selectedFilter = "all";
     private List<Services.AuditIssue> issues = new();
+    private Services.AuditResult? lastResult;
 
     private async Task RunAudit()
     {
@@ -231,6 +232,7 @@
                 IncludeDnsLeakDetection = includeDnsLeakDetection
             });
 
+            lastResult = result;
             securityScore = result.Score;
             scoreLabel = result.ScoreLabel;
             scoreClass = result.ScoreClass;
@@ -275,7 +277,7 @@
     {
         exportError = null;
 
-        if (!hasResults || !issues.Any())
+        if (!hasResults || lastResult == null)
         {
             exportError = "No audit results to export. Run an audit first.";
             return;
@@ -283,7 +285,8 @@
 
         try
         {
-            Logger.LogInformation("Starting PDF export with {IssueCount} issues", issues.Count);
+            Logger.LogInformation("Starting PDF export with {IssueCount} issues, {NetworkCount} networks, {SwitchCount} switches",
+                issues.Count, lastResult.Networks.Count, lastResult.Switches.Count);
 
             // Build report data from audit results
             var reportData = new NetworkOptimizer.Reports.ReportData
@@ -297,8 +300,58 @@
                            : securityScore >= 60 ? NetworkOptimizer.Reports.SecurityRating.Fair
                            : NetworkOptimizer.Reports.SecurityRating.NeedsWork,
                     CriticalIssueCount = criticalCount,
-                    WarningCount = warningCount
+                    WarningCount = warningCount,
+                    TotalPorts = lastResult.Statistics?.TotalPorts ?? 0,
+                    DisabledPorts = lastResult.Statistics?.DisabledPorts ?? 0,
+                    MacRestrictedPorts = lastResult.Statistics?.MacRestrictedPorts ?? 0
                 },
+
+                // Networks
+                Networks = lastResult.Networks
+                    .Select(n => new NetworkOptimizer.Reports.NetworkInfo
+                    {
+                        NetworkId = n.Id,
+                        Name = n.Name,
+                        VlanId = n.VlanId,
+                        Subnet = n.Subnet ?? "N/A",
+                        Purpose = n.Purpose
+                    })
+                    .ToList(),
+
+                // Switches with ports
+                Switches = lastResult.Switches
+                    .Select(s => new NetworkOptimizer.Reports.SwitchDetail
+                    {
+                        Name = s.Name,
+                        Model = s.Model ?? "",
+                        ModelName = s.ModelName ?? s.Model ?? "",
+                        DeviceType = s.DeviceType ?? "",
+                        IsGateway = s.IsGateway,
+                        MaxCustomMacAcls = s.MaxCustomMacAcls,
+                        Ports = s.Ports
+                            .Select(p => new NetworkOptimizer.Reports.PortDetail
+                            {
+                                PortIndex = p.PortIndex,
+                                Name = p.Name,
+                                IsUp = p.IsUp,
+                                Speed = p.Speed,
+                                Forward = p.Forward,
+                                IsUplink = p.IsUplink,
+                                NativeNetwork = p.NativeNetwork,
+                                NativeVlan = p.NativeVlan,
+                                ExcludedNetworks = p.ExcludedNetworks,
+                                PortSecurityEnabled = p.PortSecurityEnabled,
+                                PortSecurityMacs = p.PortSecurityMacs,
+                                Isolation = p.Isolation,
+                                PoeEnabled = p.PoeEnabled,
+                                PoePower = p.PoePower,
+                                PoeMode = p.PoeMode ?? ""
+                            })
+                            .ToList()
+                    })
+                    .ToList(),
+
+                // Critical issues
                 CriticalIssues = issues
                     .Where(i => i.Severity == "Critical")
                     .Select(i => new NetworkOptimizer.Reports.AuditIssue
@@ -313,6 +366,8 @@
                         RecommendedAction = i.Recommendation
                     })
                     .ToList(),
+
+                // Recommended improvements
                 RecommendedImprovements = issues
                     .Where(i => i.Severity == "Warning")
                     .Select(i => new NetworkOptimizer.Reports.AuditIssue
@@ -326,12 +381,15 @@
                         Message = i.Description,
                         RecommendedAction = i.Recommendation
                     })
-                    .ToList()
+                    .ToList(),
+
+                // Hardening notes
+                HardeningNotes = lastResult.HardeningMeasures
             };
 
             // Generate PDF
-            Logger.LogInformation("Generating PDF with {CriticalCount} critical, {WarningCount} warnings",
-                reportData.CriticalIssues.Count, reportData.RecommendedImprovements.Count);
+            Logger.LogInformation("Generating PDF with {CriticalCount} critical, {WarningCount} warnings, {SwitchCount} switches",
+                reportData.CriticalIssues.Count, reportData.RecommendedImprovements.Count, reportData.Switches.Count);
             var generator = new NetworkOptimizer.Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
             Logger.LogInformation("PDF generated: {Size} bytes", pdfBytes.Length);

@@ -308,6 +308,38 @@ public class AuditService
             _ => "poor"
         };
 
+        // Convert networks
+        var networks = engineResult.Networks
+            .OrderBy(n => n.VlanId)
+            .Select(n => new NetworkReference
+            {
+                Id = n.Id,
+                Name = n.Name,
+                VlanId = n.VlanId,
+                Subnet = n.Subnet,
+                Purpose = n.Purpose.ToString().ToLowerInvariant()
+            })
+            .ToList();
+
+        // Convert switches with ports
+        var switches = engineResult.Switches
+            .OrderBy(s => s.IsGateway ? 0 : 1)
+            .ThenBy(s => s.Name)
+            .Select(s => new SwitchReference
+            {
+                Name = s.Name,
+                Model = s.Model,
+                ModelName = s.ModelName ?? s.Model,
+                DeviceType = s.Type,
+                IsGateway = s.IsGateway,
+                MaxCustomMacAcls = s.Capabilities.MaxCustomMacAcls,
+                Ports = s.Ports
+                    .OrderBy(p => p.PortIndex)
+                    .Select(p => ConvertPort(p, engineResult.Networks))
+                    .ToList()
+            })
+            .ToList();
+
         return new AuditResult
         {
             Score = score,
@@ -327,7 +359,39 @@ public class AuditService
                 NetworkCount = engineResult.Networks.Count,
                 SwitchCount = engineResult.Switches.Count
             },
-            HardeningMeasures = engineResult.HardeningMeasures.ToList()
+            HardeningMeasures = engineResult.HardeningMeasures.ToList(),
+            Networks = networks,
+            Switches = switches
+        };
+    }
+
+    private PortReference ConvertPort(AuditModels.PortInfo port, List<AuditModels.NetworkInfo> networks)
+    {
+        var nativeNetwork = networks.FirstOrDefault(n => n.Id == port.NativeNetworkId);
+        var excludedNetworks = port.ExcludedNetworkIds?
+            .Select(id => networks.FirstOrDefault(n => n.Id == id)?.Name)
+            .Where(name => name != null)
+            .Select(name => name!)
+            .ToList() ?? new List<string>();
+
+        return new PortReference
+        {
+            PortIndex = port.PortIndex,
+            Name = port.Name ?? $"Port {port.PortIndex}",
+            IsUp = port.IsUp,
+            Speed = port.Speed,
+            Forward = port.ForwardMode ?? "all",
+            IsUplink = port.IsUplink,
+            IsWan = port.IsWan,
+            NativeNetwork = nativeNetwork?.Name,
+            NativeVlan = nativeNetwork?.VlanId,
+            ExcludedNetworks = excludedNetworks,
+            PortSecurityEnabled = port.PortSecurityEnabled,
+            PortSecurityMacs = port.AllowedMacAddresses ?? new List<string>(),
+            Isolation = port.IsolationEnabled,
+            PoeEnabled = port.PoeEnabled,
+            PoePower = port.PoePower,
+            PoeMode = port.PoeMode
         };
     }
 
@@ -417,6 +481,8 @@ public class AuditResult
     public DateTime CompletedAt { get; set; }
     public AuditStatistics? Statistics { get; set; }
     public List<string> HardeningMeasures { get; set; } = new();
+    public List<NetworkReference> Networks { get; set; } = new();
+    public List<SwitchReference> Switches { get; set; } = new();
 }
 
 public class AuditStatistics
@@ -454,4 +520,44 @@ public class AuditSummary
     public int WarningCount { get; set; }
     public DateTime? LastAuditTime { get; set; }
     public List<AuditIssue> RecentIssues { get; set; } = new();
+}
+
+public class NetworkReference
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int VlanId { get; set; }
+    public string? Subnet { get; set; }
+    public string Purpose { get; set; } = "corporate";
+}
+
+public class SwitchReference
+{
+    public string Name { get; set; } = "";
+    public string? Model { get; set; }
+    public string? ModelName { get; set; }
+    public string? DeviceType { get; set; }
+    public bool IsGateway { get; set; }
+    public int MaxCustomMacAcls { get; set; }
+    public List<PortReference> Ports { get; set; } = new();
+}
+
+public class PortReference
+{
+    public int PortIndex { get; set; }
+    public string Name { get; set; } = "";
+    public bool IsUp { get; set; }
+    public int Speed { get; set; }
+    public string Forward { get; set; } = "all";
+    public bool IsUplink { get; set; }
+    public bool IsWan { get; set; }
+    public string? NativeNetwork { get; set; }
+    public int? NativeVlan { get; set; }
+    public List<string> ExcludedNetworks { get; set; } = new();
+    public bool PortSecurityEnabled { get; set; }
+    public List<string> PortSecurityMacs { get; set; } = new();
+    public bool Isolation { get; set; }
+    public bool PoeEnabled { get; set; }
+    public double PoePower { get; set; }
+    public string? PoeMode { get; set; }
 }
