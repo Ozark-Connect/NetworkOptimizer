@@ -667,7 +667,7 @@ public class GatewaySpeedTestService
             var historyResult = new Iperf3Result
             {
                 DeviceHost = result.GatewayHost ?? "gateway",
-                DeviceName = "Gateway (WAN)",
+                DeviceName = "Gateway",
                 DeviceType = "Gateway",
                 TestTime = result.TestTime,
                 DurationSeconds = result.DurationSeconds,

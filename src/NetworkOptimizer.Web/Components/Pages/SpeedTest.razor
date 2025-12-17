@@ -12,8 +12,8 @@
 <PageTitle>Speed Test - Network Optimizer</PageTitle>
 
 <div class="page-header">
-    <h1>Device Speed Test</h1>
-    <p class="page-description">Test network connectivity to UniFi devices using iperf3</p>
+    <h1>Speed Test</h1>
+    <p class="page-description">Test network bandwidth using iperf3</p>
 </div>
 
 <div class="speedtest-container">
@@ -46,7 +46,7 @@
             else
             {
                 <p class="section-description">
-                    Test internet bandwidth from the gateway using its built-in iperf3 client connecting to a public server.
+                    Test LAN bandwidth to your gateway using iperf3.
                 </p>
 
                 <!-- iperf3 Status -->
@@ -174,7 +174,7 @@
     <!-- Discovered Devices from UniFi Controller -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">UniFi Devices</h2>
+            <h2 class="card-title">UniFi Device Speed Test</h2>
             <div class="header-actions">
                 <button class="btn btn-sm btn-secondary" @onclick="LoadDiscoveredDevices" disabled="@(!ConnectionService.IsConnected || loadingDiscovered)">
                     @if (loadingDiscovered)
