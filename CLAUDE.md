@@ -18,12 +18,19 @@
 
 3. Rebuild and restart Docker:
    ```bash
-   ssh root@nas "cd /opt/network-optimizer/docker && docker-compose build --no-cache network-optimizer && docker-compose up -d network-optimizer"
+   ssh root@nas "cd /opt/network-optimizer/docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
    ```
 
 ### Quick Deploy (all-in-one)
 ```bash
-git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker-compose build --no-cache network-optimizer && docker-compose up -d network-optimizer"
+git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
+```
+
+### First-Time Setup
+Create `.env` from template:
+```bash
+ssh root@nas "cd /opt/network-optimizer/docker && cp .env.example .env"
+# Then edit .env to set secure passwords
 ```
 
 ### Services
