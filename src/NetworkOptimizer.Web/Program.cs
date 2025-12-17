@@ -76,11 +76,46 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Ensure database is created and credential key exists
+// Apply database migrations
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-    db.Database.EnsureCreated();
+    var conn = db.Database.GetDbConnection();
+    conn.Open();
+    using var cmd = conn.CreateCommand();
+
+    // Check if database has any tables (existing install) or is brand new
+    cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'";
+    var tableCount = Convert.ToInt32(cmd.ExecuteScalar());
+
+    if (tableCount > 0)
+    {
+        // Existing database - check if it has migration history
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory'";
+        var hasMigrationHistory = cmd.ExecuteScalar() != null;
+
+        if (!hasMigrationHistory)
+        {
+            // Database was created with EnsureCreated() - need to baseline
+            cmd.CommandText = @"
+                CREATE TABLE __EFMigrationsHistory (
+                    MigrationId TEXT PRIMARY KEY,
+                    ProductVersion TEXT NOT NULL
+                )";
+            cmd.ExecuteNonQuery();
+
+            // Mark existing migrations as applied (these tables already exist)
+            cmd.CommandText = @"
+                INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES
+                ('20251208000000_InitialCreate', '9.0.0'),
+                ('20251216000000_AddUniFiSshSettings', '9.0.0')";
+            cmd.ExecuteNonQuery();
+        }
+    }
+    conn.Close();
+
+    // Apply any pending migrations (creates DB for new installs, or applies new migrations for existing)
+    db.Database.Migrate();
 }
 
 // Pre-generate the credential encryption key
