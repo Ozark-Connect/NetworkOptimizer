@@ -508,6 +508,9 @@ public class GatewaySpeedTestService
             result.Success = true;
             _lastResult = result;
 
+            // Save to history database
+            await SaveResultToHistoryAsync(result);
+
             _logger.LogInformation("Speed test completed: Download {Down:F1} Mbps, Upload {Up:F1} Mbps",
                 result.DownloadMbps, result.UploadMbps);
 
@@ -648,6 +651,47 @@ public class GatewaySpeedTestService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse iperf3 JSON output");
+        }
+    }
+
+    /// <summary>
+    /// Save the gateway speed test result to the shared history database
+    /// </summary>
+    private async Task SaveResultToHistoryAsync(GatewaySpeedTestResult result)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var historyResult = new Iperf3Result
+            {
+                DeviceHost = result.GatewayHost ?? "gateway",
+                DeviceName = "Gateway (WAN)",
+                DeviceType = "Gateway",
+                TestTime = result.TestTime,
+                DurationSeconds = result.DurationSeconds,
+                ParallelStreams = result.ParallelStreams,
+                Success = result.Success,
+                ErrorMessage = result.Error,
+                UploadBitsPerSecond = result.UploadBitsPerSecond,
+                UploadBytes = result.UploadBytes,
+                UploadRetransmits = result.UploadRetransmits,
+                DownloadBitsPerSecond = result.DownloadBitsPerSecond,
+                DownloadBytes = result.DownloadBytes,
+                DownloadRetransmits = result.DownloadRetransmits,
+                RawUploadJson = result.RawUploadJson,
+                RawDownloadJson = result.RawDownloadJson
+            };
+
+            db.Iperf3Results.Add(historyResult);
+            await db.SaveChangesAsync();
+
+            _logger.LogDebug("Saved gateway speed test result to history");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save gateway speed test result to history");
         }
     }
 
