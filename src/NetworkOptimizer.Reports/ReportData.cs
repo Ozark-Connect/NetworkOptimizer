@@ -157,7 +157,7 @@ public class PortDetail
 
     public string GetPoeStatus()
     {
-        if (PoePower > 0) return $"{PoePower:F1}W";
+        if (PoePower > 0) return $"{PoePower:F1} W";
         if (PoeMode == "off") return "off";
         if (PoeEnabled) return "off";
         return "N/A";
