@@ -108,6 +108,7 @@ using (var scope = app.Services.CreateScope())
             cmd.CommandText = @"
                 INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES
                 ('20251208000000_InitialCreate', '9.0.0'),
+                ('20251210000000_AddModemAndSpeedTables', '9.0.0'),
                 ('20251216000000_AddUniFiSshSettings', '9.0.0')";
             cmd.ExecuteNonQuery();
         }

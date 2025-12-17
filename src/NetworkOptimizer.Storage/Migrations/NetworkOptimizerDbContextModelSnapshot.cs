@@ -364,6 +364,185 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("DismissedIssues", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ModemConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastPolled")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ModemType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Password")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PollingIntervalSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PrivateKeyPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("QmiDevice")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Host");
+
+                    b.HasIndex("Enabled");
+
+                    b.ToTable("ModemConfigurations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.DeviceSshConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Host")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Host");
+
+                    b.HasIndex("Enabled");
+
+                    b.ToTable("DeviceSshConfigurations", (string)null);
+                });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.Iperf3Result", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceHost")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceType")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("DownloadBitsPerSecond")
+                        .HasColumnType("REAL");
+
+                    b.Property<long>("DownloadBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DownloadRetransmits")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ParallelStreams")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RawDownloadJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RawUploadJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("TestTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("UploadBitsPerSecond")
+                        .HasColumnType("REAL");
+
+                    b.Property<long>("UploadBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UploadRetransmits")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceHost");
+
+                    b.HasIndex("TestTime");
+
+                    b.HasIndex("DeviceHost", "TestTime");
+
+                    b.ToTable("Iperf3Results", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }
