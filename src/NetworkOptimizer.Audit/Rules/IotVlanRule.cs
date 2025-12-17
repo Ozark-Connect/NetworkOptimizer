@@ -29,6 +29,9 @@ public class IotVlanRule : AuditRuleBase
         if (network == null)
             return null;
 
+        // DEBUG: Log IoT device detection
+        Console.WriteLine($"[IotVlanRule] IoT device '{port.Name}' on network '{network.Name}' (ID: {network.Id}) has Purpose: {network.Purpose}");
+
         // Check if it's on an IoT network
         if (network.Purpose == NetworkPurpose.IoT)
             return null; // Correctly placed
