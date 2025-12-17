@@ -17,9 +17,31 @@
                 <span class="status-indicator status-disconnected"></span>
                 <span class="status-label">No Data</span>
             </div>
-            <p class="status-message">No cellular modem configured or no data available yet.</p>
+            <p class="status-message">
+                @if (hasConfiguredModems)
+                {
+                    <span>Modem configured but no data available. Click refresh to poll.</span>
+                }
+                else
+                {
+                    <span>No cellular modem configured.</span>
+                }
+            </p>
             <div class="sqm-actions">
-                <a href="/settings" class="btn btn-sm btn-primary">Configure Modem</a>
+                @if (hasConfiguredModems)
+                {
+                    <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+                        @if (isRefreshing)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                }
+                <a href="/settings" class="btn btn-sm btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
             </div>
         </div>
     }
@@ -351,6 +373,7 @@
     private CellularModemStats? modemStats;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private bool hasConfiguredModems = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -364,15 +387,20 @@
         {
             modemStats = ModemService.GetLastStats();
 
-            // If no cached stats, try to poll the first enabled modem
+            // If no cached stats, try to poll any configured modem (prefer enabled)
             if (modemStats == null)
             {
                 var modems = await ModemService.GetModemsAsync();
-                var enabledModem = modems.FirstOrDefault(m => m.Enabled);
-                if (enabledModem != null)
+                hasConfiguredModems = modems.Any();
+                var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
+                if (modem != null)
                 {
-                    modemStats = await ModemService.PollModemAsync(enabledModem);
+                    modemStats = await ModemService.PollModemAsync(modem);
                 }
+            }
+            else
+            {
+                hasConfiguredModems = true;
             }
         }
         finally
@@ -389,10 +417,11 @@
         try
         {
             var modems = await ModemService.GetModemsAsync();
-            var enabledModem = modems.FirstOrDefault(m => m.Enabled);
-            if (enabledModem != null)
+            // Allow manual refresh of any configured modem, prefer enabled but use any if none enabled
+            var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
+            if (modem != null)
             {
-                modemStats = await ModemService.PollModemAsync(enabledModem);
+                modemStats = await ModemService.PollModemAsync(modem);
             }
         }
         finally
