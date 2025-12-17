@@ -52,7 +52,7 @@ builder.Services.AddSingleton<Iperf3SpeedTestService>();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
-builder.Services.AddScoped<AuditService>();
+builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<AgentService>();
 
