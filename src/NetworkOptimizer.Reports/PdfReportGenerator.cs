@@ -1,3 +1,4 @@
+using System.Reflection;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -11,6 +12,7 @@ namespace NetworkOptimizer.Reports;
 public class PdfReportGenerator
 {
     private readonly BrandingOptions _branding;
+    private byte[]? _logoBytes;
 
     public PdfReportGenerator(BrandingOptions? branding = null)
     {
@@ -18,6 +20,31 @@ public class PdfReportGenerator
 
         // Configure QuestPDF license (Community license)
         QuestPDF.Settings.License = LicenseType.Community;
+
+        // Load logo from embedded resource
+        LoadLogoFromResources();
+    }
+
+    private void LoadLogoFromResources()
+    {
+        try
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var resourceName = "NetworkOptimizer.Reports.Resources.logo.png";
+
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream != null)
+            {
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                _logoBytes = ms.ToArray();
+            }
+        }
+        catch
+        {
+            // Logo not available - continue without it
+            _logoBytes = null;
+        }
     }
 
     /// <summary>
@@ -64,17 +91,18 @@ public class PdfReportGenerator
 
     private void ComposeHeader(IContainer container, ReportData data)
     {
+        var primaryColor = GetColor(_branding.Colors.Primary);
+
         container.Column(column =>
         {
-            // Logo (if provided)
-            if (!string.IsNullOrEmpty(_branding.LogoPath) && File.Exists(_branding.LogoPath))
+            // Logo (from embedded resource)
+            if (_logoBytes != null && _logoBytes.Length > 0)
             {
-                column.Item().AlignLeft().MaxWidth(1.5f, Unit.Inch).Image(_branding.LogoPath);
+                column.Item().AlignLeft().MaxWidth(1.5f, Unit.Inch).Image(_logoBytes);
                 column.Item().PaddingTop(10);
             }
 
             // Title
-            var primaryColor = GetColor(_branding.Colors.Primary);
             column.Item()
                 .AlignCenter()
                 .Text($"{data.ClientName} Network Port Audit Report")
@@ -228,19 +256,19 @@ public class PdfReportGenerator
             switch (data.SecurityScore.Rating)
             {
                 case SecurityRating.Excellent:
-                    ratingText = "EXCELLENT ✓";
+                    ratingText = "EXCELLENT";
                     ratingColor = successColor;
                     break;
                 case SecurityRating.Good:
-                    ratingText = "GOOD ✓";
+                    ratingText = "GOOD";
                     ratingColor = successColor;
                     break;
                 case SecurityRating.Fair:
-                    ratingText = "FAIR ⚠";
+                    ratingText = "FAIR";
                     ratingColor = warningColor;
                     break;
                 case SecurityRating.NeedsWork:
-                    ratingText = "NEEDS ATTENTION ✗";
+                    ratingText = "NEEDS ATTENTION";
                     ratingColor = criticalColor;
                     break;
                 default:
@@ -308,7 +336,7 @@ public class PdfReportGenerator
             if (!data.CriticalIssues.Any() && !data.RecommendedImprovements.Any())
             {
                 column.Item()
-                    .Text("No action items — all checks passed. ✓")
+                    .Text("No action items - all checks passed.")
                     .FontSize(11)
                     .Bold()
                     .FontColor(successColor);
@@ -485,8 +513,9 @@ public class PdfReportGenerator
 
                     column.Item()
                         .PaddingTop(2)
-                        .Text($"■ {portDisplay}: {issue.RecommendedAction}")
+                        .Text($"> {portDisplay}: {issue.RecommendedAction}")
                         .FontSize(8)
+                        .Bold()
                         .FontColor(criticalColor);
                 }
 

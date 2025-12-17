@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Templates\*.png" />
+    <EmbeddedResource Include="Resources\*.png" />
   </ItemGroup>
 
 </Project>

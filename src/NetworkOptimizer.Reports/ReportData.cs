@@ -165,48 +165,48 @@ public class PortDetail
 
     public string GetPortSecurityStatus()
     {
-        if (MacRestrictionCount > 1) return $"✓ {MacRestrictionCount} MAC";
-        if (MacRestrictionCount == 1) return "✓ MAC";
-        if (PortSecurityEnabled) return "✓";
-        return "—";
+        if (MacRestrictionCount > 1) return $"{MacRestrictionCount} MAC";
+        if (MacRestrictionCount == 1) return "1 MAC";
+        if (PortSecurityEnabled) return "Yes";
+        return "-";
     }
 
-    public string GetIsolationStatus() => Isolation ? "✓ Yes" : "—";
+    public string GetIsolationStatus() => Isolation ? "Yes" : "-";
 
     public (string Status, PortStatusType StatusType) GetStatus(bool supportsAcls = true)
     {
         // Check for critical issues first
         if (IsIoTDeviceOnWrongVlan())
-            return ("■ Wrong VLAN", PortStatusType.Critical);
+            return ("Wrong VLAN", PortStatusType.Critical);
 
         if (Forward == "disabled")
-            return ("✓ Disabled", PortStatusType.Ok);
+            return ("Disabled", PortStatusType.Ok);
 
         if (!IsUp && Forward != "disabled")
-            return ("✓ Off", PortStatusType.Ok);
+            return ("Off", PortStatusType.Ok);
 
         if (IsUplink || Name.ToLower().Contains("uplink"))
-            return ("✓ Trunk", PortStatusType.Ok);
+            return ("Trunk", PortStatusType.Ok);
 
         if (Forward == "all")
-            return ("✓ Trunk", PortStatusType.Ok);
+            return ("Trunk", PortStatusType.Ok);
 
         if (Forward == "custom" || Forward == "customize")
         {
             if (Name.ToLower().Contains("ap") || Name.ToLower().Contains("access point"))
-                return ("✓ AP", PortStatusType.Ok);
-            return ("✓ OK", PortStatusType.Ok);
+                return ("AP", PortStatusType.Ok);
+            return ("OK", PortStatusType.Ok);
         }
 
         if (Forward == "native")
         {
             // Warning if no MAC restriction and device supports it
             if (IsUp && supportsAcls && MacRestrictionCount == 0 && !IsUplink)
-                return ("⚠ No MAC", PortStatusType.Warning);
-            return ("✓ OK", PortStatusType.Ok);
+                return ("No MAC", PortStatusType.Warning);
+            return ("OK", PortStatusType.Ok);
         }
 
-        return ("✓ OK", PortStatusType.Ok);
+        return ("OK", PortStatusType.Ok);
     }
 
     private bool IsIoTDeviceOnWrongVlan()
