@@ -66,7 +66,7 @@ ssh root@nas "cd /opt/network-optimizer/docker && cp .env.example .env"
 
 | Service | Port | URL |
 |---------|------|-----|
-| Web UI | 8042 | http://localhost:8042 (localhost only) |
+| Web UI | 8042 | https://optimizer.seaturtle.minituna.us (via Caddy) |
 
 ### Check Status
 ```bash
