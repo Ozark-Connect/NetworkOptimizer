@@ -1,4 +1,8 @@
 @page "/reports"
+@using NetworkOptimizer.Web.Services
+@inject AuditService AuditService
+@inject IJSRuntime JSRuntime
+@inject ILogger<Reports> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Reports - Network Optimizer</PageTitle>
@@ -123,6 +127,13 @@
                 </div>
                 <p class="progress-text">@currentGenerationStep (@reportProgress%)</p>
             }
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger" style="margin-top: 1rem;">
+                    @errorMessage
+                </div>
+            }
         </div>
     </div>
 
@@ -219,64 +230,116 @@
     private int reportProgress = 0;
     private string currentGenerationStep = "";
 
-    private List<ReportInfo> recentReports = new()
-    {
-        new ReportInfo
-        {
-            Id = 1,
-            Name = "Security Audit - Dec 2024",
-            Type = "Security Audit",
-            Format = "pdf",
-            GeneratedAt = DateTime.Now.AddHours(-2),
-            Size = "2.4 MB"
-        },
-        new ReportInfo
-        {
-            Id = 2,
-            Name = "Network Health - Weekly",
-            Type = "Network Health",
-            Format = "markdown",
-            GeneratedAt = DateTime.Now.AddDays(-1),
-            Size = "145 KB"
-        }
-    };
+    private List<ReportInfo> recentReports = new();
+    private Dictionary<int, byte[]> generatedReportBytes = new();
+    private string? errorMessage;
 
     private async Task GenerateReport()
     {
         isGenerating = true;
         reportProgress = 0;
+        errorMessage = null;
         StateHasChanged();
 
         try
         {
-            var steps = new[]
-            {
-                ("Collecting network data...", 20),
-                ("Running security analysis...", 40),
-                ("Generating visualizations...", 60),
-                ("Formatting report...", 80),
-                ("Finalizing document...", 100)
-            };
+            currentGenerationStep = "Loading audit data...";
+            reportProgress = 20;
+            StateHasChanged();
+            await Task.Delay(200);
 
-            foreach (var (step, progress) in steps)
+            // Get audit data
+            var auditSummary = await AuditService.GetAuditSummaryAsync();
+            var lastAudit = AuditService.LastAuditResult;
+
+            if (lastAudit == null || !lastAudit.Issues.Any())
             {
-                currentGenerationStep = step;
-                reportProgress = progress;
-                StateHasChanged();
-                await Task.Delay(800);
+                errorMessage = "No audit data available. Please run an audit first from the Audit page.";
+                return;
             }
 
-            // TODO: Implement actual report generation
-            // Add to recent reports list
+            currentGenerationStep = "Building report data...";
+            reportProgress = 40;
+            StateHasChanged();
+            await Task.Delay(200);
+
+            // Build report data
+            var reportData = new NetworkOptimizer.Reports.ReportData
+            {
+                ClientName = "Network",
+                GeneratedAt = DateTime.Now,
+                SecurityScore = new NetworkOptimizer.Reports.SecurityScore
+                {
+                    Rating = lastAudit.Score >= 90 ? NetworkOptimizer.Reports.SecurityRating.Excellent
+                           : lastAudit.Score >= 75 ? NetworkOptimizer.Reports.SecurityRating.Good
+                           : lastAudit.Score >= 60 ? NetworkOptimizer.Reports.SecurityRating.Fair
+                           : NetworkOptimizer.Reports.SecurityRating.NeedsWork,
+                    CriticalIssueCount = lastAudit.CriticalCount,
+                    WarningCount = lastAudit.WarningCount
+                },
+                CriticalIssues = lastAudit.Issues
+                    .Where(i => i.Severity == "Critical")
+                    .Select(i => new NetworkOptimizer.Reports.AuditIssue
+                    {
+                        Severity = NetworkOptimizer.Reports.IssueSeverity.Critical,
+                        SwitchName = i.DeviceName ?? "Unknown",
+                        PortIndex = int.TryParse(i.Port, out var p) ? p : null,
+                        PortName = i.PortName ?? "",
+                        CurrentNetwork = i.CurrentNetwork ?? "",
+                        CurrentVlan = i.CurrentVlan,
+                        Message = i.Description,
+                        RecommendedAction = i.Recommendation
+                    })
+                    .ToList(),
+                RecommendedImprovements = lastAudit.Issues
+                    .Where(i => i.Severity == "Warning")
+                    .Select(i => new NetworkOptimizer.Reports.AuditIssue
+                    {
+                        Severity = NetworkOptimizer.Reports.IssueSeverity.Warning,
+                        SwitchName = i.DeviceName ?? "Unknown",
+                        PortIndex = int.TryParse(i.Port, out var p) ? p : null,
+                        PortName = i.PortName ?? "",
+                        CurrentNetwork = i.CurrentNetwork ?? "",
+                        CurrentVlan = i.CurrentVlan,
+                        Message = i.Description,
+                        RecommendedAction = i.Recommendation
+                    })
+                    .ToList()
+            };
+
+            currentGenerationStep = "Generating PDF...";
+            reportProgress = 70;
+            StateHasChanged();
+            await Task.Delay(200);
+
+            // Generate PDF
+            var generator = new NetworkOptimizer.Reports.PdfReportGenerator();
+            var pdfBytes = generator.GenerateReportBytes(reportData);
+
+            currentGenerationStep = "Finalizing...";
+            reportProgress = 100;
+            StateHasChanged();
+
+            // Store report and add to list
+            var reportId = recentReports.Count + 1;
+            generatedReportBytes[reportId] = pdfBytes;
+
             recentReports.Insert(0, new ReportInfo
             {
-                Id = recentReports.Count + 1,
-                Name = $"{reportType} - {DateTime.Now:MMM yyyy}",
-                Type = reportType,
+                Id = reportId,
+                Name = $"Security Audit - {DateTime.Now:MMM dd, yyyy}",
+                Type = "Security Audit",
                 Format = selectedFormat,
                 GeneratedAt = DateTime.Now,
-                Size = "1.8 MB"
+                Size = $"{pdfBytes.Length / 1024} KB"
             });
+
+            Logger.LogInformation("Generated report {Id} with {Size} bytes", reportId, pdfBytes.Length);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error generating report");
+            errorMessage = $"Error generating report: {ex.Message}";
         }
         finally
         {
@@ -287,15 +350,38 @@
 
     private async Task DownloadReport(int reportId)
     {
-        // TODO: Implement report download
-        await Task.CompletedTask;
+        try
+        {
+            if (!generatedReportBytes.TryGetValue(reportId, out var pdfBytes))
+            {
+                errorMessage = "Report not found. It may have been generated in a previous session.";
+                StateHasChanged();
+                return;
+            }
+
+            var report = recentReports.FirstOrDefault(r => r.Id == reportId);
+            var fileName = report != null
+                ? $"{report.Name.Replace(" ", "_")}.pdf"
+                : $"NetworkReport_{reportId}.pdf";
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/pdf", base64);
+            Logger.LogInformation("Downloaded report {FileName}", fileName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error downloading report");
+            errorMessage = $"Error downloading report: {ex.Message}";
+            StateHasChanged();
+        }
     }
 
-    private async Task DeleteReport(int reportId)
+    private Task DeleteReport(int reportId)
     {
         recentReports.RemoveAll(r => r.Id == reportId);
+        generatedReportBytes.Remove(reportId);
         StateHasChanged();
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     public class ReportInfo
