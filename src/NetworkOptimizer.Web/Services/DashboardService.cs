@@ -6,11 +6,16 @@ public class DashboardService
 {
     private readonly ILogger<DashboardService> _logger;
     private readonly UniFiConnectionService _connectionService;
+    private readonly AuditService _auditService;
 
-    public DashboardService(ILogger<DashboardService> logger, UniFiConnectionService connectionService)
+    public DashboardService(
+        ILogger<DashboardService> logger,
+        UniFiConnectionService connectionService,
+        AuditService auditService)
     {
         _logger = logger;
         _connectionService = connectionService;
+        _auditService = auditService;
     }
 
     public async Task<DashboardData> GetDashboardDataAsync()
@@ -75,7 +80,40 @@ public class DashboardService
             data.LastError = ex.Message;
         }
 
+        // Load audit summary (from memory cache or database)
+        try
+        {
+            var auditSummary = await _auditService.GetAuditSummaryAsync();
+            data.SecurityScore = auditSummary.Score;
+            data.CriticalIssues = auditSummary.CriticalCount;
+            data.WarningIssues = auditSummary.WarningCount;
+            data.AlertCount = auditSummary.CriticalCount + auditSummary.WarningCount;
+            data.LastAuditTime = auditSummary.LastAuditTime.HasValue
+                ? FormatRelativeTime(auditSummary.LastAuditTime.Value)
+                : "Never";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load audit summary");
+        }
+
         return data;
+    }
+
+    private static string FormatRelativeTime(DateTime utcTime)
+    {
+        var elapsed = DateTime.UtcNow - utcTime;
+
+        if (elapsed.TotalMinutes < 1)
+            return "Just now";
+        if (elapsed.TotalMinutes < 60)
+            return $"{(int)elapsed.TotalMinutes} minutes ago";
+        if (elapsed.TotalHours < 24)
+            return $"{(int)elapsed.TotalHours} hours ago";
+        if (elapsed.TotalDays < 7)
+            return $"{(int)elapsed.TotalDays} days ago";
+
+        return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
     }
 
     private static string GetDeviceType(string? type) => type switch

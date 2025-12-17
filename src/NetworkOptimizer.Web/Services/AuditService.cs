@@ -1,6 +1,10 @@
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit;
+using NetworkOptimizer.Storage.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
+using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -9,6 +13,7 @@ public class AuditService
     private readonly ILogger<AuditService> _logger;
     private readonly UniFiConnectionService _connectionService;
     private readonly ConfigAuditEngine _auditEngine;
+    private readonly IServiceProvider _serviceProvider;
 
     // Cache the last audit result
     private AuditResult? _lastAuditResult;
@@ -17,15 +22,165 @@ public class AuditService
     public AuditService(
         ILogger<AuditService> logger,
         UniFiConnectionService connectionService,
-        ConfigAuditEngine auditEngine)
+        ConfigAuditEngine auditEngine,
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditEngine = auditEngine;
+        _serviceProvider = serviceProvider;
     }
 
     public AuditResult? LastAuditResult => _lastAuditResult;
     public DateTime? LastAuditTime => _lastAuditTime;
+
+    /// <summary>
+    /// Load the most recent audit result from the database
+    /// </summary>
+    public async Task<AuditResult?> LoadLastAuditFromDatabaseAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var latestAudit = await db.AuditResults
+                .OrderByDescending(a => a.AuditDate)
+                .FirstOrDefaultAsync();
+
+            if (latestAudit == null)
+                return null;
+
+            // Parse the stored findings JSON
+            var issues = new List<AuditIssue>();
+            if (!string.IsNullOrEmpty(latestAudit.FindingsJson))
+            {
+                try
+                {
+                    issues = JsonSerializer.Deserialize<List<AuditIssue>>(latestAudit.FindingsJson) ?? new List<AuditIssue>();
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse audit findings JSON");
+                }
+            }
+
+            var result = new AuditResult
+            {
+                Score = (int)latestAudit.ComplianceScore,
+                ScoreLabel = GetScoreLabel((int)latestAudit.ComplianceScore),
+                ScoreClass = GetScoreClass((int)latestAudit.ComplianceScore),
+                CriticalCount = latestAudit.FailedChecks,
+                WarningCount = latestAudit.WarningChecks,
+                InfoCount = latestAudit.PassedChecks,
+                Issues = issues,
+                CompletedAt = latestAudit.AuditDate
+            };
+
+            // Cache it
+            _lastAuditResult = result;
+            _lastAuditTime = latestAudit.AuditDate;
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading last audit from database");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get audit summary for dashboard display
+    /// </summary>
+    public async Task<AuditSummary> GetAuditSummaryAsync()
+    {
+        // Try memory cache first
+        if (_lastAuditResult != null && _lastAuditTime != null)
+        {
+            return new AuditSummary
+            {
+                Score = _lastAuditResult.Score,
+                CriticalCount = _lastAuditResult.CriticalCount,
+                WarningCount = _lastAuditResult.WarningCount,
+                LastAuditTime = _lastAuditTime.Value,
+                RecentIssues = _lastAuditResult.Issues.Take(5).ToList()
+            };
+        }
+
+        // Try to load from database
+        var dbResult = await LoadLastAuditFromDatabaseAsync();
+        if (dbResult != null && _lastAuditTime != null)
+        {
+            return new AuditSummary
+            {
+                Score = dbResult.Score,
+                CriticalCount = dbResult.CriticalCount,
+                WarningCount = dbResult.WarningCount,
+                LastAuditTime = _lastAuditTime.Value,
+                RecentIssues = dbResult.Issues.Take(5).ToList()
+            };
+        }
+
+        // No audit data available
+        return new AuditSummary
+        {
+            Score = 0,
+            CriticalCount = 0,
+            WarningCount = 0,
+            LastAuditTime = null,
+            RecentIssues = new List<AuditIssue>()
+        };
+    }
+
+    private async Task PersistAuditResultAsync(AuditResult result)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var storageResult = new StorageAuditResult
+            {
+                DeviceId = "network-audit",
+                DeviceName = "Network Security Audit",
+                AuditDate = result.CompletedAt,
+                TotalChecks = result.CriticalCount + result.WarningCount + result.InfoCount,
+                PassedChecks = result.InfoCount,
+                FailedChecks = result.CriticalCount,
+                WarningChecks = result.WarningCount,
+                ComplianceScore = result.Score,
+                FindingsJson = JsonSerializer.Serialize(result.Issues),
+                AuditVersion = "1.0",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            db.AuditResults.Add(storageResult);
+            await db.SaveChangesAsync();
+
+            _logger.LogInformation("Persisted audit result to database with {IssueCount} issues", result.Issues.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist audit result to database");
+        }
+    }
+
+    private static string GetScoreLabel(int score) => score switch
+    {
+        >= 90 => "EXCELLENT",
+        >= 75 => "GOOD",
+        >= 60 => "FAIR",
+        _ => "NEEDS ATTENTION"
+    };
+
+    private static string GetScoreClass(int score) => score switch
+    {
+        >= 90 => "excellent",
+        >= 75 => "good",
+        >= 60 => "fair",
+        _ => "poor"
+    };
 
     public async Task<AuditResult> RunAuditAsync(AuditOptions options)
     {
@@ -75,6 +230,9 @@ public class AuditService
             // Cache the result
             _lastAuditResult = webResult;
             _lastAuditTime = DateTime.UtcNow;
+
+            // Persist to database
+            await PersistAuditResultAsync(webResult);
 
             _logger.LogInformation("Audit complete: Score={Score}, Critical={Critical}, Recommended={Recommended}",
                 webResult.Score, webResult.CriticalCount, webResult.WarningCount);
@@ -270,4 +428,13 @@ public class AuditIssue
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
     public string Recommendation { get; set; } = "";
+}
+
+public class AuditSummary
+{
+    public int Score { get; set; }
+    public int CriticalCount { get; set; }
+    public int WarningCount { get; set; }
+    public DateTime? LastAuditTime { get; set; }
+    public List<AuditIssue> RecentIssues { get; set; } = new();
 }

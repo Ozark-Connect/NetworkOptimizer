@@ -12,7 +12,8 @@ public class VlanAnalyzer
     private readonly ILogger<VlanAnalyzer> _logger;
 
     // Network classification patterns (case-insensitive)
-    private static readonly string[] IoTPatterns = { "iot", "smart", "device", "automation", "zero trust" };
+    // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
+    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
     private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect" };
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin" };
     private static readonly string[] GuestPatterns = { "guest", "visitor" };
@@ -175,12 +176,12 @@ public class VlanAnalyzer
                 return NetworkPurpose.Corporate;
         }
 
-        // Check patterns
-        if (IoTPatterns.Any(p => nameLower.Contains(p)))
-            return NetworkPurpose.IoT;
-
+        // Check patterns - Security first to avoid false positives with "Security Devices" matching IoT
         if (SecurityPatterns.Any(p => nameLower.Contains(p)))
             return NetworkPurpose.Security;
+
+        if (IoTPatterns.Any(p => nameLower.Contains(p)))
+            return NetworkPurpose.IoT;
 
         if (ManagementPatterns.Any(p => nameLower.Contains(p)))
             return NetworkPurpose.Management;
