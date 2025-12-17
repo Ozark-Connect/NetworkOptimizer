@@ -262,14 +262,8 @@ public class CellularModemService : IDisposable
                 return; // SSH not configured, skip polling
             }
 
-            // First try auto-discovered modems
-            var discovered = await DiscoverModemsAsync();
-            foreach (var modem in discovered.Where(m => m.IsOnline && !string.IsNullOrEmpty(m.Host)))
-            {
-                await PollModemAsync(modem.Host, modem.Name);
-            }
-
-            // Also poll any legacy configured modems
+            // Only poll configured and enabled modems (not auto-discovered ones)
+            // Auto-discovered modems must be added to config before they're polled
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
 
