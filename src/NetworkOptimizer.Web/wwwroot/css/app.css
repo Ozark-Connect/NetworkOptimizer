@@ -666,7 +666,22 @@ html, body {
 }
 
 .alert-icon {
-    font-size: 1.25rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 0.125rem;
+}
+
+.alert-item.alert-critical .alert-icon {
+    color: var(--danger-color);
+}
+
+.alert-item.alert-warning .alert-icon {
+    color: var(--warning-color);
+}
+
+.alert-item.alert-info .alert-icon {
+    color: var(--info-color);
 }
 
 .alert-content {
@@ -1131,11 +1146,92 @@ html, body {
     border-bottom-color: var(--text-secondary);
 }
 
-/* Issue Actions */
+/* Issue Styling */
+.issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.issue-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-primary);
+    border-radius: var(--border-radius);
+    border-left: 4px solid var(--border-color);
+}
+
+.issue-item.issue-critical {
+    border-left-color: var(--danger-color);
+}
+
+.issue-item.issue-warning {
+    border-left-color: var(--warning-color);
+}
+
+.issue-item.issue-info {
+    border-left-color: var(--info-color);
+}
+
+.issue-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 0.125rem;
+}
+
+.issue-item.issue-critical .issue-icon {
+    color: var(--danger-color);
+}
+
+.issue-item.issue-warning .issue-icon {
+    color: var(--warning-color);
+}
+
+.issue-item.issue-info .issue-icon {
+    color: var(--info-color);
+}
+
+.issue-body {
+    flex: 1;
+    min-width: 0;
+}
+
 .issue-header {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.issue-severity {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.issue-critical .issue-severity {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+}
+
+.issue-warning .issue-severity {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-color);
+}
+
+.issue-info .issue-severity {
+    background: rgba(6, 182, 212, 0.15);
+    color: var(--info-color);
+}
+
+.issue-category {
+    font-size: 0.75rem;
+    color: var(--text-muted);
 }
 
 .issue-action {
@@ -1149,9 +1245,44 @@ html, body {
     opacity: 1;
 }
 
+.issue-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.issue-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.issue-recommendation {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(6, 182, 212, 0.1);
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.issue-recommendation strong {
+    color: var(--info-color);
+}
+
+.no-issues {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-muted);
+}
+
 .issue-item.issue-dismissed {
     opacity: 0.6;
     border-left-color: var(--text-muted);
+}
+
+.issue-item.issue-dismissed .issue-icon {
+    color: var(--text-muted);
 }
 
 /* Footer */
