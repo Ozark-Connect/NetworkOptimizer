@@ -3,6 +3,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Core.Helpers
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
@@ -754,15 +755,7 @@
         }
     }
 
-    private bool IsGatewayDevice(string? type)
-    {
-        if (string.IsNullOrEmpty(type))
-            return false;
-
-        var t = type.ToLowerInvariant();
-        // Gateway types: udm (Dream Machine), ugw (USG), uxg (Next-Gen Gateway), ucg (Cloud Gateway)
-        return t == "udm" || t == "ugw" || t == "uxg" || t == "ucg";
-    }
+    private bool IsGatewayDevice(string? type) => UniFiDeviceTypes.IsGateway(type);
 
     private async Task RunSpeedTestOnDiscovered(UniFiDeviceResponse device)
     {

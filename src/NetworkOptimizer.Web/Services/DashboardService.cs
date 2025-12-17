@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -50,9 +51,9 @@ public class DashboardService
                 }).ToList();
 
                 // Count by type
-                data.GatewayCount = devices.Count(d => d.Type is "udm" or "ugw" or "uxg" or "ucg");
-                data.SwitchCount = devices.Count(d => d.Type == "usw");
-                data.ApCount = devices.Count(d => d.Type == "uap");
+                data.GatewayCount = devices.Count(d => UniFiDeviceTypes.IsGateway(d.Type));
+                data.SwitchCount = devices.Count(d => UniFiDeviceTypes.IsSwitch(d.Type));
+                data.ApCount = devices.Count(d => UniFiDeviceTypes.IsAccessPoint(d.Type));
             }
 
             // Get client count (in try/catch since client API can have parsing issues)
@@ -116,14 +117,7 @@ public class DashboardService
         return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
     }
 
-    private static string GetDeviceType(string? type) => type switch
-    {
-        "udm" or "ugw" or "uxg" or "ucg" => "Gateway",
-        "usw" => "Switch",
-        "uap" => "Access Point",
-        "umbb" => "Cellular Modem",
-        _ => type ?? "Unknown"
-    };
+    private static string GetDeviceType(string? type) => UniFiDeviceTypes.GetDisplayName(type);
 
     private static string FormatUptime(long? uptimeSeconds)
     {
