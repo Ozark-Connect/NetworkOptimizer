@@ -1,6 +1,7 @@
 @page "/audit"
 @inject AuditService AuditService
 @inject IJSRuntime JSRuntime
+@inject ILogger<Audit> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
@@ -53,6 +54,13 @@
                     </label>
                 </div>
             </div>
+
+            @if (!string.IsNullOrEmpty(exportError))
+            {
+                <div class="alert alert-danger" style="margin-top: 1rem;">
+                    @exportError
+                </div>
+            }
 
             @if (auditProgress > 0 && isRunning)
             {
@@ -261,13 +269,22 @@
         }
     }
 
+    private string? exportError;
+
     private async Task ExportReport()
     {
+        exportError = null;
+
         if (!hasResults || !issues.Any())
+        {
+            exportError = "No audit results to export. Run an audit first.";
             return;
+        }
 
         try
         {
+            Logger.LogInformation("Starting PDF export with {IssueCount} issues", issues.Count);
+
             // Build report data from audit results
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
@@ -313,16 +330,24 @@
             };
 
             // Generate PDF
+            Logger.LogInformation("Generating PDF with {CriticalCount} critical, {WarningCount} warnings",
+                reportData.CriticalIssues.Count, reportData.RecommendedImprovements.Count);
             var generator = new NetworkOptimizer.Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
+            Logger.LogInformation("PDF generated: {Size} bytes", pdfBytes.Length);
 
             // Download file via JS interop
             var fileName = $"NetworkAudit_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
-            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/pdf", Convert.ToBase64String(pdfBytes));
+            var base64 = Convert.ToBase64String(pdfBytes);
+            Logger.LogInformation("Calling JS downloadFile for {FileName}", fileName);
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, "application/pdf", base64);
+            Logger.LogInformation("PDF download initiated");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error generating PDF: {ex.Message}");
+            Logger.LogError(ex, "Error generating PDF report");
+            exportError = $"Error generating PDF: {ex.Message}";
+            StateHasChanged();
         }
     }
 
