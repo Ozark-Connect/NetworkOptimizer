@@ -17,11 +17,18 @@
     <script src="_framework/blazor.web.js"></script>
     <script>
         function downloadFile(fileName, contentType, base64Data) {
-            const linkSource = `data:${contentType};base64,${base64Data}`;
-            const downloadLink = document.createElement('a');
-            downloadLink.href = linkSource;
-            downloadLink.download = fileName;
-            downloadLink.click();
+            try {
+                const linkSource = `data:${contentType};base64,${base64Data}`;
+                const downloadLink = document.createElement('a');
+                downloadLink.href = linkSource;
+                downloadLink.download = fileName;
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+                console.log('Download triggered for: ' + fileName);
+            } catch (e) {
+                console.error('Download failed:', e);
+            }
         }
     </script>
 </body>
