@@ -50,7 +50,7 @@ public class DashboardService
                 }).ToList();
 
                 // Count by type
-                data.GatewayCount = devices.Count(d => d.Type is "udm" or "ugw" or "uxg");
+                data.GatewayCount = devices.Count(d => d.Type is "udm" or "ugw" or "uxg" or "ucg");
                 data.SwitchCount = devices.Count(d => d.Type == "usw");
                 data.ApCount = devices.Count(d => d.Type == "uap");
             }
@@ -118,7 +118,7 @@ public class DashboardService
 
     private static string GetDeviceType(string? type) => type switch
     {
-        "udm" or "ugw" or "uxg" => "Gateway",
+        "udm" or "ugw" or "uxg" or "ucg" => "Gateway",
         "usw" => "Switch",
         "uap" => "Access Point",
         "umbb" => "Cellular Modem",

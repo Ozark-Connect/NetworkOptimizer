@@ -760,8 +760,8 @@
             return false;
 
         var t = type.ToLowerInvariant();
-        // Gateway types: udm (Dream Machine), ugw (USG), uxg (Next-Gen Gateway)
-        return t == "udm" || t == "ugw" || t == "uxg";
+        // Gateway types: udm (Dream Machine), ugw (USG), uxg (Next-Gen Gateway), ucg (Cloud Gateway)
+        return t == "udm" || t == "ugw" || t == "uxg" || t == "ucg";
     }
 
     private async Task RunSpeedTestOnDiscovered(UniFiDeviceResponse device)
