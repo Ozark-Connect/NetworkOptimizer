@@ -5,7 +5,7 @@
 
 /* CSS Variables for theming - Ozark Connect Brand Colors */
 :root {
-    /* Brand Colors */
+    /* Brand Colors - Ubiquiti Blue + Accent Orange */
     --primary-color: #0559C9;
     --primary-hover: #044BA8;
     --accent-color: #F97316;
@@ -17,17 +17,18 @@
     --danger-color: #ef4444;
     --info-color: #0559C9;
 
-    /* Dark Mode Backgrounds */
+    /* Dark Mode Backgrounds (matching Ozark Connect dark theme) */
     --bg-primary: #0f172a;
     --bg-secondary: #1e293b;
     --bg-tertiary: #334155;
     --bg-card: #1e293b;
     --bg-hover: #334155;
 
-    /* Text Colors */
+    /* Text Colors (from Ozark Connect dark theme) */
     --text-primary: #f1f5f9;
     --text-secondary: #cbd5e1;
     --text-muted: #64748b;
+    --text-dark: #1F2937;
 
     /* Borders & Effects */
     --border-color: #334155;
@@ -127,13 +128,13 @@ html, body {
 
 .nav-link:hover {
     background: var(--bg-hover);
-    color: var(--text-primary);
+    color: var(--accent-color);
 }
 
 .nav-link.active {
     background: var(--bg-tertiary);
-    color: var(--primary-color);
-    border-left-color: var(--primary-color);
+    color: var(--accent-color);
+    border-left-color: var(--accent-color);
 }
 
 .nav-icon {
@@ -269,13 +270,15 @@ html, body {
 }
 
 .card-action {
-    color: var(--primary-color);
+    color: var(--accent-color);
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
+    transition: color 0.2s ease;
 }
 
 .card-action:hover {
+    color: var(--accent-hover);
     text-decoration: underline;
 }
 
@@ -1105,12 +1108,12 @@ html, body {
 }
 
 .tab:hover {
-    color: var(--text-primary);
+    color: var(--accent-color);
 }
 
 .tab.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
 }
 
 /* Footer */
@@ -1358,7 +1361,7 @@ html, body {
 .interface-rate .rate-value {
     font-size: 1.75rem;
     font-weight: 700;
-    color: var(--primary-color);
+    color: var(--accent-color);
 }
 
 .interface-rate .rate-unit {
@@ -1396,4 +1399,56 @@ html, body {
 
 .status-offline {
     color: var(--danger-color);
+}
+
+/* Accent Highlight Box (Ozark Connect style) */
+.highlight-box {
+    background: rgba(249, 115, 22, 0.1);
+    border-left: 4px solid var(--accent-color);
+    padding: 1rem 1.25rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    margin: 1rem 0;
+}
+
+.highlight-box p {
+    color: var(--accent-color);
+    font-weight: 500;
+    margin: 0;
+}
+
+/* Accent Links */
+.link-accent {
+    color: var(--accent-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.link-accent:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
+
+/* Primary Links (for light elements on dark bg) */
+.link-primary {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.link-primary:hover {
+    color: var(--accent-color);
+}
+
+/* Accent Text */
+.text-accent {
+    color: var(--accent-color);
+}
+
+.text-primary-brand {
+    color: var(--primary-color);
+}
+
+/* Stat Value Accent (for prominent numbers) */
+.stat-value-accent {
+    color: var(--accent-color);
 }
