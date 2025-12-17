@@ -93,7 +93,7 @@ public class SecurityAuditEngine
             ? typeProp.GetString()
             : null;
 
-        var isGateway = deviceType is "udm" or "ugw" or "uxg";
+        var isGateway = deviceType is "udm" or "ugw" or "uxg" or "ucg";
 
         // Get device name
         var rawName = device.TryGetProperty("name", out var nameProp)
