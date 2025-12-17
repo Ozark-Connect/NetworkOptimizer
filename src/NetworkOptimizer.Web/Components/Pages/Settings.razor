@@ -931,7 +931,7 @@
         {
             controllerUrl = ConnectionService.CurrentConfig.ControllerUrl;
             controllerUsername = ConnectionService.CurrentConfig.Username;
-            controllerPassword = ConnectionService.CurrentConfig.Password;
+            // Don't load password - keep it empty for security
             controllerSite = ConnectionService.CurrentConfig.Site;
             rememberCredentials = ConnectionService.CurrentConfig.RememberCredentials;
         }
@@ -1324,14 +1324,22 @@
         }
     }
 
-    private UniFiConnectionConfig BuildConfig() => new()
+    private UniFiConnectionConfig BuildConfig()
     {
-        ControllerUrl = controllerUrl,
-        Username = controllerUsername,
-        Password = controllerPassword,
-        Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
-        RememberCredentials = rememberCredentials
-    };
+        // Use newly entered password, or fall back to existing stored password
+        var password = !string.IsNullOrEmpty(controllerPassword)
+            ? controllerPassword
+            : ConnectionService.CurrentConfig?.Password ?? "";
+
+        return new UniFiConnectionConfig
+        {
+            ControllerUrl = controllerUrl,
+            Username = controllerUsername,
+            Password = password,
+            Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
+            RememberCredentials = rememberCredentials
+        };
+    }
 
     private async Task TestControllerConnection()
     {

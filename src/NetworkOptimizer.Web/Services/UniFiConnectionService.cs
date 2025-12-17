@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Storage.Services;
 using System.Text.Json;
 
 namespace NetworkOptimizer.Web.Services;
@@ -12,6 +13,7 @@ public class UniFiConnectionService : IDisposable
 {
     private readonly ILogger<UniFiConnectionService> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly CredentialProtectionService _credentialProtection;
     private readonly string _configPath;
 
     private UniFiApiClient? _client;
@@ -24,6 +26,7 @@ public class UniFiConnectionService : IDisposable
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
+        _credentialProtection = new CredentialProtectionService();
         _configPath = Path.Combine(AppContext.BaseDirectory, "data", "unifi-connection.json");
 
         // Load saved configuration on startup (sync to avoid deadlock)
@@ -41,6 +44,12 @@ public class UniFiConnectionService : IDisposable
 
                 if (_config != null && !string.IsNullOrEmpty(_config.ControllerUrl))
                 {
+                    // Decrypt password if encrypted
+                    if (!string.IsNullOrEmpty(_config.Password))
+                    {
+                        _config.Password = _credentialProtection.Decrypt(_config.Password);
+                    }
+
                     _logger.LogInformation("Loaded saved UniFi configuration for {Url}", _config.ControllerUrl);
 
                     // Auto-connect in background if we have credentials
@@ -225,7 +234,19 @@ public class UniFiConnectionService : IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            // Create a copy with encrypted password for saving
+            var configToSave = new UniFiConnectionConfig
+            {
+                ControllerUrl = _config?.ControllerUrl ?? "",
+                Username = _config?.Username ?? "",
+                Password = !string.IsNullOrEmpty(_config?.Password)
+                    ? _credentialProtection.Encrypt(_config.Password)
+                    : "",
+                Site = _config?.Site ?? "default",
+                RememberCredentials = _config?.RememberCredentials ?? false
+            };
+
+            var json = JsonSerializer.Serialize(configToSave, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(_configPath, json);
 
             _logger.LogInformation("Saved UniFi configuration");
