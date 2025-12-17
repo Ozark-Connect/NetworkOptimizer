@@ -83,7 +83,8 @@ public class CellularModemService : IDisposable
 
                 if (isCellularModem)
                 {
-                    var displayModel = !string.IsNullOrEmpty(device.Shortname) ? device.Shortname : device.Model ?? "Unknown";
+                    var rawModel = !string.IsNullOrEmpty(device.Shortname) ? device.Shortname : device.Model ?? "Unknown";
+                    var displayModel = FormatModelName(rawModel);
                     discovered.Add(new DiscoveredModem
                     {
                         DeviceId = device.Id,
@@ -93,8 +94,8 @@ public class CellularModemService : IDisposable
                         MacAddress = device.Mac,
                         IsOnline = device.State == 1 && device.Adopted
                     });
-                    _logger.LogInformation("Discovered cellular modem: {Name} ({Model}/{Shortname}) at {Host}",
-                        device.Name, device.Model, device.Shortname, device.Ip);
+                    _logger.LogInformation("Discovered cellular modem: {Name} ({Model}) at {Host}",
+                        device.Name, displayModel, device.Ip);
                 }
             }
         }
@@ -315,6 +316,23 @@ public class CellularModemService : IDisposable
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
         }
+    }
+
+    /// <summary>
+    /// Format model names for display (e.g., U5GMAX -> U5G-Max)
+    /// </summary>
+    private static string FormatModelName(string model)
+    {
+        if (string.IsNullOrEmpty(model))
+            return "Unknown";
+
+        return model.ToUpperInvariant() switch
+        {
+            "U5GMAX" => "U5G-Max",
+            "ULTE" => "U-LTE",
+            "ULTEPRO" => "U-LTE-Pro",
+            _ => model
+        };
     }
 
     public void Dispose()

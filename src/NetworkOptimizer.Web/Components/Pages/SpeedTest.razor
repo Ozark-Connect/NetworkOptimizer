@@ -72,7 +72,7 @@
                             var isOnline = device.State == 1 && device.Adopted;
                             <tr>
                                 <td>@device.Name</td>
-                                <td><code>@(device.Shortname ?? device.Model)</code></td>
+                                <td><code>@device.FriendlyModelName</code></td>
                                 <td><code>@device.Ip</code></td>
                                 <td>@GetDeviceTypeDisplay(device.Type)</td>
                                 <td>

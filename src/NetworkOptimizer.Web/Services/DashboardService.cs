@@ -83,6 +83,7 @@ public class DashboardService
         "udm" or "ugw" or "uxg" => "Gateway",
         "usw" => "Switch",
         "uap" => "Access Point",
+        "umbb" => "Cellular Modem",
         _ => type ?? "Unknown"
     };
 

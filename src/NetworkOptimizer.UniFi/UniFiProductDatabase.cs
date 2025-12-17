@@ -108,7 +108,7 @@ public static class UniFiProductDatabase
         { "U7PRO", "U7-Pro" },
         { "U7PROMAX", "U7-Pro-Max" },
         { "U7PROMAXB", "U7-Pro-Max" },
-        { "U7PROXGSB", "U7-Pro-XGS-Black" }, // Your Tiny Home AP
+        { "U7PROXGSB", "U7-Pro-XGS-B" }, // Your Tiny Home AP
         { "U7PIW", "U7-Pro-Wall" },           // Pro In-Wall
         { "U7PO", "U7-Pro-Outdoor" },         // Pro Outdoor
         { "U7LR", "U7-LR" },
@@ -154,6 +154,11 @@ public static class UniFiProductDatabase
 
         // UniFi Connect
         { "ULED", "UC-LED" },
+
+        // ===== Cellular Modems =====
+        { "U5GMAX", "U5G-Max" },
+        { "ULTE", "U-LTE" },
+        { "ULTEPRO", "U-LTE-Pro" },
     };
 
     /// <summary>

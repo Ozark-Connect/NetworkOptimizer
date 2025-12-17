@@ -3,7 +3,17 @@
     <div class="device-card device-@Device.Status.ToLower()">
         <div class="device-header">
             <div class="device-icon">
-                @GetDeviceIcon(Device.Type)
+                @{
+                    var imagePath = GetDeviceImagePath(Device.Model);
+                }
+                @if (!string.IsNullOrEmpty(imagePath))
+                {
+                    <img src="@imagePath" alt="@Device.Model" class="device-image" />
+                }
+                else
+                {
+                    <span class="device-emoji">@GetDeviceIcon(Device.Type)</span>
+                }
             </div>
             <div class="device-info">
                 <h4 class="device-name">@Device.Name</h4>
@@ -44,11 +54,46 @@
     </div>
 }
 
+<style>
+    .device-image {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+    }
+
+    .device-emoji {
+        font-size: 2rem;
+    }
+</style>
+
 @using NetworkOptimizer.Web.Services
 
 @code {
     [Parameter]
     public DeviceInfo? Device { get; set; }
+
+    private string? GetDeviceImagePath(string? model)
+    {
+        if (string.IsNullOrEmpty(model))
+            return null;
+
+        // Map friendly model names to image filenames
+        var imageFile = model switch
+        {
+            "UCG-Fiber" => "ucg-fiber.png",
+            "U5G-Max" => "u5g-max.png",
+            "USW-Pro-XG-8-PoE" => "usw-pro-xg-8-poe.png",
+            "USW-Lite-8-PoE" => "usw-lite-8-poe.png",
+            "USW-Flex-Mini" => "usw-flex-mini.png",
+            "U7-Pro-Wall" => "u7-pro-wall.png",
+            "U7-Pro-XGS-B" => "u7-pro-xgs-b.png",
+            "U7-Pro-Outdoor" => "u7-pro-outdoor.png",
+            "U7-Outdoor" => "u7-outdoor.png",
+            _ => null
+        };
+
+        return imageFile != null ? $"/images/devices/{imageFile}" : null;
+    }
 
     private string GetDeviceIcon(string deviceType)
     {
@@ -59,6 +104,7 @@
             "access point" => "📡",
             "ap" => "📡",
             "camera" => "📹",
+            "cellular modem" => "📶",
             _ => "🖥️"
         };
     }
