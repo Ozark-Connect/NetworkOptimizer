@@ -44,7 +44,7 @@ public class UniFiConnectionService : IDisposable
 
                 if (_config != null && !string.IsNullOrEmpty(_config.ControllerUrl))
                 {
-                    // Decrypt password if encrypted
+                    // Decrypt password if encrypted (passes through if not encrypted)
                     if (!string.IsNullOrEmpty(_config.Password))
                     {
                         _config.Password = _credentialProtection.Decrypt(_config.Password);
