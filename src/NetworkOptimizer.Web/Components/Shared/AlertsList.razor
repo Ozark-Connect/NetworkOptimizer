@@ -30,7 +30,9 @@
         @foreach (var alert in GetDisplayAlerts())
         {
             <div class="alert-item alert-@alert.Severity.ToLower()">
-                <div class="alert-icon">@GetAlertIcon(alert.Severity)</div>
+                <div class="alert-icon">
+                    @((MarkupString)GetAlertIcon(alert.Severity))
+                </div>
                 <div class="alert-content">
                     <div class="alert-header">
                         <h4 class="alert-title">@alert.Title</h4>
@@ -139,10 +141,13 @@
     {
         return severity.ToLower() switch
         {
-            "critical" => "!",
-            "warning" => "warn",
-            "info" => "i",
-            _ => "pin"
+            // Shield with X - critical/danger
+            "critical" => """<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 2L3 7v6c0 5.25 3.85 10.15 9 11 5.15-.85 9-5.75 9-11V7l-9-5zm-1 14h2v2h-2v-2zm0-8h2v6h-2V8z" opacity="0.2"/><path d="M12 2L3 7v6c0 5.25 3.85 10.15 9 11 5.15-.85 9-5.75 9-11V7l-9-5zm0 2.18l7 3.89v5.43c0 4.14-3.01 8.05-7 8.88-3.99-.83-7-4.74-7-8.88V8.07l7-3.89zM11 8h2v6h-2V8zm0 8h2v2h-2v-2z"/></svg>""",
+            // Triangle with exclamation - warning
+            "warning" => """<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""",
+            // Circle with i - info
+            "info" => """<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-11h2v6h-2v-6zm0-4h2v2h-2V7z"/></svg>""",
+            _ => """<svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>"""
         };
     }
 
