@@ -490,6 +490,12 @@ html, body {
     color: white;
 }
 
+.rating-badge.rating-none {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
 .security-summary {
     display: flex;
     flex-direction: column;

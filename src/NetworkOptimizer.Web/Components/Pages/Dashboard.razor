@@ -155,12 +155,12 @@
 
 @code {
     private int deviceCount = 0;
-    private int securityScore = 85;
-    private string sqmStatus = "Active";
-    private int alertCount = 3;
-    private int criticalIssues = 1;
-    private int warningIssues = 5;
-    private string lastAuditTime = "2 hours ago";
+    private int securityScore = 0;
+    private string sqmStatus = "Not Configured";
+    private int alertCount = 0;
+    private int criticalIssues = 0;
+    private int warningIssues = 0;
+    private string lastAuditTime = "Never";
     private List<Services.DeviceInfo> devices = new();
 
     protected override async Task OnInitializedAsync()
