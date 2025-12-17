@@ -528,7 +528,8 @@ public class PdfReportGenerator
     {
         var primaryColor = GetColor(_branding.Colors.Primary);
         var lightGray = GetColor(_branding.Colors.LightGray);
-        var criticalBg = Color.FromRGB(255, 230, 230);
+        var criticalBg = Color.FromRGB(255, 230, 230);  // Light red
+        var warningBg = Color.FromRGB(255, 248, 220);   // Light yellow
 
         var hasIsolation = switchDevice.Ports.Any(p => p.Isolation);
 
@@ -538,29 +539,29 @@ public class PdfReportGenerator
             {
                 table.ColumnsDefinition(columns =>
                 {
-                    columns.ConstantColumn(35);  // Port
-                    columns.RelativeColumn(1.15f);  // Name
-                    columns.ConstantColumn(55);  // Link
-                    columns.ConstantColumn(50);  // Forward
-                    columns.RelativeColumn(1.4f);  // Native VLAN
-                    columns.ConstantColumn(45);  // PoE
-                    columns.ConstantColumn(55);  // Port Sec
-                    columns.ConstantColumn(55);  // Isolation
-                    columns.ConstantColumn(70);  // Status
+                    columns.ConstantColumn(30);  // Port
+                    columns.RelativeColumn(1.2f);  // Name
+                    columns.ConstantColumn(50);  // Link
+                    columns.ConstantColumn(45);  // Forward
+                    columns.RelativeColumn(2.0f);  // Native VLAN (wider)
+                    columns.ConstantColumn(40);  // PoE
+                    columns.ConstantColumn(50);  // Port Sec
+                    columns.ConstantColumn(45);  // Isolation
+                    columns.ConstantColumn(85);  // Status (wider for "Possible Wrong VLAN")
                 });
             }
             else
             {
                 table.ColumnsDefinition(columns =>
                 {
-                    columns.ConstantColumn(35);  // Port
+                    columns.ConstantColumn(30);  // Port
                     columns.RelativeColumn(1.3f);  // Name
-                    columns.ConstantColumn(60);  // Link
-                    columns.ConstantColumn(55);  // Forward
-                    columns.RelativeColumn(1.6f);  // Native VLAN
-                    columns.ConstantColumn(50);  // PoE
-                    columns.ConstantColumn(60);  // Port Sec
-                    columns.ConstantColumn(70);  // Status
+                    columns.ConstantColumn(55);  // Link
+                    columns.ConstantColumn(50);  // Forward
+                    columns.RelativeColumn(2.2f);  // Native VLAN (wider)
+                    columns.ConstantColumn(45);  // PoE
+                    columns.ConstantColumn(55);  // Port Sec
+                    columns.ConstantColumn(85);  // Status (wider for "Possible Wrong VLAN")
                 });
             }
 
@@ -591,12 +592,13 @@ public class PdfReportGenerator
             {
                 var (status, statusType) = port.GetStatus(switchDevice.MaxCustomMacAcls > 0);
                 var rowBg = statusType == PortStatusType.Critical ? criticalBg
+                    : statusType == PortStatusType.Warning ? warningBg
                     : rowIndex % 2 == 0 ? lightGray
                     : Colors.White;
 
                 var nativeVlan = port.NativeVlan.HasValue && !string.IsNullOrEmpty(port.NativeNetwork)
                     ? $"{port.NativeNetwork} ({port.NativeVlan})"
-                    : port.Forward == "disabled" ? "—" : "";
+                    : port.Forward == "disabled" ? "-" : "";
 
                 void DataCell(string text)
                 {
@@ -606,8 +608,9 @@ public class PdfReportGenerator
 
                 void DataCellLeft(string text)
                 {
+                    // No truncation - let text wrap or shrink naturally
                     table.Cell().Background(rowBg).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
-                        .AlignLeft().Text(text.Length > 18 ? text.Substring(0, 16) + ".." : text).FontSize(7);
+                        .AlignLeft().Text(text).FontSize(7);
                 }
 
                 DataCell(port.PortIndex.ToString());

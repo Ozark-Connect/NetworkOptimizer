@@ -263,7 +263,7 @@
             StateHasChanged();
             await Task.Delay(200);
 
-            // Build report data
+            // Build report data (complete data like Security Audit page)
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
                 ClientName = "Network",
@@ -275,8 +275,57 @@
                            : lastAudit.Score >= 60 ? NetworkOptimizer.Reports.SecurityRating.Fair
                            : NetworkOptimizer.Reports.SecurityRating.NeedsWork,
                     CriticalIssueCount = lastAudit.CriticalCount,
-                    WarningCount = lastAudit.WarningCount
+                    WarningCount = lastAudit.WarningCount,
+                    TotalPorts = lastAudit.Statistics?.TotalPorts ?? 0,
+                    DisabledPorts = lastAudit.Statistics?.DisabledPorts ?? 0,
+                    MacRestrictedPorts = lastAudit.Statistics?.MacRestrictedPorts ?? 0
                 },
+
+                // Networks
+                Networks = lastAudit.Networks
+                    .Select(n => new NetworkOptimizer.Reports.NetworkInfo
+                    {
+                        NetworkId = n.Id,
+                        Name = n.Name,
+                        VlanId = n.VlanId,
+                        Subnet = n.Subnet ?? "N/A",
+                        Purpose = n.Purpose
+                    })
+                    .ToList(),
+
+                // Switches with ports
+                Switches = lastAudit.Switches
+                    .Select(s => new NetworkOptimizer.Reports.SwitchDetail
+                    {
+                        Name = s.Name,
+                        Model = s.Model ?? "",
+                        ModelName = s.ModelName ?? s.Model ?? "",
+                        DeviceType = s.DeviceType ?? "",
+                        IsGateway = s.IsGateway,
+                        MaxCustomMacAcls = s.MaxCustomMacAcls,
+                        Ports = s.Ports
+                            .Select(p => new NetworkOptimizer.Reports.PortDetail
+                            {
+                                PortIndex = p.PortIndex,
+                                Name = p.Name,
+                                IsUp = p.IsUp,
+                                Speed = p.Speed,
+                                Forward = p.Forward,
+                                IsUplink = p.IsUplink,
+                                NativeNetwork = p.NativeNetwork,
+                                NativeVlan = p.NativeVlan,
+                                ExcludedNetworks = p.ExcludedNetworks,
+                                PortSecurityEnabled = p.PortSecurityEnabled,
+                                PortSecurityMacs = p.PortSecurityMacs,
+                                Isolation = p.Isolation,
+                                PoeEnabled = p.PoeEnabled,
+                                PoePower = p.PoePower,
+                                PoeMode = p.PoeMode ?? ""
+                            })
+                            .ToList()
+                    })
+                    .ToList(),
+
                 CriticalIssues = lastAudit.Issues
                     .Where(i => i.Severity == "Critical")
                     .Select(i => new NetworkOptimizer.Reports.AuditIssue
@@ -304,7 +353,10 @@
                         Message = i.Description,
                         RecommendedAction = i.Recommendation
                     })
-                    .ToList()
+                    .ToList(),
+
+                // Hardening notes
+                HardeningNotes = lastAudit.HardeningMeasures
             };
 
             currentGenerationStep = "Generating PDF...";
