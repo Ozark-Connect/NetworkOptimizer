@@ -113,64 +113,113 @@
             <div class="card-header">
                 <h2 class="card-title">Issues Found</h2>
                 <div class="filter-tabs">
-                    <button class="tab @(selectedFilter == "all" ? "active" : "")" @onclick='() => selectedFilter = "all"'>All</button>
-                    <button class="tab @(selectedFilter == "critical" ? "active" : "")" @onclick='() => selectedFilter = "critical"'>Critical</button>
-                    <button class="tab @(selectedFilter == "warning" ? "active" : "")" @onclick='() => selectedFilter = "warning"'>Warnings</button>
-                    <button class="tab @(selectedFilter == "info" ? "active" : "")" @onclick='() => selectedFilter = "info"'>Info</button>
+                    <button class="tab @(selectedFilter == "all" ? "active" : "")" @onclick='() => selectedFilter = "all"'>All (@issues.Count)</button>
+                    <button class="tab @(selectedFilter == "critical" ? "active" : "")" @onclick='() => selectedFilter = "critical"'>Critical (@criticalCount)</button>
+                    <button class="tab @(selectedFilter == "warning" ? "active" : "")" @onclick='() => selectedFilter = "warning"'>Warnings (@warningCount)</button>
+                    <button class="tab @(selectedFilter == "info" ? "active" : "")" @onclick='() => selectedFilter = "info"'>Info (@infoCount)</button>
+                    <button class="tab tab-muted @(selectedFilter == "dismissed" ? "active" : "")" @onclick='() => selectedFilter = "dismissed"'>Dismissed (@dismissedIssues.Count)</button>
                 </div>
             </div>
             <div class="card-body">
                 <div class="issues-list">
-                    @foreach (var issue in GetFilteredIssues())
+                    @if (selectedFilter == "dismissed")
                     {
-                        <div class="issue-item issue-@issue.Severity.ToLower()">
-                            <div class="issue-header">
-                                <span class="issue-severity">@issue.Severity</span>
-                                <span class="issue-category">@issue.Category</span>
+                        @foreach (var issue in dismissedIssues)
+                        {
+                            <div class="issue-item issue-@issue.Severity.ToLower() issue-dismissed">
+                                <div class="issue-header">
+                                    <span class="issue-severity">@issue.Severity</span>
+                                    <span class="issue-category">@issue.Category</span>
+                                    <button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
+                                        Restore
+                                    </button>
+                                </div>
+                                <div class="issue-title">@issue.Title</div>
+                                <div class="issue-description">@issue.Description</div>
+
+                                @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
+                                {
+                                    <div class="issue-context">
+                                        @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                        {
+                                            <span class="context-item"><strong>Switch:</strong> @issue.DeviceName</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.Port))
+                                        {
+                                            <span class="context-item"><strong>Port:</strong> @issue.Port</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.PortName))
+                                        {
+                                            <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                        }
+                                    </div>
+                                }
                             </div>
-                            <div class="issue-title">@issue.Title</div>
-                            <div class="issue-description">@issue.Description</div>
+                        }
 
-                            @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
-                            {
-                                <div class="issue-context">
-                                    @if (!string.IsNullOrEmpty(issue.DeviceName))
-                                    {
-                                        <span class="context-item"><strong>Switch:</strong> @issue.DeviceName</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(issue.Port))
-                                    {
-                                        <span class="context-item"><strong>Port:</strong> @issue.Port</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(issue.PortName))
-                                    {
-                                        <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
-                                    }
-                                    @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
-                                    {
-                                        <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
-                                    }
-                                </div>
-                            }
-
-                            @if (!string.IsNullOrEmpty(issue.Recommendation))
-                            {
-                                <div class="issue-recommendation">
-                                    <strong>Recommendation:</strong> @issue.Recommendation
-                                    @if (!string.IsNullOrEmpty(issue.RecommendedNetwork))
-                                    {
-                                        <span> → Move to @issue.RecommendedNetwork@(issue.RecommendedVlan.HasValue ? $" (VLAN {issue.RecommendedVlan})" : "")</span>
-                                    }
-                                </div>
-                            }
-                        </div>
+                        @if (!dismissedIssues.Any())
+                        {
+                            <div class="no-issues">
+                                <p>No dismissed issues.</p>
+                            </div>
+                        }
                     }
-
-                    @if (!GetFilteredIssues().Any())
+                    else
                     {
-                        <div class="no-issues">
-                            <p>No issues found in this category.</p>
-                        </div>
+                        @foreach (var issue in GetFilteredIssues())
+                        {
+                            <div class="issue-item issue-@issue.Severity.ToLower()">
+                                <div class="issue-header">
+                                    <span class="issue-severity">@issue.Severity</span>
+                                    <span class="issue-category">@issue.Category</span>
+                                    <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" title="Dismiss this issue">
+                                        Dismiss
+                                    </button>
+                                </div>
+                                <div class="issue-title">@issue.Title</div>
+                                <div class="issue-description">@issue.Description</div>
+
+                                @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
+                                {
+                                    <div class="issue-context">
+                                        @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                        {
+                                            <span class="context-item"><strong>Switch:</strong> @issue.DeviceName</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.Port))
+                                        {
+                                            <span class="context-item"><strong>Port:</strong> @issue.Port</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.PortName))
+                                        {
+                                            <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
+                                        {
+                                            <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                        }
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrEmpty(issue.Recommendation))
+                                {
+                                    <div class="issue-recommendation">
+                                        <strong>Recommendation:</strong> @issue.Recommendation
+                                        @if (!string.IsNullOrEmpty(issue.RecommendedNetwork))
+                                        {
+                                            <span> → Move to @issue.RecommendedNetwork@(issue.RecommendedVlan.HasValue ? $" (VLAN {issue.RecommendedVlan})" : "")</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        @if (!GetFilteredIssues().Any())
+                        {
+                            <div class="no-issues">
+                                <p>No issues found in this category.</p>
+                            </div>
+                        }
                     }
                 </div>
             </div>
@@ -211,6 +260,7 @@
 
     private string selectedFilter = "all";
     private List<Services.AuditIssue> issues = new();
+    private List<Services.AuditIssue> dismissedIssues = new();
     private Services.AuditResult? lastResult;
 
     protected override async Task OnInitializedAsync()
@@ -230,6 +280,9 @@
             warningCount = activeIssues.Count(i => i.Severity == "Warning");
             infoCount = activeIssues.Count(i => i.Severity == "Info");
             issues = activeIssues;
+
+            // Load dismissed issues
+            dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
             lastAuditTime = previousResult.CompletedAt.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
@@ -266,6 +319,9 @@
             warningCount = activeIssues.Count(i => i.Severity == "Warning");
             infoCount = activeIssues.Count(i => i.Severity == "Info");
             issues = activeIssues;
+
+            // Load dismissed issues
+            dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
             lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
@@ -443,5 +499,37 @@
         if (selectedFilter == "all")
             return issues;
         return issues.Where(i => i.Severity.ToLower() == selectedFilter);
+    }
+
+    private async Task DismissIssue(Services.AuditIssue issue)
+    {
+        await AuditService.DismissIssueAsync(issue);
+
+        // Move from active to dismissed
+        issues.Remove(issue);
+        dismissedIssues.Add(issue);
+
+        // Update counts
+        criticalCount = issues.Count(i => i.Severity == "Critical");
+        warningCount = issues.Count(i => i.Severity == "Warning");
+        infoCount = issues.Count(i => i.Severity == "Info");
+
+        StateHasChanged();
+    }
+
+    private async Task RestoreIssue(Services.AuditIssue issue)
+    {
+        await AuditService.RestoreIssueAsync(issue);
+
+        // Move from dismissed to active
+        dismissedIssues.Remove(issue);
+        issues.Add(issue);
+
+        // Update counts
+        criticalCount = issues.Count(i => i.Severity == "Critical");
+        warningCount = issues.Count(i => i.Severity == "Warning");
+        infoCount = issues.Count(i => i.Severity == "Info");
+
+        StateHasChanged();
     }
 }

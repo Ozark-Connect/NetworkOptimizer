@@ -133,6 +133,43 @@ public class AuditService
     }
 
     /// <summary>
+    /// Get dismissed issues from the current audit result
+    /// </summary>
+    public async Task<List<AuditIssue>> GetDismissedIssuesAsync()
+    {
+        await EnsureDismissedIssuesLoadedAsync();
+        return _lastAuditResult?.Issues.Where(i => IsIssueDismissed(i)).ToList() ?? new();
+    }
+
+    /// <summary>
+    /// Restore a dismissed issue (removes from dismissed list)
+    /// </summary>
+    public async Task RestoreIssueAsync(AuditIssue issue)
+    {
+        var key = GetIssueKey(issue);
+        if (_dismissedIssues.Remove(key))
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+                var dismissed = await db.DismissedIssues.FirstOrDefaultAsync(d => d.IssueKey == key);
+                if (dismissed != null)
+                {
+                    db.DismissedIssues.Remove(dismissed);
+                    await db.SaveChangesAsync();
+                    _logger.LogInformation("Restored issue: {Key}", key);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to remove dismissed issue from database: {Key}", key);
+            }
+        }
+    }
+
+    /// <summary>
     /// Get count of active critical issues
     /// </summary>
     public int ActiveCriticalCount =>

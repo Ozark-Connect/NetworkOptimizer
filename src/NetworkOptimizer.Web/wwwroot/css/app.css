@@ -1122,6 +1122,38 @@ html, body {
     border-bottom-color: var(--accent-color);
 }
 
+.tab.tab-muted {
+    color: var(--text-muted);
+}
+
+.tab.tab-muted.active {
+    color: var(--text-secondary);
+    border-bottom-color: var(--text-secondary);
+}
+
+/* Issue Actions */
+.issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.issue-action {
+    margin-left: auto;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    opacity: 0.7;
+}
+
+.issue-action:hover {
+    opacity: 1;
+}
+
+.issue-item.issue-dismissed {
+    opacity: 0.6;
+    border-left-color: var(--text-muted);
+}
+
 /* Footer */
 .app-footer {
     padding: 1.5rem 2rem;
