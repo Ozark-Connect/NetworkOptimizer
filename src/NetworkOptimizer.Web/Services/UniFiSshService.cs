@@ -258,7 +258,9 @@ public class UniFiSshService
         {
             // Run without piping (head -1 is Linux-only) - works on both Windows and Linux
             var result = await RunCommandAsync(host, $"{toolName} --version");
-            if (result.success && result.output.ToLower().Contains(toolName.ToLower()))
+            // Check for tool name without version number (iperf3 outputs "iperf 3.x" not "iperf3")
+            var checkName = toolName.Replace("3", "").Replace("2", ""); // "iperf3" -> "iperf"
+            if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
             {
                 // Get just the first line of output
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
