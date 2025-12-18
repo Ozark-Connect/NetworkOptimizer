@@ -257,10 +257,10 @@
                 <p class="empty-state">No devices found. Click Refresh to scan for devices.</p>
             }
 
-            @if (!string.IsNullOrEmpty(message))
+            @if (!string.IsNullOrEmpty(unifiMessage))
             {
-                <div class="alert alert-@messageClass" style="margin-top: 1rem;">
-                    @message
+                <div class="alert alert-@unifiMessageClass" style="margin-top: 1rem;">
+                    @unifiMessage
                 </div>
             }
         </div>
@@ -396,10 +396,10 @@
                 </div>
             }
 
-            @if (!string.IsNullOrEmpty(message))
+            @if (!string.IsNullOrEmpty(savedDeviceMessage))
             {
-                <div class="alert alert-@messageClass" style="margin-top: 1rem;">
-                    @message
+                <div class="alert alert-@savedDeviceMessageClass" style="margin-top: 1rem;">
+                    @savedDeviceMessage
                 </div>
             }
         </div>
@@ -708,8 +708,14 @@
     private bool savingDevice = false;
     private bool isRunningTest = false;
     private string? runningTestHost;
-    private string message = "";
-    private string messageClass = "";
+
+    // UniFi Device Speed Test messages (discovered devices)
+    private string unifiMessage = "";
+    private string unifiMessageClass = "";
+
+    // Other Device Speed Test messages (saved devices)
+    private string savedDeviceMessage = "";
+    private string savedDeviceMessageClass = "";
 
     // Gateway Speed Test state
     private bool gatewayLoading = true;
@@ -843,8 +849,8 @@
         }
         catch (Exception ex)
         {
-            message = $"Error loading devices: {ex.Message}";
-            messageClass = "danger";
+            savedDeviceMessage = $"Error loading devices: {ex.Message}";
+            savedDeviceMessageClass = "danger";
         }
     }
 
@@ -854,10 +860,9 @@
         {
             testHistory = await SpeedTestService.GetRecentResultsAsync(20);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            message = $"Error loading history: {ex.Message}";
-            messageClass = "danger";
+            // History load errors are not critical, ignore silently
         }
         StateHasChanged();
     }
@@ -873,7 +878,7 @@
             Enabled = device.Enabled,
             StartIperf3Server = device.StartIperf3Server
         };
-        message = "";
+        savedDeviceMessage = "";
         StateHasChanged();
     }
 
@@ -886,7 +891,7 @@
             StartIperf3Server = false
         };
         showAddDevice = false;
-        message = "";
+        savedDeviceMessage = "";
         StateHasChanged();
     }
 
@@ -894,28 +899,28 @@
     {
         if (string.IsNullOrWhiteSpace(editingDevice.Name) || string.IsNullOrWhiteSpace(editingDevice.Host))
         {
-            message = "Name and Host are required";
-            messageClass = "danger";
+            savedDeviceMessage = "Name and Host are required";
+            savedDeviceMessageClass = "danger";
             return;
         }
 
         savingDevice = true;
-        message = "";
+        savedDeviceMessage = "";
         StateHasChanged();
 
         try
         {
             await SpeedTestService.SaveDeviceAsync(editingDevice);
-            message = editingDevice.Id > 0 ? "Device updated successfully" : "Device added successfully";
-            messageClass = "success";
+            savedDeviceMessage = editingDevice.Id > 0 ? "Device updated successfully" : "Device added successfully";
+            savedDeviceMessageClass = "success";
 
             await LoadDevices();
             CancelEdit();
         }
         catch (Exception ex)
         {
-            message = $"Error saving device: {ex.Message}";
-            messageClass = "danger";
+            savedDeviceMessage = $"Error saving device: {ex.Message}";
+            savedDeviceMessageClass = "danger";
         }
         finally
         {
@@ -929,22 +934,22 @@
         try
         {
             await SpeedTestService.DeleteDeviceAsync(device.Id);
-            message = $"Deleted device: {device.Name}";
-            messageClass = "success";
+            savedDeviceMessage = $"Deleted device: {device.Name}";
+            savedDeviceMessageClass = "success";
             await LoadDevices();
         }
         catch (Exception ex)
         {
-            message = $"Error deleting device: {ex.Message}";
-            messageClass = "danger";
+            savedDeviceMessage = $"Error deleting device: {ex.Message}";
+            savedDeviceMessageClass = "danger";
         }
         StateHasChanged();
     }
 
     private async Task TestConnection(DeviceSshConfiguration device)
     {
-        message = $"Testing SSH connection to {device.Name}...";
-        messageClass = "info";
+        savedDeviceMessage = $"Testing SSH connection to {device.Name}...";
+        savedDeviceMessageClass = "info";
         StateHasChanged();
 
         try
@@ -955,25 +960,25 @@
                 var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device.Host);
                 if (iperf3Available)
                 {
-                    message = $"SSH OK! iperf3 available: {version}";
-                    messageClass = "success";
+                    savedDeviceMessage = $"SSH OK! iperf3 available: {version}";
+                    savedDeviceMessageClass = "success";
                 }
                 else
                 {
-                    message = $"SSH OK, but iperf3 not found: {version}";
-                    messageClass = "warning";
+                    savedDeviceMessage = $"SSH OK, but iperf3 not found: {version}";
+                    savedDeviceMessageClass = "warning";
                 }
             }
             else
             {
-                message = $"SSH connection failed: {msg}";
-                messageClass = "danger";
+                savedDeviceMessage = $"SSH connection failed: {msg}";
+                savedDeviceMessageClass = "danger";
             }
         }
         catch (Exception ex)
         {
-            message = $"Error: {ex.Message}";
-            messageClass = "danger";
+            savedDeviceMessage = $"Error: {ex.Message}";
+            savedDeviceMessageClass = "danger";
         }
         StateHasChanged();
     }
@@ -982,8 +987,8 @@
     {
         isRunningTest = true;
         runningTestHost = device.Host;
-        message = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
-        messageClass = "info";
+        savedDeviceMessage = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        savedDeviceMessageClass = "info";
         StateHasChanged();
 
         try
@@ -992,21 +997,21 @@
 
             if (currentResult.Success)
             {
-                message = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
-                messageClass = "success";
+                savedDeviceMessage = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
+                savedDeviceMessageClass = "success";
             }
             else
             {
-                message = $"Speed test failed: {currentResult.ErrorMessage}";
-                messageClass = "danger";
+                savedDeviceMessage = $"Speed test failed: {currentResult.ErrorMessage}";
+                savedDeviceMessageClass = "danger";
             }
 
             await LoadHistory();
         }
         catch (Exception ex)
         {
-            message = $"Error running speed test: {ex.Message}";
-            messageClass = "danger";
+            savedDeviceMessage = $"Error running speed test: {ex.Message}";
+            savedDeviceMessageClass = "danger";
         }
         finally
         {
@@ -1047,8 +1052,8 @@
         }
         catch (Exception ex)
         {
-            message = $"Error loading devices: {ex.Message}";
-            messageClass = "danger";
+            unifiMessage = $"Error loading devices: {ex.Message}";
+            unifiMessageClass = "danger";
         }
         finally
         {
@@ -1063,15 +1068,15 @@
     {
         if (string.IsNullOrEmpty(device.Ip))
         {
-            message = $"Device {device.Name} has no IP address";
-            messageClass = "danger";
+            unifiMessage = $"Device {device.Name} has no IP address";
+            unifiMessageClass = "danger";
             return;
         }
 
         isRunningTest = true;
         runningTestHost = device.Ip;
-        message = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
-        messageClass = "info";
+        unifiMessage = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        unifiMessageClass = "info";
         StateHasChanged();
 
         try
@@ -1091,21 +1096,21 @@
 
             if (currentResult.Success)
             {
-                message = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
-                messageClass = "success";
+                unifiMessage = $"Speed test completed: Upload={currentResult.UploadMbps:F1} Mbps, Download={currentResult.DownloadMbps:F1} Mbps";
+                unifiMessageClass = "success";
             }
             else
             {
-                message = $"Speed test failed: {currentResult.ErrorMessage}";
-                messageClass = "danger";
+                unifiMessage = $"Speed test failed: {currentResult.ErrorMessage}";
+                unifiMessageClass = "danger";
             }
 
             await LoadHistory();
         }
         catch (Exception ex)
         {
-            message = $"Error running speed test: {ex.Message}";
-            messageClass = "danger";
+            unifiMessage = $"Error running speed test: {ex.Message}";
+            unifiMessageClass = "danger";
         }
         finally
         {
