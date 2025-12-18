@@ -143,10 +143,25 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Use tasklist to check if iperf3 is running
+            // Use tasklist to check if iperf3 is running - output process list for better debugging
             var result = await _sshService.RunCommandAsync(host,
-                "tasklist /FI \"IMAGENAME eq iperf3.exe\" 2>nul | findstr /I iperf3 >nul && echo running || echo stopped");
-            return result.output.Contains("running");
+                "tasklist /FI \"IMAGENAME eq iperf3.exe\" 2>nul");
+            _logger.LogDebug("Windows tasklist output for iperf3: {Output}", result.output);
+
+            // tasklist shows the process info if found, or "INFO: No tasks are running..." if not
+            var isRunning = result.success && result.output.Contains("iperf3", StringComparison.OrdinalIgnoreCase)
+                && !result.output.Contains("No tasks", StringComparison.OrdinalIgnoreCase);
+
+            if (!isRunning)
+            {
+                // Double-check with netstat for port listening
+                var portCheck = await _sshService.RunCommandAsync(host,
+                    $"netstat -an | findstr \":{Iperf3Port}\" | findstr LISTENING");
+                _logger.LogDebug("Windows netstat output for port {Port}: {Output}", Iperf3Port, portCheck.output);
+                isRunning = portCheck.success && portCheck.output.Contains("LISTENING");
+            }
+
+            return isRunning;
         }
         else
         {
@@ -256,21 +271,33 @@ public class Iperf3SpeedTestService
                     return result;
                 }
 
-                _logger.LogDebug("iperf3 server start command sent to {Host}", host);
+                _logger.LogDebug("iperf3 server start command sent to {Host}, output: {Output}", host, serverStartResult.output);
 
-                // Give the server a moment to start
-                await Task.Delay(1500);
+                // Verify server is running with retries (WMI process creation can be slow)
+                var serverRunning = false;
+                for (int attempt = 1; attempt <= 5; attempt++)
+                {
+                    // Increase delay for each attempt
+                    var delayMs = attempt * 1000;
+                    _logger.LogDebug("Waiting {Delay}ms before checking iperf3 server (attempt {Attempt}/5)", delayMs, attempt);
+                    await Task.Delay(delayMs);
 
-                // Verify server is running
-                var serverRunning = await IsIperf3ServerRunningAsync(host, isWindows);
+                    serverRunning = await IsIperf3ServerRunningAsync(host, isWindows);
+                    if (serverRunning)
+                    {
+                        _logger.LogDebug("iperf3 server confirmed running on {Host} after {Attempt} attempt(s)", host, attempt);
+                        break;
+                    }
+                    _logger.LogDebug("iperf3 server not detected on {Host} (attempt {Attempt}/5)", host, attempt);
+                }
+
                 if (!serverRunning)
                 {
                     var log = await GetIperf3ServerLogAsync(host, isWindows);
                     result.Success = false;
-                    result.ErrorMessage = $"iperf3 server failed to start. {log}";
+                    result.ErrorMessage = $"iperf3 server failed to start after 5 attempts. {log}";
                     return result;
                 }
-                _logger.LogDebug("iperf3 server confirmed running on {Host}", host);
             }
             else
             {
