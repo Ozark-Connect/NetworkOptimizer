@@ -350,6 +350,9 @@ a:hover {
     font-size: 2rem;
     font-weight: 700;
     line-height: 1;
+    min-height: 2rem;
+    display: flex;
+    align-items: center;
     margin-bottom: 0.25rem;
 }
 
@@ -531,6 +534,9 @@ a:hover {
 
 .summary-value {
     font-weight: 600;
+    min-height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
 }
 
 .summary-value.critical {
@@ -1509,6 +1515,7 @@ a:hover {
     gap: 0.75rem;
     padding: 2rem;
     color: var(--text-secondary);
+    min-height: 150px;
 }
 
 /* Empty State */
