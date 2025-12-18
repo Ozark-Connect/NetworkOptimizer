@@ -1178,9 +1178,9 @@ a:hover {
 }
 
 .alert-info {
-    background: rgba(6, 182, 212, 0.1);
-    border: 1px solid var(--info-color);
-    color: var(--info-color);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
 }
 
 /* Badges */
