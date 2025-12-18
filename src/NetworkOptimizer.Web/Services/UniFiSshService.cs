@@ -289,16 +289,31 @@ public class UniFiSshService
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
 
-        device.UpdatedAt = DateTime.UtcNow;
-
         if (device.Id == 0)
         {
             device.CreatedAt = DateTime.UtcNow;
+            device.UpdatedAt = DateTime.UtcNow;
             db.DeviceSshConfigurations.Add(device);
         }
         else
         {
-            db.DeviceSshConfigurations.Update(device);
+            // Fetch the existing entity and update its properties to ensure proper tracking
+            var existing = await db.DeviceSshConfigurations.FindAsync(device.Id);
+            if (existing != null)
+            {
+                existing.Name = device.Name;
+                existing.Host = device.Host;
+                existing.DeviceType = device.DeviceType;
+                existing.Enabled = device.Enabled;
+                existing.StartIperf3Server = device.StartIperf3Server;
+                existing.UpdatedAt = DateTime.UtcNow;
+                device = existing;
+            }
+            else
+            {
+                device.UpdatedAt = DateTime.UtcNow;
+                db.DeviceSshConfigurations.Update(device);
+            }
         }
 
         await db.SaveChangesAsync();
