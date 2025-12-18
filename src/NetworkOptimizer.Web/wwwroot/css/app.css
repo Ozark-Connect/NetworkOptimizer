@@ -1941,7 +1941,7 @@ a:hover {
 
 .score-circle {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: center;
     width: 120px;
     height: 120px;
@@ -2050,7 +2050,7 @@ a:hover {
 }
 
 .issue-count.info .count {
-    color: var(--info-color);
+    color: var(--text-secondary);
 }
 
 /* Audit Timestamp */
