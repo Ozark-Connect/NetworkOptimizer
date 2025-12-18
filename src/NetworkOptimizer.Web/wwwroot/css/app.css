@@ -50,25 +50,27 @@
 
 html, body {
     height: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
-/* Anchor Links - Override default purple visited color */
+/* Anchor Links - Ubiquiti Blue primary, Orange for hover emphasis */
 a {
-    color: var(--accent-color);
+    color: var(--primary-color);
     text-decoration: none;
     transition: color 0.2s ease;
 }
 
 a:visited {
-    color: var(--accent-color);
+    color: var(--primary-color);
 }
 
 a:hover {
-    color: var(--accent-hover);
+    color: var(--primary-hover);
     text-decoration: underline;
 }
 
@@ -144,13 +146,13 @@ a:hover {
 
 .nav-link:hover {
     background: var(--bg-hover);
-    color: var(--accent-color);
+    color: var(--primary-color);
 }
 
 .nav-link.active {
     background: var(--bg-tertiary);
-    color: var(--accent-color);
-    border-left-color: var(--accent-color);
+    color: var(--primary-color);
+    border-left-color: var(--primary-color);
 }
 
 .nav-icon {
@@ -286,7 +288,7 @@ a:hover {
 }
 
 .card-action {
-    color: var(--accent-color);
+    color: var(--primary-color);
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
@@ -294,7 +296,7 @@ a:hover {
 }
 
 .card-action:hover {
-    color: var(--accent-hover);
+    color: var(--primary-hover);
     text-decoration: underline;
 }
 
@@ -925,6 +927,38 @@ a:hover {
     color: white;
 }
 
+.btn-accent {
+    background: var(--accent-color);
+    color: white;
+}
+
+.btn-accent:hover:not(:disabled) {
+    background: var(--accent-hover);
+}
+
+/* Outline variants */
+.btn-outline-primary {
+    background: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-outline-primary:hover:not(:disabled) {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Gradient buttons (Ozark Connect style) */
+.btn-gradient {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #0466e0 100%);
+    color: white;
+    border: none;
+}
+
+.btn-gradient:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-color) 100%);
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--text-secondary);
@@ -1145,12 +1179,12 @@ a:hover {
 }
 
 .tab:hover {
-    color: var(--accent-color);
+    color: var(--primary-color);
 }
 
 .tab.active {
-    color: var(--accent-color);
-    border-bottom-color: var(--accent-color);
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
 }
 
 .tab.tab-muted {
@@ -1657,4 +1691,102 @@ a:hover {
 
 .issue-context .context-item strong {
     color: var(--text-muted);
+}
+
+/* ============================================
+   Ozark Connect Gradient & Accent Styles
+   ============================================ */
+
+/* Gradient Backgrounds */
+.bg-gradient-primary {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #0466e0 100%);
+}
+
+.bg-gradient-hero {
+    background: linear-gradient(135deg, rgba(5, 89, 201, 0.1) 0%, transparent 100%);
+}
+
+/* Info Box (Blue - Ozark Connect style) */
+.info-box {
+    background: rgba(5, 89, 201, 0.08);
+    border-left: 4px solid var(--primary-color);
+    padding: 1rem 1.25rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    margin: 1rem 0;
+}
+
+.info-box p {
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.info-box strong {
+    color: var(--primary-color);
+}
+
+/* Callout Box (Orange highlight - Ozark Connect style) */
+.callout-box {
+    background: rgba(249, 115, 22, 0.08);
+    border-left: 4px solid var(--accent-color);
+    padding: 1rem 1.25rem;
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+    margin: 1rem 0;
+}
+
+.callout-box p {
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.callout-box strong {
+    color: var(--accent-color);
+}
+
+/* Feature Badge (Ozark Connect style) */
+.feature-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-tertiary);
+    padding: 0.5rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.feature-badge .badge-icon {
+    color: var(--primary-color);
+}
+
+/* Card with gradient header */
+.card-gradient-header {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #0466e0 100%);
+    color: white;
+    padding: 1.5rem;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+}
+
+.card-gradient-header h3 {
+    color: white;
+    margin: 0;
+}
+
+/* Speed result colors - keep accent orange for speed values */
+.speed-value {
+    color: var(--accent-color);
+    font-weight: 700;
+}
+
+/* Form section header */
+.form-section-header h5 {
+    color: var(--text-primary);
+}
+
+.form-section-header .form-help {
+    color: var(--text-muted);
+}
+
+.form-section-header a {
+    color: var(--primary-color);
 }
