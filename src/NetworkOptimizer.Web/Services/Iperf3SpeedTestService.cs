@@ -423,6 +423,19 @@ public class Iperf3SpeedTestService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Clear all speed test history
+    /// </summary>
+    public async Task<int> ClearHistoryAsync()
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var count = await db.Iperf3Results.CountAsync();
+        db.Iperf3Results.RemoveRange(db.Iperf3Results);
+        await db.SaveChangesAsync();
+        return count;
+    }
+
     private async Task SaveResultAsync(Iperf3Result result)
     {
         try

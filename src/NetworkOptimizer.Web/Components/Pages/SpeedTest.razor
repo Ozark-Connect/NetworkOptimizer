@@ -457,7 +457,23 @@
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Test History</h2>
-            <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
+            <div class="header-actions">
+                <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
+                @if (testHistory.Count > 0)
+                {
+                    <button class="btn btn-sm btn-danger" @onclick="ClearHistory" disabled="@clearingHistory">
+                        @if (clearingHistory)
+                        {
+                            <span class="spinner-sm"></span>
+                            <span>Clearing...</span>
+                        }
+                        else
+                        {
+                            <span>Clear History</span>
+                        }
+                    </button>
+                }
+            </div>
         </div>
         <div class="card-body">
             @if (testHistory.Count > 0)
@@ -717,6 +733,9 @@
     private string savedDeviceMessage = "";
     private string savedDeviceMessageClass = "";
 
+    // History state
+    private bool clearingHistory = false;
+
     // Gateway Speed Test state
     private bool gatewayLoading = true;
     private bool gatewayConfigured = false;
@@ -865,6 +884,28 @@
             // History load errors are not critical, ignore silently
         }
         StateHasChanged();
+    }
+
+    private async Task ClearHistory()
+    {
+        clearingHistory = true;
+        StateHasChanged();
+
+        try
+        {
+            var count = await SpeedTestService.ClearHistoryAsync();
+            testHistory.Clear();
+            currentResult = null;
+        }
+        catch (Exception)
+        {
+            // Clear errors are not critical
+        }
+        finally
+        {
+            clearingHistory = false;
+            StateHasChanged();
+        }
     }
 
     private void EditDevice(DeviceSshConfiguration device)
