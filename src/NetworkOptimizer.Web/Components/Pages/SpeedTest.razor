@@ -324,7 +324,10 @@
                                         }
                                     </button>
                                     <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
-                                    <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
+                                    @if (device.StartIperf3Server)
+                                    {
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
+                                    }
                                     <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                 </td>
                             </tr>
@@ -483,8 +486,8 @@
                         <tr>
                             <th>Time</th>
                             <th>Device</th>
-                            <th>Download (Mbps)</th>
-                            <th>Upload (Mbps)</th>
+                            <th title="Download (Mbps)">↓ Mbps</th>
+                            <th title="Upload (Mbps)">↑ Mbps</th>
                             <th>Streams</th>
                             <th>Status</th>
                         </tr>
