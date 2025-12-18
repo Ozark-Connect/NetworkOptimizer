@@ -316,7 +316,7 @@ public class UniFiSshService
         {
             // Run without piping (head -1 is Linux-only) - works on both Windows and Linux
             var result = await RunCommandAsync(host, $"{toolName} --version");
-            _logger.LogDebug("CheckToolAvailable({Host}, {Tool}): success={Success}, output={Output}",
+            _logger.LogInformation("CheckToolAvailable({Host}, {Tool}): success={Success}, output={Output}",
                 host, toolName, result.success, result.output);
             // Check for tool name without version number (iperf3 outputs "iperf 3.x" not "iperf3")
             var checkName = toolName.Replace("3", "").Replace("2", ""); // "iperf3" -> "iperf"
@@ -343,7 +343,7 @@ public class UniFiSshService
         try
         {
             var result = await RunCommandWithDeviceAsync(device, $"{toolName} --version");
-            _logger.LogDebug("CheckToolAvailable({Host}, {Tool}) with device creds: success={Success}, output={Output}",
+            _logger.LogInformation("CheckToolAvailable({Host}, {Tool}) with device creds: success={Success}, output={Output}",
                 device.Host, toolName, result.success, result.output);
             var checkName = toolName.Replace("3", "").Replace("2", "");
             if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
