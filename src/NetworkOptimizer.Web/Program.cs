@@ -54,6 +54,9 @@ builder.Services.AddSingleton<Iperf3SpeedTestService>();
 // Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
 builder.Services.AddSingleton<GatewaySpeedTestService>();
 
+// Register System Settings service (singleton - system-wide configuration)
+builder.Services.AddSingleton<SystemSettingsService>();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes

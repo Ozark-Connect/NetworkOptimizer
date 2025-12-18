@@ -214,7 +214,7 @@
             testProgress = "Download test...";
             StateHasChanged();
 
-            lastResult = await SpeedTestService.RunSpeedTestAsync(durationSeconds: 10, parallelStreams: 4);
+            lastResult = await SpeedTestService.RunSpeedTestAsync();
         }
         finally
         {

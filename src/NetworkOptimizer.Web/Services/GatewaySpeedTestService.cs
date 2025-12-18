@@ -18,6 +18,7 @@ public class GatewaySpeedTestService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiConnectionService _connectionService;
     private readonly CredentialProtectionService _credentialProtection;
+    private readonly SystemSettingsService _systemSettings;
 
     // Cache the settings to avoid repeated DB queries
     private GatewaySshSettings? _cachedSettings;
@@ -31,12 +32,14 @@ public class GatewaySpeedTestService
     public GatewaySpeedTestService(
         ILogger<GatewaySpeedTestService> logger,
         IServiceProvider serviceProvider,
-        UniFiConnectionService connectionService)
+        UniFiConnectionService connectionService,
+        SystemSettingsService systemSettings)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _connectionService = connectionService;
         _credentialProtection = new CredentialProtectionService();
+        _systemSettings = systemSettings;
     }
 
     #region Settings Management
@@ -427,9 +430,18 @@ public class GatewaySpeedTestService
     }
 
     /// <summary>
-    /// Run a speed test from the Docker container to the gateway
+    /// Run a speed test from the Docker container to the gateway using system settings
     /// </summary>
-    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync(int durationSeconds = 10, int parallelStreams = 4)
+    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync()
+    {
+        var iperf3Settings = await _systemSettings.GetIperf3SettingsAsync();
+        return await RunSpeedTestAsync(iperf3Settings.DurationSeconds, iperf3Settings.ParallelStreams);
+    }
+
+    /// <summary>
+    /// Run a speed test from the Docker container to the gateway with specific parameters
+    /// </summary>
+    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync(int durationSeconds, int parallelStreams)
     {
         if (_isTestRunning)
         {

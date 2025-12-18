@@ -7,6 +7,7 @@
 @inject CellularModemService ModemService
 @inject UniFiSshService SshService
 @inject GatewaySpeedTestService GatewayService
+@inject SystemSettingsService SystemSettings
 
 <PageTitle>Settings - Network Optimizer</PageTitle>
 
@@ -800,6 +801,49 @@
         </div>
     </div>
 
+    <!-- Speed Test Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Speed Test Settings</h2>
+        </div>
+        <div class="card-body">
+            <p class="section-description">Configure iperf3 speed test parameters for all device tests</p>
+
+            <div class="form-group">
+                <label class="form-label">Parallel Streams</label>
+                <input type="number" class="form-control" @bind="iperf3ParallelStreams" min="1" max="16" style="width: 100px;" />
+                <small class="form-help">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Test Duration (seconds)</label>
+                <input type="number" class="form-control" @bind="iperf3Duration" min="3" max="60" style="width: 100px;" />
+                <small class="form-help">Duration of each test direction (3-60 seconds)</small>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@savingIperf3Settings">
+                    @if (savingIperf3Settings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save Settings</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(iperf3Message))
+            {
+                <div class="alert alert-@iperf3MessageClass">
+                    @iperf3Message
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- Data Management -->
     <div class="card">
         <div class="card-header">
@@ -898,6 +942,13 @@
     private string sshMessage = "";
     private string sshMessageClass = "";
 
+    // Speed Test Settings
+    private int iperf3ParallelStreams = 4;
+    private int iperf3Duration = 10;
+    private bool savingIperf3Settings = false;
+    private string iperf3Message = "";
+    private string iperf3MessageClass = "";
+
     // InfluxDB
     private string influxUrl = "http://influxdb:8086";
     private string influxOrg = "network-optimizer";
@@ -941,6 +992,57 @@
         await LoadSshSettings();
         await LoadModemConfigs();
         await LoadDiscoveredModems();
+        await LoadIperf3Settings();
+    }
+
+    private async Task LoadIperf3Settings()
+    {
+        try
+        {
+            var settings = await SystemSettings.GetIperf3SettingsAsync();
+            iperf3ParallelStreams = settings.ParallelStreams;
+            iperf3Duration = settings.DurationSeconds;
+        }
+        catch (Exception ex)
+        {
+            iperf3Message = $"Error loading speed test settings: {ex.Message}";
+            iperf3MessageClass = "danger";
+        }
+    }
+
+    private async Task SaveIperf3Settings()
+    {
+        savingIperf3Settings = true;
+        iperf3Message = "";
+        StateHasChanged();
+
+        try
+        {
+            // Validate inputs
+            if (iperf3ParallelStreams < 1) iperf3ParallelStreams = 1;
+            if (iperf3ParallelStreams > 16) iperf3ParallelStreams = 16;
+            if (iperf3Duration < 3) iperf3Duration = 3;
+            if (iperf3Duration > 60) iperf3Duration = 60;
+
+            await SystemSettings.SaveIperf3SettingsAsync(new Iperf3Settings
+            {
+                ParallelStreams = iperf3ParallelStreams,
+                DurationSeconds = iperf3Duration
+            });
+
+            iperf3Message = "Speed test settings saved successfully";
+            iperf3MessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            iperf3Message = $"Error saving speed test settings: {ex.Message}";
+            iperf3MessageClass = "danger";
+        }
+        finally
+        {
+            savingIperf3Settings = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadGatewaySettings()

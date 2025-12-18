@@ -596,6 +596,27 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("Iperf3Results", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SystemSetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("SystemSettings", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

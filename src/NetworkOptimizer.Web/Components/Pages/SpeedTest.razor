@@ -787,7 +787,7 @@
 
         try
         {
-            gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync(durationSeconds: 10, parallelStreams: 4);
+            gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync();
 
             if (gatewayLastResult.Success)
             {

@@ -15,6 +15,7 @@ public class Iperf3SpeedTestService
     private readonly ILogger<Iperf3SpeedTestService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
+    private readonly SystemSettingsService _settingsService;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -29,12 +30,19 @@ public class Iperf3SpeedTestService
     public Iperf3SpeedTestService(
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
-        UniFiSshService sshService)
+        UniFiSshService sshService,
+        SystemSettingsService settingsService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
+        _settingsService = settingsService;
     }
+
+    /// <summary>
+    /// Get iperf3 test settings
+    /// </summary>
+    public Task<Iperf3Settings> GetSettingsAsync() => _settingsService.GetIperf3SettingsAsync();
 
     /// <summary>
     /// Get all configured devices (delegates to UniFiSshService)
@@ -84,9 +92,9 @@ public class Iperf3SpeedTestService
             }
         }
 
-        // If uname failed or returned something unexpected, check for Windows
-        var winCheck = await _sshService.RunCommandAsync(host, "echo %OS%");
-        var isWindows = winCheck.success && winCheck.output.Contains("Windows");
+        // Check for Windows by testing pwsh availability (pwsh comes with Windows SSH)
+        var pwshCheck = await _sshService.RunCommandAsync(host, "pwsh -Version 2>nul");
+        var isWindows = pwshCheck.success && pwshCheck.output.Contains("PowerShell");
 
         lock (_lock) { _isWindowsCache[host] = isWindows; }
         _logger.LogInformation("Detected {Host} as {OS}", host, isWindows ? "Windows" : "Linux/Unix");
@@ -100,9 +108,8 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Try PowerShell first, fall back to taskkill
-            var result = await _sshService.RunCommandAsync(host,
-                "pwsh -Command \"Get-Process iperf3 -ErrorAction SilentlyContinue | Stop-Process -Force\" 2>nul || taskkill /F /IM iperf3.exe 2>nul || echo done");
+            // Use taskkill directly - simpler and more reliable
+            await _sshService.RunCommandAsync(host, "taskkill /F /IM iperf3.exe 2>nul || echo done");
         }
         else
         {
@@ -117,9 +124,9 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Use PowerShell to start iperf3 in the background
-            // -1 flag for one-shot mode, runs once then exits
-            var cmd = $"pwsh -Command \"Start-Process -FilePath 'iperf3' -ArgumentList '-s','-1','-p','{Iperf3Port}' -WindowStyle Hidden; 'started'\"";
+            // Use 'start /B' to run iperf3 in background on Windows
+            // The command returns immediately while iperf3 runs
+            var cmd = $"start /B iperf3 -s -1 -p {Iperf3Port} & echo started";
             return await _sshService.RunCommandAsync(host, cmd);
         }
         else
@@ -136,8 +143,9 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
+            // Use tasklist to check if iperf3 is running
             var result = await _sshService.RunCommandAsync(host,
-                "pwsh -Command \"if (Get-Process iperf3 -ErrorAction SilentlyContinue) { 'running' } else { 'stopped' }\"");
+                "tasklist /FI \"IMAGENAME eq iperf3.exe\" 2>nul | findstr /I iperf3 >nul && echo running || echo stopped");
             return result.output.Contains("running");
         }
         else
@@ -160,8 +168,13 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Windows doesn't have an easy log location, return generic message
-            return "Check iperf3 installation and PATH on Windows host";
+            // Try to get more helpful info about what went wrong
+            var checkIperf3 = await _sshService.RunCommandAsync(host, "where iperf3 2>nul || echo NOT_FOUND");
+            if (checkIperf3.output.Contains("NOT_FOUND"))
+            {
+                return "iperf3 not found in PATH. Install iperf3 and ensure it's in system PATH.";
+            }
+            return $"iperf3 found at: {checkIperf3.output.Trim()}. Check that no other process is using port {Iperf3Port}.";
         }
         else
         {
@@ -171,9 +184,18 @@ public class Iperf3SpeedTestService
     }
 
     /// <summary>
-    /// Run a full speed test to a device
+    /// Run a full speed test to a device using system settings
     /// </summary>
-    public async Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device, int durationSeconds = 10, int parallelStreams = 3)
+    public async Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device)
+    {
+        var settings = await _settingsService.GetIperf3SettingsAsync();
+        return await RunSpeedTestAsync(device, settings.DurationSeconds, settings.ParallelStreams);
+    }
+
+    /// <summary>
+    /// Run a full speed test to a device with specific parameters
+    /// </summary>
+    public async Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device, int durationSeconds, int parallelStreams)
     {
         var host = device.Host;
 

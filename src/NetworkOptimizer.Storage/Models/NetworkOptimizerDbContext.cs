@@ -22,6 +22,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<UniFiSshSettings> UniFiSshSettings { get; set; }
     public DbSet<GatewaySshSettings> GatewaySshSettings { get; set; }
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
+    public DbSet<SystemSetting> SystemSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -105,6 +106,13 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("DismissedIssues");
             entity.HasIndex(e => e.IssueKey).IsUnique();
+        });
+
+        // SystemSetting configuration (key-value store)
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.ToTable("SystemSettings");
+            entity.HasKey(e => e.Key);
         });
     }
 }
