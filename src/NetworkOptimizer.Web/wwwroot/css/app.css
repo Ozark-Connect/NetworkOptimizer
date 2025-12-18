@@ -56,6 +56,22 @@ html, body {
     line-height: 1.6;
 }
 
+/* Anchor Links - Override default purple visited color */
+a {
+    color: var(--accent-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+a:visited {
+    color: var(--accent-color);
+}
+
+a:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
+
 /* App Container Layout */
 .app-container {
     display: flex;
