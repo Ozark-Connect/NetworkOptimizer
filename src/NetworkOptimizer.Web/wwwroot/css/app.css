@@ -66,7 +66,7 @@ a {
 }
 
 a:visited {
-    color: var(--primary-color);
+    color: inherit;
 }
 
 a:hover {
