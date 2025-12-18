@@ -18,10 +18,10 @@
     --info-color: #0559C9;
 
     /* Dark Mode Backgrounds (matching Ozark Connect dark theme) */
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
+    --bg-primary: #1a2029;
+    --bg-secondary: #242c39;
     --bg-tertiary: #334155;
-    --bg-card: #1e293b;
+    --bg-card: #242c39;
     --bg-hover: #334155;
 
     /* Text Colors (from Ozark Connect dark theme) */
