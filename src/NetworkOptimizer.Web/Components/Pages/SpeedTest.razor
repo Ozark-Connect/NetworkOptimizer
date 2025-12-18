@@ -1051,7 +1051,7 @@
             var (success, msg) = await SpeedTestService.TestConnectionAsync(device);
             if (success)
             {
-                var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device.Host);
+                var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device);
                 if (iperf3Available)
                 {
                     savedDeviceMessage = $"SSH OK! iperf3 available: {version}";
