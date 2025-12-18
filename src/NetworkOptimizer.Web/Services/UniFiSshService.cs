@@ -256,10 +256,13 @@ public class UniFiSshService
     {
         try
         {
-            var result = await RunCommandAsync(host, $"{toolName} --version 2>&1 | head -1");
+            // Run without piping (head -1 is Linux-only) - works on both Windows and Linux
+            var result = await RunCommandAsync(host, $"{toolName} --version");
             if (result.success && result.output.ToLower().Contains(toolName.ToLower()))
             {
-                return (true, result.output.Trim());
+                // Get just the first line of output
+                var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                return (true, firstLine?.Trim() ?? result.output.Trim());
             }
             return (false, $"{toolName} not found on device");
         }
