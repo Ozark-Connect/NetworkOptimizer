@@ -423,7 +423,11 @@
                 {
                     <div class="speed-results">
                         <div class="speed-result upload">
-                            <div class="speed-icon">^</div>
+                            <div class="speed-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
                             <div class="speed-details">
                                 <div class="speed-label">Upload</div>
                                 <div class="speed-value">@currentResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
@@ -431,7 +435,11 @@
                             </div>
                         </div>
                         <div class="speed-result download">
-                            <div class="speed-icon">v</div>
+                            <div class="speed-icon">
+                                <svg viewBox="0 0 24 24" width="32" height="32">
+                                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
                             <div class="speed-details">
                                 <div class="speed-label">Download</div>
                                 <div class="speed-value">@currentResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
