@@ -483,8 +483,8 @@
                         <tr>
                             <th>Time</th>
                             <th>Device</th>
-                            <th>Upload (Mbps)</th>
                             <th>Download (Mbps)</th>
+                            <th>Upload (Mbps)</th>
                             <th>Streams</th>
                             <th>Status</th>
                         </tr>
@@ -495,8 +495,8 @@
                             <tr class="@(result.Success ? "" : "error-row")">
                                 <td>@result.TestTime.ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
-                                <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
                                 <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
                                 <td>@result.ParallelStreams</td>
                                 <td>
                                     @if (result.Success)
