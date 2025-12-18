@@ -501,6 +501,28 @@ public class Iperf3SpeedTestService
                 return (false, string.IsNullOrEmpty(error) ? output : error);
             }
 
+            // iperf3 may return exit code 0 but have an error in JSON (e.g., connection timeout)
+            // Check for error field in JSON output
+            if (output.Contains("\"error\""))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(output);
+                    if (doc.RootElement.TryGetProperty("error", out var errorProp))
+                    {
+                        var errorMsg = errorProp.GetString();
+                        if (!string.IsNullOrEmpty(errorMsg))
+                        {
+                            return (false, errorMsg);
+                        }
+                    }
+                }
+                catch
+                {
+                    // If we can't parse, just return the raw output
+                }
+            }
+
             return (true, output);
         }
         catch (Exception ex)
