@@ -92,47 +92,57 @@ public class Iperf3SpeedTestService
             ParallelStreams = parallelStreams
         };
 
+        // Determine if we should manage the iperf3 server ourselves
+        var manageServer = device.StartIperf3Server;
+
         try
         {
             _logger.LogInformation("Starting iperf3 speed test to {Device} ({Host})", device.Name, host);
 
-            // Step 1: Kill any existing iperf3 server on the device
-            _logger.LogDebug("Cleaning up any existing iperf3 processes on {Host}", host);
-            await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
-            await Task.Delay(500);
-
-            // Step 2: Start iperf3 server on the remote device
-            _logger.LogDebug("Starting iperf3 server on {Host}", host);
-            var serverStartResult = await _sshService.RunCommandAsync(host,
-                $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!");
-
-            if (!serverStartResult.success)
+            if (manageServer)
             {
-                result.Success = false;
-                result.ErrorMessage = $"Failed to start iperf3 server: {serverStartResult.output}";
-                return result;
-            }
+                // Step 1: Kill any existing iperf3 server on the device
+                _logger.LogDebug("Cleaning up any existing iperf3 processes on {Host}", host);
+                await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                await Task.Delay(500);
 
-            var serverPid = serverStartResult.output.Trim();
-            _logger.LogDebug("iperf3 server started on {Host} with PID {Pid}", host, serverPid);
+                // Step 2: Start iperf3 server on the remote device
+                _logger.LogDebug("Starting iperf3 server on {Host}", host);
+                var serverStartResult = await _sshService.RunCommandAsync(host,
+                    $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!");
 
-            // Give the server a moment to start
-            await Task.Delay(1000);
-
-            // Verify server is running by checking if iperf3 process exists (more reliable than ps -p on embedded devices)
-            var checkResult = await _sshService.RunCommandAsync(host, "pgrep -x iperf3 > /dev/null 2>&1 && echo 'running' || echo 'stopped'");
-            if (!checkResult.output.Contains("running"))
-            {
-                // Double-check with netstat/ss to see if port is listening
-                var portCheck = await _sshService.RunCommandAsync(host, $"netstat -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || ss -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || echo 'not_listening'");
-                if (!portCheck.output.Contains("listening"))
+                if (!serverStartResult.success)
                 {
-                    var logResult = await _sshService.RunCommandAsync(host, "cat /tmp/iperf3_server.log 2>/dev/null");
                     result.Success = false;
-                    result.ErrorMessage = $"iperf3 server failed to start. Log: {logResult.output}";
+                    result.ErrorMessage = $"Failed to start iperf3 server: {serverStartResult.output}";
                     return result;
                 }
-                _logger.LogDebug("iperf3 process not found by pgrep but port {Port} is listening on {Host}", Iperf3Port, host);
+
+                var serverPid = serverStartResult.output.Trim();
+                _logger.LogDebug("iperf3 server started on {Host} with PID {Pid}", host, serverPid);
+
+                // Give the server a moment to start
+                await Task.Delay(1000);
+
+                // Verify server is running by checking if iperf3 process exists (more reliable than ps -p on embedded devices)
+                var checkResult = await _sshService.RunCommandAsync(host, "pgrep -x iperf3 > /dev/null 2>&1 && echo 'running' || echo 'stopped'");
+                if (!checkResult.output.Contains("running"))
+                {
+                    // Double-check with netstat/ss to see if port is listening
+                    var portCheck = await _sshService.RunCommandAsync(host, $"netstat -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || ss -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || echo 'not_listening'");
+                    if (!portCheck.output.Contains("listening"))
+                    {
+                        var logResult = await _sshService.RunCommandAsync(host, "cat /tmp/iperf3_server.log 2>/dev/null");
+                        result.Success = false;
+                        result.ErrorMessage = $"iperf3 server failed to start. Log: {logResult.output}";
+                        return result;
+                    }
+                    _logger.LogDebug("iperf3 process not found by pgrep but port {Port} is listening on {Host}", Iperf3Port, host);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("Assuming iperf3 server is already running on {Host} (StartIperf3Server=false)", host);
             }
 
             try
@@ -151,14 +161,17 @@ public class Iperf3SpeedTestService
                     _logger.LogWarning("Upload test failed: {Error}", uploadResult.output);
                 }
 
-                // Server runs with -1 (one-off mode), so restart for download test
-                await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
-                await Task.Delay(500);
+                if (manageServer)
+                {
+                    // Server runs with -1 (one-off mode), so restart for download test
+                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                    await Task.Delay(500);
 
-                // Restart server for download test
-                await _sshService.RunCommandAsync(host,
-                    $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 &");
-                await Task.Delay(1000);
+                    // Restart server for download test
+                    await _sshService.RunCommandAsync(host,
+                        $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 &");
+                    await Task.Delay(1000);
+                }
 
                 // Step 4: Run download test (device -> client, with -R flag)
                 _logger.LogDebug("Running download test from {Host}", host);
@@ -182,9 +195,12 @@ public class Iperf3SpeedTestService
             }
             finally
             {
-                // Step 5: Always clean up - stop iperf3 server
-                _logger.LogDebug("Stopping iperf3 server on {Host}", host);
-                await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                if (manageServer)
+                {
+                    // Step 5: Clean up - stop iperf3 server
+                    _logger.LogDebug("Stopping iperf3 server on {Host}", host);
+                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                }
             }
 
             // Save result to database
@@ -201,12 +217,15 @@ public class Iperf3SpeedTestService
             result.Success = false;
             result.ErrorMessage = ex.Message;
 
-            // Try to clean up
-            try
+            // Try to clean up if we started the server
+            if (manageServer)
             {
-                await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                try
+                {
+                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                }
+                catch { }
             }
-            catch { }
 
             return result;
         }

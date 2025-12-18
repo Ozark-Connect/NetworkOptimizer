@@ -346,6 +346,7 @@
                         <option value="AccessPoint">Access Point</option>
                         <option value="Switch">Switch</option>
                         <option value="Gateway">Gateway</option>
+                        <option value="Server">Server</option>
                     </select>
                 </div>
             </div>
@@ -360,6 +361,14 @@
                     <input type="checkbox" @bind="editingDevice.Enabled" />
                     <span>Enable for speed testing</span>
                 </label>
+            </div>
+
+            <div class="form-group">
+                <label class="form-check">
+                    <input type="checkbox" @bind="editingDevice.StartIperf3Server" />
+                    <span>Start iperf3 server before test</span>
+                </label>
+                <span class="form-help">Enable for devices that don't have iperf3 running persistently</span>
             </div>
 
             <div class="action-buttons">
@@ -895,7 +904,8 @@
             Name = device.Name,
             Host = device.Host,
             DeviceType = device.DeviceType,
-            Enabled = device.Enabled
+            Enabled = device.Enabled,
+            StartIperf3Server = device.StartIperf3Server
         };
         message = "";
         StateHasChanged();
@@ -906,7 +916,8 @@
         editingDevice = new DeviceSshConfiguration
         {
             DeviceType = "AccessPoint",
-            Enabled = true
+            Enabled = true,
+            StartIperf3Server = false
         };
         message = "";
         StateHasChanged();
@@ -1099,12 +1110,14 @@
         try
         {
             // Create a temporary device config for the test
+            // UniFi devices have iperf3 built-in but don't run it persistently
             var tempDevice = new DeviceSshConfiguration
             {
                 Name = device.Name ?? "Unknown Device",
                 Host = device.Ip,
                 DeviceType = GetDeviceTypeDisplay(device.Type),
-                Enabled = true
+                Enabled = true,
+                StartIperf3Server = true
             };
 
             currentResult = await SpeedTestService.RunSpeedTestAsync(tempDevice);
