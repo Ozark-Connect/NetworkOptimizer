@@ -1892,3 +1892,169 @@ a:hover {
 #blazor-error-ui.show {
     display: block;
 }
+
+/* ============================================
+   Audit Page Styles
+   ============================================ */
+
+/* Audit Controls Layout */
+.audit-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.audit-controls .btn {
+    margin-right: 0.5rem;
+}
+
+/* Audit Options (Checkboxes) */
+.audit-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border-color);
+    width: 100%;
+}
+
+.audit-options .checkbox-label {
+    gap: 0.625rem;
+}
+
+/* Audit Results Summary */
+.results-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3rem;
+}
+
+.summary-score {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.score-circle {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 4px solid var(--border-color);
+}
+
+.score-circle.score-excellent {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.score-circle.score-good {
+    border-color: var(--primary-color);
+    background: rgba(5, 89, 201, 0.1);
+}
+
+.score-circle.score-fair {
+    border-color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.score-circle.score-poor {
+    border-color: var(--danger-color);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.score-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.score-max {
+    font-size: 1rem;
+    color: var(--text-muted);
+    margin-left: 0.125rem;
+}
+
+.score-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+}
+
+.score-excellent .score-label,
+.summary-score:has(.score-excellent) .score-label {
+    color: var(--success-color);
+}
+
+.score-good .score-label,
+.summary-score:has(.score-good) .score-label {
+    color: var(--primary-color);
+}
+
+.score-fair .score-label,
+.summary-score:has(.score-fair) .score-label {
+    color: var(--warning-color);
+}
+
+.score-poor .score-label,
+.summary-score:has(.score-poor) .score-label {
+    color: var(--danger-color);
+}
+
+/* Issue Counts */
+.issue-counts {
+    display: flex;
+    gap: 2rem;
+}
+
+.issue-count {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 1rem 1.5rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    min-width: 80px;
+}
+
+.issue-count .count {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.issue-count .label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.issue-count.critical .count {
+    color: var(--danger-color);
+}
+
+.issue-count.warning .count {
+    color: var(--warning-color);
+}
+
+.issue-count.info .count {
+    color: var(--info-color);
+}
+
+/* Audit Timestamp */
+.audit-timestamp {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
