@@ -453,7 +453,8 @@ public class Iperf3SpeedTestService
 
     private async Task<(bool success, string output)> RunLocalIperf3Async(string host, int duration, int streams, bool reverse)
     {
-        var args = $"-c {host} -p {Iperf3Port} -t {duration} -P {streams} -J";
+        // --connect-timeout in ms - fail fast if server isn't running (5 second connection timeout)
+        var args = $"-c {host} -p {Iperf3Port} -t {duration} -P {streams} -J --connect-timeout 5000";
         if (reverse)
         {
             args += " -R";
@@ -478,7 +479,8 @@ public class Iperf3SpeedTestService
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();
 
-            var timeoutMs = (duration + 30) * 1000;
+            // Connection timeout is 5s, so overall timeout can be shorter
+            var timeoutMs = (duration + 15) * 1000;
             var completed = await Task.WhenAny(
                 Task.Run(() => process.WaitForExit(timeoutMs)),
                 Task.Delay(timeoutMs)
