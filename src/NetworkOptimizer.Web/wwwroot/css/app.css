@@ -1830,3 +1830,87 @@ a:hover {
 .form-section-header a {
     color: var(--primary-color);
 }
+
+/* ============================================
+   Blazor Reconnection Modal (Dark Theme)
+   ============================================ */
+#components-reconnect-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    display: none;
+    background: rgba(15, 23, 42, 0.9);
+    align-items: center;
+    justify-content: center;
+}
+
+#components-reconnect-modal.components-reconnect-show,
+#components-reconnect-modal.components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-rejected {
+    display: flex;
+}
+
+#components-reconnect-modal > div {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    text-align: center;
+    max-width: 400px;
+    box-shadow: var(--shadow-lg);
+}
+
+#components-reconnect-modal h5,
+#components-reconnect-modal p {
+    color: var(--text-primary);
+    margin: 0 0 1rem 0;
+}
+
+#components-reconnect-modal h5 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+#components-reconnect-modal p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+#components-reconnect-modal button,
+#components-reconnect-modal a {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.625rem 1.25rem;
+    background: var(--primary-color);
+    color: white !important;
+    border: none;
+    border-radius: var(--border-radius);
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+#components-reconnect-modal button:hover,
+#components-reconnect-modal a:hover {
+    background: var(--primary-hover);
+}
+
+/* Blazor error UI */
+#blazor-error-ui {
+    background: var(--danger-color);
+    color: white;
+    padding: 1rem;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    display: none;
+}
+
+#blazor-error-ui.show {
+    display: block;
+}
