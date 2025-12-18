@@ -71,7 +71,6 @@ a:visited {
 
 a:hover {
     color: var(--primary-hover);
-    text-decoration: underline;
 }
 
 /* App Container Layout */
@@ -297,7 +296,6 @@ a:hover {
 
 .card-action:hover {
     color: var(--accent-hover);
-    text-decoration: underline;
 }
 
 .card-body {
@@ -1687,7 +1685,6 @@ a:hover {
 
 .link-accent:hover {
     color: var(--accent-hover);
-    text-decoration: underline;
 }
 
 /* Primary Links (for light elements on dark bg) */
