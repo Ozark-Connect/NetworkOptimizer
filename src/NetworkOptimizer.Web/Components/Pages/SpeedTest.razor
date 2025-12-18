@@ -267,12 +267,16 @@
     </div>
 
     <!-- Saved Devices (for repeated testing) -->
-    <details class="card-details">
-        <summary class="card-summary">
-            <h3>Saved Devices (@devices.Count)</h3>
-            <span class="expand-hint">Click to expand manual device configuration</span>
-        </summary>
-        <div class="card-details-content">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Saved Device Speed Test</h2>
+            <div class="header-actions">
+                <button class="btn btn-sm btn-secondary" @onclick="() => showAddDevice = !showAddDevice">
+                    @(showAddDevice ? "Cancel" : "Add Device")
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
             <p class="section-description">
                 Save devices for repeated testing. SSH credentials are configured in <a href="/settings">Settings</a>.
             </p>
@@ -295,7 +299,7 @@
                             <tr>
                                 <td>@device.Name</td>
                                 <td><code>@device.Host</code></td>
-                                <td>@device.DeviceType</td>
+                                <td>@GetSavedDeviceTypeDisplay(device.DeviceType)</td>
                                 <td>
                                     @if (device.Enabled)
                                     {
@@ -328,68 +332,71 @@
                     </tbody>
                 </table>
             }
-            else
+            else if (!showAddDevice)
             {
-                <p class="empty-state">No saved devices. Use the discovered devices above for quick testing.</p>
+                <p class="empty-state">No saved devices. Click "Add Device" to add a server or other device for testing.</p>
             }
 
-            <h4 style="margin-top: 1.5rem;">@(editingDevice.Id > 0 ? "Edit Device" : "Add Device Manually")</h4>
+            @if (showAddDevice || editingDevice.Id > 0)
+            {
+                <div class="add-device-form" style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                    <h4>@(editingDevice.Id > 0 ? "Edit Device" : "Add Device")</h4>
 
-            <div class="form-row">
-                <div class="form-group" style="flex: 2;">
-                    <label class="form-label">Device Name</label>
-                    <input type="text" class="form-control" @bind="editingDevice.Name" placeholder="Living Room AP" />
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Device Name</label>
+                            <input type="text" class="form-control" @bind="editingDevice.Name" placeholder="My Server" />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Type</label>
+                            <select class="form-control" @bind="editingDevice.DeviceType">
+                                <option value="Server">Server</option>
+                                <option value="Desktop">Desktop</option>
+                                <option value="AccessPoint">Access Point</option>
+                                <option value="Switch">Switch</option>
+                                <option value="Gateway">Gateway</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Host / IP Address</label>
+                        <input type="text" class="form-control" @bind="editingDevice.Host" placeholder="192.168.1.10" />
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-check">
+                            <input type="checkbox" @bind="editingDevice.Enabled" />
+                            <span>Enable for speed testing</span>
+                        </label>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-check">
+                            <input type="checkbox" @bind="editingDevice.StartIperf3Server" />
+                            <span>Start iperf3 server before test</span>
+                        </label>
+                        <span class="form-help">Enable for devices that don't have iperf3 running persistently</span>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
+                            @if (savingDevice)
+                            {
+                                <span class="spinner"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <span>@(editingDevice.Id > 0 ? "Update Device" : "Add Device")</span>
+                            }
+                        </button>
+                        <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
+                    </div>
                 </div>
-                <div class="form-group" style="flex: 1;">
-                    <label class="form-label">Type</label>
-                    <select class="form-control" @bind="editingDevice.DeviceType">
-                        <option value="AccessPoint">Access Point</option>
-                        <option value="Switch">Switch</option>
-                        <option value="Gateway">Gateway</option>
-                        <option value="Server">Server</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Host / IP Address</label>
-                <input type="text" class="form-control" @bind="editingDevice.Host" placeholder="192.168.1.10" />
-            </div>
-
-            <div class="form-group">
-                <label class="form-check">
-                    <input type="checkbox" @bind="editingDevice.Enabled" />
-                    <span>Enable for speed testing</span>
-                </label>
-            </div>
-
-            <div class="form-group">
-                <label class="form-check">
-                    <input type="checkbox" @bind="editingDevice.StartIperf3Server" />
-                    <span>Start iperf3 server before test</span>
-                </label>
-                <span class="form-help">Enable for devices that don't have iperf3 running persistently</span>
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
-                    @if (savingDevice)
-                    {
-                        <span class="spinner"></span>
-                        <span>Saving...</span>
-                    }
-                    else
-                    {
-                        <span>@(editingDevice.Id > 0 ? "Update Device" : "Add Device")</span>
-                    }
-                </button>
-                @if (editingDevice.Id > 0)
-                {
-                    <button class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>
-                }
-            </div>
+            }
         </div>
-    </details>
+    </div>
 
     <!-- Current Test Results -->
     @if (currentResult != null)
@@ -606,47 +613,6 @@
         font-size: 0.875rem;
     }
 
-    .card-details {
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        overflow: hidden;
-    }
-
-    .card-summary {
-        padding: 1rem 1.5rem;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: var(--card-header-bg);
-        user-select: none;
-    }
-
-    .card-summary:hover {
-        background: var(--card-bg-hover);
-    }
-
-    .card-summary h3 {
-        margin: 0;
-        font-size: 1rem;
-        color: var(--text-primary);
-    }
-
-    .expand-hint {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    .card-details[open] .expand-hint {
-        display: none;
-    }
-
-    .card-details-content {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid var(--border-color);
-    }
-
     .header-actions {
         display: flex;
         gap: 0.5rem;
@@ -721,7 +687,7 @@
 
 @code {
     private List<DeviceSshConfiguration> devices = new();
-    private DeviceSshConfiguration editingDevice = new() { DeviceType = "AccessPoint", Enabled = true };
+    private DeviceSshConfiguration editingDevice = new() { DeviceType = "Server", Enabled = true };
     private List<Iperf3Result> testHistory = new();
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
@@ -730,6 +696,8 @@
     private List<UniFiDeviceResponse> discoveredDevices = new();
     private bool loadingDiscovered = false;
 
+    // Saved devices form state
+    private bool showAddDevice = false;
     private bool savingDevice = false;
     private bool isRunningTest = false;
     private string? runningTestHost;
@@ -915,10 +883,11 @@
     {
         editingDevice = new DeviceSshConfiguration
         {
-            DeviceType = "AccessPoint",
+            DeviceType = "Server",
             Enabled = true,
             StartIperf3Server = false
         };
+        showAddDevice = false;
         message = "";
         StateHasChanged();
     }
@@ -1164,6 +1133,22 @@
             "ubb" => "Building Bridge",
             "uck" => "Cloud Key",
             _ => type.ToUpperInvariant()
+        };
+    }
+
+    private string GetSavedDeviceTypeDisplay(string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+            return "Unknown";
+
+        return type switch
+        {
+            "AccessPoint" => "Access Point",
+            "Server" => "Server",
+            "Desktop" => "Desktop",
+            "Switch" => "Switch",
+            "Gateway" => "Gateway",
+            _ => type
         };
     }
 }
