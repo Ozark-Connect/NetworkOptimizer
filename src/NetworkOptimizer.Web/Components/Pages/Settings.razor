@@ -977,8 +977,12 @@
             settings.PrivateKeyPath = string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) ? null : gatewayPrivateKeyPath;
             settings.Enabled = gatewayEnabled;
 
-            // Only update password if a new one was entered
-            if (!string.IsNullOrEmpty(gatewayPassword))
+            // If using private key, clear the password; otherwise update if new one entered
+            if (!string.IsNullOrWhiteSpace(gatewayPrivateKeyPath))
+            {
+                settings.Password = null;
+            }
+            else if (!string.IsNullOrEmpty(gatewayPassword))
             {
                 settings.Password = gatewayPassword;
             }
@@ -1147,8 +1151,12 @@
             settings.PrivateKeyPath = string.IsNullOrWhiteSpace(sshPrivateKeyPath) ? null : sshPrivateKeyPath;
             settings.Enabled = sshEnabled;
 
-            // Only update password if a new one was entered
-            if (!string.IsNullOrEmpty(sshPassword))
+            // If using private key, clear the password; otherwise update if new one entered
+            if (!string.IsNullOrWhiteSpace(sshPrivateKeyPath))
+            {
+                settings.Password = null;
+            }
+            else if (!string.IsNullOrEmpty(sshPassword))
             {
                 settings.Password = sshPassword;
             }
