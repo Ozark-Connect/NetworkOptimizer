@@ -12,7 +12,7 @@ public class SystemSettingsService
     private readonly ILogger<SystemSettingsService> _logger;
 
     // Default values
-    public const int DefaultIperf3ParallelStreams = 4;
+    public const int DefaultIperf3ParallelStreams = 3;
     public const int DefaultIperf3Duration = 10;
     public const int DefaultIperf3Port = 5201;
 
