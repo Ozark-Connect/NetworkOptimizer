@@ -93,6 +93,53 @@ ssh root@nas "docker logs -f network-optimizer"
 - `docker/docker-compose.local.yml` - Local dev (app + InfluxDB + Grafana)
 - `docker/Dockerfile` - Container build
 
+## Database Migrations (EF Core)
+
+When modifying database models, you must create a proper EF Core migration. Migrations run automatically on app startup via `db.Database.Migrate()` in Program.cs.
+
+### Required Files for Each Migration
+
+Every migration requires THREE files in `src/NetworkOptimizer.Storage/Migrations/`:
+
+1. **Migration file**: `YYYYMMDDHHMMSS_MigrationName.cs` - Contains `Up()` and `Down()` methods
+2. **Designer file**: `YYYYMMDDHHMMSS_MigrationName.Designer.cs` - Contains model snapshot at migration time
+3. **Update snapshot**: `NetworkOptimizerDbContextModelSnapshot.cs` - Must include the new property/table
+
+### Creating a Migration Manually
+
+1. Create the migration file with `Up()` and `Down()` methods:
+```csharp
+// 20251217200000_AddNewColumn.cs
+public partial class AddNewColumn : Migration
+{
+    protected override void Up(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.AddColumn<bool>(
+            name: "NewColumn",
+            table: "TableName",
+            type: "INTEGER",
+            nullable: false,
+            defaultValue: false);
+    }
+
+    protected override void Down(MigrationBuilder migrationBuilder)
+    {
+        migrationBuilder.DropColumn(name: "NewColumn", table: "TableName");
+    }
+}
+```
+
+2. Create the designer file (copy structure from previous migration, update class name and migration ID)
+
+3. Update `NetworkOptimizerDbContextModelSnapshot.cs` to include the new property in the entity definition
+
+### Common Mistake
+
+If you forget the `.Designer.cs` file or don't update the snapshot, you'll get errors like:
+```
+SQLite Error 1: 'no such column: d.NewColumn'
+```
+
 ## Static File Downloads
 
 Files in `src/NetworkOptimizer.Web/wwwroot/downloads/` are served at `/downloads/`
