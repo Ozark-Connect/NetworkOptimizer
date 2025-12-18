@@ -31,6 +31,18 @@ public class DeviceSshConfiguration
     /// <summary>Whether to start iperf3 server before running test (for devices without persistent iperf3)</summary>
     public bool StartIperf3Server { get; set; } = false;
 
+    /// <summary>Optional SSH username override (uses global settings if null/empty)</summary>
+    [MaxLength(100)]
+    public string? SshUsername { get; set; }
+
+    /// <summary>Optional SSH password override (encrypted, uses global settings if null/empty)</summary>
+    [MaxLength(500)]
+    public string? SshPassword { get; set; }
+
+    /// <summary>Optional SSH private key path override (uses global settings if null/empty)</summary>
+    [MaxLength(500)]
+    public string? SshPrivateKeyPath { get; set; }
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
