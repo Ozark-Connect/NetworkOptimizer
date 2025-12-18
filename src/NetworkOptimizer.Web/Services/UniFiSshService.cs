@@ -153,15 +153,39 @@ public class UniFiSshService
     /// </summary>
     public async Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride = null)
     {
+        return await RunCommandAsync(host, command, portOverride, null, null, null);
+    }
+
+    /// <summary>
+    /// Run an SSH command on a device with optional per-device credential overrides.
+    /// If override values are null/empty, falls back to global settings.
+    /// </summary>
+    public async Task<(bool success, string output)> RunCommandAsync(
+        string host,
+        string command,
+        int? portOverride,
+        string? usernameOverride,
+        string? passwordOverride,
+        string? privateKeyPathOverride)
+    {
         var settings = await GetSettingsAsync();
 
-        if (!settings.HasCredentials)
+        // Determine effective credentials (per-device overrides take precedence)
+        var effectiveUsername = !string.IsNullOrEmpty(usernameOverride) ? usernameOverride : settings.Username;
+        var effectivePassword = !string.IsNullOrEmpty(passwordOverride) ? passwordOverride : settings.Password;
+        var effectivePrivateKeyPath = !string.IsNullOrEmpty(privateKeyPathOverride) ? privateKeyPathOverride : settings.PrivateKeyPath;
+
+        // Check if we have any credentials at all
+        var hasCredentials = !string.IsNullOrEmpty(effectiveUsername) &&
+            (!string.IsNullOrEmpty(effectivePassword) || !string.IsNullOrEmpty(effectivePrivateKeyPath));
+
+        if (!hasCredentials)
         {
             return (false, "SSH credentials not configured");
         }
 
         var port = portOverride ?? settings.Port;
-        var usePassword = !string.IsNullOrEmpty(settings.Password) && string.IsNullOrEmpty(settings.PrivateKeyPath);
+        var usePassword = !string.IsNullOrEmpty(effectivePassword) && string.IsNullOrEmpty(effectivePrivateKeyPath);
 
         var sshArgs = new List<string>
         {
@@ -181,13 +205,13 @@ public class UniFiSshService
         sshArgs.Add(port.ToString());
 
         // Add key authentication
-        if (!string.IsNullOrEmpty(settings.PrivateKeyPath))
+        if (!string.IsNullOrEmpty(effectivePrivateKeyPath))
         {
             sshArgs.Add("-i");
-            sshArgs.Add(settings.PrivateKeyPath);
+            sshArgs.Add(effectivePrivateKeyPath);
         }
 
-        sshArgs.Add($"{settings.Username}@{host}");
+        sshArgs.Add($"{effectiveUsername}@{host}");
         sshArgs.Add(command);
 
         var startInfo = new ProcessStartInfo
@@ -202,7 +226,7 @@ public class UniFiSshService
         // If password auth, use sshpass with environment variable
         if (usePassword)
         {
-            var decryptedPassword = _credentialProtection.Decrypt(settings.Password!);
+            var decryptedPassword = _credentialProtection.Decrypt(effectivePassword!);
             startInfo.FileName = "sshpass";
             startInfo.Arguments = $"-e ssh {string.Join(" ", sshArgs)}";
             startInfo.Environment["SSHPASS"] = decryptedPassword;
@@ -242,6 +266,40 @@ public class UniFiSshService
             }
 
             return (true, output);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Run an SSH command using device-specific credentials if configured, falling back to global settings.
+    /// </summary>
+    public async Task<(bool success, string output)> RunCommandWithDeviceAsync(DeviceSshConfiguration device, string command)
+    {
+        return await RunCommandAsync(
+            device.Host,
+            command,
+            null,
+            device.SshUsername,
+            device.SshPassword,
+            device.SshPrivateKeyPath);
+    }
+
+    /// <summary>
+    /// Test SSH connection to a device using device-specific credentials if configured
+    /// </summary>
+    public async Task<(bool success, string message)> TestConnectionAsync(DeviceSshConfiguration device)
+    {
+        try
+        {
+            var result = await RunCommandWithDeviceAsync(device, "echo Connection_OK");
+            if (result.success && result.output.Contains("Connection_OK"))
+            {
+                return (true, "SSH connection successful");
+            }
+            return (false, result.output);
         }
         catch (Exception ex)
         {
@@ -294,6 +352,12 @@ public class UniFiSshService
         using var scope = _serviceProvider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
 
+        // Encrypt password if provided and not already encrypted
+        if (!string.IsNullOrEmpty(device.SshPassword) && !_credentialProtection.IsEncrypted(device.SshPassword))
+        {
+            device.SshPassword = _credentialProtection.Encrypt(device.SshPassword);
+        }
+
         if (device.Id == 0)
         {
             device.CreatedAt = DateTime.UtcNow;
@@ -311,6 +375,9 @@ public class UniFiSshService
                 existing.DeviceType = device.DeviceType;
                 existing.Enabled = device.Enabled;
                 existing.StartIperf3Server = device.StartIperf3Server;
+                existing.SshUsername = device.SshUsername;
+                existing.SshPassword = device.SshPassword;
+                existing.SshPrivateKeyPath = device.SshPrivateKeyPath;
                 existing.UpdatedAt = DateTime.UtcNow;
                 device = existing;
             }
