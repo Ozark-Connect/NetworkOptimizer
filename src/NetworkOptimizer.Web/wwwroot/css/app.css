@@ -1849,7 +1849,7 @@ a:hover {
     bottom: 0;
     z-index: 10000;
     display: none;
-    background: rgba(15, 23, 42, 0.9);
+    background: rgba(15, 23, 42, 0.95) !important;
     align-items: center;
     justify-content: center;
 }
@@ -1861,8 +1861,8 @@ a:hover {
 }
 
 #components-reconnect-modal > div {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: var(--border-radius);
     padding: 2rem;
     text-align: center;
@@ -1871,19 +1871,22 @@ a:hover {
 }
 
 #components-reconnect-modal h5,
-#components-reconnect-modal p {
-    color: var(--text-primary);
-    margin: 0 0 1rem 0;
+#components-reconnect-modal p,
+#components-reconnect-modal div,
+#components-reconnect-modal span,
+#components-reconnect-modal * {
+    color: var(--text-primary) !important;
 }
 
 #components-reconnect-modal h5 {
     font-size: 1.25rem;
     font-weight: 600;
+    margin: 0 0 1rem 0;
 }
 
 #components-reconnect-modal p {
-    color: var(--text-secondary);
     font-size: 0.875rem;
+    margin: 0 0 1rem 0;
 }
 
 #components-reconnect-modal button,
@@ -1891,7 +1894,7 @@ a:hover {
     display: inline-block;
     margin-top: 1rem;
     padding: 0.625rem 1.25rem;
-    background: var(--primary-color);
+    background: var(--primary-color) !important;
     color: white !important;
     border: none;
     border-radius: var(--border-radius);
@@ -1902,13 +1905,13 @@ a:hover {
 
 #components-reconnect-modal button:hover,
 #components-reconnect-modal a:hover {
-    background: var(--primary-hover);
+    background: var(--primary-hover) !important;
 }
 
 /* Blazor error UI */
 #blazor-error-ui {
-    background: var(--danger-color);
-    color: white;
+    background: var(--danger-color) !important;
+    color: white !important;
     padding: 1rem;
     position: fixed;
     bottom: 0;
@@ -1916,6 +1919,10 @@ a:hover {
     right: 0;
     z-index: 10000;
     display: none;
+}
+
+#blazor-error-ui * {
+    color: white !important;
 }
 
 #blazor-error-ui.show {
