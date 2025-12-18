@@ -129,8 +129,9 @@ public class UniFiSshService
 
         try
         {
-            var result = await RunCommandAsync(host, "echo 'Connection successful'", settings.Port);
-            if (result.success && result.output.Contains("Connection successful"))
+            // Use echo without quotes for cross-platform compatibility (Windows/Linux)
+            var result = await RunCommandAsync(host, "echo Connection_OK", settings.Port);
+            if (result.success && result.output.Contains("Connection_OK"))
             {
                 // Update last tested
                 settings.LastTestedAt = DateTime.UtcNow;

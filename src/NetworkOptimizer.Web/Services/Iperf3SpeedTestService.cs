@@ -124,9 +124,9 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Use 'start /B' to run iperf3 in background on Windows
-            // The command returns immediately while iperf3 runs
-            var cmd = $"start /B iperf3 -s -1 -p {Iperf3Port} & echo started";
+            // Use WMI to create a detached process that survives SSH session end
+            // This is the only reliable way to background a process on Windows via SSH
+            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList 'iperf3 -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
             return await _sshService.RunCommandAsync(host, cmd);
         }
         else
