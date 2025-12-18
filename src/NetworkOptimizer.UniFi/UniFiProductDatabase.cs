@@ -12,6 +12,17 @@ namespace NetworkOptimizer.UniFi;
 public static class UniFiProductDatabase
 {
     /// <summary>
+    /// MIPS architecture devices that cannot run iperf3.
+    /// These devices use MIPS processors with incompatible binary loaders.
+    /// </summary>
+    private static readonly HashSet<string> MipsDevices = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "USW-Flex-Mini",
+        "USW-Pro-XG-8-PoE",
+        "USW-Lite-8-PoE"
+    };
+
+    /// <summary>
     /// Map of model code to friendly product name
     /// </summary>
     private static readonly Dictionary<string, string> ModelToProductName = new(StringComparer.OrdinalIgnoreCase)
@@ -204,5 +215,31 @@ public static class UniFiProductDatabase
 
         // Fall back to shortname, then model
         return shortname ?? model ?? "Unknown";
+    }
+
+    /// <summary>
+    /// Check if a device uses MIPS architecture (cannot run iperf3)
+    /// </summary>
+    /// <param name="productName">The friendly product name (e.g., "USW-Flex-Mini")</param>
+    /// <returns>True if the device is MIPS-based</returns>
+    public static bool IsMipsArchitecture(string? productName)
+    {
+        if (string.IsNullOrEmpty(productName))
+            return false;
+
+        return MipsDevices.Contains(productName);
+    }
+
+    /// <summary>
+    /// Check if a device uses MIPS architecture using multiple identification fields
+    /// </summary>
+    /// <param name="model">The model field (internal code)</param>
+    /// <param name="shortname">The shortname field</param>
+    /// <param name="modelDisplay">The model_display field (if present)</param>
+    /// <returns>True if the device is MIPS-based</returns>
+    public static bool IsMipsArchitecture(string? model, string? shortname, string? modelDisplay)
+    {
+        var productName = GetBestProductName(model, shortname, modelDisplay);
+        return IsMipsArchitecture(productName);
     }
 }

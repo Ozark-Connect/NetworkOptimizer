@@ -54,6 +54,12 @@ public class UniFiDeviceResponse
     public string FriendlyModelName =>
         UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
 
+    /// <summary>
+    /// Whether this device uses MIPS architecture and cannot run iperf3
+    /// </summary>
+    public bool IsMipsArchitecture =>
+        UniFiProductDatabase.IsMipsArchitecture(FriendlyModelName);
+
     [JsonPropertyName("ip")]
     public string Ip { get; set; } = string.Empty;
 

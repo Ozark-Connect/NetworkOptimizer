@@ -1138,9 +1138,9 @@
         {
             var allDevices = await ConnectionService.Client.GetDevicesAsync();
 
-            // Filter out gateway devices (UDM, USG, etc.) - keep APs, switches, and other devices
+            // Filter out gateway devices (UDM, USG, etc.) and MIPS devices (can't run iperf3)
             discoveredDevices = allDevices
-                .Where(d => !IsGatewayDevice(d.Type))
+                .Where(d => !IsGatewayDevice(d.Type) && !d.IsMipsArchitecture)
                 .OrderBy(d => d.Name)
                 .ToList();
         }
