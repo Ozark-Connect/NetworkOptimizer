@@ -709,7 +709,6 @@
     private bool gatewayConfigured = false;
     private bool gatewayRunning = false;
     private bool gatewayCheckingIperf3 = false;
-    private string gatewayProgress = "";
     private string gatewayMessage = "";
     private string gatewayMessageClass = "";
     private GatewaySpeedTestResult? gatewayLastResult;
@@ -783,19 +782,11 @@
     private async Task RunGatewaySpeedTest()
     {
         gatewayRunning = true;
-        gatewayProgress = "Starting...";
         gatewayMessage = "";
         StateHasChanged();
 
         try
         {
-            gatewayProgress = "Checking iperf3...";
-            StateHasChanged();
-            await Task.Delay(100);
-
-            gatewayProgress = "Download test...";
-            StateHasChanged();
-
             gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync(durationSeconds: 10, parallelStreams: 4);
 
             if (gatewayLastResult.Success)
