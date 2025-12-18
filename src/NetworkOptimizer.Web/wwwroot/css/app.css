@@ -106,7 +106,7 @@ a:hover {
 .app-title {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--primary-color);
+    color: var(--accent-color);
     margin: 0;
 }
 
@@ -138,7 +138,7 @@ a:hover {
     display: flex;
     align-items: center;
     padding: 0.875rem 1.5rem;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     text-decoration: none;
     transition: all 0.2s ease;
     border-left: 3px solid transparent;
@@ -146,13 +146,13 @@ a:hover {
 
 .nav-link:hover {
     background: var(--bg-hover);
-    color: var(--primary-color);
+    color: var(--accent-color);
 }
 
 .nav-link.active {
     background: var(--bg-tertiary);
-    color: var(--primary-color);
-    border-left-color: var(--primary-color);
+    color: var(--accent-color);
+    border-left-color: var(--accent-color);
 }
 
 .nav-icon {
@@ -288,7 +288,7 @@ a:hover {
 }
 
 .card-action {
-    color: var(--primary-color);
+    color: var(--accent-color);
     text-decoration: none;
     font-size: 0.875rem;
     font-weight: 500;
@@ -296,7 +296,7 @@ a:hover {
 }
 
 .card-action:hover {
-    color: var(--primary-hover);
+    color: var(--accent-hover);
     text-decoration: underline;
 }
 
@@ -896,11 +896,16 @@ a:hover {
 
 .btn-primary {
     background: var(--primary-color);
-    color: white;
+    color: white !important;
 }
 
 .btn-primary:hover:not(:disabled) {
     background: var(--primary-hover);
+    color: white !important;
+}
+
+.btn-primary:visited {
+    color: white !important;
 }
 
 .btn-secondary {
@@ -914,26 +919,55 @@ a:hover {
 
 .btn-success {
     background: var(--success-color);
-    color: white;
+    color: white !important;
+}
+
+.btn-success:hover:not(:disabled) {
+    color: white !important;
+}
+
+.btn-success:visited {
+    color: white !important;
 }
 
 .btn-warning {
     background: var(--warning-color);
-    color: white;
+    color: white !important;
+}
+
+.btn-warning:hover:not(:disabled) {
+    color: white !important;
+}
+
+.btn-warning:visited {
+    color: white !important;
 }
 
 .btn-danger {
     background: var(--danger-color);
-    color: white;
+    color: white !important;
+}
+
+.btn-danger:hover:not(:disabled) {
+    color: white !important;
+}
+
+.btn-danger:visited {
+    color: white !important;
 }
 
 .btn-accent {
     background: var(--accent-color);
-    color: white;
+    color: white !important;
 }
 
 .btn-accent:hover:not(:disabled) {
     background: var(--accent-hover);
+    color: white !important;
+}
+
+.btn-accent:visited {
+    color: white !important;
 }
 
 /* Outline variants */
@@ -945,18 +979,27 @@ a:hover {
 
 .btn-outline-primary:hover:not(:disabled) {
     background: var(--primary-color);
-    color: white;
+    color: white !important;
+}
+
+.btn-outline-primary:visited:hover {
+    color: white !important;
 }
 
 /* Gradient buttons (Ozark Connect style) */
 .btn-gradient {
     background: linear-gradient(135deg, var(--primary-color) 0%, #0466e0 100%);
-    color: white;
+    color: white !important;
     border: none;
 }
 
 .btn-gradient:hover:not(:disabled) {
     background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-color) 100%);
+    color: white !important;
+}
+
+.btn-gradient:visited {
+    color: white !important;
 }
 
 .btn-ghost {
@@ -1179,12 +1222,12 @@ a:hover {
 }
 
 .tab:hover {
-    color: var(--primary-color);
+    color: var(--accent-color);
 }
 
 .tab.active {
-    color: var(--primary-color);
-    border-bottom-color: var(--primary-color);
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
 }
 
 .tab.tab-muted {
