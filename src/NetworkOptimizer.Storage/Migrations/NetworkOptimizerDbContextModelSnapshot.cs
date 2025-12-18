@@ -512,6 +512,9 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("StartIperf3Server")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");
 
