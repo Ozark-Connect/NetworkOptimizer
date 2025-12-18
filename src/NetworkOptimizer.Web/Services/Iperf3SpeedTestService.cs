@@ -70,9 +70,14 @@ public class Iperf3SpeedTestService
     public Task<(bool success, string message)> TestConnectionAsync(DeviceSshConfiguration device) => _sshService.TestConnectionAsync(device);
 
     /// <summary>
-    /// Check if iperf3 is available on a device
+    /// Check if iperf3 is available on a device (using global credentials)
     /// </summary>
     public Task<(bool available, string version)> CheckIperf3AvailableAsync(string host) => _sshService.CheckToolAvailableAsync(host, "iperf3");
+
+    /// <summary>
+    /// Check if iperf3 is available on a device (using device-specific credentials if configured)
+    /// </summary>
+    public Task<(bool available, string version)> CheckIperf3AvailableAsync(DeviceSshConfiguration device) => _sshService.CheckToolAvailableAsync(device, "iperf3");
 
     /// <summary>
     /// Detect if the remote host is running Windows

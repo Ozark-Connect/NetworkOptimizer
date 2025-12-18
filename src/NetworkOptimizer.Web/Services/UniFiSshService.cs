@@ -308,7 +308,7 @@ public class UniFiSshService
     }
 
     /// <summary>
-    /// Check if a tool (like iperf3) is available on a device
+    /// Check if a tool (like iperf3) is available on a device (using global credentials)
     /// </summary>
     public async Task<(bool available, string version)> CheckToolAvailableAsync(string host, string toolName)
     {
@@ -316,6 +316,8 @@ public class UniFiSshService
         {
             // Run without piping (head -1 is Linux-only) - works on both Windows and Linux
             var result = await RunCommandAsync(host, $"{toolName} --version");
+            _logger.LogDebug("CheckToolAvailable({Host}, {Tool}): success={Success}, output={Output}",
+                host, toolName, result.success, result.output);
             // Check for tool name without version number (iperf3 outputs "iperf 3.x" not "iperf3")
             var checkName = toolName.Replace("3", "").Replace("2", ""); // "iperf3" -> "iperf"
             if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
@@ -328,6 +330,32 @@ public class UniFiSshService
         }
         catch (Exception ex)
         {
+            _logger.LogWarning(ex, "CheckToolAvailable({Host}, {Tool}) exception", host, toolName);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Check if a tool (like iperf3) is available on a device (using device-specific credentials if configured)
+    /// </summary>
+    public async Task<(bool available, string version)> CheckToolAvailableAsync(DeviceSshConfiguration device, string toolName)
+    {
+        try
+        {
+            var result = await RunCommandWithDeviceAsync(device, $"{toolName} --version");
+            _logger.LogDebug("CheckToolAvailable({Host}, {Tool}) with device creds: success={Success}, output={Output}",
+                device.Host, toolName, result.success, result.output);
+            var checkName = toolName.Replace("3", "").Replace("2", "");
+            if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
+            {
+                var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                return (true, firstLine?.Trim() ?? result.output.Trim());
+            }
+            return (false, $"{toolName} not found on device");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CheckToolAvailable({Host}, {Tool}) with device creds exception", device.Host, toolName);
             return (false, ex.Message);
         }
     }
