@@ -23,6 +23,9 @@ public class Iperf3SpeedTestService
     // Default iperf3 port
     private const int Iperf3Port = 5201;
 
+    // Cache detected OS per host to avoid repeated checks
+    private readonly Dictionary<string, bool> _isWindowsCache = new();
+
     public Iperf3SpeedTestService(
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
@@ -57,6 +60,115 @@ public class Iperf3SpeedTestService
     /// Check if iperf3 is available on a device
     /// </summary>
     public Task<(bool available, string version)> CheckIperf3AvailableAsync(string host) => _sshService.CheckToolAvailableAsync(host, "iperf3");
+
+    /// <summary>
+    /// Detect if the remote host is running Windows
+    /// </summary>
+    private async Task<bool> IsWindowsHostAsync(string host)
+    {
+        lock (_lock)
+        {
+            if (_isWindowsCache.TryGetValue(host, out var cached))
+                return cached;
+        }
+
+        // Try uname -s first (works on Linux/macOS/Unix)
+        var unameResult = await _sshService.RunCommandAsync(host, "uname -s 2>/dev/null");
+        if (unameResult.success)
+        {
+            var os = unameResult.output.Trim().ToLowerInvariant();
+            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix"))
+            {
+                lock (_lock) { _isWindowsCache[host] = false; }
+                return false;
+            }
+        }
+
+        // If uname failed or returned something unexpected, check for Windows
+        var winCheck = await _sshService.RunCommandAsync(host, "echo %OS%");
+        var isWindows = winCheck.success && winCheck.output.Contains("Windows");
+
+        lock (_lock) { _isWindowsCache[host] = isWindows; }
+        _logger.LogInformation("Detected {Host} as {OS}", host, isWindows ? "Windows" : "Linux/Unix");
+        return isWindows;
+    }
+
+    /// <summary>
+    /// Kill iperf3 processes on the remote host
+    /// </summary>
+    private async Task KillIperf3Async(string host, bool isWindows)
+    {
+        if (isWindows)
+        {
+            // Try PowerShell first, fall back to taskkill
+            var result = await _sshService.RunCommandAsync(host,
+                "pwsh -Command \"Get-Process iperf3 -ErrorAction SilentlyContinue | Stop-Process -Force\" 2>nul || taskkill /F /IM iperf3.exe 2>nul || echo done");
+        }
+        else
+        {
+            await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+        }
+    }
+
+    /// <summary>
+    /// Start iperf3 server on the remote host (one-shot mode)
+    /// </summary>
+    private async Task<(bool success, string output)> StartIperf3ServerAsync(string host, bool isWindows)
+    {
+        if (isWindows)
+        {
+            // Use PowerShell to start iperf3 in the background
+            // -1 flag for one-shot mode, runs once then exits
+            var cmd = $"pwsh -Command \"Start-Process -FilePath 'iperf3' -ArgumentList '-s','-1','-p','{Iperf3Port}' -WindowStyle Hidden; 'started'\"";
+            return await _sshService.RunCommandAsync(host, cmd);
+        }
+        else
+        {
+            var cmd = $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!";
+            return await _sshService.RunCommandAsync(host, cmd);
+        }
+    }
+
+    /// <summary>
+    /// Check if iperf3 server is running on the remote host
+    /// </summary>
+    private async Task<bool> IsIperf3ServerRunningAsync(string host, bool isWindows)
+    {
+        if (isWindows)
+        {
+            var result = await _sshService.RunCommandAsync(host,
+                "pwsh -Command \"if (Get-Process iperf3 -ErrorAction SilentlyContinue) { 'running' } else { 'stopped' }\"");
+            return result.output.Contains("running");
+        }
+        else
+        {
+            var result = await _sshService.RunCommandAsync(host, "pgrep -x iperf3 > /dev/null 2>&1 && echo 'running' || echo 'stopped'");
+            if (result.output.Contains("running"))
+                return true;
+
+            // Double-check with netstat/ss
+            var portCheck = await _sshService.RunCommandAsync(host,
+                $"netstat -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || ss -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || echo 'not_listening'");
+            return portCheck.output.Contains("listening");
+        }
+    }
+
+    /// <summary>
+    /// Get iperf3 server log from the remote host
+    /// </summary>
+    private async Task<string> GetIperf3ServerLogAsync(string host, bool isWindows)
+    {
+        if (isWindows)
+        {
+            // Windows doesn't have an easy log location, return generic message
+            return "Check iperf3 installation and PATH on Windows host";
+        }
+        else
+        {
+            var result = await _sshService.RunCommandAsync(host, "cat /tmp/iperf3_server.log 2>/dev/null");
+            return result.output;
+        }
+    }
 
     /// <summary>
     /// Run a full speed test to a device
@@ -94,22 +206,26 @@ public class Iperf3SpeedTestService
 
         // Determine if we should manage the iperf3 server ourselves
         var manageServer = device.StartIperf3Server;
+        var isWindows = false;
 
         try
         {
             _logger.LogInformation("Starting iperf3 speed test to {Device} ({Host})", device.Name, host);
 
+            // Detect OS if we need to manage the server
             if (manageServer)
             {
+                isWindows = await IsWindowsHostAsync(host);
+                _logger.LogDebug("Target {Host} detected as {OS}", host, isWindows ? "Windows" : "Linux/Unix");
+
                 // Step 1: Kill any existing iperf3 server on the device
                 _logger.LogDebug("Cleaning up any existing iperf3 processes on {Host}", host);
-                await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                await KillIperf3Async(host, isWindows);
                 await Task.Delay(500);
 
                 // Step 2: Start iperf3 server on the remote device
                 _logger.LogDebug("Starting iperf3 server on {Host}", host);
-                var serverStartResult = await _sshService.RunCommandAsync(host,
-                    $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!");
+                var serverStartResult = await StartIperf3ServerAsync(host, isWindows);
 
                 if (!serverStartResult.success)
                 {
@@ -118,27 +234,21 @@ public class Iperf3SpeedTestService
                     return result;
                 }
 
-                var serverPid = serverStartResult.output.Trim();
-                _logger.LogDebug("iperf3 server started on {Host} with PID {Pid}", host, serverPid);
+                _logger.LogDebug("iperf3 server start command sent to {Host}", host);
 
                 // Give the server a moment to start
-                await Task.Delay(1000);
+                await Task.Delay(1500);
 
-                // Verify server is running by checking if iperf3 process exists (more reliable than ps -p on embedded devices)
-                var checkResult = await _sshService.RunCommandAsync(host, "pgrep -x iperf3 > /dev/null 2>&1 && echo 'running' || echo 'stopped'");
-                if (!checkResult.output.Contains("running"))
+                // Verify server is running
+                var serverRunning = await IsIperf3ServerRunningAsync(host, isWindows);
+                if (!serverRunning)
                 {
-                    // Double-check with netstat/ss to see if port is listening
-                    var portCheck = await _sshService.RunCommandAsync(host, $"netstat -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || ss -tln 2>/dev/null | grep -q ':{Iperf3Port}' && echo 'listening' || echo 'not_listening'");
-                    if (!portCheck.output.Contains("listening"))
-                    {
-                        var logResult = await _sshService.RunCommandAsync(host, "cat /tmp/iperf3_server.log 2>/dev/null");
-                        result.Success = false;
-                        result.ErrorMessage = $"iperf3 server failed to start. Log: {logResult.output}";
-                        return result;
-                    }
-                    _logger.LogDebug("iperf3 process not found by pgrep but port {Port} is listening on {Host}", Iperf3Port, host);
+                    var log = await GetIperf3ServerLogAsync(host, isWindows);
+                    result.Success = false;
+                    result.ErrorMessage = $"iperf3 server failed to start. {log}";
+                    return result;
                 }
+                _logger.LogDebug("iperf3 server confirmed running on {Host}", host);
             }
             else
             {
@@ -164,13 +274,12 @@ public class Iperf3SpeedTestService
                 if (manageServer)
                 {
                     // Server runs with -1 (one-off mode), so restart for download test
-                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                    await KillIperf3Async(host, isWindows);
                     await Task.Delay(500);
 
                     // Restart server for download test
-                    await _sshService.RunCommandAsync(host,
-                        $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 &");
-                    await Task.Delay(1000);
+                    await StartIperf3ServerAsync(host, isWindows);
+                    await Task.Delay(1500);
                 }
 
                 // Step 4: Run download test (device -> client, with -R flag)
@@ -199,7 +308,7 @@ public class Iperf3SpeedTestService
                 {
                     // Step 5: Clean up - stop iperf3 server
                     _logger.LogDebug("Stopping iperf3 server on {Host}", host);
-                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                    await KillIperf3Async(host, isWindows);
                 }
             }
 
@@ -222,7 +331,7 @@ public class Iperf3SpeedTestService
             {
                 try
                 {
-                    await _sshService.RunCommandAsync(host, "pkill -9 iperf3 2>/dev/null || true");
+                    await KillIperf3Async(host, isWindows);
                 }
                 catch { }
             }
