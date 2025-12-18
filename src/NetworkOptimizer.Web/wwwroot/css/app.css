@@ -1842,72 +1842,33 @@ a:hover {
 }
 
 /* ============================================
-   Blazor Reconnection Modal (Dark Theme)
+   Blazor Reconnection Dialog (Dark Theme)
    ============================================ */
-#components-reconnect-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10000;
-    display: none;
-    background: rgba(15, 23, 42, 0.95) !important;
-    align-items: center;
-    justify-content: center;
-}
-
-#components-reconnect-modal.components-reconnect-show,
-#components-reconnect-modal.components-reconnect-failed,
-#components-reconnect-modal.components-reconnect-rejected {
-    display: flex;
-}
-
-#components-reconnect-modal > div {
+.components-reconnect-dialog {
     background: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
-    border-radius: var(--border-radius);
-    padding: 2rem;
-    text-align: center;
-    max-width: 400px;
-    box-shadow: var(--shadow-lg);
+    border-radius: var(--border-radius) !important;
+    padding: 2rem !important;
+    box-shadow: var(--shadow-lg) !important;
 }
 
-#components-reconnect-modal h5,
-#components-reconnect-modal p,
-#components-reconnect-modal div,
-#components-reconnect-modal span,
-#components-reconnect-modal * {
+.components-reconnect-dialog p {
     color: var(--text-primary) !important;
+    font-size: 1rem !important;
+    font-weight: 500 !important;
 }
 
-#components-reconnect-modal h5 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0 0 1rem 0;
-}
-
-#components-reconnect-modal p {
-    font-size: 0.875rem;
-    margin: 0 0 1rem 0;
-}
-
-#components-reconnect-modal button,
-#components-reconnect-modal a {
-    display: inline-block;
-    margin-top: 1rem;
-    padding: 0.625rem 1.25rem;
+.components-reconnect-dialog button {
     background: var(--primary-color) !important;
     color: white !important;
-    border: none;
-    border-radius: var(--border-radius);
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
+    border: none !important;
+    border-radius: var(--border-radius) !important;
+    padding: 0.625rem 1.25rem !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
 }
 
-#components-reconnect-modal button:hover,
-#components-reconnect-modal a:hover {
+.components-reconnect-dialog button:hover {
     background: var(--primary-hover) !important;
 }
 
