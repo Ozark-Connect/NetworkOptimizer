@@ -7,7 +7,7 @@
 ### Run with Docker
 ```bash
 cd docker
-docker compose build --no-cache network-optimizer
+docker compose build network-optimizer
 docker compose up -d
 ```
 
@@ -47,10 +47,15 @@ dotnet publish -c Release -o C:/NetworkOptimizer
 
 3. Rebuild and restart Docker:
    ```bash
-   ssh root@nas "cd /opt/network-optimizer/docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
+   ssh root@nas "cd /opt/network-optimizer/docker && docker compose build network-optimizer && docker compose up -d network-optimizer"
    ```
 
 ### Quick Deploy (all-in-one)
+```bash
+git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build network-optimizer && docker compose up -d network-optimizer"
+```
+
+### Full Rebuild (use when Dockerfile or dependencies change)
 ```bash
 git push && ssh root@nas "cd /opt/network-optimizer && git pull && cd docker && docker compose build --no-cache network-optimizer && docker compose up -d network-optimizer"
 ```
