@@ -453,9 +453,8 @@ public class Iperf3SpeedTestService
 
     private async Task<(bool success, string output)> RunLocalIperf3Async(string host, int duration, int streams, bool reverse)
     {
-        // --connect-timeout in ms - fail fast if server isn't running (10 second connection timeout)
-        // 10s allows for WMI process startup on Windows while still failing reasonably fast
-        var args = $"-c {host} -p {Iperf3Port} -t {duration} -P {streams} -J --connect-timeout 10000";
+        // --connect-timeout in ms - fail fast if server isn't running (5 second connection timeout)
+        var args = $"-c {host} -p {Iperf3Port} -t {duration} -P {streams} -J --connect-timeout 5000";
         if (reverse)
         {
             args += " -R";
