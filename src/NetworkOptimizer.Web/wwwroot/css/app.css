@@ -1491,13 +1491,13 @@ a:hover {
     color: rgba(255, 255, 255, 0.9);
 }
 
-.connection-banner .btn {
+.connection-banner .btn-secondary {
     background: white;
-    color: var(--warning-color);
+    color: var(--warning-color) !important;
     border: none;
 }
 
-.connection-banner .btn:hover {
+.connection-banner .btn-secondary:hover {
     background: rgba(255, 255, 255, 0.9);
 }
 
