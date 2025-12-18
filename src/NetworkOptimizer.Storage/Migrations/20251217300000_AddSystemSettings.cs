@@ -29,7 +29,7 @@ namespace NetworkOptimizer.Storage.Migrations
             migrationBuilder.InsertData(
                 table: "SystemSettings",
                 columns: new[] { "Key", "Value", "CreatedAt", "UpdatedAt" },
-                values: new object[] { "iperf3.parallel_streams", "4", DateTime.UtcNow, DateTime.UtcNow });
+                values: new object[] { "iperf3.parallel_streams", "3", DateTime.UtcNow, DateTime.UtcNow });
         }
 
         /// <inheritdoc />
