@@ -26,23 +26,23 @@
         <div class="card-body">
             <div class="form-group">
                 <label class="form-label">Controller URL</label>
-                <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" />
+                <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" autocomplete="off" />
                 <small class="form-help">Use local-only credentials for security</small>
             </div>
 
             <div class="form-group">
                 <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" />
+                <input type="text" class="form-control" @bind="controllerUsername" placeholder="admin" autocomplete="off" />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="controllerPassword" />
+                <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Site</label>
-                <input type="text" class="form-control" @bind="controllerSite" placeholder="default" />
+                <input type="text" class="form-control" @bind="controllerSite" placeholder="default" autocomplete="off" />
                 <small class="form-help">Usually "default" for local UniFi OS devices</small>
             </div>
 
@@ -1282,18 +1282,17 @@
 
     private async Task TestSshConnection()
     {
-        // Need a host to test - prompt user or use first configured device
-        var devices = await SshService.GetDevicesAsync();
-        if (!devices.Any())
+        // Check if connected to the controller
+        if (!ConnectionService.IsConnected || ConnectionService.Client == null)
         {
-            sshMessage = "No devices configured. Add a device in the Speed Test page first, then test the connection.";
+            sshMessage = "Connect to UniFi controller first to test SSH connection.";
             sshMessageClass = "warning";
             StateHasChanged();
             return;
         }
 
         testingSshConnection = true;
-        sshMessage = $"Testing SSH connection to {devices.First().Name}...";
+        sshMessage = "Finding an Access Point to test SSH...";
         sshMessageClass = "info";
         StateHasChanged();
 
@@ -1305,10 +1304,28 @@
                 await SaveSshSettings();
             }
 
-            var (success, message) = await SshService.TestConnectionAsync(devices.First().Host);
+            // Get devices from the controller and find an online AP
+            var devices = await ConnectionService.Client.GetDevicesAsync();
+            var onlineAp = devices
+                .Where(d => d.Type == "uap" && d.State == 1 && !string.IsNullOrEmpty(d.Ip))
+                .FirstOrDefault();
+
+            if (onlineAp == null)
+            {
+                sshMessage = "No online Access Points found. Ensure you have adopted APs in your network.";
+                sshMessageClass = "warning";
+                testingSshConnection = false;
+                StateHasChanged();
+                return;
+            }
+
+            sshMessage = $"Testing SSH connection to {onlineAp.Name} ({onlineAp.Ip})...";
+            StateHasChanged();
+
+            var (success, message) = await SshService.TestConnectionAsync(onlineAp.Ip);
             if (success)
             {
-                sshMessage = $"SSH connection to {devices.First().Name} successful!";
+                sshMessage = $"SSH connection to {onlineAp.Name} successful!";
                 sshMessageClass = "success";
                 await LoadSshSettings(); // Refresh to show last tested time
             }

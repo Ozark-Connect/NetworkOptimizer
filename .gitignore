@@ -14,9 +14,8 @@ out/
 *.pdb
 *.cache
 
-# Docker data (keep structure, ignore runtime data)
-docker/data/*
-!docker/data/.gitkeep
+# Docker data (runtime data, created by container)
+docker/data/
 docker/logs/
 
 # Secrets
