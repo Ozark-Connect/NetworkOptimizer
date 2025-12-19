@@ -37,7 +37,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" />
+                <input type="password" class="form-control" @bind="controllerPassword" autocomplete="new-password" placeholder="@(hasControllerPassword ? "Saved — enter new to update" : "Enter password")" />
             </div>
 
             <div class="form-group">
@@ -218,7 +218,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="SSH password" />
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" />
             </div>
 
             <div class="form-group">
@@ -358,7 +358,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="SSH password" />
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(hasSshPassword ? "Saved — enter new to update" : "Enter password")" />
             </div>
 
             <div class="form-group">
@@ -942,6 +942,11 @@
     private string sshMessage = "";
     private string sshMessageClass = "";
 
+    // Password saved status (for placeholder text)
+    private bool hasControllerPassword = false;
+    private bool hasGatewayPassword = false;
+    private bool hasSshPassword = false;
+
     // Speed Test Settings
     private int iperf3ParallelStreams = 3;
     private int iperf3Duration = 10;
@@ -986,6 +991,10 @@
             controllerSite = ConnectionService.CurrentConfig.Site;
             rememberCredentials = ConnectionService.CurrentConfig.RememberCredentials;
         }
+
+        // Check if controller has saved password
+        var connectionSettings = await ConnectionService.GetSettingsAsync();
+        hasControllerPassword = connectionSettings.HasCredentials;
 
         UpdateControllerStatus();
         await LoadGatewaySettings();
@@ -1055,6 +1064,7 @@
             gatewayPort = gatewaySettings.Port;
             gatewayPrivateKeyPath = gatewaySettings.PrivateKeyPath ?? "";
             gatewayEnabled = gatewaySettings.Enabled;
+            hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             // Don't load password - keep it empty for security
         }
         catch (Exception ex)
@@ -1091,6 +1101,7 @@
 
             gatewaySettings = await GatewayService.SaveSettingsAsync(settings);
             gatewayPassword = ""; // Clear password field
+            hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             gatewayMessage = "Gateway settings saved successfully";
             gatewayMessageClass = "success";
         }
@@ -1230,6 +1241,7 @@
             sshPort = sshSettings.Port;
             sshPrivateKeyPath = sshSettings.PrivateKeyPath ?? "";
             sshEnabled = sshSettings.Enabled;
+            hasSshPassword = !string.IsNullOrEmpty(sshSettings.Password);
             // Don't load password - keep it empty for security
         }
         catch (Exception ex)
@@ -1265,6 +1277,7 @@
 
             sshSettings = await SshService.SaveSettingsAsync(settings);
             sshPassword = ""; // Clear password field
+            hasSshPassword = !string.IsNullOrEmpty(sshSettings.Password);
             sshMessage = "SSH settings saved successfully";
             sshMessageClass = "success";
         }
@@ -1523,6 +1536,8 @@
                 controllerInfo = ConnectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
                 controllerMessage = $"Connected and saved! ({controllerInfo})";
                 controllerMessageClass = "success";
+                hasControllerPassword = true;
+                controllerPassword = ""; // Clear the password field
             }
             else
             {
