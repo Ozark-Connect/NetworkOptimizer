@@ -1,33 +1,39 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using System.Text.Json;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Manages the UniFi controller connection and configuration persistence.
 /// This is a singleton service that maintains the API client across the application.
+/// Configuration is stored in the database with encrypted credentials.
 /// </summary>
 public class UniFiConnectionService : IDisposable
 {
     private readonly ILogger<UniFiConnectionService> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly IServiceProvider _serviceProvider;
     private readonly CredentialProtectionService _credentialProtection;
-    private readonly string _configPath;
 
     private UniFiApiClient? _client;
-    private UniFiConnectionConfig? _config;
+    private UniFiConnectionSettings? _settings;
     private bool _isConnected;
     private string? _lastError;
     private DateTime? _lastConnectedAt;
 
-    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory)
+    // Cache to avoid repeated DB queries
+    private DateTime _cacheTime = DateTime.MinValue;
+    private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
+
+    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
+        _serviceProvider = serviceProvider;
         _credentialProtection = new CredentialProtectionService();
-        _configPath = Path.Combine(AppContext.BaseDirectory, "data", "unifi-connection.json");
 
         // Load saved configuration on startup (sync to avoid deadlock)
         LoadConfigSync();
@@ -37,49 +43,100 @@ public class UniFiConnectionService : IDisposable
     {
         try
         {
-            if (File.Exists(_configPath))
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var settings = db.UniFiConnectionSettings.FirstOrDefault();
+
+            if (settings != null && settings.IsConfigured && !string.IsNullOrEmpty(settings.ControllerUrl))
             {
-                var json = File.ReadAllText(_configPath);
-                _config = JsonSerializer.Deserialize<UniFiConnectionConfig>(json);
+                _settings = settings;
+                _cacheTime = DateTime.UtcNow;
 
-                if (_config != null && !string.IsNullOrEmpty(_config.ControllerUrl))
+                _logger.LogInformation("Loaded saved UniFi configuration for {Url}", settings.ControllerUrl);
+
+                // Auto-connect in background if we have credentials and RememberCredentials is true
+                if (settings.RememberCredentials && settings.HasCredentials)
                 {
-                    // Decrypt password if encrypted (passes through if not encrypted)
-                    if (!string.IsNullOrEmpty(_config.Password))
+                    _ = Task.Run(async () =>
                     {
-                        _config.Password = _credentialProtection.Decrypt(_config.Password);
-                    }
-
-                    _logger.LogInformation("Loaded saved UniFi configuration for {Url}", _config.ControllerUrl);
-
-                    // Auto-connect in background if we have credentials
-                    if (!string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(2000); // Wait for app startup
-                            await ConnectAsync(_config);
-                        });
-                    }
+                        await Task.Delay(2000); // Wait for app startup
+                        await ConnectWithSettingsAsync(settings);
+                    });
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error loading UniFi configuration");
+            _logger.LogWarning(ex, "Error loading UniFi configuration from database");
         }
     }
 
     public bool IsConnected => _isConnected && _client != null;
     public string? LastError => _lastError;
     public DateTime? LastConnectedAt => _lastConnectedAt;
-    public UniFiConnectionConfig? CurrentConfig => _config;
     public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
+
+    /// <summary>
+    /// Gets the current connection config (for UI display)
+    /// </summary>
+    public UniFiConnectionConfig? CurrentConfig
+    {
+        get
+        {
+            if (_settings == null) return null;
+            return new UniFiConnectionConfig
+            {
+                ControllerUrl = _settings.ControllerUrl ?? "",
+                Username = _settings.Username ?? "",
+                Password = "", // Never expose password
+                Site = _settings.Site,
+                RememberCredentials = _settings.RememberCredentials
+            };
+        }
+    }
 
     /// <summary>
     /// Gets the active UniFi API client, or null if not connected
     /// </summary>
     public UniFiApiClient? Client => _isConnected ? _client : null;
+
+    /// <summary>
+    /// Get the connection settings from database
+    /// </summary>
+    public async Task<UniFiConnectionSettings> GetSettingsAsync()
+    {
+        // Check cache first
+        if (_settings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
+        {
+            return _settings;
+        }
+
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+        var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+
+        if (settings == null)
+        {
+            // Create default settings
+            settings = new UniFiConnectionSettings
+            {
+                Site = "default",
+                RememberCredentials = true,
+                IsConfigured = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            db.UniFiConnectionSettings.Add(settings);
+            await db.SaveChangesAsync();
+        }
+
+        _settings = settings;
+        _cacheTime = DateTime.UtcNow;
+
+        return settings;
+    }
 
     /// <summary>
     /// Configure and connect to a UniFi controller
@@ -113,10 +170,9 @@ public class UniFiConnectionService : IDisposable
             {
                 _isConnected = true;
                 _lastConnectedAt = DateTime.UtcNow;
-                _config = config;
 
-                // Save configuration (without password in plain text for security)
-                await SaveConfigAsync();
+                // Save configuration to database
+                await SaveSettingsAsync(config);
 
                 _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
                 return true;
@@ -137,6 +193,133 @@ public class UniFiConnectionService : IDisposable
             _client?.Dispose();
             _client = null;
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Connect using existing settings from database
+    /// </summary>
+    private async Task<bool> ConnectWithSettingsAsync(UniFiConnectionSettings settings)
+    {
+        if (!settings.HasCredentials) return false;
+
+        try
+        {
+            // Decrypt password
+            var decryptedPassword = _credentialProtection.Decrypt(settings.Password!);
+
+            var config = new UniFiConnectionConfig
+            {
+                ControllerUrl = settings.ControllerUrl!,
+                Username = settings.Username!,
+                Password = decryptedPassword,
+                Site = settings.Site,
+                RememberCredentials = settings.RememberCredentials
+            };
+
+            // Dispose existing client
+            _client?.Dispose();
+            _client = null;
+            _isConnected = false;
+            _lastError = null;
+
+            // Create new client
+            var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
+            _client = new UniFiApiClient(
+                clientLogger,
+                config.ControllerUrl,
+                config.Username,
+                config.Password,
+                config.Site
+            );
+
+            var success = await _client.LoginAsync();
+
+            if (success)
+            {
+                _isConnected = true;
+                _lastConnectedAt = DateTime.UtcNow;
+
+                // Update last connected timestamp in DB
+                using var scope = _serviceProvider.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+                var dbSettings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+                if (dbSettings != null)
+                {
+                    dbSettings.LastConnectedAt = DateTime.UtcNow;
+                    dbSettings.LastError = null;
+                    dbSettings.UpdatedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                }
+
+                _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
+                return true;
+            }
+            else
+            {
+                _lastError = "Authentication failed";
+                _client.Dispose();
+                _client = null;
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            _logger.LogError(ex, "Error connecting to UniFi controller");
+            _client?.Dispose();
+            _client = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Save connection settings to database
+    /// </summary>
+    private async Task SaveSettingsAsync(UniFiConnectionConfig config)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+            var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+
+            if (settings == null)
+            {
+                settings = new UniFiConnectionSettings
+                {
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.UniFiConnectionSettings.Add(settings);
+            }
+
+            settings.ControllerUrl = config.ControllerUrl;
+            settings.Username = config.Username;
+            settings.Site = config.Site;
+            settings.RememberCredentials = config.RememberCredentials;
+            settings.IsConfigured = true;
+            settings.LastConnectedAt = DateTime.UtcNow;
+            settings.LastError = null;
+            settings.UpdatedAt = DateTime.UtcNow;
+
+            // Encrypt password before saving
+            if (!string.IsNullOrEmpty(config.Password))
+            {
+                settings.Password = _credentialProtection.Encrypt(config.Password);
+            }
+
+            await db.SaveChangesAsync();
+
+            // Update cache
+            _settings = settings;
+            _cacheTime = DateTime.UtcNow;
+
+            _logger.LogInformation("Saved UniFi configuration to database");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error saving UniFi configuration to database");
         }
     }
 
@@ -215,46 +398,38 @@ public class UniFiConnectionService : IDisposable
     /// </summary>
     public async Task<bool> ReconnectAsync()
     {
-        if (_config == null)
+        var settings = await GetSettingsAsync();
+
+        if (!settings.IsConfigured || !settings.HasCredentials)
         {
             _lastError = "No saved configuration";
             return false;
         }
 
-        return await ConnectAsync(_config);
+        return await ConnectWithSettingsAsync(settings);
     }
 
-    private async Task SaveConfigAsync()
+    /// <summary>
+    /// Clear saved credentials from database
+    /// </summary>
+    public async Task ClearCredentialsAsync()
     {
-        try
+        using var scope = _serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+
+        var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+        if (settings != null)
         {
-            var directory = Path.GetDirectoryName(_configPath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            // Create a copy with encrypted password for saving
-            var configToSave = new UniFiConnectionConfig
-            {
-                ControllerUrl = _config?.ControllerUrl ?? "",
-                Username = _config?.Username ?? "",
-                Password = !string.IsNullOrEmpty(_config?.Password)
-                    ? _credentialProtection.Encrypt(_config.Password)
-                    : "",
-                Site = _config?.Site ?? "default",
-                RememberCredentials = _config?.RememberCredentials ?? false
-            };
-
-            var json = JsonSerializer.Serialize(configToSave, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_configPath, json);
-
-            _logger.LogInformation("Saved UniFi configuration");
+            settings.Username = null;
+            settings.Password = null;
+            settings.IsConfigured = false;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error saving UniFi configuration");
-        }
+
+        // Invalidate cache
+        _settings = null;
+        _cacheTime = DateTime.MinValue;
     }
 
     public void Dispose()

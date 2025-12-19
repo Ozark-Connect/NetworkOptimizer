@@ -23,6 +23,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<GatewaySshSettings> GatewaySshSettings { get; set; }
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
+    public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -113,6 +114,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SystemSettings");
             entity.HasKey(e => e.Key);
+        });
+
+        // UniFiConnectionSettings configuration (singleton - only one row)
+        modelBuilder.Entity<UniFiConnectionSettings>(entity =>
+        {
+            entity.ToTable("UniFiConnectionSettings");
         });
     }
 }

@@ -629,6 +629,53 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("SystemSettings", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.UniFiConnectionSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ControllerUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsConfigured")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastConnectedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Password")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("RememberCredentials")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Site")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Username")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("UniFiConnectionSettings", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }
