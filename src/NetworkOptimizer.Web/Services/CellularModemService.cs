@@ -38,7 +38,7 @@ public class CellularModemService : IDisposable
         _connectionService = connectionService;
 
         // Start polling timer (checks every minute, but respects per-modem intervals)
-        _pollingTimer = new Timer(PollAllModems, null, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
+        _pollingTimer = new Timer(state => _ = PollAllModemsAsync(), null, TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1));
     }
 
     /// <summary>
@@ -248,7 +248,7 @@ public class CellularModemService : IDisposable
         }
     }
 
-    private async void PollAllModems(object? state)
+    private async Task PollAllModemsAsync()
     {
         if (_isPolling) return;
 

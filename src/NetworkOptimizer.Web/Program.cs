@@ -18,6 +18,9 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
+// Register credential protection service (singleton - shared encryption key)
+builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProtectionService, NetworkOptimizer.Storage.Services.CredentialProtectionService>();
+
 // Register UniFi connection service (singleton - maintains connection state)
 builder.Services.AddSingleton<UniFiConnectionService>();
 

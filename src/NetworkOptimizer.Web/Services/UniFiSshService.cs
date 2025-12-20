@@ -14,18 +14,18 @@ public class UniFiSshService
 {
     private readonly ILogger<UniFiSshService> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly CredentialProtectionService _credentialProtection;
+    private readonly ICredentialProtectionService _credentialProtection;
 
     // Cache the settings to avoid repeated DB queries
     private UniFiSshSettings? _cachedSettings;
     private DateTime _cacheTime = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
-    public UniFiSshService(ILogger<UniFiSshService> logger, IServiceProvider serviceProvider)
+    public UniFiSshService(ILogger<UniFiSshService> logger, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _credentialProtection = new CredentialProtectionService();
+        _credentialProtection = credentialProtection;
     }
 
     /// <summary>

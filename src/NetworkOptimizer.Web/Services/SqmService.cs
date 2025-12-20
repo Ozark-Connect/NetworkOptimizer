@@ -16,7 +16,6 @@ public class SqmService
     private readonly TcMonitorClient _tcMonitorClient;
 
     // Track SQM state
-    private bool _sqmEnabled = false;
     private SqmConfiguration? _currentConfig;
     private TcMonitorResponse? _lastTcStats;
     private DateTime? _lastPollTime;
@@ -279,7 +278,6 @@ public class SqmService
 
         await Task.Delay(2000); // Simulate deployment
 
-        _sqmEnabled = true;
         _currentConfig = config;
 
         return true;
@@ -307,8 +305,6 @@ public class SqmService
         }
 
         await Task.Delay(1000); // Simulate operation
-
-        _sqmEnabled = false;
 
         return true;
     }

@@ -553,34 +553,37 @@
                         Only use manual entry if auto-discovery doesn't find your modem.
                     </p>
 
-                    <div class="form-row">
-                        <div class="form-group" style="flex: 2;">
-                            <label class="form-label">Name</label>
-                            <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
+                    @if (editingModem != null)
+                    {
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">Name</label>
+                                <input type="text" class="form-control" @bind="editingModem.Name" placeholder="U5G-Max Primary" />
+                            </div>
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">Host / IP</label>
+                                <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
+                            </div>
                         </div>
-                        <div class="form-group" style="flex: 2;">
-                            <label class="form-label">Host / IP</label>
-                            <input type="text" class="form-control" @bind="editingModem.Host" placeholder="192.168.1.100" />
-                        </div>
-                    </div>
 
-                    <div class="form-row">
-                        <div class="form-group" style="flex: 2;">
-                            <label class="form-label">QMI Device Path</label>
-                            <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label class="form-label">QMI Device Path</label>
+                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label class="form-label">Polling Interval (sec)</label>
+                                <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
+                            </div>
                         </div>
-                        <div class="form-group" style="flex: 1;">
-                            <label class="form-label">Polling Interval (sec)</label>
-                            <input type="number" class="form-control" @bind="editingModem.PollingIntervalSeconds" min="60" max="3600" />
-                        </div>
-                    </div>
 
-                    <div class="form-group">
-                        <label class="form-check">
-                            <input type="checkbox" @bind="editingModem.Enabled" />
-                            <span>Enable polling</span>
-                        </label>
-                    </div>
+                        <div class="form-group">
+                            <label class="form-check">
+                                <input type="checkbox" @bind="editingModem.Enabled" />
+                                <span>Enable polling</span>
+                            </label>
+                        </div>
+                    }
 
                     <div class="action-buttons">
                         <button class="btn btn-primary" @onclick="SaveModem" disabled="@savingModem">

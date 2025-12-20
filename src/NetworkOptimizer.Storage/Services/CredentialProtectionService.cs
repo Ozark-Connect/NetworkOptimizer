@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Storage.Services;
 /// Service for encrypting/decrypting sensitive credentials at rest
 /// Uses AES-256 encryption with a machine-specific key derived from DPAPI
 /// </summary>
-public class CredentialProtectionService
+public class CredentialProtectionService : ICredentialProtectionService
 {
     private readonly byte[] _key;
     private const string KeyPurpose = "NetworkOptimizer.Credentials.v1";
@@ -84,9 +84,10 @@ public class CredentialProtectionService
 
             return Encoding.UTF8.GetString(plaintext);
         }
-        catch
+        catch (Exception ex)
         {
             // If decryption fails, return empty (don't expose partial data)
+            Console.Error.WriteLine($"[CredentialProtectionService] Decryption failed: {ex.Message}");
             return "";
         }
     }
@@ -152,16 +153,18 @@ public class CredentialProtectionService
             {
                 File.SetUnixFileMode(keyFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
-            catch
+            catch (Exception ex)
             {
                 // Ignore if not supported (Windows)
+                Console.Error.WriteLine($"[CredentialProtectionService] Unable to set Unix file permissions: {ex.Message}");
             }
 
             return key;
         }
-        catch
+        catch (Exception ex)
         {
             // Fallback: use machine name + some entropy
+            Console.Error.WriteLine($"[CredentialProtectionService] Failed to create/read key file, using fallback: {ex.Message}");
             var fallback = Environment.MachineName + KeyPurpose + Environment.UserName;
             return Encoding.UTF8.GetBytes(fallback.PadRight(64, 'X'));
         }

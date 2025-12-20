@@ -16,7 +16,7 @@ public class UniFiConnectionService : IDisposable
     private readonly ILogger<UniFiConnectionService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServiceProvider _serviceProvider;
-    private readonly CredentialProtectionService _credentialProtection;
+    private readonly ICredentialProtectionService _credentialProtection;
 
     private UniFiApiClient? _client;
     private UniFiConnectionSettings? _settings;
@@ -28,12 +28,12 @@ public class UniFiConnectionService : IDisposable
     private DateTime _cacheTime = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
-    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider)
+    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _serviceProvider = serviceProvider;
-        _credentialProtection = new CredentialProtectionService();
+        _credentialProtection = credentialProtection;
 
         // Load saved configuration on startup (sync to avoid deadlock)
         LoadConfigSync();
