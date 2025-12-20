@@ -11,6 +11,8 @@ public class AuditScorer
 {
     private readonly ILogger<AuditScorer> _logger;
 
+    #region Scoring Constants
+
     // Base score before deductions
     private const int BaseScore = 100;
 
@@ -18,6 +20,27 @@ public class AuditScorer
     private const int MaxCriticalDeduction = 50;
     private const int MaxRecommendedDeduction = 30;
     private const int MaxInvestigateDeduction = 10;
+
+    // Security posture thresholds (score-based)
+    private const int ExcellentScoreThreshold = 90;
+    private const int GoodScoreThreshold = 75;
+    private const int FairScoreThreshold = 60;
+    private const int NeedsAttentionScoreThreshold = 40;
+
+    // Critical issue thresholds (count-based overrides)
+    private const int CriticalPostureIssueCount = 5;
+    private const int NeedsAttentionIssueCount = 2;
+
+    // Hardening bonus thresholds
+    private const int ExcellentHardeningPercentage = 80;
+    private const int GoodHardeningPercentage = 60;
+    private const int FairHardeningPercentage = 40;
+    private const int MaxHardeningPercentageBonus = 5;
+    private const int ManyHardeningMeasures = 4;
+    private const int SomeHardeningMeasures = 2;
+    private const int MaxHardeningMeasureBonus = 3;
+
+    #endregion
 
     public AuditScorer(ILogger<AuditScorer> logger)
     {
@@ -94,18 +117,18 @@ public class AuditScorer
     {
         var bonus = 0;
 
-        // Bonus for high percentage of hardened ports (max 5 points)
-        if (stats.HardeningPercentage >= 80)
-            bonus += 5;
-        else if (stats.HardeningPercentage >= 60)
+        // Bonus for high percentage of hardened ports
+        if (stats.HardeningPercentage >= ExcellentHardeningPercentage)
+            bonus += MaxHardeningPercentageBonus;
+        else if (stats.HardeningPercentage >= GoodHardeningPercentage)
             bonus += 3;
-        else if (stats.HardeningPercentage >= 40)
+        else if (stats.HardeningPercentage >= FairHardeningPercentage)
             bonus += 2;
 
-        // Bonus for having hardening measures in place (max 3 points)
-        if (hardeningMeasureCount >= 4)
-            bonus += 3;
-        else if (hardeningMeasureCount >= 2)
+        // Bonus for having hardening measures in place
+        if (hardeningMeasureCount >= ManyHardeningMeasures)
+            bonus += MaxHardeningMeasureBonus;
+        else if (hardeningMeasureCount >= SomeHardeningMeasures)
             bonus += 2;
         else if (hardeningMeasureCount >= 1)
             bonus += 1;
@@ -122,19 +145,19 @@ public class AuditScorer
     public SecurityPosture DeterminePosture(int score, int criticalIssues)
     {
         // Critical issues always result in lower posture
-        if (criticalIssues > 5)
+        if (criticalIssues > CriticalPostureIssueCount)
             return SecurityPosture.Critical;
 
-        if (criticalIssues > 2)
+        if (criticalIssues > NeedsAttentionIssueCount)
             return SecurityPosture.NeedsAttention;
 
         // Score-based assessment when few/no critical issues
         return score switch
         {
-            >= 90 => SecurityPosture.Excellent,
-            >= 75 => SecurityPosture.Good,
-            >= 60 => SecurityPosture.Fair,
-            >= 40 => SecurityPosture.NeedsAttention,
+            >= ExcellentScoreThreshold => SecurityPosture.Excellent,
+            >= GoodScoreThreshold => SecurityPosture.Good,
+            >= FairScoreThreshold => SecurityPosture.Fair,
+            >= NeedsAttentionScoreThreshold => SecurityPosture.NeedsAttention,
             _ => SecurityPosture.Critical
         };
     }

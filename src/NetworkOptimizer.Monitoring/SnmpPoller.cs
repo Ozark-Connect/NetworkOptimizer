@@ -153,17 +153,17 @@ public class SnmpPoller : ISnmpPoller
 
         try
         {
-            // Get system information
-            await GetSystemMetrics(ip, metrics);
+            // Run all metric collection in parallel for better performance
+            var interfacesTask = GetInterfaceMetricsAsync(ip, metrics.Hostname);
 
-            // Get CPU and memory metrics
-            await GetResourceMetrics(ip, metrics);
+            await Task.WhenAll(
+                GetSystemMetrics(ip, metrics),
+                GetResourceMetrics(ip, metrics),
+                GetUniFiMetrics(ip, metrics),
+                interfacesTask
+            );
 
-            // Get UniFi-specific metrics
-            await GetUniFiMetrics(ip, metrics);
-
-            // Get interface metrics
-            metrics.Interfaces = await GetInterfaceMetricsAsync(ip, metrics.Hostname);
+            metrics.Interfaces = await interfacesTask;
             metrics.InterfaceCount = metrics.Interfaces.Count;
 
             metrics.IsReachable = true;

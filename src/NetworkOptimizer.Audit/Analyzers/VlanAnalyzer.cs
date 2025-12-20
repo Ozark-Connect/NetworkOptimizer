@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -30,40 +31,23 @@ public class VlanAnalyzer
     {
         var networks = new List<NetworkInfo>();
 
-        // Handle both single device and array of devices
-        var devices = deviceData.ValueKind == JsonValueKind.Array
-            ? deviceData.EnumerateArray().ToList()
-            : new List<JsonElement> { deviceData };
-
-        // Handle wrapped response with "data" property
-        if (deviceData.ValueKind == JsonValueKind.Object && deviceData.TryGetProperty("data", out var dataArray))
+        foreach (var device in deviceData.UnwrapDataArray())
         {
-            devices = dataArray.EnumerateArray().ToList();
-        }
-
-        foreach (var device in devices)
-        {
-            // Look for gateway/UDM device with network_table
-            if (!device.TryGetProperty("type", out var typeElement))
+            var deviceType = device.GetStringOrNull("type");
+            if (deviceType == null)
                 continue;
+            var isGateway = UniFiDeviceTypes.IsGateway(deviceType);
 
-            var deviceType = typeElement.GetString();
-            var isGateway = NetworkOptimizer.Core.Helpers.UniFiDeviceTypes.IsGateway(deviceType);
-
-            // Check for network_table
-            if (!device.TryGetProperty("network_table", out var networkTable))
+            var networkTableItems = device.GetArrayOrEmpty("network_table").ToList();
+            if (networkTableItems.Count == 0)
             {
-                // Gateway might not have network_table in some cases
                 if (!isGateway)
                     continue;
             }
 
-            if (networkTable.ValueKind != JsonValueKind.Array)
-                continue;
-
             _logger.LogInformation("Found network_table on {DeviceType} device", deviceType);
 
-            foreach (var network in networkTable.EnumerateArray())
+            foreach (var network in networkTableItems)
             {
                 var networkInfo = ParseNetwork(network);
                 if (networkInfo != null)
@@ -86,69 +70,16 @@ public class VlanAnalyzer
     /// </summary>
     private NetworkInfo? ParseNetwork(JsonElement network)
     {
-        // Get network ID
-        var networkId = network.TryGetProperty("_id", out var idProp)
-            ? idProp.GetString()
-            : network.TryGetProperty("network_id", out var netIdProp)
-                ? netIdProp.GetString()
-                : null;
-
+        var networkId = network.GetStringFromAny("_id", "network_id");
         if (string.IsNullOrEmpty(networkId))
             return null;
 
-        // Get network name
-        var name = network.TryGetProperty("name", out var nameProp)
-            ? nameProp.GetString() ?? "Unknown"
-            : "Unknown";
-
-        // Get VLAN ID (default to 1 for native VLAN)
-        var vlanId = 1;
-        if (network.TryGetProperty("vlan", out var vlanProp) && vlanProp.ValueKind == JsonValueKind.Number)
-        {
-            vlanId = vlanProp.GetInt32();
-        }
-        else if (network.TryGetProperty("vlan_id", out var vlanIdProp) && vlanIdProp.ValueKind == JsonValueKind.Number)
-        {
-            vlanId = vlanIdProp.GetInt32();
-        }
-
-        // Get purpose
-        var purposeStr = network.TryGetProperty("purpose", out var purposeProp)
-            ? purposeProp.GetString()
-            : null;
-
-        // Classify network
+        var name = network.GetStringOrDefault("name", "Unknown");
+        var vlanId = network.GetIntOrDefault("vlan", network.GetIntOrDefault("vlan_id", 1));
+        var purposeStr = network.GetStringOrNull("purpose");
         var purpose = ClassifyNetwork(name, purposeStr);
 
-        // DEBUG: Log network classification
-        Console.WriteLine($"[VlanAnalyzer] Network '{name}' classified as: {purpose}");
-
-        // Get subnet
-        var subnet = network.TryGetProperty("ip_subnet", out var subnetProp)
-            ? subnetProp.GetString()
-            : null;
-
-        // Get gateway
-        var gateway = network.TryGetProperty("gateway_ip", out var gatewayProp)
-            ? gatewayProp.GetString()
-            : network.TryGetProperty("dhcpd_gateway", out var dhcpdGatewayProp)
-                ? dhcpdGatewayProp.GetString()
-                : null;
-
-        // Get DNS servers
-        var dnsServers = new List<string>();
-        if (network.TryGetProperty("dhcpd_dns", out var dnsProp) && dnsProp.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var dns in dnsProp.EnumerateArray())
-            {
-                if (dns.ValueKind == JsonValueKind.String)
-                {
-                    var dnsStr = dns.GetString();
-                    if (!string.IsNullOrEmpty(dnsStr))
-                        dnsServers.Add(dnsStr);
-                }
-            }
-        }
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}", name, purpose);
 
         return new NetworkInfo
         {
@@ -156,9 +87,9 @@ public class VlanAnalyzer
             Name = name,
             VlanId = vlanId,
             Purpose = purpose,
-            Subnet = subnet,
-            Gateway = gateway,
-            DnsServers = dnsServers.Any() ? dnsServers : null
+            Subnet = network.GetStringOrNull("ip_subnet"),
+            Gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway"),
+            DnsServers = network.GetStringArrayOrNull("dhcpd_dns")
         };
     }
 

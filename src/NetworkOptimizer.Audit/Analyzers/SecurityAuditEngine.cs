@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -49,25 +50,10 @@ public class SecurityAuditEngine
     {
         var switches = new List<SwitchInfo>();
 
-        // Handle both single device and array of devices
-        var devices = deviceData.ValueKind == JsonValueKind.Array
-            ? deviceData.EnumerateArray().ToList()
-            : new List<JsonElement> { deviceData };
-
-        // Handle wrapped response with "data" property
-        if (deviceData.ValueKind == JsonValueKind.Object && deviceData.TryGetProperty("data", out var dataArray))
+        foreach (var device in deviceData.UnwrapDataArray())
         {
-            devices = dataArray.EnumerateArray().ToList();
-        }
-
-        foreach (var device in devices)
-        {
-            // Check if device has port_table
-            if (!device.TryGetProperty("port_table", out var portTable) || portTable.ValueKind != JsonValueKind.Array)
-                continue;
-
-            var portArray = portTable.EnumerateArray().ToList();
-            if (portArray.Count == 0)
+            var portTableItems = device.GetArrayOrEmpty("port_table").ToList();
+            if (portTableItems.Count == 0)
                 continue;
 
             var switchInfo = ParseSwitch(device, networks);
@@ -88,71 +74,36 @@ public class SecurityAuditEngine
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks)
     {
-        // Get device type
-        var deviceType = device.TryGetProperty("type", out var typeProp)
-            ? typeProp.GetString()
-            : null;
+        var deviceType = device.GetStringOrNull("type");
+        var isGateway = UniFiDeviceTypes.IsGateway(deviceType);
+        var rawName = device.GetStringFromAny("name", "mac") ?? "Unknown";
+        var name = CleanDeviceName(rawName);
 
-        var isGateway = NetworkOptimizer.Core.Helpers.UniFiDeviceTypes.IsGateway(deviceType);
-
-        // Get device name
-        var rawName = device.TryGetProperty("name", out var nameProp)
-            ? nameProp.GetString()
-            : device.TryGetProperty("mac", out var macProp)
-                ? macProp.GetString()
-                : "Unknown";
-
-        var name = CleanDeviceName(rawName ?? "Unknown");
-
-        // Get MAC address
-        var mac = device.TryGetProperty("mac", out var macAddrProp)
-            ? macAddrProp.GetString()
-            : null;
-
-        // Get model info
-        var model = device.TryGetProperty("model", out var modelProp)
-            ? modelProp.GetString()
-            : null;
-        var shortname = device.TryGetProperty("shortname", out var shortnameProp)
-            ? shortnameProp.GetString()
-            : null;
-        var modelDisplay = device.TryGetProperty("model_display", out var modelDisplayProp)
-            ? modelDisplayProp.GetString()
-            : null;
-
+        var mac = device.GetStringOrNull("mac");
+        var model = device.GetStringOrNull("model");
+        var shortname = device.GetStringOrNull("shortname");
+        var modelDisplay = device.GetStringOrNull("model_display");
         var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
-
-        // Get IP
-        var ip = device.TryGetProperty("ip", out var ipProp)
-            ? ipProp.GetString()
-            : null;
-
-        // Get switch capabilities
+        var ip = device.GetStringOrNull("ip");
         var capabilities = ParseSwitchCapabilities(device);
 
-        // Parse ports
-        var ports = new List<PortInfo>();
-        if (device.TryGetProperty("port_table", out var portTable) && portTable.ValueKind == JsonValueKind.Array)
+        var switchInfoPlaceholder = new SwitchInfo
         {
-            var switchInfoPlaceholder = new SwitchInfo
-            {
-                Name = name,
-                MacAddress = mac,
-                Model = model,
-                ModelName = modelName,
-                Type = deviceType,
-                IpAddress = ip,
-                IsGateway = isGateway,
-                Capabilities = capabilities
-            };
+            Name = name,
+            MacAddress = mac,
+            Model = model,
+            ModelName = modelName,
+            Type = deviceType,
+            IpAddress = ip,
+            IsGateway = isGateway,
+            Capabilities = capabilities
+        };
 
-            foreach (var port in portTable.EnumerateArray())
-            {
-                var portInfo = ParsePort(port, switchInfoPlaceholder, networks);
-                if (portInfo != null)
-                    ports.Add(portInfo);
-            }
-        }
+        var ports = device.GetArrayOrEmpty("port_table")
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks))
+            .Where(p => p != null)
+            .Cast<PortInfo>()
+            .ToList();
 
         return new SwitchInfo
         {
@@ -194,112 +145,38 @@ public class SecurityAuditEngine
     /// </summary>
     private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks)
     {
-        // Get port index
-        if (!port.TryGetProperty("port_idx", out var portIdxProp))
+        var portIdx = port.GetIntOrDefault("port_idx", -1);
+        if (portIdx < 0)
             return null;
 
-        var portIdx = portIdxProp.GetInt32();
-
-        // Get port name
-        var portName = port.TryGetProperty("name", out var nameProp)
-            ? nameProp.GetString()
-            : $"Port {portIdx}";
-
-        // Get link status
-        var isUp = port.TryGetProperty("up", out var upProp) && upProp.GetBoolean();
-
-        // Get speed
-        var speed = port.TryGetProperty("speed", out var speedProp) && speedProp.ValueKind == JsonValueKind.Number
-            ? speedProp.GetInt32()
-            : 0;
-
-        // Get forward mode
-        var forwardMode = port.TryGetProperty("forward", out var forwardProp)
-            ? forwardProp.GetString()
-            : "all";
-
+        var portName = port.GetStringOrDefault("name", $"Port {portIdx}");
+        var forwardMode = port.GetStringOrDefault("forward", "all");
         if (forwardMode == "customize")
             forwardMode = "custom";
 
-        // Check if uplink
-        var isUplink = port.TryGetProperty("is_uplink", out var uplinkProp) && uplinkProp.GetBoolean();
+        var networkName = port.GetStringOrNull("network_name")?.ToLowerInvariant();
+        var isWan = networkName?.StartsWith("wan") ?? false;
 
-        // Check if WAN
-        var isWan = false;
-        if (port.TryGetProperty("network_name", out var netNameProp))
-        {
-            var networkName = netNameProp.GetString()?.ToLowerInvariant();
-            isWan = networkName?.StartsWith("wan") ?? false;
-        }
-
-        // Get native network
-        var nativeNetworkId = port.TryGetProperty("native_networkconf_id", out var nativeNetProp)
-            ? nativeNetProp.GetString()
-            : null;
-
-        // Get excluded networks
-        List<string>? excludedNetworks = null;
-        if (port.TryGetProperty("excluded_networkconf_ids", out var excludedProp) &&
-            excludedProp.ValueKind == JsonValueKind.Array)
-        {
-            excludedNetworks = excludedProp.EnumerateArray()
-                .Where(e => e.ValueKind == JsonValueKind.String)
-                .Select(e => e.GetString()!)
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList();
-        }
-
-        // Get port security
-        var portSecurityEnabled = port.TryGetProperty("port_security_enabled", out var portSecProp) &&
-            portSecProp.GetBoolean();
-
-        List<string>? allowedMacs = null;
-        if (port.TryGetProperty("port_security_mac_address", out var macsProp) &&
-            macsProp.ValueKind == JsonValueKind.Array)
-        {
-            allowedMacs = macsProp.EnumerateArray()
-                .Where(m => m.ValueKind == JsonValueKind.String)
-                .Select(m => m.GetString()!)
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList();
-        }
-
-        // Get isolation
-        var isolation = port.TryGetProperty("isolation", out var isolationProp) && isolationProp.GetBoolean();
-
-        // Get PoE info
-        var poeEnable = port.TryGetProperty("poe_enable", out var poeEnableProp) && poeEnableProp.GetBoolean();
-        var portPoe = port.TryGetProperty("port_poe", out var portPoeProp) && portPoeProp.GetBoolean();
-
-        var poePower = 0.0;
-        if (port.TryGetProperty("poe_power", out var poePowerProp))
-        {
-            if (poePowerProp.ValueKind == JsonValueKind.Number)
-                poePower = poePowerProp.GetDouble();
-            else if (poePowerProp.ValueKind == JsonValueKind.String)
-                double.TryParse(poePowerProp.GetString(), out poePower);
-        }
-
-        var poeMode = port.TryGetProperty("poe_mode", out var poeModeProp)
-            ? poeModeProp.GetString()
-            : null;
+        var poeEnable = port.GetBoolOrDefault("poe_enable");
+        var portPoe = port.GetBoolOrDefault("port_poe");
+        var poeMode = port.GetStringOrNull("poe_mode");
 
         return new PortInfo
         {
             PortIndex = portIdx,
             Name = portName,
-            IsUp = isUp,
-            Speed = speed,
+            IsUp = port.GetBoolOrDefault("up"),
+            Speed = port.GetIntOrDefault("speed"),
             ForwardMode = forwardMode,
-            IsUplink = isUplink,
+            IsUplink = port.GetBoolOrDefault("is_uplink"),
             IsWan = isWan,
-            NativeNetworkId = nativeNetworkId,
-            ExcludedNetworkIds = excludedNetworks,
-            PortSecurityEnabled = portSecurityEnabled,
-            AllowedMacAddresses = allowedMacs,
-            IsolationEnabled = isolation,
+            NativeNetworkId = port.GetStringOrNull("native_networkconf_id"),
+            ExcludedNetworkIds = port.GetStringArrayOrNull("excluded_networkconf_ids"),
+            PortSecurityEnabled = port.GetBoolOrDefault("port_security_enabled"),
+            AllowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address"),
+            IsolationEnabled = port.GetBoolOrDefault("isolation"),
             PoeEnabled = poeEnable || portPoe,
-            PoePower = poePower,
+            PoePower = port.GetDoubleOrDefault("poe_power"),
             PoeMode = poeMode,
             SupportsPoe = portPoe || !string.IsNullOrEmpty(poeMode),
             Switch = switchInfo
