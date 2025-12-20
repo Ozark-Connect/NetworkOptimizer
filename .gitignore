@@ -31,3 +31,6 @@ nul
 # Temp files
 *.tmp
 *.log
+
+# Internal development notes (not for public repo)
+CLAUDE.md
