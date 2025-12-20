@@ -17,23 +17,20 @@ public class ConfigAuditEngine
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly AuditScorer _scorer;
 
-    public ConfigAuditEngine(ILogger<ConfigAuditEngine> logger)
-    {
-        _logger = logger;
-        _vlanAnalyzer = new VlanAnalyzer(CreateLogger<VlanAnalyzer>());
-        _securityEngine = new SecurityAuditEngine(CreateLogger<SecurityAuditEngine>());
-        _firewallAnalyzer = new FirewallRuleAnalyzer(CreateLogger<FirewallRuleAnalyzer>());
-        _scorer = new AuditScorer(CreateLogger<AuditScorer>());
-    }
-
     /// <summary>
-    /// Create a logger for a specific type (helper for constructors)
+    /// Create ConfigAuditEngine with dependency injection
     /// </summary>
-    private ILogger<T> CreateLogger<T>()
+    public ConfigAuditEngine(
+        ILogger<ConfigAuditEngine> logger,
+        ILoggerFactory loggerFactory)
     {
-        // Use the factory from the main logger
-        var loggerFactory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Information));
-        return loggerFactory.CreateLogger<T>();
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+
+        _vlanAnalyzer = new VlanAnalyzer(loggerFactory.CreateLogger<VlanAnalyzer>());
+        _securityEngine = new SecurityAuditEngine(loggerFactory.CreateLogger<SecurityAuditEngine>());
+        _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>());
+        _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
     /// <summary>

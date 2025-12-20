@@ -75,7 +75,7 @@
         await LoadAlerts();
     }
 
-    private Task LoadAlerts()
+    private async Task LoadAlerts()
     {
         isLoading = true;
         try
@@ -83,7 +83,7 @@
             alerts.Clear();
 
             // Use active (non-dismissed) issues
-            var activeIssues = AuditService.GetActiveIssues();
+            var activeIssues = await AuditService.GetActiveIssuesAsync();
             if (activeIssues.Any())
             {
                 var id = 1;
@@ -111,8 +111,6 @@
         {
             isLoading = false;
         }
-
-        return Task.CompletedTask;
     }
 
     private string FormatTimeAgo(DateTime time)

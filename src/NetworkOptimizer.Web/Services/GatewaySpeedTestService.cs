@@ -17,7 +17,7 @@ public class GatewaySpeedTestService
     private readonly ILogger<GatewaySpeedTestService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiConnectionService _connectionService;
-    private readonly CredentialProtectionService _credentialProtection;
+    private readonly ICredentialProtectionService _credentialProtection;
     private readonly SystemSettingsService _systemSettings;
 
     // Cache the settings to avoid repeated DB queries
@@ -33,12 +33,13 @@ public class GatewaySpeedTestService
         ILogger<GatewaySpeedTestService> logger,
         IServiceProvider serviceProvider,
         UniFiConnectionService connectionService,
-        SystemSettingsService systemSettings)
+        SystemSettingsService systemSettings,
+        ICredentialProtectionService credentialProtection)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _connectionService = connectionService;
-        _credentialProtection = new CredentialProtectionService();
+        _credentialProtection = credentialProtection;
         _systemSettings = systemSettings;
     }
 

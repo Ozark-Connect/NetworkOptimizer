@@ -100,26 +100,19 @@ public class AuditService
     }
 
     /// <summary>
-    /// Dismiss an issue (sync wrapper for backward compatibility)
-    /// </summary>
-    public void DismissIssue(AuditIssue issue)
-    {
-        _ = DismissIssueAsync(issue);
-    }
-
-    /// <summary>
     /// Check if an issue has been dismissed
     /// </summary>
     public bool IsIssueDismissed(AuditIssue issue) =>
         _dismissedIssues.Contains(GetIssueKey(issue));
 
     /// <summary>
-    /// Get active (non-dismissed) issues
+    /// Get active (non-dismissed) issues (synchronous - may not include dismissed filter if not yet loaded)
+    /// Prefer using GetActiveIssuesAsync() for reliable results.
     /// </summary>
     public List<AuditIssue> GetActiveIssues()
     {
-        // Synchronously ensure loaded (will be a no-op after first call)
-        EnsureDismissedIssuesLoadedAsync().GetAwaiter().GetResult();
+        // Return cached data only - don't block on loading dismissed issues
+        // If dismissed issues haven't loaded yet, returns all issues
         return _lastAuditResult?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
     }
 
@@ -202,11 +195,6 @@ public class AuditService
             _logger.LogError(ex, "Failed to clear dismissed issues from database");
         }
     }
-
-    /// <summary>
-    /// Clear dismissed issues (sync wrapper)
-    /// </summary>
-    public void ClearDismissedIssues() => ClearDismissedIssuesAsync().GetAwaiter().GetResult();
 
     /// <summary>
     /// Load the most recent audit result from the database
