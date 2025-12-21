@@ -8,6 +8,7 @@
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
 @inject GatewaySpeedTestService GatewaySpeedTestService
+@inject NavigationManager NavigationManager
 
 <PageTitle>Speed Test - Network Optimizer</PageTitle>
 
@@ -127,7 +128,7 @@
 
                 <!-- Actions -->
                 <div class="gateway-actions">
-                    <button class="btn btn-primary" style="min-width: 10rem;" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                    <button class="btn btn-primary" style="min-width: 10.5rem;" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
                         @if (gatewayRunning)
                         {
                             <span class="spinner"></span>
@@ -149,7 +150,7 @@
                             <span>Check iperf3</span>
                         }
                     </button>
-                    <a href="/settings" class="btn btn-secondary">Settings</a>
+                    <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings"))">Settings</button>
                 </div>
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
@@ -233,19 +234,21 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;"
-                                            @onclick="() => RunSpeedTestOnDiscovered(device)"
-                                            disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
-                                        @if (runningTestHost == device.Ip)
-                                        {
-                                            <span class="spinner"></span>
-                                            <span>Testing...</span>
-                                        }
-                                        else
-                                        {
-                                            <span>Run Test</span>
-                                        }
-                                    </button>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;"
+                                                @onclick="() => RunSpeedTestOnDiscovered(device)"
+                                                disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
+                                            @if (runningTestHost == device.Ip)
+                                            {
+                                                <span class="spinner"></span>
+                                                <span>Testing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Run Test</span>
+                                            }
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         }
