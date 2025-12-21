@@ -311,24 +311,24 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn btn-primary btn-sm" @onclick="() => RunSpeedTest(device)"
-                                            disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
-                                        @if (runningTestHost == device.Host)
-                                        {
-                                            <span class="spinner"></span>
-                                            <span>Testing...</span>
-                                        }
-                                        else
-                                        {
-                                            <span>Run Test</span>
-                                        }
-                                    </button>
-                                    <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
-                                    @if (device.StartIperf3Server)
-                                    {
-                                        <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
-                                    }
-                                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-primary btn-sm action-btn-run" @onclick="() => RunSpeedTest(device)"
+                                                disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                            @if (runningTestHost == device.Host)
+                                            {
+                                                <span class="spinner"></span>
+                                                <span>Testing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Run Test</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-secondary btn-sm action-btn-ssh" @onclick="() => TestConnection(device)"
+                                                disabled="@(!sshConfigured)" style="@(device.StartIperf3Server ? "" : "visibility: hidden;")">Test SSH</button>
+                                        <button class="btn btn-secondary btn-sm action-btn-edit" @onclick="() => EditDevice(device)">Edit</button>
+                                        <button class="btn btn-danger btn-sm action-btn-delete" @onclick="() => DeleteDevice(device)">Delete</button>
+                                    </div>
                                 </td>
                             </tr>
                         }
@@ -745,6 +745,38 @@
     /* Action button spacing in tables */
     td .btn + .btn {
         margin-left: 0.5rem;
+    }
+
+    /* Action buttons container */
+    .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+
+    /* Desktop: Fixed-width buttons for alignment */
+    @@media (min-width: 992px) {
+        .action-buttons {
+            flex-wrap: nowrap;
+            gap: 0.5rem;
+        }
+
+        .action-btn-run {
+            min-width: 5.5rem;
+            justify-content: center;
+        }
+
+        .action-btn-ssh {
+            min-width: 5rem;
+        }
+
+        .action-btn-edit {
+            min-width: 3rem;
+        }
+
+        .action-btn-delete {
+            min-width: 4rem;
+        }
     }
 </style>
 
