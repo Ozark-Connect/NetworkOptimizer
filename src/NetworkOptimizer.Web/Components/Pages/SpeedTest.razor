@@ -233,7 +233,7 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn btn-primary btn-sm" style="min-width: 5.5rem;"
+                                    <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;"
                                             @onclick="() => RunSpeedTestOnDiscovered(device)"
                                             disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
                                         @if (runningTestHost == device.Ip)
@@ -312,7 +312,7 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-primary btn-sm" style="min-width: 5.5rem;" @onclick="() => RunSpeedTest(device)"
+                                        <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;" @onclick="() => RunSpeedTest(device)"
                                                 disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
                                             @if (runningTestHost == device.Host)
                                             {
@@ -757,6 +757,14 @@
         flex-wrap: wrap;
         gap: 0.5rem;
         align-items: center;
+    }
+
+    /* Center text in all buttons */
+    .gateway-actions .btn,
+    .action-buttons .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 </style>
 
