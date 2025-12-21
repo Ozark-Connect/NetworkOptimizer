@@ -374,8 +374,8 @@ public class Iperf3SpeedTestService
             // Save result to database
             await SaveResultAsync(result);
 
-            _logger.LogInformation("Speed test to {Device} completed: Upload={Upload:F1} Mbps, Download={Download:F1} Mbps",
-                device.Name, result.UploadMbps, result.DownloadMbps);
+            _logger.LogInformation("Speed test to {Device} completed: Download={Download:F1} Mbps, Upload={Upload:F1} Mbps",
+                device.Name, result.DownloadMbps, result.UploadMbps);
 
             return result;
         }
