@@ -762,6 +762,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.25rem;
+        align-items: center;
     }
 
     /* Center text in action buttons */
@@ -775,6 +776,20 @@
         .action-buttons {
             flex-wrap: nowrap;
             gap: 0.5rem;
+        }
+
+        .action-btn-wrap-run,
+        .action-btn-wrap-ssh,
+        .action-btn-wrap-gateway,
+        .action-btn-wrap-check {
+            display: flex;
+        }
+
+        .action-btn-wrap-run .btn,
+        .action-btn-wrap-ssh .btn,
+        .action-btn-wrap-gateway .btn,
+        .action-btn-wrap-check .btn {
+            flex: 1;
         }
 
         .action-btn-wrap-run {
