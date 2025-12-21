@@ -148,15 +148,17 @@ public class CredentialProtectionService : ICredentialProtectionService
 
             File.WriteAllBytes(keyFilePath, key);
 
-            // Try to set restrictive permissions on Linux
-            try
+            // Set restrictive permissions on Linux/macOS (600 = owner read/write only)
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
             {
-                File.SetUnixFileMode(keyFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-            catch (Exception ex)
-            {
-                // Ignore if not supported (Windows)
-                Console.Error.WriteLine($"[CredentialProtectionService] Unable to set Unix file permissions: {ex.Message}");
+                try
+                {
+                    File.SetUnixFileMode(keyFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[CredentialProtectionService] Unable to set Unix file permissions: {ex.Message}");
+                }
             }
 
             return key;

@@ -6,6 +6,12 @@ using Lextm.SharpSnmpLib.Security;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring.Models;
 
+// SNMP v3 protocol requires supporting legacy authentication/encryption for device compatibility.
+// MD5, SHA1, and DES are marked obsolete by the library but are still required for many network devices.
+// The GetRequestMessage/GetNextRequestMessage constructors are also marked obsolete but are the
+// correct way to send authenticated SNMP v3 requests per library documentation.
+#pragma warning disable CS0618 // Type or member is obsolete - required for SNMP v3 protocol compatibility
+
 namespace NetworkOptimizer.Monitoring;
 
 /// <summary>

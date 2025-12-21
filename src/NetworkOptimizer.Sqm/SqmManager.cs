@@ -82,7 +82,13 @@ public class SqmManager
     /// <summary>
     /// Trigger manual speedtest and apply results
     /// </summary>
+    /// <remarks>
+    /// TODO: This method will become async when integrated with SSH speedtest execution.
+    /// Currently parses pre-collected speedtest output synchronously.
+    /// </remarks>
+#pragma warning disable CS1998 // Async method lacks 'await' - will be async when SSH integration is added
     public async Task<double> TriggerSpeedtest(string speedtestJsonOutput)
+#pragma warning restore CS1998
     {
         var result = _speedtestIntegration.ParseSpeedtestJson(speedtestJsonOutput);
         if (result == null || !_speedtestIntegration.IsValidResult(result))

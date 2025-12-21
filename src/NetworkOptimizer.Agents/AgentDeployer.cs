@@ -24,6 +24,11 @@ public class AgentDeployer
     /// <summary>
     /// Deploys an agent to a remote system
     /// </summary>
+    /// <remarks>
+    /// Some step lambdas are marked async for future SSH command execution but currently
+    /// perform synchronous validation. Suppressing CS1998 until full async implementation.
+    /// </remarks>
+#pragma warning disable CS1998 // Async lambdas without await - will be async when SSH commands are added
     public async Task<DeploymentResult> DeployAgentAsync(AgentConfiguration config, CancellationToken cancellationToken = default)
     {
         var result = new DeploymentResult
@@ -107,6 +112,7 @@ public class AgentDeployer
 
         return result;
     }
+#pragma warning restore CS1998
 
     /// <summary>
     /// Tests SSH connection to the remote host
