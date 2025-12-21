@@ -506,6 +506,7 @@
                             <th title="To Device: Data sent to device from test server">↑ Mbps</th>
                             <th>Streams</th>
                             <th>Status</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -529,11 +530,17 @@
                                         <span class="status-badge status-disconnected" title="@result.ErrorMessage">Failed</span>
                                     }
                                 </td>
+                                <td class="expand-chevron">
+                                    @if (result.Success)
+                                    {
+                                        <span>@(isExpanded ? "▲" : "▼")</span>
+                                    }
+                                </td>
                             </tr>
                             @if (result.Success)
                             {
                                 <tr class="history-details-row">
-                                    <td colspan="6">
+                                    <td colspan="7">
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">

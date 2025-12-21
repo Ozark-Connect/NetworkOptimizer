@@ -1993,6 +1993,13 @@ td .btn + .btn {
     background: var(--bg-tertiary);
 }
 
+.expand-chevron {
+    width: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
 .history-details-row {
     background: var(--bg-tertiary);
 }
