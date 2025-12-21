@@ -2037,6 +2037,46 @@ td .btn + .btn {
    Result Summary (compact link to full result)
    ============================================ */
 
+/* Expandable result box - unified container for summary + details */
+.result-box {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    margin: 1rem 0 0;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.result-box:hover {
+    background: var(--bg-hover);
+}
+
+.result-box-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+}
+
+.result-box-details {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease-out;
+}
+
+.result-box.expanded .result-box-details {
+    grid-template-rows: 1fr;
+}
+
+.result-box-details-inner {
+    overflow: hidden;
+    padding: 0 1rem;
+}
+
+.result-box.expanded .result-box-details-inner {
+    padding: 0 1rem 1rem;
+}
+
+/* Legacy result-summary for any remaining uses */
 .result-summary {
     display: flex;
     align-items: center;
