@@ -312,22 +312,26 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-primary btn-sm action-btn-run" @onclick="() => RunSpeedTest(device)"
-                                                disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
-                                            @if (runningTestHost == device.Host)
-                                            {
-                                                <span class="spinner"></span>
-                                                <span>Testing...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>Run Test</span>
-                                            }
-                                        </button>
-                                        <button class="btn btn-secondary btn-sm action-btn-ssh" @onclick="() => TestConnection(device)"
-                                                disabled="@(!sshConfigured)" style="@(device.StartIperf3Server ? "" : "visibility: hidden;")">Test SSH</button>
-                                        <button class="btn btn-secondary btn-sm action-btn-edit" @onclick="() => EditDevice(device)">Edit</button>
-                                        <button class="btn btn-danger btn-sm action-btn-delete" @onclick="() => DeleteDevice(device)">Delete</button>
+                                        <div class="action-btn-wrap-run">
+                                            <button class="btn btn-primary btn-sm" @onclick="() => RunSpeedTest(device)"
+                                                    disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                                @if (runningTestHost == device.Host)
+                                                {
+                                                    <span class="spinner"></span>
+                                                    <span>Testing...</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>Run Test</span>
+                                                }
+                                            </button>
+                                        </div>
+                                        <div class="action-btn-wrap-ssh">
+                                            <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)"
+                                                    disabled="@(!sshConfigured)" style="@(device.StartIperf3Server ? "" : "visibility: hidden;")">Test SSH</button>
+                                        </div>
+                                        <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
+                                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                     </div>
                                 </td>
                             </tr>
@@ -754,31 +758,25 @@
         gap: 0.25rem;
     }
 
-    /* Desktop: Fixed-width buttons for alignment */
+    /* Center text in action buttons */
+    .action-buttons .btn {
+        text-align: center;
+        justify-content: center;
+    }
+
+    /* Desktop: Fixed-width wrappers for alignment */
     @@media (min-width: 992px) {
         .action-buttons {
             flex-wrap: nowrap;
             gap: 0.5rem;
         }
 
-        .action-btn-run {
-            width: 6.5rem;
-            flex-shrink: 0;
+        .action-btn-wrap-run {
+            min-width: 6.5rem;
         }
 
-        .action-btn-ssh {
-            width: 5rem;
-            flex-shrink: 0;
-        }
-
-        .action-btn-edit {
-            width: 3rem;
-            flex-shrink: 0;
-        }
-
-        .action-btn-delete {
-            width: 4rem;
-            flex-shrink: 0;
+        .action-btn-wrap-ssh {
+            min-width: 5rem;
         }
     }
 </style>
