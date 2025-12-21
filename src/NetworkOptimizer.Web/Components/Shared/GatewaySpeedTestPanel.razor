@@ -103,81 +103,30 @@
 </div>
 
 <style>
+    /* Panel layout */
     .speed-test-panel {
         display: flex;
         flex-direction: column;
         gap: 1rem;
     }
 
-    .speed-results {
+    /* Override speed-results to use grid in this compact panel */
+    .speed-test-panel .speed-results {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 1rem;
+        margin: 0;
     }
 
-    .speed-result {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
+    .speed-test-panel .speed-result {
         padding: 1rem;
-        background: var(--card-bg-secondary, #1a1d23);
-        border-radius: 8px;
+        background: var(--bg-tertiary);
     }
 
-    .speed-result.download {
-        border-left: 4px solid #0ea5e9;
-    }
-
-    .speed-result.download .speed-icon {
-        color: #0ea5e9;
-    }
-
-    .speed-result.upload {
-        border-left: 4px solid #22c55e;
-    }
-
-    .speed-result.upload .speed-icon {
-        color: #22c55e;
-    }
-
-    .speed-info {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .speed-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        line-height: 0.8;
-        color: var(--text-primary, #fff);
-    }
-
-    .speed-label {
-        font-size: 0.75rem;
-        color: var(--text-muted, #888);
-        text-transform: uppercase;
-        margin-bottom: 0.5rem;
-    }
-
-    .retransmits-info {
-        text-align: center;
-        color: var(--text-muted, #888);
-        font-size: 0.8rem;
-    }
-
-    .test-error {
-        padding: 1rem;
-        background: rgba(239, 68, 68, 0.1);
-        border-radius: 8px;
-        color: var(--danger-color, #ef4444);
-        font-size: 0.9rem;
-    }
-
-    .no-results {
-        padding: 1rem;
-        text-align: center;
-        color: var(--text-muted, #888);
-        font-size: 0.9rem;
+    /* Label appears after value in this panel */
+    .speed-test-panel .speed-label {
+        margin-bottom: 0;
+        margin-top: 0.5rem;
     }
 </style>
 

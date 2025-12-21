@@ -1030,8 +1030,20 @@ a:hover {
 
 .action-buttons {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     flex-wrap: wrap;
+    align-items: center;
+}
+
+.action-buttons .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Action button spacing in tables */
+td .btn + .btn {
+    margin-left: 0.5rem;
 }
 
 /* Forms */
@@ -1822,10 +1834,140 @@ a:hover {
     margin: 0;
 }
 
-/* Speed result colors - keep accent orange for speed values */
+/* ============================================
+   Speed Test Results Component
+   ============================================ */
+
+/* Color variables for speed test */
+:root {
+    --speed-upload-color: #22c55e;    /* green - To Device */
+    --speed-download-color: #0ea5e9;  /* blue - From Device */
+}
+
+.speed-results {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    margin: 1rem 0;
+}
+
+.speed-result {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: var(--bg-card);
+    border-radius: var(--border-radius);
+    min-width: 180px;
+}
+
+.speed-result.upload {
+    border-left: 4px solid var(--speed-upload-color);
+}
+
+.speed-result.upload .speed-icon {
+    color: var(--speed-upload-color);
+}
+
+.speed-result.download {
+    border-left: 4px solid var(--speed-download-color);
+}
+
+.speed-result.download .speed-icon {
+    color: var(--speed-download-color);
+}
+
+.speed-icon {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+
+.speed-details,
+.speed-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.speed-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
 .speed-value {
-    color: var(--accent-color);
+    font-size: 1.75rem;
     font-weight: 700;
+    color: var(--text-primary);
+    line-height: 0.8;
+}
+
+.speed-unit {
+    font-size: 0.875rem;
+    font-weight: normal;
+    color: var(--text-secondary);
+    vertical-align: baseline;
+}
+
+.speed-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.retransmits-info {
+    text-align: center;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.test-timestamp {
+    text-align: center;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+}
+
+.test-details {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.test-error {
+    padding: 1rem;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: var(--border-radius);
+    color: var(--danger-color);
+    font-size: 0.9rem;
+}
+
+.no-results {
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+/* ============================================
+   Pagination Component
+   ============================================ */
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.pagination-info {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
 }
 
 /* Form section header */

@@ -591,116 +591,16 @@
 </div>
 
 <style>
+    /* Page-specific layout */
     .speedtest-container {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
     }
 
-    .speed-results {
-        display: flex;
-        gap: 1.5rem;
-        justify-content: center;
-        margin: 1rem 0;
-    }
-
-    .speed-result {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.75rem 1.25rem;
-        background: var(--card-bg);
-        border-radius: 8px;
-        min-width: 180px;
-    }
-
-    .speed-result.upload {
-        border-left: 4px solid #22c55e;
-    }
-
-    .speed-result.upload .speed-icon {
-        color: #22c55e;
-    }
-
-    .speed-result.download {
-        border-left: 4px solid #0ea5e9;
-    }
-
-    .speed-result.download .speed-icon {
-        color: #0ea5e9;
-    }
-
-    .speed-icon {
-        font-size: 1.5rem;
-        font-weight: bold;
-    }
-
-    .speed-label {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        margin-bottom: 0.5rem;
-    }
-
-    .speed-value {
-        font-size: 1.75rem;
-        font-weight: bold;
-        color: var(--text-primary);
-        line-height: 0.8;
-    }
-
-    .speed-unit {
-        font-size: 0.875rem;
-        font-weight: normal;
-        color: var(--text-secondary);
-        vertical-align: baseline;
-    }
-
-    .speed-meta {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-    }
-
-    .test-details {
-        display: flex;
-        gap: 2rem;
-        justify-content: center;
-        flex-wrap: wrap;
-        color: var(--text-secondary);
-        font-size: 0.875rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .error-row {
-        opacity: 0.7;
-    }
-
-    .info-section ol {
-        margin: 1rem 0;
-        padding-left: 1.5rem;
-    }
-
-    .info-section li {
-        margin-bottom: 0.5rem;
-    }
-
-    .info-section code {
-        background: var(--code-bg);
-        padding: 0.125rem 0.375rem;
-        border-radius: 4px;
-        font-size: 0.875rem;
-    }
-
-    .header-actions {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    /* Gateway Speed Test Styles */
+    /* Gateway speed test overrides */
     .gateway-results {
         justify-content: flex-start;
-        margin: 1rem 0;
     }
 
     .gateway-results .speed-result {
@@ -708,9 +608,24 @@
         max-width: 220px;
     }
 
+    .gateway-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1.5rem;
+        align-items: center;
+    }
+
+    .gateway-actions .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* iperf3 status display */
     .iperf3-status {
-        background: var(--card-bg-secondary, #1a1d23);
-        border-radius: 8px;
+        background: var(--bg-tertiary);
+        border-radius: var(--border-radius);
         padding: 1rem;
         margin: 1rem 0;
     }
@@ -727,66 +642,25 @@
         min-width: 120px;
     }
 
-    .retransmits-info {
-        text-align: center;
-        color: var(--text-muted);
-        margin-top: 0.5rem;
+    /* Table row states */
+    .error-row {
+        opacity: 0.7;
     }
 
-    .test-timestamp {
-        text-align: center;
-        color: var(--text-muted);
-        margin-top: 0.5rem;
+    /* How it works section */
+    .info-section ol {
+        margin: 1rem 0;
+        padding-left: 1.5rem;
     }
 
-    .gateway-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 1.5rem;
-        align-items: center;
+    .info-section li {
+        margin-bottom: 0.5rem;
     }
 
-    .loading-state {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        color: var(--text-secondary);
-        padding: 1rem 0;
-    }
-
-    /* Action button spacing in tables */
-    td .btn + .btn {
-        margin-left: 0.5rem;
-    }
-
-    /* Action buttons container */
-    .action-buttons {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        align-items: center;
-    }
-
-    /* Center text in all buttons */
-    .gateway-actions .btn,
-    .action-buttons .btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    /* Pagination */
-    .pagination {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-
-    .pagination-info {
-        color: var(--text-secondary);
+    .info-section code {
+        background: var(--bg-primary);
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
         font-size: 0.875rem;
     }
 </style>
