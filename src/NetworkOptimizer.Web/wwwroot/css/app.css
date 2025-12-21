@@ -2057,6 +2057,12 @@ td .btn + .btn {
     padding: 0.75rem 1rem;
 }
 
+.result-box-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
 .result-box-details {
     display: grid;
     grid-template-rows: 0fr;
