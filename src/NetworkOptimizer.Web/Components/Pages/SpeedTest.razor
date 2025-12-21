@@ -130,9 +130,18 @@
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
                 {
-                    <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
-                        @gatewayMessage
-                    </div>
+                    @if (gatewayMessageClass == "success")
+                    {
+                        <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
+                            @gatewayMessage
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
+                            @gatewayMessage
+                        </div>
+                    }
                 }
             }
         </div>
@@ -237,9 +246,18 @@
 
             @if (!string.IsNullOrEmpty(unifiMessage))
             {
-                <div class="alert alert-@unifiMessageClass" style="margin-top: 1rem;">
-                    @unifiMessage
-                </div>
+                @if (unifiMessageClass == "success")
+                {
+                    <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
+                        @unifiMessage
+                    </a>
+                }
+                else
+                {
+                    <div class="alert alert-@unifiMessageClass" style="margin-top: 1rem;">
+                        @unifiMessage
+                    </div>
+                }
             }
         </div>
     </div>
@@ -401,9 +419,18 @@
 
             @if (!string.IsNullOrEmpty(savedDeviceMessage))
             {
-                <div class="alert alert-@savedDeviceMessageClass" style="margin-top: 1rem;">
-                    @savedDeviceMessage
-                </div>
+                @if (savedDeviceMessageClass == "success" && currentResult != null)
+                {
+                    <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
+                        @savedDeviceMessage
+                    </a>
+                }
+                else
+                {
+                    <div class="alert alert-@savedDeviceMessageClass" style="margin-top: 1rem;">
+                        @savedDeviceMessage
+                    </div>
+                }
             }
         </div>
     </div>

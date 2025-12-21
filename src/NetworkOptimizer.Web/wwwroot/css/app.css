@@ -56,6 +56,7 @@ html, body {
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
 }
 
 /* Anchor Links - Ubiquiti Blue primary, Orange for hover emphasis */
@@ -1193,6 +1194,23 @@ td .btn + .btn {
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
+}
+
+/* Alert as clickable link */
+a.alert-link {
+    display: block;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+}
+
+a.alert-link:hover {
+    background: rgba(16, 185, 129, 0.2);
+    transform: translateY(-1px);
+}
+
+a.alert-link:active {
+    transform: translateY(0);
 }
 
 /* Badges */
