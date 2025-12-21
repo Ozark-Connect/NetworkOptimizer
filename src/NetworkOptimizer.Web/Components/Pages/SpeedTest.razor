@@ -126,33 +126,29 @@
                 }
 
                 <!-- Actions -->
-                <div class="action-buttons gateway-actions">
-                    <div class="action-btn-wrap-gateway">
-                        <button class="btn btn-primary" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
-                            @if (gatewayRunning)
-                            {
-                                <span class="spinner"></span>
-                                <span>Testing...</span>
-                            }
-                            else
-                            {
-                                <span>Run Gateway Test</span>
-                            }
-                        </button>
-                    </div>
-                    <div class="action-btn-wrap-check">
-                        <button class="btn btn-secondary" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
-                            @if (gatewayCheckingIperf3)
-                            {
-                                <span class="spinner"></span>
-                                <span>Checking...</span>
-                            }
-                            else
-                            {
-                                <span>Check iperf3</span>
-                            }
-                        </button>
-                    </div>
+                <div class="gateway-actions">
+                    <button class="btn btn-primary" style="min-width: 10rem;" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                        @if (gatewayRunning)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing...</span>
+                        }
+                        else
+                        {
+                            <span>Run Gateway Test</span>
+                        }
+                    </button>
+                    <button class="btn btn-secondary" style="min-width: 7.5rem;" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
+                        @if (gatewayCheckingIperf3)
+                        {
+                            <span class="spinner"></span>
+                            <span>Checking...</span>
+                        }
+                        else
+                        {
+                            <span>Check iperf3</span>
+                        }
+                    </button>
                     <a href="/settings" class="btn btn-secondary">Settings</a>
                 </div>
 
@@ -237,21 +233,19 @@
                                     }
                                 </td>
                                 <td>
-                                    <div class="action-btn-wrap-run">
-                                        <button class="btn btn-primary btn-sm"
-                                                @onclick="() => RunSpeedTestOnDiscovered(device)"
-                                                disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
-                                            @if (runningTestHost == device.Ip)
-                                            {
-                                                <span class="spinner"></span>
-                                                <span>Testing...</span>
-                                            }
-                                            else
-                                            {
-                                                <span>Run Test</span>
-                                            }
-                                        </button>
-                                    </div>
+                                    <button class="btn btn-primary btn-sm" style="min-width: 5.5rem;"
+                                            @onclick="() => RunSpeedTestOnDiscovered(device)"
+                                            disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
+                                        @if (runningTestHost == device.Ip)
+                                        {
+                                            <span class="spinner"></span>
+                                            <span>Testing...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Run Test</span>
+                                        }
+                                    </button>
                                 </td>
                             </tr>
                         }
@@ -318,24 +312,20 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <div class="action-btn-wrap-run">
-                                            <button class="btn btn-primary btn-sm" @onclick="() => RunSpeedTest(device)"
-                                                    disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
-                                                @if (runningTestHost == device.Host)
-                                                {
-                                                    <span class="spinner"></span>
-                                                    <span>Testing...</span>
-                                                }
-                                                else
-                                                {
-                                                    <span>Run Test</span>
-                                                }
-                                            </button>
-                                        </div>
-                                        <div class="action-btn-wrap-ssh">
-                                            <button class="btn btn-secondary btn-sm" @onclick="() => TestConnection(device)"
-                                                    disabled="@(!sshConfigured)" style="@(device.StartIperf3Server ? "" : "visibility: hidden;")">Test SSH</button>
-                                        </div>
+                                        <button class="btn btn-primary btn-sm" style="min-width: 5.5rem;" @onclick="() => RunSpeedTest(device)"
+                                                disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                            @if (runningTestHost == device.Host)
+                                            {
+                                                <span class="spinner"></span>
+                                                <span>Testing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Run Test</span>
+                                            }
+                                        </button>
+                                        <button class="btn btn-secondary btn-sm" style="min-width: 5rem; @(device.StartIperf3Server ? "" : "visibility: hidden;")"
+                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                     </div>
@@ -741,7 +731,11 @@
     }
 
     .gateway-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
         margin-top: 1.5rem;
+        align-items: center;
     }
 
     .loading-state {
@@ -761,52 +755,8 @@
     .action-buttons {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.25rem;
+        gap: 0.5rem;
         align-items: center;
-    }
-
-    /* Center text in action buttons */
-    .action-buttons .btn {
-        text-align: center;
-        justify-content: center;
-    }
-
-    /* Desktop: Fixed-width wrappers for alignment */
-    @@media (min-width: 992px) {
-        .action-buttons {
-            flex-wrap: nowrap;
-            gap: 0.5rem;
-        }
-
-        .action-btn-wrap-run,
-        .action-btn-wrap-ssh,
-        .action-btn-wrap-gateway,
-        .action-btn-wrap-check {
-            display: flex;
-        }
-
-        .action-btn-wrap-run .btn,
-        .action-btn-wrap-ssh .btn,
-        .action-btn-wrap-gateway .btn,
-        .action-btn-wrap-check .btn {
-            flex: 1;
-        }
-
-        .action-btn-wrap-run {
-            min-width: 6.5rem;
-        }
-
-        .action-btn-wrap-ssh {
-            min-width: 5rem;
-        }
-
-        .action-btn-wrap-gateway {
-            min-width: 9rem;
-        }
-
-        .action-btn-wrap-check {
-            min-width: 7rem;
-        }
     }
 </style>
 
