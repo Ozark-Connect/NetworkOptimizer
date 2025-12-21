@@ -36,7 +36,7 @@
     <span>Device: @DeviceName (@DeviceHost)</span>
     <span>Duration: @DurationSeconds seconds</span>
     <span>Streams: @ParallelStreams parallel</span>
-    <span>Time: @TestTime.ToString("g")</span>
+    <span>Time: @TestTime.ToLocalTime().ToString("g")</span>
 </div>
 
 @code {

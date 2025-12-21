@@ -86,29 +86,31 @@
                 <!-- Last Result Summary -->
                 @if (gatewayLastResult != null && gatewayLastResult.Success)
                 {
-                    <div class="result-summary result-success @(gatewayExpanded ? "expanded" : "")" @onclick="() => gatewayExpanded = !gatewayExpanded">
-                        <span class="result-speeds">
-                            <span class="result-speed" title="From Device: Data sent from gateway to test server">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
-                            <span class="result-speed" title="To Device: Data sent to gateway from test server">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
-                            <span class="result-unit">Mbps</span>
-                        </span>
-                        <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
-                    </div>
-                    <div class="expand-wrapper @(gatewayExpanded ? "expanded" : "")">
-                        <div class="expand-content">
-                            <div class="result-expanded-details">
-                                <SpeedTestDetails
-                                    DownloadMbps="gatewayLastResult.DownloadMbps"
-                                    UploadMbps="gatewayLastResult.UploadMbps"
-                                    DownloadBytes="gatewayLastResult.DownloadBytes"
-                                    UploadBytes="gatewayLastResult.UploadBytes"
-                                    DownloadRetransmits="gatewayLastResult.DownloadRetransmits"
-                                    UploadRetransmits="gatewayLastResult.UploadRetransmits"
-                                    DeviceName="Gateway"
-                                    DeviceHost="@(gatewayLastResult.GatewayHost ?? "")"
-                                    DurationSeconds="gatewayLastResult.DurationSeconds"
-                                    ParallelStreams="gatewayLastResult.ParallelStreams"
-                                    TestTime="gatewayLastResult.TestTime" />
+                    <div class="result-container">
+                        <div class="result-summary @(gatewayExpanded ? "expanded" : "")" @onclick="() => gatewayExpanded = !gatewayExpanded">
+                            <span class="result-speeds">
+                                <span class="result-speed" title="From Device: Data sent from gateway to test server">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
+                                <span class="result-speed" title="To Device: Data sent to gateway from test server">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
+                                <span class="result-unit">Mbps</span>
+                            </span>
+                            <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
+                        </div>
+                        <div class="expand-wrapper @(gatewayExpanded ? "expanded" : "")">
+                            <div class="expand-content">
+                                <div class="result-expanded-details">
+                                    <SpeedTestDetails
+                                        DownloadMbps="gatewayLastResult.DownloadMbps"
+                                        UploadMbps="gatewayLastResult.UploadMbps"
+                                        DownloadBytes="gatewayLastResult.DownloadBytes"
+                                        UploadBytes="gatewayLastResult.UploadBytes"
+                                        DownloadRetransmits="gatewayLastResult.DownloadRetransmits"
+                                        UploadRetransmits="gatewayLastResult.UploadRetransmits"
+                                        DeviceName="Gateway"
+                                        DeviceHost="@(gatewayLastResult.GatewayHost ?? "")"
+                                        DurationSeconds="gatewayLastResult.DurationSeconds"
+                                        ParallelStreams="gatewayLastResult.ParallelStreams"
+                                        TestTime="gatewayLastResult.TestTime" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -515,7 +517,7 @@
                             var isExpanded = expandedHistoryId == result.Id;
                             <tr class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
                                 @onclick="@(() => { if (result.Success) ToggleHistoryExpand(result.Id); })">
-                                <td>@result.TestTime.ToString("MMM dd HH:mm")</td>
+                                <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
                                 <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
                                 <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>

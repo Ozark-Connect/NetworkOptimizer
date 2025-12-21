@@ -2037,31 +2037,28 @@ td .btn + .btn {
    Result Summary (compact link to full result)
    ============================================ */
 
+.result-container {
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    border-left: 4px solid var(--success-color);
+    margin: 1rem 0;
+    overflow: hidden;
+}
+
 .result-summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0.75rem 1rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--border-radius);
-    border-left: 4px solid var(--border-color);
+    background: transparent;
     text-decoration: none;
     color: var(--text-primary);
     transition: background 0.2s ease;
-    margin: 1rem 0;
 }
 
 .result-summary:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
-}
-
-.result-summary.result-success {
-    border-left-color: var(--success-color);
-}
-
-.result-summary.result-failed {
-    border-left-color: var(--danger-color);
 }
 
 .result-speeds {
@@ -2090,12 +2087,6 @@ td .btn + .btn {
     cursor: pointer;
 }
 
-.result-summary.expanded {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    margin-bottom: 0;
-}
-
 .result-expand-hint {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -2118,11 +2109,8 @@ td .btn + .btn {
 }
 
 .result-expanded-details {
-    background: var(--bg-tertiary);
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
-    padding: 1rem 1.5rem 1.5rem;
-    margin-bottom: 1rem;
-    border-left: 4px solid var(--success-color);
+    padding: 0.5rem 1rem 1rem;
+    border-top: 1px solid var(--border-color);
 }
 
 /* Form section header */
