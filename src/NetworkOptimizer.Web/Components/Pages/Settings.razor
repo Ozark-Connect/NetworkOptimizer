@@ -532,7 +532,7 @@
                                 <td>@(modem.LastPolled?.ToString("g") ?? "Never")</td>
                                 <td>
                                     <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
-                                    <button class="btn btn-secondary btn-sm" @onclick="() => TestModemConnection(modem)">Test</button>
+                                    <button class="btn btn-secondary btn-sm" @onclick="() => TestModemConnection(modem)">Refresh</button>
                                     <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Delete</button>
                                 </td>
                             </tr>
@@ -1744,21 +1744,23 @@
 
     private async Task TestModemConnection(ModemConfiguration modem)
     {
-        modemMessage = $"Testing connection to {modem.Name}...";
+        modemMessage = $"Polling {modem.Name}...";
         modemMessageClass = "info";
         StateHasChanged();
 
         try
         {
-            var (success, message) = await ModemService.TestConnectionAsync(modem.Host);
+            var (success, message) = await ModemService.RefreshModemAsync(modem);
             if (success)
             {
-                modemMessage = $"Connection to {modem.Name} successful!";
+                modemMessage = message;
                 modemMessageClass = "success";
+                // Reload modem list to show updated LastPolled timestamp
+                modemConfigs = await ModemService.GetModemsAsync();
             }
             else
             {
-                modemMessage = $"Connection failed: {message}";
+                modemMessage = message;
                 modemMessageClass = "danger";
             }
         }

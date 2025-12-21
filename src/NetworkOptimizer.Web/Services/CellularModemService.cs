@@ -199,6 +199,43 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
+    /// Manually refresh a modem - polls stats and updates LastPolled timestamp
+    /// </summary>
+    public async Task<(bool success, string message)> RefreshModemAsync(ModemConfiguration modem)
+    {
+        try
+        {
+            _logger.LogInformation("Manual refresh for modem {Name} at {Host}", modem.Name, modem.Host);
+
+            var stats = await PollModemAsync(modem);
+
+            if (stats != null)
+            {
+                // Update LastPolled in database
+                await UpdateModemConfigAsync(modem.Id, null);
+
+                lock (_lock)
+                {
+                    _lastStats = stats;
+                }
+
+                return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
+            }
+            else
+            {
+                await UpdateModemConfigAsync(modem.Id, "Poll returned no data");
+                return (false, "Failed to poll modem - no data returned");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing modem {Name}", modem.Name);
+            await UpdateModemConfigAsync(modem.Id, ex.Message);
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Get all configured modems (legacy)
     /// </summary>
     public async Task<List<ModemConfiguration>> GetModemsAsync()
