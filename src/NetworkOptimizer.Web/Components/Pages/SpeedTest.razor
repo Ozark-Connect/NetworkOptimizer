@@ -127,28 +127,32 @@
 
                 <!-- Actions -->
                 <div class="action-buttons gateway-actions">
-                    <button class="btn btn-primary" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
-                        @if (gatewayRunning)
-                        {
-                            <span class="spinner"></span>
-                            <span>Testing...</span>
-                        }
-                        else
-                        {
-                            <span>Run Gateway Test</span>
-                        }
-                    </button>
-                    <button class="btn btn-secondary" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
-                        @if (gatewayCheckingIperf3)
-                        {
-                            <span class="spinner"></span>
-                            <span>Checking...</span>
-                        }
-                        else
-                        {
-                            <span>Check iperf3</span>
-                        }
-                    </button>
+                    <div class="action-btn-wrap-gateway">
+                        <button class="btn btn-primary" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                            @if (gatewayRunning)
+                            {
+                                <span class="spinner"></span>
+                                <span>Testing...</span>
+                            }
+                            else
+                            {
+                                <span>Run Gateway Test</span>
+                            }
+                        </button>
+                    </div>
+                    <div class="action-btn-wrap-check">
+                        <button class="btn btn-secondary" @onclick="CheckGatewayIperf3" disabled="@gatewayCheckingIperf3">
+                            @if (gatewayCheckingIperf3)
+                            {
+                                <span class="spinner"></span>
+                                <span>Checking...</span>
+                            }
+                            else
+                            {
+                                <span>Check iperf3</span>
+                            }
+                        </button>
+                    </div>
                     <a href="/settings" class="btn btn-secondary">Settings</a>
                 </div>
 
@@ -233,19 +237,21 @@
                                     }
                                 </td>
                                 <td>
-                                    <button class="btn btn-primary btn-sm"
-                                            @onclick="() => RunSpeedTestOnDiscovered(device)"
-                                            disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
-                                        @if (runningTestHost == device.Ip)
-                                        {
-                                            <span class="spinner"></span>
-                                            <span>Testing...</span>
-                                        }
-                                        else
-                                        {
-                                            <span>Run Test</span>
-                                        }
-                                    </button>
+                                    <div class="action-btn-wrap-run">
+                                        <button class="btn btn-primary btn-sm"
+                                                @onclick="() => RunSpeedTestOnDiscovered(device)"
+                                                disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
+                                            @if (runningTestHost == device.Ip)
+                                            {
+                                                <span class="spinner"></span>
+                                                <span>Testing...</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Run Test</span>
+                                            }
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         }
@@ -777,6 +783,14 @@
 
         .action-btn-wrap-ssh {
             min-width: 5rem;
+        }
+
+        .action-btn-wrap-gateway {
+            min-width: 9rem;
+        }
+
+        .action-btn-wrap-check {
+            min-width: 7rem;
         }
     }
 </style>
