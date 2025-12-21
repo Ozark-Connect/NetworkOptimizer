@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -57,9 +57,9 @@ public class GatewaySpeedTestService
         }
 
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
-        var settings = await db.GatewaySshSettings.FirstOrDefaultAsync();
+        var settings = await repository.GetGatewaySshSettingsAsync();
 
         if (settings == null)
         {
@@ -76,8 +76,7 @@ public class GatewaySpeedTestService
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            db.GatewaySshSettings.Add(settings);
-            await db.SaveChangesAsync();
+            await repository.SaveGatewaySshSettingsAsync(settings);
         }
 
         _cachedSettings = settings;
@@ -92,7 +91,7 @@ public class GatewaySpeedTestService
     public async Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
         settings.UpdatedAt = DateTime.UtcNow;
 
@@ -102,35 +101,7 @@ public class GatewaySpeedTestService
             settings.Password = _credentialProtection.Encrypt(settings.Password);
         }
 
-        if (settings.Id == 0)
-        {
-            // Check if settings already exist (should be singleton)
-            var existing = await db.GatewaySshSettings.FirstOrDefaultAsync();
-            if (existing != null)
-            {
-                // Update existing instead of creating new
-                existing.Host = settings.Host;
-                existing.Username = settings.Username;
-                existing.Password = settings.Password;
-                existing.PrivateKeyPath = settings.PrivateKeyPath;
-                existing.Port = settings.Port;
-                existing.Iperf3Port = settings.Iperf3Port;
-                existing.Enabled = settings.Enabled;
-                existing.UpdatedAt = DateTime.UtcNow;
-                settings = existing;
-            }
-            else
-            {
-                settings.CreatedAt = DateTime.UtcNow;
-                db.GatewaySshSettings.Add(settings);
-            }
-        }
-        else
-        {
-            db.GatewaySshSettings.Update(settings);
-        }
-
-        await db.SaveChangesAsync();
+        await repository.SaveGatewaySshSettingsAsync(settings);
 
         // Invalidate cache
         _cachedSettings = null;
@@ -675,7 +646,7 @@ public class GatewaySpeedTestService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
             var historyResult = new Iperf3Result
             {
@@ -697,8 +668,7 @@ public class GatewaySpeedTestService
                 RawDownloadJson = result.RawDownloadJson
             };
 
-            db.Iperf3Results.Add(historyResult);
-            await db.SaveChangesAsync();
+            await repository.SaveIperf3ResultAsync(historyResult);
 
             _logger.LogDebug("Saved gateway speed test result to history");
         }

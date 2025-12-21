@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
 using StorageAuditResult = NetworkOptimizer.Storage.Models.AuditResult;
@@ -45,9 +45,9 @@ public class AuditService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
-            var dismissed = await db.DismissedIssues.ToListAsync();
+            var dismissed = await repository.GetDismissedIssuesAsync();
             foreach (var issue in dismissed)
             {
                 _dismissedIssues.Add(issue.IssueKey);
@@ -82,14 +82,13 @@ public class AuditService
             try
             {
                 using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+                var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
-                db.DismissedIssues.Add(new DismissedIssue
+                await repository.SaveDismissedIssueAsync(new DismissedIssue
                 {
                     IssueKey = key,
                     DismissedAt = DateTime.UtcNow
                 });
-                await db.SaveChangesAsync();
                 _logger.LogInformation("Dismissed and persisted issue: {Key}", key);
             }
             catch (Exception ex)
@@ -145,15 +144,10 @@ public class AuditService
             try
             {
                 using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+                var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
-                var dismissed = await db.DismissedIssues.FirstOrDefaultAsync(d => d.IssueKey == key);
-                if (dismissed != null)
-                {
-                    db.DismissedIssues.Remove(dismissed);
-                    await db.SaveChangesAsync();
-                    _logger.LogInformation("Restored issue: {Key}", key);
-                }
+                await repository.DeleteDismissedIssueAsync(key);
+                _logger.LogInformation("Restored issue: {Key}", key);
             }
             catch (Exception ex)
             {
@@ -183,12 +177,10 @@ public class AuditService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
-            var all = await db.DismissedIssues.ToListAsync();
-            db.DismissedIssues.RemoveRange(all);
-            await db.SaveChangesAsync();
-            _logger.LogInformation("Cleared {Count} dismissed issues from database", all.Count);
+            await repository.ClearAllDismissedIssuesAsync();
+            _logger.LogInformation("Cleared all dismissed issues from database");
         }
         catch (Exception ex)
         {
@@ -204,11 +196,9 @@ public class AuditService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
-            var latestAudit = await db.AuditResults
-                .OrderByDescending(a => a.AuditDate)
-                .FirstOrDefaultAsync();
+            var latestAudit = await repository.GetLatestAuditResultAsync();
 
             if (latestAudit == null)
                 return null;
@@ -301,7 +291,7 @@ public class AuditService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
             var storageResult = new StorageAuditResult
             {
@@ -318,8 +308,7 @@ public class AuditService
                 CreatedAt = DateTime.UtcNow
             };
 
-            db.AuditResults.Add(storageResult);
-            await db.SaveChangesAsync();
+            await repository.SaveAuditResultAsync(storageResult);
 
             _logger.LogInformation("Persisted audit result to database with {IssueCount} issues", result.Issues.Count);
         }

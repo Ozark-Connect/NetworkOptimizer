@@ -1,7 +1,7 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -204,8 +204,8 @@ public class CellularModemService : IDisposable
     public async Task<List<ModemConfiguration>> GetModemsAsync()
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await db.ModemConfigurations.ToListAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+        return await repository.GetModemConfigurationsAsync();
     }
 
     /// <summary>
@@ -214,21 +214,8 @@ public class CellularModemService : IDisposable
     public async Task<ModemConfiguration> SaveModemAsync(ModemConfiguration config)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-
-        config.UpdatedAt = DateTime.UtcNow;
-
-        if (config.Id == 0)
-        {
-            config.CreatedAt = DateTime.UtcNow;
-            db.ModemConfigurations.Add(config);
-        }
-        else
-        {
-            db.ModemConfigurations.Update(config);
-        }
-
-        await db.SaveChangesAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+        await repository.SaveModemConfigurationAsync(config);
         return config;
     }
 
@@ -238,14 +225,8 @@ public class CellularModemService : IDisposable
     public async Task DeleteModemAsync(int id)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-
-        var config = await db.ModemConfigurations.FindAsync(id);
-        if (config != null)
-        {
-            db.ModemConfigurations.Remove(config);
-            await db.SaveChangesAsync();
-        }
+        var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+        await repository.DeleteModemConfigurationAsync(id);
     }
 
     private async Task PollAllModemsAsync()
@@ -266,11 +247,9 @@ public class CellularModemService : IDisposable
             // Only poll configured and enabled modems (not auto-discovered ones)
             // Auto-discovered modems must be added to config before they're polled
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
 
-            var modems = await db.ModemConfigurations
-                .Where(m => m.Enabled)
-                .ToListAsync();
+            var modems = await repository.GetEnabledModemConfigurationsAsync();
 
             foreach (var modem in modems)
             {
@@ -301,15 +280,15 @@ public class CellularModemService : IDisposable
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
 
-            var config = await db.ModemConfigurations.FindAsync(modemId);
+            var config = await repository.GetModemConfigurationAsync(modemId);
             if (config != null)
             {
                 config.LastPolled = DateTime.UtcNow;
                 config.LastError = error;
                 config.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync();
+                await repository.SaveModemConfigurationAsync(config);
             }
         }
         catch (Exception ex)

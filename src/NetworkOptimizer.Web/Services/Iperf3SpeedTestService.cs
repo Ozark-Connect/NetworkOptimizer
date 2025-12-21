@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -412,11 +412,8 @@ public class Iperf3SpeedTestService
     public async Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await db.Iperf3Results
-            .OrderByDescending(r => r.TestTime)
-            .Take(count)
-            .ToListAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.GetRecentIperf3ResultsAsync(count);
     }
 
     /// <summary>
@@ -425,12 +422,8 @@ public class Iperf3SpeedTestService
     public async Task<List<Iperf3Result>> GetResultsForDeviceAsync(string deviceHost, int count = 20)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await db.Iperf3Results
-            .Where(r => r.DeviceHost == deviceHost)
-            .OrderByDescending(r => r.TestTime)
-            .Take(count)
-            .ToListAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.GetIperf3ResultsForDeviceAsync(deviceHost, count);
     }
 
     /// <summary>
@@ -439,10 +432,10 @@ public class Iperf3SpeedTestService
     public async Task<int> ClearHistoryAsync()
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        var count = await db.Iperf3Results.CountAsync();
-        db.Iperf3Results.RemoveRange(db.Iperf3Results);
-        await db.SaveChangesAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        var results = await repository.GetRecentIperf3ResultsAsync(int.MaxValue);
+        var count = results.Count;
+        await repository.ClearIperf3HistoryAsync();
         return count;
     }
 
@@ -451,9 +444,8 @@ public class Iperf3SpeedTestService
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-            db.Iperf3Results.Add(result);
-            await db.SaveChangesAsync();
+            var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+            await repository.SaveIperf3ResultAsync(result);
         }
         catch (Exception ex)
         {

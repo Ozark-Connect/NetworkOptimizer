@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -40,9 +40,9 @@ public class UniFiSshService
         }
 
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-        var settings = await db.UniFiSshSettings.FirstOrDefaultAsync();
+        var settings = await repository.GetUniFiSshSettingsAsync();
 
         if (settings == null)
         {
@@ -55,8 +55,7 @@ public class UniFiSshService
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            db.UniFiSshSettings.Add(settings);
-            await db.SaveChangesAsync();
+            await repository.SaveUniFiSshSettingsAsync(settings);
         }
 
         _cachedSettings = settings;
@@ -71,7 +70,7 @@ public class UniFiSshService
     public async Task<UniFiSshSettings> SaveSettingsAsync(UniFiSshSettings settings)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         settings.UpdatedAt = DateTime.UtcNow;
 
@@ -81,33 +80,7 @@ public class UniFiSshService
             settings.Password = _credentialProtection.Encrypt(settings.Password);
         }
 
-        if (settings.Id == 0)
-        {
-            // Check if settings already exist (should be singleton)
-            var existing = await db.UniFiSshSettings.FirstOrDefaultAsync();
-            if (existing != null)
-            {
-                // Update existing instead of creating new
-                existing.Username = settings.Username;
-                existing.Password = settings.Password;
-                existing.PrivateKeyPath = settings.PrivateKeyPath;
-                existing.Port = settings.Port;
-                existing.Enabled = settings.Enabled;
-                existing.UpdatedAt = DateTime.UtcNow;
-                settings = existing;
-            }
-            else
-            {
-                settings.CreatedAt = DateTime.UtcNow;
-                db.UniFiSshSettings.Add(settings);
-            }
-        }
-        else
-        {
-            db.UniFiSshSettings.Update(settings);
-        }
-
-        await db.SaveChangesAsync();
+        await repository.SaveUniFiSshSettingsAsync(settings);
 
         // Invalidate cache
         _cachedSettings = null;
@@ -368,8 +341,8 @@ public class UniFiSshService
     public async Task<List<DeviceSshConfiguration>> GetDevicesAsync()
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        return await db.DeviceSshConfigurations.OrderBy(d => d.Name).ToListAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
+        return await repository.GetDeviceSshConfigurationsAsync();
     }
 
     /// <summary>
@@ -378,7 +351,7 @@ public class UniFiSshService
     public async Task<DeviceSshConfiguration> SaveDeviceAsync(DeviceSshConfiguration device)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
         // Encrypt password if provided and not already encrypted
         if (!string.IsNullOrEmpty(device.SshPassword) && !_credentialProtection.IsEncrypted(device.SshPassword))
@@ -386,37 +359,7 @@ public class UniFiSshService
             device.SshPassword = _credentialProtection.Encrypt(device.SshPassword);
         }
 
-        if (device.Id == 0)
-        {
-            device.CreatedAt = DateTime.UtcNow;
-            device.UpdatedAt = DateTime.UtcNow;
-            db.DeviceSshConfigurations.Add(device);
-        }
-        else
-        {
-            // Fetch the existing entity and update its properties to ensure proper tracking
-            var existing = await db.DeviceSshConfigurations.FindAsync(device.Id);
-            if (existing != null)
-            {
-                existing.Name = device.Name;
-                existing.Host = device.Host;
-                existing.DeviceType = device.DeviceType;
-                existing.Enabled = device.Enabled;
-                existing.StartIperf3Server = device.StartIperf3Server;
-                existing.SshUsername = device.SshUsername;
-                existing.SshPassword = device.SshPassword;
-                existing.SshPrivateKeyPath = device.SshPrivateKeyPath;
-                existing.UpdatedAt = DateTime.UtcNow;
-                device = existing;
-            }
-            else
-            {
-                device.UpdatedAt = DateTime.UtcNow;
-                db.DeviceSshConfigurations.Update(device);
-            }
-        }
-
-        await db.SaveChangesAsync();
+        await repository.SaveDeviceSshConfigurationAsync(device);
         return device;
     }
 
@@ -426,14 +369,8 @@ public class UniFiSshService
     public async Task DeleteDeviceAsync(int id)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-
-        var device = await db.DeviceSshConfigurations.FindAsync(id);
-        if (device != null)
-        {
-            db.DeviceSshConfigurations.Remove(device);
-            await db.SaveChangesAsync();
-        }
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
+        await repository.DeleteDeviceSshConfigurationAsync(id);
     }
 
     #endregion

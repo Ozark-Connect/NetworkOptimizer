@@ -45,6 +45,15 @@ builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}")
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
+// Register repository pattern (scoped - same lifetime as DbContext)
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IUniFiRepository, NetworkOptimizer.Storage.Repositories.UniFiRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository, NetworkOptimizer.Storage.Repositories.ModemRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
 

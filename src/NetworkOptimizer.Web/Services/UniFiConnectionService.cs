@@ -1,6 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 
@@ -44,9 +44,10 @@ public class UniFiConnectionService : IDisposable
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-            var settings = db.UniFiConnectionSettings.FirstOrDefault();
+            // Note: GetUniFiConnectionSettingsAsync is async, but we need sync for constructor
+            var settings = repository.GetUniFiConnectionSettingsAsync().GetAwaiter().GetResult();
 
             if (settings != null && settings.IsConfigured && !string.IsNullOrEmpty(settings.ControllerUrl))
             {
@@ -113,9 +114,9 @@ public class UniFiConnectionService : IDisposable
         }
 
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-        var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+        var settings = await repository.GetUniFiConnectionSettingsAsync();
 
         if (settings == null)
         {
@@ -128,8 +129,7 @@ public class UniFiConnectionService : IDisposable
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            db.UniFiConnectionSettings.Add(settings);
-            await db.SaveChangesAsync();
+            await repository.SaveUniFiConnectionSettingsAsync(settings);
         }
 
         _settings = settings;
@@ -242,14 +242,14 @@ public class UniFiConnectionService : IDisposable
 
                 // Update last connected timestamp in DB
                 using var scope = _serviceProvider.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-                var dbSettings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+                var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
+                var dbSettings = await repository.GetUniFiConnectionSettingsAsync();
                 if (dbSettings != null)
                 {
                     dbSettings.LastConnectedAt = DateTime.UtcNow;
                     dbSettings.LastError = null;
                     dbSettings.UpdatedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync();
+                    await repository.SaveUniFiConnectionSettingsAsync(dbSettings);
                 }
 
                 _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
@@ -281,18 +281,12 @@ public class UniFiConnectionService : IDisposable
         try
         {
             using var scope = _serviceProvider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+            var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-            var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
-
-            if (settings == null)
+            var settings = await repository.GetUniFiConnectionSettingsAsync() ?? new UniFiConnectionSettings
             {
-                settings = new UniFiConnectionSettings
-                {
-                    CreatedAt = DateTime.UtcNow
-                };
-                db.UniFiConnectionSettings.Add(settings);
-            }
+                CreatedAt = DateTime.UtcNow
+            };
 
             settings.ControllerUrl = config.ControllerUrl;
             settings.Username = config.Username;
@@ -309,7 +303,7 @@ public class UniFiConnectionService : IDisposable
                 settings.Password = _credentialProtection.Encrypt(config.Password);
             }
 
-            await db.SaveChangesAsync();
+            await repository.SaveUniFiConnectionSettingsAsync(settings);
 
             // Update cache
             _settings = settings;
@@ -415,16 +409,16 @@ public class UniFiConnectionService : IDisposable
     public async Task ClearCredentialsAsync()
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-        var settings = await db.UniFiConnectionSettings.FirstOrDefaultAsync();
+        var settings = await repository.GetUniFiConnectionSettingsAsync();
         if (settings != null)
         {
             settings.Username = null;
             settings.Password = null;
             settings.IsConfigured = false;
             settings.UpdatedAt = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+            await repository.SaveUniFiConnectionSettingsAsync(settings);
         }
 
         // Invalidate cache

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Web.Services;
@@ -28,9 +28,8 @@ public class SystemSettingsService
     public async Task<string?> GetAsync(string key)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-        var setting = await db.SystemSettings.FindAsync(key);
-        return setting?.Value;
+        var repository = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
+        return await repository.GetSystemSettingAsync(key);
     }
 
     /// <summary>
@@ -50,27 +49,8 @@ public class SystemSettingsService
     public async Task SetAsync(string key, string? value)
     {
         using var scope = _serviceProvider.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<NetworkOptimizerDbContext>();
-
-        var setting = await db.SystemSettings.FindAsync(key);
-        if (setting == null)
-        {
-            setting = new SystemSetting
-            {
-                Key = key,
-                Value = value,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            db.SystemSettings.Add(setting);
-        }
-        else
-        {
-            setting.Value = value;
-            setting.UpdatedAt = DateTime.UtcNow;
-        }
-
-        await db.SaveChangesAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<ISettingsRepository>();
+        await repository.SaveSystemSettingAsync(key, value);
         _logger.LogInformation("System setting {Key} updated to {Value}", key, value);
     }
 

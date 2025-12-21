@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Storage.Repositories;
 
 namespace NetworkOptimizer.Storage;
 
@@ -53,7 +54,14 @@ public static class StorageServiceExtensions
             options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
         });
 
-        services.AddScoped<ILocalRepository, SqliteRepository>();
+        // Register all feature-based repositories
+        services.AddScoped<IAuditRepository, AuditRepository>();
+        services.AddScoped<ISettingsRepository, SettingsRepository>();
+        services.AddScoped<IUniFiRepository, UniFiRepository>();
+        services.AddScoped<IModemRepository, ModemRepository>();
+        services.AddScoped<ISpeedTestRepository, SpeedTestRepository>();
+        services.AddScoped<ISqmRepository, SqmRepository>();
+        services.AddScoped<IAgentRepository, AgentRepository>();
 
         return services;
     }
