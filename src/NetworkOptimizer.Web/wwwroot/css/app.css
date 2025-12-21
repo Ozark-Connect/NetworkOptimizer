@@ -2001,9 +2001,12 @@ td .btn + .btn {
     padding: 0 !important;
 }
 
+.history-details-row .expand-wrapper.expanded {
+    border-top: 1px solid var(--border-color);
+}
+
 .history-details {
     padding: 1rem 1.5rem 1.5rem;
-    border-top: 1px solid var(--border-color);
 }
 
 /* ============================================
@@ -2090,6 +2093,21 @@ td .btn + .btn {
     font-size: 0.75rem;
     color: var(--text-muted);
     margin-left: 1rem;
+}
+
+/* Expandable details animation wrapper */
+.expand-wrapper {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease-out;
+}
+
+.expand-wrapper.expanded {
+    grid-template-rows: 1fr;
+}
+
+.expand-wrapper > .expand-content {
+    overflow: hidden;
 }
 
 .result-expanded-details {

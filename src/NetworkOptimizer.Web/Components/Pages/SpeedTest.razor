@@ -94,23 +94,24 @@
                         </span>
                         <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
                     </div>
-                    @if (gatewayExpanded)
-                    {
-                        <div class="result-expanded-details">
-                            <SpeedTestDetails
-                                DownloadMbps="gatewayLastResult.DownloadMbps"
-                                UploadMbps="gatewayLastResult.UploadMbps"
-                                DownloadBytes="gatewayLastResult.DownloadBytes"
-                                UploadBytes="gatewayLastResult.UploadBytes"
-                                DownloadRetransmits="gatewayLastResult.DownloadRetransmits"
-                                UploadRetransmits="gatewayLastResult.UploadRetransmits"
-                                DeviceName="Gateway"
-                                DeviceHost="@(gatewayLastResult.GatewayHost ?? "")"
-                                DurationSeconds="gatewayLastResult.DurationSeconds"
-                                ParallelStreams="gatewayLastResult.ParallelStreams"
-                                TestTime="gatewayLastResult.TestTime" />
+                    <div class="expand-wrapper @(gatewayExpanded ? "expanded" : "")">
+                        <div class="expand-content">
+                            <div class="result-expanded-details">
+                                <SpeedTestDetails
+                                    DownloadMbps="gatewayLastResult.DownloadMbps"
+                                    UploadMbps="gatewayLastResult.UploadMbps"
+                                    DownloadBytes="gatewayLastResult.DownloadBytes"
+                                    UploadBytes="gatewayLastResult.UploadBytes"
+                                    DownloadRetransmits="gatewayLastResult.DownloadRetransmits"
+                                    UploadRetransmits="gatewayLastResult.UploadRetransmits"
+                                    DeviceName="Gateway"
+                                    DeviceHost="@(gatewayLastResult.GatewayHost ?? "")"
+                                    DurationSeconds="gatewayLastResult.DurationSeconds"
+                                    ParallelStreams="gatewayLastResult.ParallelStreams"
+                                    TestTime="gatewayLastResult.TestTime" />
+                            </div>
                         </div>
-                    }
+                    </div>
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
@@ -529,12 +530,16 @@
                                     }
                                 </td>
                             </tr>
-                            @if (isExpanded && result.Success)
+                            @if (result.Success)
                             {
                                 <tr class="history-details-row">
                                     <td colspan="6">
-                                        <div class="history-details">
-                                            <SpeedTestDetails Result="result" />
+                                        <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                            <div class="expand-content">
+                                                <div class="history-details">
+                                                    <SpeedTestDetails Result="result" />
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
