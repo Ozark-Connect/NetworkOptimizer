@@ -49,7 +49,7 @@
                     </div>
                     <div class="speed-info">
                         <div class="speed-value">@lastResult.DownloadMbps.ToString("F1")</div>
-                        <div class="speed-label">Mbps Down</div>
+                        <div class="speed-label" title="Data sent from device to test server">From Device</div>
                     </div>
                 </div>
                 <div class="speed-result upload">
@@ -60,7 +60,7 @@
                     </div>
                     <div class="speed-info">
                         <div class="speed-value">@lastResult.UploadMbps.ToString("F1")</div>
-                        <div class="speed-label">Mbps Up</div>
+                        <div class="speed-label" title="Data sent to device from test server">To Device</div>
                     </div>
                 </div>
             </div>
@@ -68,7 +68,7 @@
             @if (lastResult.DownloadRetransmits > 0 || lastResult.UploadRetransmits > 0)
             {
                 <div class="retransmits-info">
-                    <small>Retransmits: @lastResult.DownloadRetransmits down / @lastResult.UploadRetransmits up</small>
+                    <small>Retransmits: @lastResult.DownloadRetransmits from / @lastResult.UploadRetransmits to</small>
                 </div>
             }
         }
