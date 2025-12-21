@@ -93,8 +93,10 @@
                                 <span class="result-speed" title="To Device: Data sent to gateway from test server">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                                 <span class="result-unit">Mbps</span>
                             </span>
-                            <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
-                            <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
+                            <span class="result-box-right">
+                                <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
+                                <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
+                            </span>
                         </div>
                         <div class="result-box-details">
                             <div class="result-box-details-inner">
