@@ -615,31 +615,38 @@
     }
 
     .speed-result.upload {
-        border-left: 4px solid #4CAF50;
+        border-left: 4px solid #22c55e;
+    }
+
+    .speed-result.upload .speed-icon {
+        color: #22c55e;
     }
 
     .speed-result.download {
-        border-left: 4px solid #2196F3;
+        border-left: 4px solid #0ea5e9;
+    }
+
+    .speed-result.download .speed-icon {
+        color: #0ea5e9;
     }
 
     .speed-icon {
         font-size: 1.5rem;
         font-weight: bold;
-        color: var(--text-secondary);
     }
 
     .speed-label {
         font-size: 0.75rem;
         color: var(--text-secondary);
         text-transform: uppercase;
-        margin-bottom: 0.375rem;
+        margin-bottom: 0.5rem;
     }
 
     .speed-value {
         font-size: 1.75rem;
         font-weight: bold;
         color: var(--text-primary);
-        line-height: 1;
+        line-height: 0.8;
     }
 
     .speed-unit {
@@ -699,18 +706,6 @@
     .gateway-results .speed-result {
         flex: 1;
         max-width: 220px;
-    }
-
-    .gateway-results .speed-icon {
-        color: var(--text-secondary);
-    }
-
-    .gateway-results .speed-result.download .speed-icon {
-        color: #22c55e;
-    }
-
-    .gateway-results .speed-result.upload .speed-icon {
-        color: #0ea5e9;
     }
 
     .iperf3-status {
@@ -788,8 +783,6 @@
         align-items: center;
         gap: 1rem;
         margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
     }
 
     .pagination-info {
