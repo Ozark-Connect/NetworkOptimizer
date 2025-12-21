@@ -1971,6 +1971,59 @@ td .btn + .btn {
     font-size: 0.875rem;
 }
 
+/* ============================================
+   Result Summary (compact link to full result)
+   ============================================ */
+
+.result-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    border-left: 4px solid var(--border-color);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: background 0.2s ease;
+    margin: 1rem 0;
+}
+
+.result-summary:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.result-summary.result-success {
+    border-left-color: var(--success-color);
+}
+
+.result-summary.result-failed {
+    border-left-color: var(--danger-color);
+}
+
+.result-speeds {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    font-weight: 600;
+}
+
+.result-speed {
+    font-size: 1.25rem;
+}
+
+.result-unit {
+    font-size: 0.875rem;
+    font-weight: normal;
+    color: var(--text-secondary);
+}
+
+.result-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
 /* Form section header */
 .form-section-header h5 {
     color: var(--text-primary);
