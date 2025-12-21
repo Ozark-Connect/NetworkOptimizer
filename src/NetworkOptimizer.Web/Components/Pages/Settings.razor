@@ -529,7 +529,7 @@
                                         <span class="status-badge status-disconnected">Disabled</span>
                                     }
                                 </td>
-                                <td>@(modem.LastPolled?.ToString("g") ?? "Never")</td>
+                                <td>@(modem.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
                                 <td>
                                     <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
                                     <button class="btn btn-secondary btn-sm" @onclick="() => TestModemConnection(modem)">Refresh</button>
