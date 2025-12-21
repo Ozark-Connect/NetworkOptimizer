@@ -88,8 +88,8 @@
                 {
                     <div class="result-summary result-success @(gatewayExpanded ? "expanded" : "")" @onclick="() => gatewayExpanded = !gatewayExpanded">
                         <span class="result-speeds">
-                            <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
-                            <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
+                            <span class="result-speed" title="From Device: Data sent from gateway to test server">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
+                            <span class="result-speed" title="To Device: Data sent to gateway from test server">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                             <span class="result-unit">Mbps</span>
                         </span>
                         <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
@@ -148,19 +148,9 @@
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
                 {
-                    @if (gatewayMessageClass == "success")
-                    {
-                        <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
-                            <span>@gatewayMessage</span>
-                            <span class="alert-link-hint">Click to view details →</span>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
-                            @gatewayMessage
-                        </div>
-                    }
+                    <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
+                        @gatewayMessage
+                    </div>
                 }
             }
         </div>
