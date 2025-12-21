@@ -495,7 +495,7 @@ public class GatewaySpeedTestService
             // Save to history database
             await SaveResultToHistoryAsync(result);
 
-            _logger.LogInformation("Speed test completed: Download {Down:F1} Mbps, Upload {Up:F1} Mbps",
+            _logger.LogInformation("Speed test completed: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
                 result.DownloadMbps, result.UploadMbps);
 
             return result;
