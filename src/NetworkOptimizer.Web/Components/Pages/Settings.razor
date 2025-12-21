@@ -1750,7 +1750,7 @@
 
         try
         {
-            var (success, message) = await ModemService.RefreshModemAsync(modem);
+            var (success, message) = await ModemService.PollModemAsync(modem);
             if (success)
             {
                 modemMessage = message;

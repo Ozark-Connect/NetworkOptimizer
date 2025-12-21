@@ -200,9 +200,9 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Refresh a modem - polls stats and updates LastPolled timestamp
+    /// Poll a modem - fetches stats via SSH and updates LastPolled timestamp
     /// </summary>
-    public async Task<(bool success, string message)> RefreshModemAsync(ModemConfiguration modem)
+    public async Task<(bool success, string message)> PollModemAsync(ModemConfiguration modem)
     {
         try
         {
@@ -297,7 +297,7 @@ public class CellularModemService : IDisposable
                         continue;
                 }
 
-                await RefreshModemAsync(modem);
+                await PollModemAsync(modem);
             }
         }
         catch (Exception ex)

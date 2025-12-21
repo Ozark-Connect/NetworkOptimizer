@@ -395,8 +395,7 @@
                 var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
                 if (modem != null)
                 {
-                    // Use RefreshModemAsync to update LastPolled timestamp
-                    var (success, _) = await ModemService.RefreshModemAsync(modem);
+                    var (success, _) = await ModemService.PollModemAsync(modem);
                     if (success)
                     {
                         modemStats = ModemService.GetLastStats();
@@ -426,8 +425,7 @@
             var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
             if (modem != null)
             {
-                // Use RefreshModemAsync to update LastPolled timestamp
-                var (success, _) = await ModemService.RefreshModemAsync(modem);
+                var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
                     modemStats = ModemService.GetLastStats();
