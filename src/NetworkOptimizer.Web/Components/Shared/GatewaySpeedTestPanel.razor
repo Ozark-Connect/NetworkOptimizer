@@ -48,7 +48,7 @@
                         </svg>
                     </div>
                     <div class="speed-info">
-                        <div class="speed-value">@lastResult.DownloadMbps.ToString("F1")</div>
+                        <div class="speed-value">@lastResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
                         <div class="speed-label" title="Data sent from device to test server">From Device</div>
                     </div>
                 </div>
@@ -59,7 +59,7 @@
                         </svg>
                     </div>
                     <div class="speed-info">
-                        <div class="speed-value">@lastResult.UploadMbps.ToString("F1")</div>
+                        <div class="speed-value">@lastResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
                         <div class="speed-label" title="Data sent to device from test server">To Device</div>
                     </div>
                 </div>
