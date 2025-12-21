@@ -9,6 +9,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject GatewaySpeedTestService GatewaySpeedTestService
 @inject NavigationManager NavigationManager
+@inject IJSRuntime JS
 
 <PageTitle>Speed Test - Network Optimizer</PageTitle>
 
@@ -85,14 +86,14 @@
                 <!-- Last Result Summary -->
                 @if (gatewayLastResult != null && gatewayLastResult.Success)
                 {
-                    <a href="#latest-result" class="result-summary result-success">
+                    <div class="result-summary result-success">
                         <span class="result-speeds">
                             <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
                             <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                             <span class="result-unit">Mbps</span>
                         </span>
                         <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("g")</span>
-                    </a>
+                    </div>
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
@@ -132,9 +133,10 @@
                 {
                     @if (gatewayMessageClass == "success")
                     {
-                        <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
-                            @gatewayMessage
-                        </a>
+                        <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
+                            <span>@gatewayMessage</span>
+                            <span class="alert-link-hint">Click to view details →</span>
+                        </div>
                     }
                     else
                     {
@@ -248,9 +250,10 @@
             {
                 @if (unifiMessageClass == "success")
                 {
-                    <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
-                        @unifiMessage
-                    </a>
+                    <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
+                        <span>@unifiMessage</span>
+                        <span class="alert-link-hint">Click to view details →</span>
+                    </div>
                 }
                 else
                 {
@@ -421,9 +424,10 @@
             {
                 @if (savedDeviceMessageClass == "success" && currentResult != null)
                 {
-                    <a href="#latest-result" class="alert alert-success alert-link" style="margin-top: 1rem;">
-                        @savedDeviceMessage
-                    </a>
+                    <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
+                        <span>@savedDeviceMessage</span>
+                        <span class="alert-link-hint">Click to view details →</span>
+                    </div>
                 }
                 else
                 {
@@ -536,7 +540,9 @@
                     <tbody>
                         @foreach (var result in pagedHistory)
                         {
-                            <tr class="@(result.Success ? "" : "error-row")">
+                            var isExpanded = expandedHistoryId == result.Id;
+                            <tr class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
+                                @onclick="@(() => { if (result.Success) ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
                                 <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
@@ -553,6 +559,53 @@
                                     }
                                 </td>
                             </tr>
+                            @if (isExpanded && result.Success)
+                            {
+                                <tr class="history-details-row">
+                                    <td colspan="6">
+                                        <div class="history-details">
+                                            <div class="speed-results">
+                                                <div class="speed-result download">
+                                                    <div class="speed-icon">
+                                                        <svg viewBox="0 0 24 24" width="32" height="32">
+                                                            <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                    </div>
+                                                    <div class="speed-details">
+                                                        <div class="speed-label" title="Data sent from device to test server">From Device</div>
+                                                        <div class="speed-value">@result.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                                        <div class="speed-meta">@FormatBytes(result.DownloadBytes) transferred</div>
+                                                    </div>
+                                                </div>
+                                                <div class="speed-result upload">
+                                                    <div class="speed-icon">
+                                                        <svg viewBox="0 0 24 24" width="32" height="32">
+                                                            <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                    </div>
+                                                    <div class="speed-details">
+                                                        <div class="speed-label" title="Data sent to device from test server">To Device</div>
+                                                        <div class="speed-value">@result.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                                        <div class="speed-meta">@FormatBytes(result.UploadBytes) transferred</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            @if (result.DownloadRetransmits > 0 || result.UploadRetransmits > 0)
+                                            {
+                                                <div class="retransmits-info">
+                                                    <small>Retransmits: @result.DownloadRetransmits from / @result.UploadRetransmits to</small>
+                                                </div>
+                                            }
+                                            <div class="test-details">
+                                                <span>Device: @result.DeviceName (@result.DeviceHost)</span>
+                                                <span>Duration: @result.DurationSeconds seconds</span>
+                                                <span>Streams: @result.ParallelStreams parallel</span>
+                                                <span>Time: @result.TestTime.ToString("g")</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
                         }
                     </tbody>
                 </table>
@@ -697,6 +750,7 @@
 
     // History state
     private bool clearingHistory = false;
+    private int? expandedHistoryId = null;
 
     // Gateway Speed Test state
     private bool gatewayLoading = true;
@@ -1042,6 +1096,16 @@
             runningTestHost = null;
             StateHasChanged();
         }
+    }
+
+    private async Task ScrollToLatestResult()
+    {
+        await JS.InvokeVoidAsync("eval", "document.getElementById('latest-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+    }
+
+    private void ToggleHistoryExpand(int resultId)
+    {
+        expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
     }
 
     private string FormatBytes(long bytes)

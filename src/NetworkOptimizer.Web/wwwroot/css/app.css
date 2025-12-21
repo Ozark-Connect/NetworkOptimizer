@@ -1197,20 +1197,27 @@ td .btn + .btn {
 }
 
 /* Alert as clickable link */
-a.alert-link {
-    display: block;
-    text-decoration: none;
+.alert-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     cursor: pointer;
     transition: background 0.2s ease, transform 0.1s ease;
 }
 
-a.alert-link:hover {
-    background: rgba(16, 185, 129, 0.2);
+.alert-link:hover {
+    background: rgba(16, 185, 129, 0.25);
     transform: translateY(-1px);
 }
 
-a.alert-link:active {
+.alert-link:active {
     transform: translateY(0);
+}
+
+.alert-link-hint {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    margin-left: 1rem;
 }
 
 /* Badges */
@@ -1970,6 +1977,33 @@ a.alert-link:active {
     text-align: center;
     color: var(--text-muted);
     font-size: 0.9rem;
+}
+
+/* History Table Expandable Rows */
+.history-row-clickable {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.history-row-clickable:hover {
+    background: var(--bg-hover);
+}
+
+.history-row-expanded {
+    background: var(--bg-tertiary);
+}
+
+.history-details-row {
+    background: var(--bg-tertiary);
+}
+
+.history-details-row td {
+    padding: 0 !important;
+}
+
+.history-details {
+    padding: 1rem 1.5rem 1.5rem;
+    border-top: 1px solid var(--border-color);
 }
 
 /* ============================================
