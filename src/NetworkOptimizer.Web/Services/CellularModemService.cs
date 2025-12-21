@@ -108,9 +108,9 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Poll a modem by host IP using shared SSH credentials
+    /// Execute SSH poll to modem - internal implementation
     /// </summary>
-    public async Task<CellularModemStats?> PollModemAsync(string host, string name, string qmiDevice = DefaultQmiDevice)
+    private async Task<CellularModemStats?> ExecutePollAsync(string host, string name, string qmiDevice)
     {
         _logger.LogInformation("Polling modem {Name} at {Host}", name, host);
 
@@ -192,14 +192,6 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Poll a modem using legacy ModemConfiguration (for backward compatibility)
-    /// </summary>
-    public async Task<CellularModemStats?> PollModemAsync(ModemConfiguration config)
-    {
-        return await PollModemAsync(config.Host, config.Name, config.QmiDevice);
-    }
-
-    /// <summary>
     /// Test SSH connection to a modem using shared credentials
     /// </summary>
     public async Task<(bool success, string message)> TestConnectionAsync(string host)
@@ -208,15 +200,13 @@ public class CellularModemService : IDisposable
     }
 
     /// <summary>
-    /// Manually refresh a modem - polls stats and updates LastPolled timestamp
+    /// Refresh a modem - polls stats and updates LastPolled timestamp
     /// </summary>
     public async Task<(bool success, string message)> RefreshModemAsync(ModemConfiguration modem)
     {
         try
         {
-            _logger.LogInformation("Manual refresh for modem {Name} at {Host}", modem.Name, modem.Host);
-
-            var stats = await PollModemAsync(modem);
+            var stats = await ExecutePollAsync(modem.Host, modem.Name, modem.QmiDevice);
 
             if (stats != null)
             {
@@ -307,8 +297,7 @@ public class CellularModemService : IDisposable
                         continue;
                 }
 
-                await PollModemAsync(modem);
-                await UpdateModemConfigAsync(modem.Id, null);
+                await RefreshModemAsync(modem);
             }
         }
         catch (Exception ex)
