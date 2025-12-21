@@ -124,12 +124,20 @@
         border-radius: 8px;
     }
 
+    .speed-result.download {
+        border-left: 4px solid #0ea5e9;
+    }
+
     .speed-result.download .speed-icon {
-        color: var(--success-color, #22c55e);
+        color: #0ea5e9;
+    }
+
+    .speed-result.upload {
+        border-left: 4px solid #22c55e;
     }
 
     .speed-result.upload .speed-icon {
-        color: var(--info-color, #0ea5e9);
+        color: #22c55e;
     }
 
     .speed-info {
@@ -140,7 +148,7 @@
     .speed-value {
         font-size: 1.75rem;
         font-weight: 700;
-        line-height: 1;
+        line-height: 0.8;
         color: var(--text-primary, #fff);
     }
 
@@ -148,6 +156,7 @@
         font-size: 0.75rem;
         color: var(--text-muted, #888);
         text-transform: uppercase;
+        margin-bottom: 0.5rem;
     }
 
     .retransmits-info {
