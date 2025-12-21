@@ -82,44 +82,17 @@
                     </div>
                 }
 
-                <!-- Last Result -->
+                <!-- Last Result Summary -->
                 @if (gatewayLastResult != null && gatewayLastResult.Success)
                 {
-                    <div class="speed-results gateway-results">
-                        <div class="speed-result download">
-                            <div class="speed-icon">
-                                <svg viewBox="0 0 24 24" width="32" height="32">
-                                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
-                            <div class="speed-details">
-                                <div class="speed-label" title="Data sent from device to test server">From Device</div>
-                                <div class="speed-value">@gatewayLastResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                <div class="speed-meta">@FormatBytes(gatewayLastResult.DownloadBytes) transferred</div>
-                            </div>
-                        </div>
-                        <div class="speed-result upload">
-                            <div class="speed-icon">
-                                <svg viewBox="0 0 24 24" width="32" height="32">
-                                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
-                            <div class="speed-details">
-                                <div class="speed-label" title="Data sent to device from test server">To Device</div>
-                                <div class="speed-value">@gatewayLastResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                <div class="speed-meta">@FormatBytes(gatewayLastResult.UploadBytes) transferred</div>
-                            </div>
-                        </div>
-                    </div>
-                    @if (gatewayLastResult.DownloadRetransmits > 0 || gatewayLastResult.UploadRetransmits > 0)
-                    {
-                        <div class="retransmits-info">
-                            <small>Retransmits: @gatewayLastResult.DownloadRetransmits from / @gatewayLastResult.UploadRetransmits to</small>
-                        </div>
-                    }
-                    <div class="test-timestamp">
-                        <small>Last test: @gatewayLastResult.TestTime.ToLocalTime().ToString("g")</small>
-                    </div>
+                    <a href="#latest-result" class="result-summary result-success">
+                        <span class="result-speeds">
+                            <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
+                            <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
+                            <span class="result-unit">Mbps</span>
+                        </span>
+                        <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("g")</span>
+                    </a>
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
@@ -438,7 +411,7 @@
     <!-- Current Test Results -->
     @if (currentResult != null)
     {
-        <div class="card">
+        <div class="card" id="latest-result">
             <div class="card-header">
                 <h2 class="card-title">Latest Test Result</h2>
                 <span class="status-badge status-@(currentResult.Success ? "connected" : "disconnected")">
@@ -606,21 +579,11 @@
         gap: 1.5rem;
     }
 
-    /* Gateway speed test overrides */
-    .gateway-results {
-        justify-content: flex-start;
-    }
-
-    .gateway-results .speed-result {
-        flex: 1;
-        max-width: 220px;
-    }
-
     .gateway-actions {
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;
-        margin-top: 1.5rem;
+        margin-top: 1rem;
         align-items: center;
     }
 
@@ -851,6 +814,12 @@
         {
             testHistory = await SpeedTestService.GetRecentResultsAsync(100);
             historyPage = 1; // Reset to first page when loading fresh data
+
+            // Set currentResult to most recent test
+            if (testHistory.Count > 0)
+            {
+                currentResult = testHistory[0];
+            }
         }
         catch (Exception)
         {
