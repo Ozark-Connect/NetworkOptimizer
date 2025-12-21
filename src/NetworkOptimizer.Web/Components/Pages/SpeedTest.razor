@@ -86,14 +86,31 @@
                 <!-- Last Result Summary -->
                 @if (gatewayLastResult != null && gatewayLastResult.Success)
                 {
-                    <div class="result-summary result-success">
+                    <div class="result-summary result-success @(gatewayExpanded ? "expanded" : "")" @onclick="() => gatewayExpanded = !gatewayExpanded">
                         <span class="result-speeds">
                             <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
                             <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                             <span class="result-unit">Mbps</span>
                         </span>
-                        <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("g")</span>
+                        <span class="result-expand-hint">@(gatewayExpanded ? "▲" : "▼")</span>
                     </div>
+                    @if (gatewayExpanded)
+                    {
+                        <div class="result-expanded-details">
+                            <SpeedTestDetails
+                                DownloadMbps="gatewayLastResult.DownloadMbps"
+                                UploadMbps="gatewayLastResult.UploadMbps"
+                                DownloadBytes="gatewayLastResult.DownloadBytes"
+                                UploadBytes="gatewayLastResult.UploadBytes"
+                                DownloadRetransmits="gatewayLastResult.DownloadRetransmits"
+                                UploadRetransmits="gatewayLastResult.UploadRetransmits"
+                                DeviceName="Gateway"
+                                DeviceHost="@(gatewayLastResult.GatewayHost ?? "")"
+                                DurationSeconds="gatewayLastResult.DurationSeconds"
+                                ParallelStreams="gatewayLastResult.ParallelStreams"
+                                TestTime="gatewayLastResult.TestTime" />
+                        </div>
+                    }
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
@@ -452,44 +469,7 @@
             <div class="card-body">
                 @if (currentResult.Success)
                 {
-                    <div class="speed-results">
-                        <div class="speed-result download">
-                            <div class="speed-icon">
-                                <svg viewBox="0 0 24 24" width="32" height="32">
-                                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
-                            <div class="speed-details">
-                                <div class="speed-label" title="Data sent from device to test server">From Device</div>
-                                <div class="speed-value">@currentResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                <div class="speed-meta">@FormatBytes(currentResult.DownloadBytes) transferred</div>
-                            </div>
-                        </div>
-                        <div class="speed-result upload">
-                            <div class="speed-icon">
-                                <svg viewBox="0 0 24 24" width="32" height="32">
-                                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </div>
-                            <div class="speed-details">
-                                <div class="speed-label" title="Data sent to device from test server">To Device</div>
-                                <div class="speed-value">@currentResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                <div class="speed-meta">@FormatBytes(currentResult.UploadBytes) transferred</div>
-                            </div>
-                        </div>
-                    </div>
-                    @if (currentResult.DownloadRetransmits > 0 || currentResult.UploadRetransmits > 0)
-                    {
-                        <div class="retransmits-info">
-                            <small>Retransmits: @currentResult.DownloadRetransmits from / @currentResult.UploadRetransmits to</small>
-                        </div>
-                    }
-                    <div class="test-details">
-                        <span>Device: @currentResult.DeviceName (@currentResult.DeviceHost)</span>
-                        <span>Duration: @currentResult.DurationSeconds seconds</span>
-                        <span>Streams: @currentResult.ParallelStreams parallel</span>
-                        <span>Time: @currentResult.TestTime.ToString("g")</span>
-                    </div>
+                    <SpeedTestDetails Result="currentResult" />
                 }
                 else
                 {
@@ -564,44 +544,7 @@
                                 <tr class="history-details-row">
                                     <td colspan="6">
                                         <div class="history-details">
-                                            <div class="speed-results">
-                                                <div class="speed-result download">
-                                                    <div class="speed-icon">
-                                                        <svg viewBox="0 0 24 24" width="32" height="32">
-                                                            <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        </svg>
-                                                    </div>
-                                                    <div class="speed-details">
-                                                        <div class="speed-label" title="Data sent from device to test server">From Device</div>
-                                                        <div class="speed-value">@result.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                                        <div class="speed-meta">@FormatBytes(result.DownloadBytes) transferred</div>
-                                                    </div>
-                                                </div>
-                                                <div class="speed-result upload">
-                                                    <div class="speed-icon">
-                                                        <svg viewBox="0 0 24 24" width="32" height="32">
-                                                            <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                                        </svg>
-                                                    </div>
-                                                    <div class="speed-details">
-                                                        <div class="speed-label" title="Data sent to device from test server">To Device</div>
-                                                        <div class="speed-value">@result.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-                                                        <div class="speed-meta">@FormatBytes(result.UploadBytes) transferred</div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            @if (result.DownloadRetransmits > 0 || result.UploadRetransmits > 0)
-                                            {
-                                                <div class="retransmits-info">
-                                                    <small>Retransmits: @result.DownloadRetransmits from / @result.UploadRetransmits to</small>
-                                                </div>
-                                            }
-                                            <div class="test-details">
-                                                <span>Device: @result.DeviceName (@result.DeviceHost)</span>
-                                                <span>Duration: @result.DurationSeconds seconds</span>
-                                                <span>Streams: @result.ParallelStreams parallel</span>
-                                                <span>Time: @result.TestTime.ToString("g")</span>
-                                            </div>
+                                            <SpeedTestDetails Result="result" />
                                         </div>
                                     </td>
                                 </tr>
@@ -757,6 +700,7 @@
     private bool gatewayConfigured = false;
     private bool gatewayRunning = false;
     private bool gatewayCheckingIperf3 = false;
+    private bool gatewayExpanded = false;
     private string gatewayMessage = "";
     private string gatewayMessageClass = "";
     private GatewaySpeedTestResult? gatewayLastResult;
@@ -1106,17 +1050,6 @@
     private void ToggleHistoryExpand(int resultId)
     {
         expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
-    }
-
-    private string FormatBytes(long bytes)
-    {
-        if (bytes < 1024)
-            return $"{bytes} B";
-        if (bytes < 1024 * 1024)
-            return $"{bytes / 1024.0:F1} KB";
-        if (bytes < 1024 * 1024 * 1024)
-            return $"{bytes / (1024.0 * 1024.0):F1} MB";
-        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
     }
 
     private async Task LoadDiscoveredDevices()

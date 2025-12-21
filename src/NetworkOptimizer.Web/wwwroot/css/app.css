@@ -2076,6 +2076,30 @@ td .btn + .btn {
     color: var(--text-muted);
 }
 
+.result-summary {
+    cursor: pointer;
+}
+
+.result-summary.expanded {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+}
+
+.result-expand-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 1rem;
+}
+
+.result-expanded-details {
+    background: var(--bg-tertiary);
+    border-radius: 0 0 var(--border-radius) var(--border-radius);
+    padding: 1rem 1.5rem 1.5rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--success-color);
+}
+
 /* Form section header */
 .form-section-header h5 {
     color: var(--text-primary);

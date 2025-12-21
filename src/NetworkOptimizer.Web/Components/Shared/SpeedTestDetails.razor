@@ -1,0 +1,88 @@
+@using NetworkOptimizer.Storage.Models
+
+<div class="speed-results">
+    <div class="speed-result download">
+        <div class="speed-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32">
+                <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+        <div class="speed-details">
+            <div class="speed-label" title="Data sent from device to test server">From Device</div>
+            <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+            <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+        </div>
+    </div>
+    <div class="speed-result upload">
+        <div class="speed-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32">
+                <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+        <div class="speed-details">
+            <div class="speed-label" title="Data sent to device from test server">To Device</div>
+            <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+            <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
+        </div>
+    </div>
+</div>
+@if (DownloadRetransmits > 0 || UploadRetransmits > 0)
+{
+    <div class="retransmits-info">
+        <small>Retransmits: @DownloadRetransmits from / @UploadRetransmits to</small>
+    </div>
+}
+<div class="test-details">
+    <span>Device: @DeviceName (@DeviceHost)</span>
+    <span>Duration: @DurationSeconds seconds</span>
+    <span>Streams: @ParallelStreams parallel</span>
+    <span>Time: @TestTime.ToString("g")</span>
+</div>
+
+@code {
+    [Parameter] public double DownloadMbps { get; set; }
+    [Parameter] public double UploadMbps { get; set; }
+    [Parameter] public long DownloadBytes { get; set; }
+    [Parameter] public long UploadBytes { get; set; }
+    [Parameter] public int DownloadRetransmits { get; set; }
+    [Parameter] public int UploadRetransmits { get; set; }
+    [Parameter] public string DeviceName { get; set; } = "";
+    [Parameter] public string DeviceHost { get; set; } = "";
+    [Parameter] public int DurationSeconds { get; set; }
+    [Parameter] public int ParallelStreams { get; set; }
+    [Parameter] public DateTime TestTime { get; set; }
+
+    /// <summary>
+    /// Convenience parameter to set all values from an Iperf3Result
+    /// </summary>
+    [Parameter] public Iperf3Result? Result { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (Result != null)
+        {
+            DownloadMbps = Result.DownloadMbps;
+            UploadMbps = Result.UploadMbps;
+            DownloadBytes = Result.DownloadBytes;
+            UploadBytes = Result.UploadBytes;
+            DownloadRetransmits = Result.DownloadRetransmits;
+            UploadRetransmits = Result.UploadRetransmits;
+            DeviceName = Result.DeviceName ?? "";
+            DeviceHost = Result.DeviceHost;
+            DurationSeconds = Result.DurationSeconds;
+            ParallelStreams = Result.ParallelStreams;
+            TestTime = Result.TestTime;
+        }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+            return $"{bytes} B";
+        if (bytes < 1024 * 1024)
+            return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+}
