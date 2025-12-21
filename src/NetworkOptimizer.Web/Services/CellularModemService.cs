@@ -123,26 +123,35 @@ public class CellularModemService : IDisposable
                 Timestamp = DateTime.UtcNow
             };
 
-            // Run all qmicli commands using shared SSH service
-            var signalTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info");
-            var servingTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system");
-            var cellTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info");
-            var bandTask = _sshService.RunCommandAsync(host, $"qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info");
+            // Run all qmicli commands in a single SSH session to avoid rate limiting
+            var combinedCommand = $"echo '===SIGNAL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-signal-info; " +
+                                  $"echo '===SERVING===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-serving-system; " +
+                                  $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
+                                  $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info";
 
-            await Task.WhenAll(signalTask, servingTask, cellTask, bandTask);
+            var (success, output) = await _sshService.RunCommandAsync(host, combinedCommand);
+
+            if (!success)
+            {
+                _logger.LogWarning("Failed to poll modem {Name}: {Output}", name, output);
+                return null;
+            }
+
+            // Split output by markers and parse each section
+            var sections = ParseCombinedOutput(output);
 
             // Parse signal info
-            if (signalTask.Result.success)
+            if (sections.TryGetValue("SIGNAL", out var signalOutput))
             {
-                var (lte, nr5g) = QmicliParser.ParseSignalInfo(signalTask.Result.output);
+                var (lte, nr5g) = QmicliParser.ParseSignalInfo(signalOutput);
                 stats.Lte = lte;
                 stats.Nr5g = nr5g;
             }
 
             // Parse serving system
-            if (servingTask.Result.success)
+            if (sections.TryGetValue("SERVING", out var servingOutput))
             {
-                var (regState, carrier, mcc, mnc, roaming) = QmicliParser.ParseServingSystem(servingTask.Result.output);
+                var (regState, carrier, mcc, mnc, roaming) = QmicliParser.ParseServingSystem(servingOutput);
                 stats.RegistrationState = regState;
                 stats.Carrier = carrier;
                 stats.CarrierMcc = mcc;
@@ -151,17 +160,17 @@ public class CellularModemService : IDisposable
             }
 
             // Parse cell location info
-            if (cellTask.Result.success)
+            if (sections.TryGetValue("CELL", out var cellOutput))
             {
-                var (servingCell, neighbors) = QmicliParser.ParseCellLocationInfo(cellTask.Result.output);
+                var (servingCell, neighbors) = QmicliParser.ParseCellLocationInfo(cellOutput);
                 stats.ServingCell = servingCell;
                 stats.NeighborCells = neighbors;
             }
 
             // Parse band info
-            if (bandTask.Result.success)
+            if (sections.TryGetValue("BAND", out var bandOutput))
             {
-                stats.ActiveBand = QmicliParser.ParseRfBandInfo(bandTask.Result.output);
+                stats.ActiveBand = QmicliParser.ParseRfBandInfo(bandOutput);
             }
 
             // Update last stats
@@ -332,6 +341,40 @@ public class CellularModemService : IDisposable
         {
             _logger.LogWarning(ex, "Failed to update modem config after poll");
         }
+    }
+
+    /// <summary>
+    /// Parse combined SSH output into sections by marker
+    /// </summary>
+    private static Dictionary<string, string> ParseCombinedOutput(string output)
+    {
+        var sections = new Dictionary<string, string>();
+        var markers = new[] { "===SIGNAL===", "===SERVING===", "===CELL===", "===BAND===" };
+        var keys = new[] { "SIGNAL", "SERVING", "CELL", "BAND" };
+
+        for (int i = 0; i < markers.Length; i++)
+        {
+            var startIndex = output.IndexOf(markers[i]);
+            if (startIndex == -1) continue;
+
+            startIndex += markers[i].Length;
+
+            // Find end (next marker or end of string)
+            var endIndex = output.Length;
+            for (int j = i + 1; j < markers.Length; j++)
+            {
+                var nextMarker = output.IndexOf(markers[j], startIndex);
+                if (nextMarker != -1)
+                {
+                    endIndex = nextMarker;
+                    break;
+                }
+            }
+
+            sections[keys[i]] = output.Substring(startIndex, endIndex - startIndex).Trim();
+        }
+
+        return sections;
     }
 
     /// <summary>
