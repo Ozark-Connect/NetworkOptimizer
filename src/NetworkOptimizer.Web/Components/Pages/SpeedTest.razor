@@ -95,6 +95,7 @@
                             <div class="speed-details">
                                 <div class="speed-label" title="Data sent from device to test server">From Device</div>
                                 <div class="speed-value">@gatewayLastResult.DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                <div class="speed-meta">@FormatBytes(gatewayLastResult.DownloadBytes) transferred</div>
                             </div>
                         </div>
                         <div class="speed-result upload">
@@ -106,6 +107,7 @@
                             <div class="speed-details">
                                 <div class="speed-label" title="Data sent to device from test server">To Device</div>
                                 <div class="speed-value">@gatewayLastResult.UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                                <div class="speed-meta">@FormatBytes(gatewayLastResult.UploadBytes) transferred</div>
                             </div>
                         </div>
                     </div>
@@ -472,6 +474,12 @@
                             </div>
                         </div>
                     </div>
+                    @if (currentResult.DownloadRetransmits > 0 || currentResult.UploadRetransmits > 0)
+                    {
+                        <div class="retransmits-info">
+                            <small>Retransmits: @currentResult.DownloadRetransmits from / @currentResult.UploadRetransmits to</small>
+                        </div>
+                    }
                     <div class="test-details">
                         <span>Device: @currentResult.DeviceName (@currentResult.DeviceHost)</span>
                         <span>Duration: @currentResult.DurationSeconds seconds</span>
