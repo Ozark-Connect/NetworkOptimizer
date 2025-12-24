@@ -2386,6 +2386,9 @@ td .btn + .btn {
 /* ============================================
    Tooltip Icon Component
    Interactive tooltips with link support
+   - Hover on icon only (not wrapper text)
+   - Click/tap to toggle (mobile friendly)
+   - Stays visible for link clicking
    ============================================ */
 .tooltip-wrapper {
     display: inline-flex;
@@ -2405,14 +2408,16 @@ td .btn + .btn {
     color: var(--text-muted);
     background: var(--bg-tertiary);
     border-radius: 50%;
-    cursor: help;
+    cursor: pointer;
     vertical-align: middle;
     transition: all 0.2s ease;
     user-select: none;
     flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
 }
 
-.tooltip-icon:hover {
+.tooltip-icon:hover,
+.tooltip-icon.active {
     color: var(--text-primary);
     background: var(--primary-color);
 }
@@ -2451,17 +2456,14 @@ td .btn + .btn {
     border-top-color: var(--border-color);
 }
 
-.tooltip-wrapper:hover .tooltip-content,
-.tooltip-wrapper:focus-within .tooltip-content {
+/* Show tooltip on icon hover (desktop) - with delay buffer for moving to content */
+.tooltip-icon:hover + .tooltip-content,
+.tooltip-icon.active + .tooltip-content,
+.tooltip-content:hover,
+.tooltip-content.active {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-}
-
-/* Keep tooltip visible when hovering over the tooltip itself */
-.tooltip-content:hover {
-    opacity: 1;
-    visibility: visible;
 }
 
 /* Links inside tooltips */
@@ -2534,7 +2536,9 @@ td .btn + .btn {
 }
 
 .tooltip-icon[data-tooltip]:hover::before,
-.tooltip-icon[data-tooltip]:hover::after {
+.tooltip-icon[data-tooltip]:hover::after,
+.tooltip-icon[data-tooltip].active::before,
+.tooltip-icon[data-tooltip].active::after {
     opacity: 1;
     visibility: visible;
 }

@@ -26,6 +26,76 @@
             downloadLink.download = fileName;
             downloadLink.click();
         }
+
+        // Tooltip click/tap handling for mobile and accessibility
+        (function() {
+            let activeTooltip = null;
+
+            function closeActiveTooltip() {
+                if (activeTooltip) {
+                    activeTooltip.icon.classList.remove('active');
+                    if (activeTooltip.content) {
+                        activeTooltip.content.classList.remove('active');
+                    }
+                    activeTooltip = null;
+                }
+            }
+
+            function toggleTooltip(icon) {
+                const isActive = icon.classList.contains('active');
+
+                // Close any other active tooltip
+                closeActiveTooltip();
+
+                // Toggle this one (if it wasn't already active)
+                if (!isActive) {
+                    icon.classList.add('active');
+
+                    // For wrapper-style tooltips, also activate the content
+                    const content = icon.nextElementSibling;
+                    if (content && content.classList.contains('tooltip-content')) {
+                        content.classList.add('active');
+                        activeTooltip = { icon, content };
+                    } else {
+                        // data-tooltip style (no separate content element)
+                        activeTooltip = { icon, content: null };
+                    }
+                }
+            }
+
+            // Handle clicks/taps on tooltip icons
+            document.addEventListener('click', function(e) {
+                const icon = e.target.closest('.tooltip-icon');
+                if (icon) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleTooltip(icon);
+                    return;
+                }
+
+                // If clicking inside tooltip content, don't close it
+                if (e.target.closest('.tooltip-content')) {
+                    return;
+                }
+
+                // Clicking elsewhere closes the active tooltip
+                closeActiveTooltip();
+            });
+
+            // Close tooltip on escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeActiveTooltip();
+                }
+            });
+
+            // Re-initialize after Blazor updates the DOM
+            if (typeof Blazor !== 'undefined') {
+                Blazor.addEventListener('enhancedload', function() {
+                    closeActiveTooltip();
+                });
+            }
+        })();
     </script>
 </body>
 
