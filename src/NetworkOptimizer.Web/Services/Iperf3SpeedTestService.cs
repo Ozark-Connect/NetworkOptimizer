@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -17,6 +18,7 @@ public class Iperf3SpeedTestService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
     private readonly SystemSettingsService _settingsService;
+    private readonly NetworkPathAnalyzer _pathAnalyzer;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -32,12 +34,14 @@ public class Iperf3SpeedTestService
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
-        SystemSettingsService settingsService)
+        SystemSettingsService settingsService,
+        NetworkPathAnalyzer pathAnalyzer)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _settingsService = settingsService;
+        _pathAnalyzer = pathAnalyzer;
     }
 
     /// <summary>
@@ -385,6 +389,9 @@ public class Iperf3SpeedTestService
                 }
             }
 
+            // Perform path analysis
+            await AnalyzePathAsync(result, host);
+
             // Save result to database
             await SaveResultAsync(result);
 
@@ -608,6 +615,43 @@ public class Iperf3SpeedTestService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse iperf3 JSON result");
+        }
+    }
+
+    /// <summary>
+    /// Analyze the network path and grade the speed test result
+    /// </summary>
+    private async Task AnalyzePathAsync(Iperf3Result result, string targetHost)
+    {
+        try
+        {
+            _logger.LogDebug("Analyzing network path to {Host}", targetHost);
+
+            var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
+            var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
+
+            result.PathAnalysis = analysis;
+
+            if (analysis.Path.IsValid)
+            {
+                _logger.LogInformation("Path analysis: {Hops} hops, theoretical max {MaxMbps} Mbps, " +
+                    "from-device efficiency {FromEff:F0}% ({FromGrade}), to-device efficiency {ToEff:F0}% ({ToGrade})",
+                    analysis.Path.Hops.Count,
+                    analysis.Path.TheoreticalMaxMbps,
+                    analysis.FromDeviceEfficiencyPercent,
+                    analysis.FromDeviceGrade,
+                    analysis.ToDeviceEfficiencyPercent,
+                    analysis.ToDeviceGrade);
+            }
+            else
+            {
+                _logger.LogDebug("Path analysis incomplete: {Error}", analysis.Path.ErrorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to analyze network path to {Host}", targetHost);
+            // Don't fail the test - path analysis is optional
         }
     }
 }

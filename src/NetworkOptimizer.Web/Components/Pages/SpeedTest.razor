@@ -3,12 +3,14 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
+@using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Core.Helpers
 @inject Iperf3SpeedTestService SpeedTestService
 @inject UniFiSshService SshService
 @inject UniFiConnectionService ConnectionService
 @inject GatewaySpeedTestService GatewaySpeedTestService
+@inject NetworkPathAnalyzer PathAnalyzer
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -564,7 +566,31 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" />
+                                                    @{
+                                                        // Use stored path analysis if available, otherwise use result's analysis
+                                                        var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
+                                                    }
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" />
+
+                                                    @if (pathAnalysis == null && ConnectionService.IsConnected)
+                                                    {
+                                                        <div class="analyze-path-action">
+                                                            <button class="btn btn-sm btn-secondary"
+                                                                    @onclick="() => AnalyzeHistoricalPath(result)"
+                                                                    @onclick:stopPropagation="true"
+                                                                    disabled="@(analyzingResultId == result.Id)">
+                                                                @if (analyzingResultId == result.Id)
+                                                                {
+                                                                    <span>Analyzing...</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span>Analyze Path</span>
+                                                                }
+                                                            </button>
+                                                            <span class="analyze-hint">Calculate network path and grade performance</span>
+                                                        </div>
+                                                    }
                                                 </div>
                                             </div>
                                         </div>
@@ -679,6 +705,20 @@
         border-radius: 4px;
         font-size: 0.875rem;
     }
+
+    .analyze-path-action {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .analyze-hint {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
 </style>
 
 @code {
@@ -716,6 +756,10 @@
     // History state
     private bool clearingHistory = false;
     private int? expandedHistoryId = null;
+
+    // Path analysis for historical results (calculated on demand)
+    private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();
+    private int? analyzingResultId = null;
 
     // Gateway Speed Test state
     private bool gatewayLoading = true;
@@ -1072,6 +1116,32 @@
     private void ToggleHistoryExpand(int resultId)
     {
         expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
+    }
+
+    private async Task AnalyzeHistoricalPath(Iperf3Result result)
+    {
+        if (analyzingResultId != null)
+            return;
+
+        analyzingResultId = result.Id;
+        StateHasChanged();
+
+        try
+        {
+            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost);
+            var analysis = PathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
+            historyPathAnalysis[result.Id] = analysis;
+        }
+        catch
+        {
+            // Store null to indicate analysis failed
+            historyPathAnalysis[result.Id] = null;
+        }
+        finally
+        {
+            analyzingResultId = null;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadDiscoveredDevices()

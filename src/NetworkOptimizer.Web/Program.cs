@@ -6,6 +6,7 @@ using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,11 +19,18 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
+// Add memory cache for path analysis caching
+builder.Services.AddMemoryCache();
+
 // Register credential protection service (singleton - shared encryption key)
 builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProtectionService, NetworkOptimizer.Storage.Services.CredentialProtectionService>();
 
 // Register UniFi connection service (singleton - maintains connection state)
 builder.Services.AddSingleton<UniFiConnectionService>();
+builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<UniFiConnectionService>());
+
+// Register Network Path Analyzer (singleton - uses caching)
+builder.Services.AddSingleton<NetworkPathAnalyzer>();
 
 // Register audit engine and analyzers
 builder.Services.AddTransient<VlanAnalyzer>();

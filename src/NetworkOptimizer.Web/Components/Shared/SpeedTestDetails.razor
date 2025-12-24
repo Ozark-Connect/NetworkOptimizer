@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 
 <div class="speed-results">
@@ -40,6 +41,98 @@
     <span>Time: @TestTime.ToLocalTime().ToString("g")</span>
 </div>
 
+@if (PathAnalysis != null)
+{
+    <div class="path-analysis">
+        <div class="analysis-header">
+            <h4>Path Analysis</h4>
+            @if (PathAnalysis.Path.IsValid)
+            {
+                <span class="theoretical-max">Theoretical Max: @FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps)</span>
+            }
+        </div>
+
+        @if (PathAnalysis.Path.IsValid)
+        {
+            <div class="efficiency-grades">
+                <div class="grade-item">
+                    <span class="grade-label">From Device</span>
+                    <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)">
+                        @PathAnalysis.FromDeviceGrade (@PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%)
+                    </span>
+                </div>
+                <div class="grade-item">
+                    <span class="grade-label">To Device</span>
+                    <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)">
+                        @PathAnalysis.ToDeviceGrade (@PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%)
+                    </span>
+                </div>
+            </div>
+
+            @if (PathAnalysis.Path.Hops.Count > 0)
+            {
+                <div class="path-hops">
+                    <strong>Path:</strong>
+                    @for (var i = 0; i < PathAnalysis.Path.Hops.Count; i++)
+                    {
+                        var hop = PathAnalysis.Path.Hops[i];
+                        <span class="hop @(hop.IsBottleneck ? "bottleneck" : "")">
+                            @hop.DeviceName
+                            @if (hop.IsBottleneck)
+                            {
+                                <span class="bottleneck-indicator" title="Bottleneck">*</span>
+                            }
+                        </span>
+                        @if (i < PathAnalysis.Path.Hops.Count - 1)
+                        {
+                            <span class="hop-arrow">→</span>
+                        }
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
+            {
+                <div class="bottleneck-info">
+                    <strong>Bottleneck:</strong> @PathAnalysis.Path.BottleneckDescription
+                </div>
+            }
+
+            @if (PathAnalysis.Path.RequiresRouting)
+            {
+                <div class="routing-info">
+                    Inter-VLAN routing via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
+                    @if (!string.IsNullOrEmpty(PathAnalysis.Path.GatewayModel))
+                    {
+                        <span>(@PathAnalysis.Path.GatewayModel)</span>
+                    }
+                </div>
+            }
+        }
+
+        @if (PathAnalysis.Insights.Count > 0)
+        {
+            <div class="insights">
+                @foreach (var insight in PathAnalysis.Insights)
+                {
+                    <div class="insight">@insight</div>
+                }
+            </div>
+        }
+
+        @if (PathAnalysis.Recommendations.Count > 0)
+        {
+            <div class="recommendations">
+                <strong>Recommendations:</strong>
+                @foreach (var rec in PathAnalysis.Recommendations)
+                {
+                    <div class="recommendation">@rec</div>
+                }
+            </div>
+        }
+    </div>
+}
+
 @code {
     [Parameter] public double DownloadMbps { get; set; }
     [Parameter] public double UploadMbps { get; set; }
@@ -52,6 +145,11 @@
     [Parameter] public int DurationSeconds { get; set; }
     [Parameter] public int ParallelStreams { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
+
+    /// <summary>
+    /// Path analysis result (set automatically when using Result parameter)
+    /// </summary>
+    [Parameter] public PathAnalysisResult? PathAnalysis { get; set; }
 
     /// <summary>
     /// Convenience parameter to set all values from an Iperf3Result
@@ -78,6 +176,7 @@
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
+            PathAnalysis = Result.PathAnalysis;
         }
         else if (GatewayResult != null)
         {
@@ -105,4 +204,24 @@
             return $"{bytes / (1024.0 * 1024.0):F1} MB";
         return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
     }
+
+    private string FormatSpeed(int mbps)
+    {
+        if (mbps >= 1000)
+        {
+            var gbps = mbps / 1000.0;
+            return gbps % 1 == 0 ? $"{(int)gbps} Gbps" : $"{gbps:F1} Gbps";
+        }
+        return $"{mbps} Mbps";
+    }
+
+    private string GetGradeClass(PerformanceGrade grade) => grade switch
+    {
+        PerformanceGrade.Excellent => "grade-excellent",
+        PerformanceGrade.Good => "grade-good",
+        PerformanceGrade.Fair => "grade-fair",
+        PerformanceGrade.Poor => "grade-poor",
+        PerformanceGrade.Critical => "grade-critical",
+        _ => ""
+    };
 }
