@@ -46,4 +46,21 @@ public static class DeviceTypes
         AccessPoint => "Access Point",
         _ => deviceType ?? "Unknown"
     };
+
+    /// <summary>
+    /// Convert UniFi API device type code (uap, usw, udm, etc.) to DeviceTypes constant
+    /// </summary>
+    public static string FromUniFiType(string? unifiType)
+    {
+        if (string.IsNullOrEmpty(unifiType))
+            return Server;
+
+        return unifiType.ToLowerInvariant() switch
+        {
+            "uap" => AccessPoint,
+            "usw" => Switch,
+            "udm" or "ugw" or "uxg" => Gateway,
+            _ => Server
+        };
+    }
 }
