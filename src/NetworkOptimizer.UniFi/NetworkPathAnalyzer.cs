@@ -198,6 +198,18 @@ public class NetworkPathAnalyzer
             var targetDevice = FindDevice(topology, targetHost);
             var targetClient = targetDevice == null ? FindClient(topology, targetHost) : null;
 
+            // If not found, try DNS resolution and search by IP
+            if (targetDevice == null && targetClient == null)
+            {
+                var resolvedIp = await ResolveHostnameAsync(targetHost);
+                if (!string.IsNullOrEmpty(resolvedIp) && resolvedIp != targetHost)
+                {
+                    _logger.LogDebug("Resolved {Host} to {Ip}, searching topology by IP", targetHost, resolvedIp);
+                    targetDevice = FindDevice(topology, resolvedIp);
+                    targetClient = targetDevice == null ? FindClient(topology, resolvedIp) : null;
+                }
+            }
+
             if (targetDevice == null && targetClient == null)
             {
                 path.IsValid = false;
@@ -375,6 +387,35 @@ public class NetworkPathAnalyzer
 
         // Speed is in Mbps in the API
         return port.Speed;
+    }
+
+    /// <summary>
+    /// Resolves a hostname to an IP address via DNS.
+    /// </summary>
+    private async Task<string?> ResolveHostnameAsync(string hostname)
+    {
+        try
+        {
+            // Skip if it's already an IP address
+            if (System.Net.IPAddress.TryParse(hostname, out _))
+            {
+                return hostname;
+            }
+
+            var addresses = await System.Net.Dns.GetHostAddressesAsync(hostname);
+            var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+            if (ipv4 != null)
+            {
+                _logger.LogDebug("DNS resolved {Hostname} to {Ip}", hostname, ipv4);
+                return ipv4.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("DNS resolution failed for {Hostname}: {Error}", hostname, ex.Message);
+        }
+
+        return null;
     }
 
     private static List<string> GetLocalIpAddresses()
