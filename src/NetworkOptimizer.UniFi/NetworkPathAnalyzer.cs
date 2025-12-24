@@ -30,10 +30,12 @@ public class NetworkPathAnalyzer
     // Cache keys
     private const string TopologyCacheKey = "NetworkTopology";
     private const string ServerPositionCacheKey = "ServerPosition";
+    private const string RawDevicesCacheKey = "RawDevices";
 
     // Cache duration
     private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
 
     // Protocol overhead (~6% for Ethernet/TCP/IP)
     private const double ProtocolOverheadFactor = 0.94;
@@ -218,8 +220,11 @@ public class NetworkPathAnalyzer
                 }
             }
 
+            // Get raw devices for port speed lookup
+            var rawDevices = await GetRawDevicesAsync(cancellationToken);
+
             // Build the hop list
-            BuildHopList(path, serverPosition, targetDevice, targetClient, topology);
+            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices);
 
             // Calculate bottleneck
             CalculateBottleneck(path);
@@ -296,6 +301,60 @@ public class NetworkPathAnalyzer
         return topology;
     }
 
+    /// <summary>
+    /// Gets raw UniFi device responses with port table data.
+    /// </summary>
+    private async Task<Dictionary<string, UniFiDeviceResponse>> GetRawDevicesAsync(CancellationToken cancellationToken)
+    {
+        if (_cache.TryGetValue(RawDevicesCacheKey, out Dictionary<string, UniFiDeviceResponse>? cached))
+        {
+            return cached ?? new Dictionary<string, UniFiDeviceResponse>();
+        }
+
+        if (!_clientProvider.IsConnected || _clientProvider.Client == null)
+        {
+            return new Dictionary<string, UniFiDeviceResponse>();
+        }
+
+        var devices = await _clientProvider.Client.GetDevicesAsync(cancellationToken);
+        var deviceDict = devices?
+            .Where(d => !string.IsNullOrEmpty(d.Mac))
+            .ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, UniFiDeviceResponse>();
+
+        _cache.Set(RawDevicesCacheKey, deviceDict, RawDevicesCacheDuration);
+
+        return deviceDict;
+    }
+
+    /// <summary>
+    /// Gets the port speed for a specific port on a device.
+    /// </summary>
+    private int GetPortSpeedFromRawDevices(
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        string? deviceMac,
+        int? portIndex)
+    {
+        if (string.IsNullOrEmpty(deviceMac) || !portIndex.HasValue)
+        {
+            return 0;
+        }
+
+        if (!rawDevices.TryGetValue(deviceMac, out var device))
+        {
+            return 0;
+        }
+
+        var port = device.PortTable?.FirstOrDefault(p => p.PortIdx == portIndex.Value);
+        if (port == null)
+        {
+            return 0;
+        }
+
+        // Speed is in Mbps in the API
+        return port.Speed;
+    }
+
     private static List<string> GetLocalIpAddresses()
     {
         var ips = new List<string>();
@@ -350,7 +409,8 @@ public class NetworkPathAnalyzer
         ServerPosition serverPosition,
         DiscoveredDevice? targetDevice,
         DiscoveredClient? targetClient,
-        NetworkTopology topology)
+        NetworkTopology topology,
+        Dictionary<string, UniFiDeviceResponse> rawDevices)
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
@@ -379,11 +439,11 @@ public class NetworkPathAnalyzer
                 Notes = "Target device"
             };
 
-            // Get uplink speed if available
-            if (targetDevice.IsUplinkConnected && currentPort.HasValue && deviceDict.TryGetValue(currentMac ?? "", out var uplinkDevice))
+            // Get uplink speed from the port on the upstream switch
+            if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
-                // Speed is on the remote port of the uplink device
-                // This data isn't directly available, we'll get it from port_table later
+                deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
 
             hops.Add(deviceHop);
@@ -409,6 +469,13 @@ public class NetworkPathAnalyzer
                 // Wireless client - speed depends on link rate
                 hop.EgressSpeedMbps = (int)(targetClient.TxRate / 1000); // kbps to Mbps
             }
+            else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
+            {
+                // Wired client - get port speed from switch
+                int portSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                hop.EgressSpeedMbps = portSpeed;
+                hop.IngressSpeedMbps = portSpeed;
+            }
 
             hops.Add(hop);
         }
@@ -417,55 +484,90 @@ public class NetworkPathAnalyzer
             return; // No target found
         }
 
-        // Trace uplinks until we reach the server's switch
-        int hopOrder = 1;
-        int maxHops = 10; // Prevent infinite loops
+        // Check if both server and target are on the same switch
+        bool sameSwitch = !string.IsNullOrEmpty(currentMac) &&
+                          currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
 
-        while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
+        if (sameSwitch)
         {
-            if (!deviceDict.TryGetValue(currentMac, out var device))
-                break;
-
-            // Check if we've reached the server's switch
-            bool isServerSwitch = currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
-
-            var hop = new NetworkHop
+            // Both endpoints on same switch - just add the switch as a single hop
+            if (deviceDict.TryGetValue(currentMac!, out var switchDevice))
             {
-                Order = hopOrder,
-                Type = GetHopType(device.Type),
-                DeviceMac = device.Mac,
-                DeviceName = device.Name,
-                DeviceModel = device.ModelDisplay ?? device.Model,
-                DeviceIp = device.IpAddress,
-                IngressPort = currentPort,
-                IngressPortName = GetPortName(device, currentPort),
-                EgressPort = isServerSwitch ? serverPosition.SwitchPort : device.UplinkPort
-            };
+                // Get server's port speed
+                int serverPortSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, serverPosition.SwitchPort);
 
-            // Get port speeds from device's port table
-            // Note: We need to get the raw device data for port speeds
-            // For now, use uplink speed as approximation
-            if (device.IsUplinkConnected)
-            {
-                hop.EgressSpeedMbps = GetPortSpeed(device, hop.EgressPort);
+                var switchHop = new NetworkHop
+                {
+                    Order = 1,
+                    Type = HopType.Switch,
+                    DeviceMac = switchDevice.Mac,
+                    DeviceName = switchDevice.Name,
+                    DeviceModel = switchDevice.ModelDisplay ?? switchDevice.Model,
+                    DeviceIp = switchDevice.IpAddress,
+                    IngressPort = currentPort,
+                    IngressPortName = GetPortName(rawDevices, currentMac, currentPort),
+                    IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort),
+                    EgressPort = serverPosition.SwitchPort,
+                    EgressPortName = GetPortName(rawDevices, currentMac, serverPosition.SwitchPort),
+                    EgressSpeedMbps = serverPortSpeed,
+                    Notes = "Same switch (direct L2 path)"
+                };
+
+                hops.Add(switchHop);
             }
-            hop.IngressSpeedMbps = GetPortSpeed(device, currentPort);
+        }
+        else
+        {
+            // Trace uplinks until we reach the server's switch
+            int hopOrder = 1;
+            int maxHops = 10; // Prevent infinite loops
 
-            if (isServerSwitch)
+            while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
             {
-                hop.Notes = "Server's switch";
-                hop.EgressPortName = GetPortName(device, serverPosition.SwitchPort);
+                if (!deviceDict.TryGetValue(currentMac, out var device))
+                    break;
+
+                // Check if we've reached the server's switch
+                bool isServerSwitch = currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
+
+                var hop = new NetworkHop
+                {
+                    Order = hopOrder,
+                    Type = GetHopType(device.Type),
+                    DeviceMac = device.Mac,
+                    DeviceName = device.Name,
+                    DeviceModel = device.ModelDisplay ?? device.Model,
+                    DeviceIp = device.IpAddress,
+                    IngressPort = currentPort,
+                    IngressPortName = GetPortName(rawDevices, currentMac, currentPort),
+                    IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort),
+                    EgressPort = isServerSwitch ? serverPosition.SwitchPort : device.UplinkPort
+                };
+
+                // Get egress port speed
+                if (isServerSwitch)
+                {
+                    hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, serverPosition.SwitchPort);
+                    hop.EgressPortName = GetPortName(rawDevices, currentMac, serverPosition.SwitchPort);
+                    hop.Notes = "Server's switch";
+                }
+                else if (!string.IsNullOrEmpty(device.UplinkMac))
+                {
+                    // Egress speed is the uplink speed - get from uplink switch's port
+                    hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                    hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                }
+
+                hops.Add(hop);
+
+                if (isServerSwitch)
+                    break;
+
+                // Move to next hop
+                currentMac = device.UplinkMac;
+                currentPort = device.UplinkPort;
+                hopOrder++;
             }
-
-            hops.Add(hop);
-
-            if (isServerSwitch)
-                break;
-
-            // Move to next hop
-            currentMac = device.UplinkMac;
-            currentPort = device.UplinkPort;
-            hopOrder++;
         }
 
         // Add gateway hop if inter-VLAN routing is required
@@ -510,18 +612,31 @@ public class NetworkPathAnalyzer
         _ => HopType.Client
     };
 
-    private static string? GetPortName(DiscoveredDevice device, int? portIndex)
+    /// <summary>
+    /// Gets the port name from raw device data.
+    /// </summary>
+    private static string? GetPortName(
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        string? deviceMac,
+        int? portIndex)
     {
-        // Port names aren't in DiscoveredDevice, would need raw API data
-        return portIndex.HasValue ? $"Port {portIndex}" : null;
-    }
+        if (string.IsNullOrEmpty(deviceMac) || !portIndex.HasValue)
+        {
+            return null;
+        }
 
-    private static int GetPortSpeed(DiscoveredDevice device, int? portIndex)
-    {
-        // Port speed data isn't in DiscoveredDevice model
-        // Default to 1 Gbps as conservative estimate
-        // TODO: Enhance DiscoveredDevice to include port speeds
-        return 1000;
+        if (!rawDevices.TryGetValue(deviceMac, out var device))
+        {
+            return $"Port {portIndex}";
+        }
+
+        var port = device.PortTable?.FirstOrDefault(p => p.PortIdx == portIndex.Value);
+        if (port != null && !string.IsNullOrEmpty(port.Name))
+        {
+            return port.Name;
+        }
+
+        return $"Port {portIndex}";
     }
 
     private void CalculateBottleneck(NetworkPath path)
