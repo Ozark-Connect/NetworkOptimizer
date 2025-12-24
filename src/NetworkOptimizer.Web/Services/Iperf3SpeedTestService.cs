@@ -223,13 +223,11 @@ public class Iperf3SpeedTestService
     /// </summary>
     private static int GetParallelStreamsForDevice(string? deviceType, Iperf3Settings settings)
     {
-        var type = deviceType?.ToLowerInvariant()?.Replace(" ", "") ?? "";
-        return type switch
-        {
-            "gateway" => settings.GatewayParallelStreams,
-            "switch" or "accesspoint" => settings.UniFiParallelStreams,
-            _ => settings.OtherParallelStreams
-        };
+        if (DeviceTypes.IsGateway(deviceType))
+            return settings.GatewayParallelStreams;
+        if (DeviceTypes.IsUniFi(deviceType))
+            return settings.UniFiParallelStreams;
+        return settings.OtherParallelStreams;
     }
 
     /// <summary>

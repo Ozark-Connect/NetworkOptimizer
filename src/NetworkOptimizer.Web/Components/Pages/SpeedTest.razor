@@ -92,7 +92,7 @@
                                 <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
                                 <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                                 <span class="result-unit">Mbps</span>
-                                <span class="tooltip-icon" data-tooltip="↓ Download: Data sent from gateway to test server. ↑ Upload: Data sent to gateway from test server.">?</span>
+                                <span class="tooltip-icon" data-tooltip="↓ Download: Data from gateway. ↑ Upload: Data to gateway.">?</span>
                             </span>
                             <span class="result-box-right">
                                 <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
@@ -353,11 +353,10 @@
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Type</label>
                             <select class="form-control" @bind="editingDevice.DeviceType">
-                                <option value="Server">Server</option>
-                                <option value="Desktop">Desktop</option>
-                                <option value="AccessPoint">Access Point</option>
-                                <option value="Switch">Switch</option>
-                                <option value="Gateway">Gateway</option>
+                                @foreach (var deviceType in DeviceTypes.All)
+                                {
+                                    <option value="@deviceType">@DeviceTypes.GetDisplayName(deviceType)</option>
+                                }
                             </select>
                         </div>
                     </div>
@@ -501,7 +500,7 @@
                                     <span class="tooltip-icon">?</span>
                                     <span class="tooltip-content">
                                         <strong>Download Speed</strong><br />
-                                        Data sent from device to test server (download from device's perspective).
+                                        Data transferred from the tested device.
                                     </span>
                                 </span>
                             </th>
@@ -511,7 +510,7 @@
                                     <span class="tooltip-icon">?</span>
                                     <span class="tooltip-content">
                                         <strong>Upload Speed</strong><br />
-                                        Data sent to device from test server (upload from device's perspective).
+                                        Data transferred to the tested device.
                                     </span>
                                 </span>
                             </th>
@@ -546,7 +545,8 @@
                                     }
                                     else
                                     {
-                                        <span class="status-badge status-disconnected" title="@result.ErrorMessage">Failed</span>
+                                        <span class="status-badge status-disconnected">Failed</span>
+                                        <span class="tooltip-icon tooltip-icon-sm" data-tooltip="@result.ErrorMessage">?</span>
                                     }
                                 </td>
                                 <td class="expand-chevron">
@@ -682,7 +682,7 @@
 
 @code {
     private List<DeviceSshConfiguration> devices = new();
-    private DeviceSshConfiguration editingDevice = new() { DeviceType = "Server", Enabled = true };
+    private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceTypes.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
@@ -920,7 +920,7 @@
     {
         editingDevice = new DeviceSshConfiguration
         {
-            DeviceType = "Server",
+            DeviceType = DeviceTypes.Server,
             Enabled = true,
             StartIperf3Server = false
         };
@@ -1180,19 +1180,5 @@
         };
     }
 
-    private string GetSavedDeviceTypeDisplay(string? type)
-    {
-        if (string.IsNullOrEmpty(type))
-            return "Unknown";
-
-        return type switch
-        {
-            "AccessPoint" => "Access Point",
-            "Server" => "Server",
-            "Desktop" => "Desktop",
-            "Switch" => "Switch",
-            "Gateway" => "Gateway",
-            _ => type
-        };
-    }
+    private string GetSavedDeviceTypeDisplay(string? type) => DeviceTypes.GetDisplayName(type);
 }
