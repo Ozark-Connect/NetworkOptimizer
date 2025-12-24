@@ -89,9 +89,10 @@
                     <div class="result-box @(gatewayExpanded ? "expanded" : "")" @onclick="() => gatewayExpanded = !gatewayExpanded">
                         <div class="result-box-header">
                             <span class="result-speeds">
-                                <span class="result-speed" title="From Device: Data sent from gateway to test server">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
-                                <span class="result-speed" title="To Device: Data sent to gateway from test server">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
+                                <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
+                                <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                                 <span class="result-unit">Mbps</span>
+                                <span class="tooltip-icon" data-tooltip="↓ Download: Data sent from gateway to test server. ↑ Upload: Data sent to gateway from test server.">?</span>
                             </span>
                             <span class="result-box-right">
                                 <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
@@ -494,9 +495,35 @@
                         <tr>
                             <th>Time</th>
                             <th>Device</th>
-                            <th title="From Device: Data sent from device to test server">↓ Mbps</th>
-                            <th title="To Device: Data sent to device from test server">↑ Mbps</th>
-                            <th title="Parallel TCP streams used for this test. Configure per device type in Settings.">Streams</th>
+                            <th>
+                                <span class="tooltip-wrapper tooltip-bottom">
+                                    ↓ Mbps
+                                    <span class="tooltip-icon">?</span>
+                                    <span class="tooltip-content">
+                                        <strong>Download Speed</strong><br />
+                                        Data sent from device to test server (download from device's perspective).
+                                    </span>
+                                </span>
+                            </th>
+                            <th>
+                                <span class="tooltip-wrapper tooltip-bottom">
+                                    ↑ Mbps
+                                    <span class="tooltip-icon">?</span>
+                                    <span class="tooltip-content">
+                                        <strong>Upload Speed</strong><br />
+                                        Data sent to device from test server (upload from device's perspective).
+                                    </span>
+                                </span>
+                            </th>
+                            <th>
+                                <span class="tooltip-wrapper tooltip-bottom">
+                                    Streams
+                                    <span class="tooltip-icon">?</span>
+                                    <span class="tooltip-content">
+                                        Parallel TCP streams used for this test. Configure per device type in <a href="/settings#speed-test-settings">Settings</a>.
+                                    </span>
+                                </span>
+                            </th>
                             <th>Status</th>
                             <th></th>
                         </tr>
