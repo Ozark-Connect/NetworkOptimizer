@@ -583,6 +583,21 @@ public class NetworkPathAnalyzer
             }
         }
 
+        // Add server as final endpoint
+        var serverHop = new NetworkHop
+        {
+            Order = hops.Count,
+            Type = HopType.Client,
+            DeviceMac = serverPosition.Mac,
+            DeviceName = "iperf3 Server",
+            DeviceIp = serverPosition.IpAddress,
+            IngressPort = serverPosition.SwitchPort,
+            IngressPortName = GetPortName(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+            IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+            Notes = "Speed test server"
+        };
+        hops.Add(serverHop);
+
         // Add gateway hop if inter-VLAN routing is required
         if (path.RequiresRouting && !string.IsNullOrEmpty(path.GatewayDevice))
         {
