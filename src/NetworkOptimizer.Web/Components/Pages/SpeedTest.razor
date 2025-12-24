@@ -1128,7 +1128,7 @@
             {
                 Name = device.Name ?? "Unknown Device",
                 Host = device.Ip,
-                DeviceType = GetDeviceTypeDisplay(device.Type),
+                DeviceType = GetDeviceTypeFromUniFi(device.Type),
                 Enabled = true,
                 StartIperf3Server = true
             };
@@ -1161,6 +1161,26 @@
         }
     }
 
+    /// <summary>
+    /// Convert UniFi API device type code to DeviceTypes constant for internal use
+    /// </summary>
+    private string GetDeviceTypeFromUniFi(string? type)
+    {
+        if (string.IsNullOrEmpty(type))
+            return DeviceTypes.Server; // Default for unknown
+
+        return type.ToLowerInvariant() switch
+        {
+            "uap" => DeviceTypes.AccessPoint,
+            "usw" => DeviceTypes.Switch,
+            "udm" or "ugw" or "uxg" => DeviceTypes.Gateway,
+            _ => DeviceTypes.Server // Non-UniFi devices default to Server
+        };
+    }
+
+    /// <summary>
+    /// Get display name for UniFi API device type code (for UI display in device list)
+    /// </summary>
     private string GetDeviceTypeDisplay(string? type)
     {
         if (string.IsNullOrEmpty(type))
