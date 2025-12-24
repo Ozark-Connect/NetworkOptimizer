@@ -114,10 +114,10 @@ public class UniFiClientResponse
     public long RxRate { get; set; }
 
     [JsonPropertyName("tx_bytes-r")]
-    public long TxBytesRate { get; set; }
+    public double TxBytesRate { get; set; }
 
     [JsonPropertyName("rx_bytes-r")]
-    public long RxBytesRate { get; set; }
+    public double RxBytesRate { get; set; }
 
     // QoS and experience
     [JsonPropertyName("qos_policy_applied")]

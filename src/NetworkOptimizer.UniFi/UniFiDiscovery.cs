@@ -350,8 +350,8 @@ public class DiscoveredClient
     public long RxPackets { get; set; }
     public long TxRate { get; set; }
     public long RxRate { get; set; }
-    public long TxBytesRate { get; set; }
-    public long RxBytesRate { get; set; }
+    public double TxBytesRate { get; set; }
+    public double RxBytesRate { get; set; }
     // QoS
     public int Satisfaction { get; set; }
     public bool HasFixedIp { get; set; }
