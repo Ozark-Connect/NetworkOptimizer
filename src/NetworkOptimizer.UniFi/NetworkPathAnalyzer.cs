@@ -37,8 +37,21 @@ public class NetworkPathAnalyzer
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
 
-    // Protocol overhead (~6% for Ethernet/TCP/IP)
-    private const double ProtocolOverheadFactor = 0.94;
+    /// <summary>
+    /// Empirical realistic maximum throughput by link speed (Mbps).
+    /// Based on real-world testing with iperf3.
+    /// </summary>
+    private static readonly Dictionary<int, int> RealisticMaxByLinkSpeed = new()
+    {
+        { 10000, 9910 },   // 10 GbE copper: ~9.91 Gbps practical max
+        { 5000, 4950 },    // 5 GbE: ~99% (estimated)
+        { 2500, 2475 },    // 2.5 GbE: ~99% (estimated)
+        { 1000, 940 },     // 1 GbE: ~94% typical
+        { 100, 94 },       // 100 Mbps: ~94% typical
+    };
+
+    // Fallback overhead factor for unknown link speeds
+    private const double FallbackOverheadFactor = 0.94;
 
     /// <summary>
     /// Known gateway inter-VLAN routing throughput limits (Mbps).
@@ -639,6 +652,21 @@ public class NetworkPathAnalyzer
         return $"Port {portIndex}";
     }
 
+    /// <summary>
+    /// Gets the realistic maximum throughput for a given link speed.
+    /// Uses empirical data where available, falls back to 94% overhead estimate.
+    /// </summary>
+    private static int GetRealisticMax(int theoreticalMbps)
+    {
+        if (RealisticMaxByLinkSpeed.TryGetValue(theoreticalMbps, out int realistic))
+        {
+            return realistic;
+        }
+
+        // Fallback: use 94% for unknown speeds
+        return (int)(theoreticalMbps * FallbackOverheadFactor);
+    }
+
     private void CalculateBottleneck(NetworkPath path)
     {
         if (path.Hops.Count == 0)
@@ -678,7 +706,7 @@ public class NetworkPathAnalyzer
         }
 
         path.TheoreticalMaxMbps = minSpeed;
-        path.RealisticMaxMbps = (int)(minSpeed * ProtocolOverheadFactor);
+        path.RealisticMaxMbps = GetRealisticMax(minSpeed);
 
         if (bottleneckHop != null)
         {
