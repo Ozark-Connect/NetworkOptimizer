@@ -149,7 +149,12 @@ public class PortDetail
     public string GetLinkStatus()
     {
         if (!IsUp) return "Down";
-        if (Speed >= 1000) return $"Up {Speed / 1000} GbE";
+        if (Speed >= 1000)
+        {
+            var gbe = Speed / 1000.0;
+            // Show decimal only if needed (e.g., 2.5 GbE, but 1 GbE not 1.0 GbE)
+            return gbe % 1 == 0 ? $"Up {(int)gbe} GbE" : $"Up {gbe:0.#} GbE";
+        }
         if (Speed > 0) return $"Up {Speed} MbE";
         return "Down";
     }
