@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Core.Helpers
 @inject Iperf3SpeedTestService SpeedTestService
@@ -1128,7 +1129,7 @@
             {
                 Name = device.Name ?? "Unknown Device",
                 Host = device.Ip,
-                DeviceType = DeviceTypes.FromUniFiType(device.Type),
+                DeviceType = device.DeviceType,
                 Enabled = true,
                 StartIperf3Server = true
             };

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.UniFi.Models;
 
@@ -14,8 +15,17 @@ public class UniFiDeviceResponse
     [JsonPropertyName("mac")]
     public string Mac { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Raw UniFi API type code (uap, usw, udm, etc.)
+    /// Use DeviceType property for the normalized type constant.
+    /// </summary>
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Normalized device type constant (Gateway, Switch, AccessPoint, etc.)
+    /// </summary>
+    public string DeviceType => DeviceTypes.FromUniFiType(Type);
 
     [JsonPropertyName("model")]
     public string Model { get; set; } = string.Empty;

@@ -1,7 +1,7 @@
-namespace NetworkOptimizer.Storage.Models;
+namespace NetworkOptimizer.Core.Enums;
 
 /// <summary>
-/// Device type constants for speed test devices.
+/// Device type constants for network devices.
 /// Stored as strings in the database for readability.
 /// </summary>
 public static class DeviceTypes
