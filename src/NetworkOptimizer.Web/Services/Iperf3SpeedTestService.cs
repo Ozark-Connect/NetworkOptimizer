@@ -214,7 +214,21 @@ public class Iperf3SpeedTestService
     public async Task<Iperf3Result> RunSpeedTestAsync(DeviceSshConfiguration device)
     {
         var settings = await _settingsService.GetIperf3SettingsAsync();
-        return await RunSpeedTestAsync(device, settings.DurationSeconds, settings.ParallelStreams);
+        var parallelStreams = GetParallelStreamsForDevice(device.DeviceType, settings);
+        return await RunSpeedTestAsync(device, settings.DurationSeconds, parallelStreams);
+    }
+
+    /// <summary>
+    /// Determine the appropriate parallel streams setting based on device type
+    /// </summary>
+    private static int GetParallelStreamsForDevice(string? deviceType, Iperf3Settings settings)
+    {
+        return deviceType?.ToLowerInvariant() switch
+        {
+            "gateway" => settings.GatewayParallelStreams,
+            "switch" or "accesspoint" => settings.UniFiParallelStreams,
+            _ => settings.OtherParallelStreams
+        };
     }
 
     /// <summary>

@@ -24,7 +24,11 @@ public class SystemSetting
 /// </summary>
 public static class SystemSettingKeys
 {
-    public const string Iperf3ParallelStreams = "iperf3.parallel_streams";
     public const string Iperf3Duration = "iperf3.duration_seconds";
     public const string Iperf3Port = "iperf3.port";
+
+    // Per-device-type parallel stream settings
+    public const string Iperf3GatewayParallelStreams = "iperf3.gateway_parallel_streams";
+    public const string Iperf3UniFiParallelStreams = "iperf3.unifi_parallel_streams";
+    public const string Iperf3OtherParallelStreams = "iperf3.other_parallel_streams";
 }

@@ -407,7 +407,7 @@ public class GatewaySpeedTestService
     public async Task<GatewaySpeedTestResult> RunSpeedTestAsync()
     {
         var iperf3Settings = await _systemSettings.GetIperf3SettingsAsync();
-        return await RunSpeedTestAsync(iperf3Settings.DurationSeconds, iperf3Settings.ParallelStreams);
+        return await RunSpeedTestAsync(iperf3Settings.DurationSeconds, iperf3Settings.GatewayParallelStreams);
     }
 
     /// <summary>

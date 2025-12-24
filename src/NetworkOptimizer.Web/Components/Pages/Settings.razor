@@ -810,13 +810,24 @@
             <h2 class="card-title">Speed Test Settings</h2>
         </div>
         <div class="card-body">
-            <p class="section-description">Configure iperf3 speed test parameters for all device tests</p>
+            <p class="section-description">Configure iperf3 speed test parameters. Parallel streams can be configured per device type.</p>
 
-            <div class="form-group">
-                <label class="form-label">Parallel Streams</label>
-                <input type="number" class="form-control" @bind="iperf3ParallelStreams" min="1" max="16" style="width: 100px;" />
-                <small class="form-help">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
+            <h4 style="margin-top: 0; margin-bottom: 0.75rem; color: var(--text-secondary);">Parallel Streams by Device Type</h4>
+            <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Gateway</label>
+                    <input type="number" class="form-control" @bind="iperf3GatewayParallelStreams" min="1" max="16" style="width: 80px;" />
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">UniFi Devices</label>
+                    <input type="number" class="form-control" @bind="iperf3UniFiParallelStreams" min="1" max="16" style="width: 80px;" />
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Other Devices</label>
+                    <input type="number" class="form-control" @bind="iperf3OtherParallelStreams" min="1" max="16" style="width: 80px;" />
+                </div>
             </div>
+            <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
 
             <div class="form-group">
                 <label class="form-label">Test Duration (seconds)</label>
@@ -951,7 +962,9 @@
     private bool hasSshPassword = false;
 
     // Speed Test Settings
-    private int iperf3ParallelStreams = 3;
+    private int iperf3GatewayParallelStreams = 3;
+    private int iperf3UniFiParallelStreams = 3;
+    private int iperf3OtherParallelStreams = 10;
     private int iperf3Duration = 10;
     private bool savingIperf3Settings = false;
     private string iperf3Message = "";
@@ -1012,7 +1025,9 @@
         try
         {
             var settings = await SystemSettings.GetIperf3SettingsAsync();
-            iperf3ParallelStreams = settings.ParallelStreams;
+            iperf3GatewayParallelStreams = settings.GatewayParallelStreams;
+            iperf3UniFiParallelStreams = settings.UniFiParallelStreams;
+            iperf3OtherParallelStreams = settings.OtherParallelStreams;
             iperf3Duration = settings.DurationSeconds;
         }
         catch (Exception ex)
@@ -1031,14 +1046,16 @@
         try
         {
             // Validate inputs
-            if (iperf3ParallelStreams < 1) iperf3ParallelStreams = 1;
-            if (iperf3ParallelStreams > 16) iperf3ParallelStreams = 16;
-            if (iperf3Duration < 3) iperf3Duration = 3;
-            if (iperf3Duration > 60) iperf3Duration = 60;
+            iperf3GatewayParallelStreams = Math.Clamp(iperf3GatewayParallelStreams, 1, 16);
+            iperf3UniFiParallelStreams = Math.Clamp(iperf3UniFiParallelStreams, 1, 16);
+            iperf3OtherParallelStreams = Math.Clamp(iperf3OtherParallelStreams, 1, 16);
+            iperf3Duration = Math.Clamp(iperf3Duration, 3, 60);
 
             await SystemSettings.SaveIperf3SettingsAsync(new Iperf3Settings
             {
-                ParallelStreams = iperf3ParallelStreams,
+                GatewayParallelStreams = iperf3GatewayParallelStreams,
+                UniFiParallelStreams = iperf3UniFiParallelStreams,
+                OtherParallelStreams = iperf3OtherParallelStreams,
                 DurationSeconds = iperf3Duration
             });
 
