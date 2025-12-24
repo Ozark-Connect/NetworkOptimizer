@@ -221,8 +221,14 @@ public class NetworkPathAnalyzer
             }
 
             // Detect inter-VLAN routing
-            if (path.SourceVlanId.HasValue && path.DestinationVlanId.HasValue &&
-                path.SourceVlanId != path.DestinationVlanId)
+            // Check by VLAN ID if both are set, or by network name if different
+            bool differentVlans = path.SourceVlanId.HasValue && path.DestinationVlanId.HasValue &&
+                                  path.SourceVlanId != path.DestinationVlanId;
+            bool differentNetworks = !string.IsNullOrEmpty(path.SourceNetworkName) &&
+                                     !string.IsNullOrEmpty(path.DestinationNetworkName) &&
+                                     !path.SourceNetworkName.Equals(path.DestinationNetworkName, StringComparison.OrdinalIgnoreCase);
+
+            if (differentVlans || differentNetworks)
             {
                 path.RequiresRouting = true;
                 var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
@@ -231,6 +237,9 @@ public class NetworkPathAnalyzer
                     path.GatewayDevice = gateway.Name;
                     path.GatewayModel = gateway.ModelDisplay ?? gateway.Model;
                 }
+
+                _logger.LogInformation("Inter-VLAN routing detected: {SrcNetwork} (VLAN {SrcVlan}) -> {DstNetwork} (VLAN {DstVlan})",
+                    path.SourceNetworkName, path.SourceVlanId, path.DestinationNetworkName, path.DestinationVlanId);
             }
 
             // Get raw devices for port speed lookup
@@ -583,22 +592,7 @@ public class NetworkPathAnalyzer
             }
         }
 
-        // Add server as final endpoint
-        var serverHop = new NetworkHop
-        {
-            Order = hops.Count,
-            Type = HopType.Client,
-            DeviceMac = serverPosition.Mac,
-            DeviceName = "iperf3 Server",
-            DeviceIp = serverPosition.IpAddress,
-            IngressPort = serverPosition.SwitchPort,
-            IngressPortName = GetPortName(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
-            IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
-            Notes = "Speed test server"
-        };
-        hops.Add(serverHop);
-
-        // Add gateway hop if inter-VLAN routing is required
+        // Add gateway hop if inter-VLAN routing is required (before server)
         if (path.RequiresRouting && !string.IsNullOrEmpty(path.GatewayDevice))
         {
             var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
@@ -627,6 +621,21 @@ public class NetworkPathAnalyzer
                 hops.Add(gatewayHop);
             }
         }
+
+        // Add server as final endpoint
+        var serverHop = new NetworkHop
+        {
+            Order = hops.Count,
+            Type = HopType.Client,
+            DeviceMac = serverPosition.Mac,
+            DeviceName = "iperf3 Server",
+            DeviceIp = serverPosition.IpAddress,
+            IngressPort = serverPosition.SwitchPort,
+            IngressPortName = GetPortName(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+            IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, serverPosition.SwitchMac, serverPosition.SwitchPort),
+            Notes = "Speed test server"
+        };
+        hops.Add(serverHop);
 
         // Sort hops by order
         path.Hops = hops.OrderBy(h => h.Order).ToList();
