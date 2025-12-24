@@ -176,7 +176,8 @@
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
-            PathAnalysis = Result.PathAnalysis;
+            // Only use Result.PathAnalysis if no separate PathAnalysis was passed
+            PathAnalysis ??= Result.PathAnalysis;
         }
         else if (GatewayResult != null)
         {
