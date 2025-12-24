@@ -2384,19 +2384,14 @@ td .btn + .btn {
 }
 
 /* ============================================
-   Tooltip Icon Component
-   Interactive tooltips with link support
-   - Hover on icon only (not wrapper text)
-   - Click/tap to toggle (mobile friendly)
-   - Stays visible for link clicking
+   Tooltip Icon Component (using Tippy.js)
+   Interactive popovers with link support
    ============================================ */
 .tooltip-wrapper {
     display: inline-flex;
     align-items: center;
-    position: relative;
 }
 
-/* Hover zone extends above icon to include tooltip area */
 .tooltip-icon {
     display: inline-flex;
     align-items: center;
@@ -2415,33 +2410,20 @@ td .btn + .btn {
     user-select: none;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
-    position: relative;
 }
 
-/* Extend hover zone upward to bridge to tooltip */
-.tooltip-icon::before {
-    content: '';
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 200px;
-    height: 20px;
-    background: transparent;
-}
-
-.tooltip-icon:hover,
-.tooltip-icon.active {
+.tooltip-icon:hover {
     color: var(--text-primary);
     background: var(--primary-color);
 }
 
+/* Hidden content element (Tippy reads innerHTML from this) */
 .tooltip-content {
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 10px 14px;
+    display: none;
+}
+
+/* Tippy.js custom theme to match app styling */
+.tippy-box[data-theme~='custom'] {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
@@ -2449,124 +2431,29 @@ td .btn + .btn {
     font-size: 0.8125rem;
     font-weight: 400;
     line-height: 1.5;
-    min-width: 200px;
-    max-width: 300px;
-    text-align: left;
     box-shadow: var(--shadow-lg);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease 0.1s;
-    z-index: 1000;
-    pointer-events: none;
 }
 
-/* Arrow pointing down to icon */
-.tooltip-content::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: var(--border-color);
+.tippy-box[data-theme~='custom'] .tippy-content {
+    padding: 10px 14px;
 }
 
-/* Invisible hover bridge between tooltip and icon */
-.tooltip-content::before {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 60px;
-    height: 16px;
-    background: transparent;
+.tippy-box[data-theme~='custom'] .tippy-arrow {
+    color: var(--border-color);
 }
 
-/* Show tooltip on icon hover (desktop) */
-.tooltip-icon:hover + .tooltip-content,
-.tooltip-icon.active + .tooltip-content,
-.tooltip-content:hover,
-.tooltip-content.active {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transition-delay: 0s;
-}
-
-/* Links inside tooltips */
-.tooltip-content a {
+/* Links inside Tippy tooltips */
+.tippy-box[data-theme~='custom'] a {
     color: var(--primary-color);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
-.tooltip-content a:hover {
+.tippy-box[data-theme~='custom'] a:hover {
     color: var(--accent-color);
 }
 
-/* Tooltip positioned below */
-.tooltip-wrapper.tooltip-bottom .tooltip-content {
-    bottom: auto;
-    top: calc(100% + 8px);
-}
-
-.tooltip-wrapper.tooltip-bottom .tooltip-content::after {
-    top: auto;
-    bottom: 100%;
-    border-top-color: transparent;
-    border-bottom-color: var(--border-color);
-}
-
-/* Standalone tooltip icon (no wrapper, simple text-only) */
-.tooltip-icon[data-tooltip] {
-    position: relative;
-}
-
-.tooltip-icon[data-tooltip]::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 8px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
+.tippy-box[data-theme~='custom'] strong {
     color: var(--text-primary);
-    font-size: 0.8125rem;
-    font-weight: 400;
-    line-height: 1.4;
-    min-width: 180px;
-    max-width: 280px;
-    white-space: normal;
-    text-align: left;
-    box-shadow: var(--shadow-lg);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-    z-index: 1000;
-    pointer-events: none;
-}
-
-.tooltip-icon[data-tooltip]::after {
-    content: '';
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: var(--border-color);
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-    z-index: 1001;
-}
-
-.tooltip-icon[data-tooltip]:hover::before,
-.tooltip-icon[data-tooltip]:hover::after,
-.tooltip-icon[data-tooltip].active::before,
-.tooltip-icon[data-tooltip].active::after {
-    opacity: 1;
-    visibility: visible;
+    font-weight: 600;
 }

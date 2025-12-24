@@ -12,6 +12,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- Tippy.js for interactive tooltips/popovers -->
+    <script src="https://unpkg.com/@@popperjs/core@2"></script>
+    <script src="https://unpkg.com/tippy.js@6"></script>
     <HeadOutlet />
 </head>
 
@@ -27,75 +30,77 @@
             downloadLink.click();
         }
 
-        // Tooltip click/tap handling for mobile and accessibility
-        (function() {
-            let activeTooltip = null;
+        // Initialize Tippy.js tooltips
+        function initTooltips() {
+            // Find all tooltip icons with content siblings
+            document.querySelectorAll('.tooltip-icon').forEach(function(icon) {
+                // Skip if already initialized
+                if (icon._tippy) return;
 
-            function closeActiveTooltip() {
-                if (activeTooltip) {
-                    activeTooltip.icon.classList.remove('active');
-                    if (activeTooltip.content) {
-                        activeTooltip.content.classList.remove('active');
-                    }
-                    activeTooltip = null;
-                }
-            }
+                // Get content from sibling or data attribute
+                const contentEl = icon.nextElementSibling;
+                let content;
 
-            function toggleTooltip(icon) {
-                const isActive = icon.classList.contains('active');
-
-                // Close any other active tooltip
-                closeActiveTooltip();
-
-                // Toggle this one (if it wasn't already active)
-                if (!isActive) {
-                    icon.classList.add('active');
-
-                    // For wrapper-style tooltips, also activate the content
-                    const content = icon.nextElementSibling;
-                    if (content && content.classList.contains('tooltip-content')) {
-                        content.classList.add('active');
-                        activeTooltip = { icon, content };
-                    } else {
-                        // data-tooltip style (no separate content element)
-                        activeTooltip = { icon, content: null };
-                    }
-                }
-            }
-
-            // Handle clicks/taps on tooltip icons
-            document.addEventListener('click', function(e) {
-                const icon = e.target.closest('.tooltip-icon');
-                if (icon) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleTooltip(icon);
+                if (contentEl && contentEl.classList.contains('tooltip-content')) {
+                    content = contentEl.innerHTML;
+                    contentEl.style.display = 'none'; // Hide the original content element
+                } else if (icon.dataset.tooltip) {
+                    content = icon.dataset.tooltip;
+                } else {
                     return;
                 }
 
-                // If clicking inside tooltip content, don't close it
-                if (e.target.closest('.tooltip-content')) {
-                    return;
-                }
-
-                // Clicking elsewhere closes the active tooltip
-                closeActiveTooltip();
-            });
-
-            // Close tooltip on escape key
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
-                    closeActiveTooltip();
-                }
-            });
-
-            // Re-initialize after Blazor updates the DOM
-            if (typeof Blazor !== 'undefined') {
-                Blazor.addEventListener('enhancedload', function() {
-                    closeActiveTooltip();
+                tippy(icon, {
+                    content: content,
+                    allowHTML: true,
+                    interactive: true,
+                    interactiveBorder: 10,
+                    trigger: 'mouseenter click',
+                    hideOnClick: 'toggle',
+                    delay: [100, 200],
+                    placement: 'top',
+                    theme: 'custom',
+                    appendTo: document.body,
+                    maxWidth: 300,
+                    onShow(instance) {
+                        // Close other open tooltips
+                        document.querySelectorAll('.tooltip-icon').forEach(function(other) {
+                            if (other !== icon && other._tippy) {
+                                other._tippy.hide();
+                            }
+                        });
+                    }
                 });
+            });
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initTooltips);
+
+        // Re-initialize after Blazor navigation
+        if (typeof Blazor !== 'undefined') {
+            Blazor.addEventListener('enhancedload', function() {
+                setTimeout(initTooltips, 100);
+            });
+        }
+
+        // Also watch for DOM changes (for dynamic content)
+        const observer = new MutationObserver(function(mutations) {
+            let shouldInit = false;
+            mutations.forEach(function(mutation) {
+                if (mutation.addedNodes.length) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1 && (node.classList?.contains('tooltip-icon') || node.querySelector?.('.tooltip-icon'))) {
+                            shouldInit = true;
+                        }
+                    });
+                }
+            });
+            if (shouldInit) {
+                setTimeout(initTooltips, 50);
             }
-        })();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
     </script>
 </body>
 
