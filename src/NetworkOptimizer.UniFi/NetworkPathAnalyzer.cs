@@ -46,7 +46,7 @@ public class NetworkPathAnalyzer
         { 10000, 9910 },   // 10 GbE copper: ~9.91 Gbps practical max
         { 5000, 4850 },    // 5 GbE: ~97% (estimated, between 2.5G and 10G)
         { 2500, 2380 },    // 2.5 GbE: ~2.38 Gbps practical max
-        { 1000, 940 },     // 1 GbE: ~94% typical
+        { 1000, 960 },     // 1 GbE: ~960 Mbps practical max
         { 100, 94 },       // 100 Mbps: ~94% typical
     };
 
