@@ -93,7 +93,7 @@
                                 <span class="result-speed">↓ @gatewayLastResult.DownloadMbps.ToString("F1")</span>
                                 <span class="result-speed">↑ @gatewayLastResult.UploadMbps.ToString("F1")</span>
                                 <span class="result-unit">Mbps</span>
-                                <span class="tooltip-icon" data-tooltip="↓ Download: Data from gateway. ↑ Upload: Data to gateway.">?</span>
+                                <span class="tooltip-icon" data-tooltip="↓ From gateway. ↑ To gateway.">?</span>
                             </span>
                             <span class="result-box-right">
                                 <span class="result-time">@gatewayLastResult.TestTime.ToLocalTime().ToString("MMM dd, HH:mm")</span>
@@ -500,7 +500,7 @@
                                     ↓ Mbps
                                     <span class="tooltip-icon">?</span>
                                     <span class="tooltip-content">
-                                        <strong>Download Speed</strong><br />
+                                        <strong>From Device</strong><br />
                                         Data transferred from the tested device.
                                     </span>
                                 </span>
@@ -510,7 +510,7 @@
                                     ↑ Mbps
                                     <span class="tooltip-icon">?</span>
                                     <span class="tooltip-content">
-                                        <strong>Upload Speed</strong><br />
+                                        <strong>To Device</strong><br />
                                         Data transferred to the tested device.
                                     </span>
                                 </span>
@@ -603,8 +603,8 @@
                 <ol>
                     <li><strong>SSH Connection:</strong> Connects to the device using the shared credentials from <a href="/settings">Settings</a></li>
                     <li><strong>Start Server:</strong> Launches <code>iperf3 -s</code> on the UniFi device (all UniFi devices have iperf3 built-in)</li>
-                    <li><strong>Upload Test:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3</code> from the container to test upload speed</li>
-                    <li><strong>Download Test:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3 -R</code> to test download speed</li>
+                    <li><strong>To Device:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3</code> from the container to measure throughput to the device</li>
+                    <li><strong>From Device:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3 -R</code> to measure throughput from the device</li>
                     <li><strong>Cleanup:</strong> Stops the iperf3 server on the device</li>
                 </ol>
                 <p class="form-help">
