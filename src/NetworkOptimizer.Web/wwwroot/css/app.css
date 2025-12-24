@@ -2417,6 +2417,14 @@ td .btn + .btn {
     background: var(--primary-color);
 }
 
+/* Smaller tooltip icon for table cells and inline use */
+.tooltip-icon-sm {
+    width: 14px;
+    height: 14px;
+    font-size: 10px;
+    margin-left: 3px;
+}
+
 /* Hidden content element (Tippy reads innerHTML from this) */
 .tooltip-content {
     display: none;
