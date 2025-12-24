@@ -11,7 +11,7 @@ namespace NetworkOptimizer.Web.Services;
 /// This is a singleton service that maintains the API client across the application.
 /// Configuration is stored in the database with encrypted credentials.
 /// </summary>
-public class UniFiConnectionService : IDisposable
+public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 {
     private readonly ILogger<UniFiConnectionService> _logger;
     private readonly ILoggerFactory _loggerFactory;

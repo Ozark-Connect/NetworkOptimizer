@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Storage.Models;
 
@@ -71,4 +73,11 @@ public class Iperf3Result
 
     /// <summary>Raw iperf3 JSON output for download test</summary>
     public string? RawDownloadJson { get; set; }
+
+    /// <summary>
+    /// Network path analysis with bottleneck detection and performance grading.
+    /// Not stored in database - calculated after test completes.
+    /// </summary>
+    [NotMapped]
+    public PathAnalysisResult? PathAnalysis { get; set; }
 }

@@ -1964,6 +1964,131 @@ td .btn + .btn {
     border-top: 1px solid var(--border-color);
 }
 
+/* Path Analysis Section */
+.path-analysis {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+}
+
+.path-analysis .analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.path-analysis h4 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.path-analysis .theoretical-max {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.path-analysis .efficiency-grades {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.path-analysis .grade-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.path-analysis .grade-label {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.path-analysis .grade-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.grade-excellent { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.grade-good { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+.grade-fair { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+.grade-poor { background: rgba(249, 115, 22, 0.2); color: #f97316; }
+.grade-critical { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+.path-analysis .path-hops {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.path-analysis .hop {
+    padding: 0.15rem 0.4rem;
+    background: var(--bg-card);
+    border-radius: 3px;
+    color: var(--text-secondary);
+}
+
+.path-analysis .hop.bottleneck {
+    border: 1px solid var(--warning-color);
+    color: var(--warning-color);
+}
+
+.path-analysis .hop-arrow {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.path-analysis .bottleneck-indicator {
+    color: var(--warning-color);
+    font-weight: bold;
+}
+
+.path-analysis .bottleneck-info,
+.path-analysis .routing-info {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.path-analysis .routing-info {
+    color: var(--info-color);
+}
+
+.path-analysis .insights {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.path-analysis .insight {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    padding: 0.25rem 0;
+}
+
+.path-analysis .recommendations {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: rgba(234, 179, 8, 0.1);
+    border-radius: 4px;
+}
+
+.path-analysis .recommendation {
+    font-size: 0.8rem;
+    color: var(--warning-color);
+    padding: 0.2rem 0;
+}
+
 .test-error {
     padding: 1rem;
     background: rgba(239, 68, 68, 0.1);
