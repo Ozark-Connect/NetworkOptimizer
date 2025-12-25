@@ -1339,9 +1339,11 @@
 
     private void StopProgressTimer()
     {
-        progressTimer?.Stop();
-        progressTimer?.Dispose();
+        // Capture and null the reference first so UpdateProgress guard works immediately
+        var timer = progressTimer;
         progressTimer = null;
+        timer?.Stop();
+        timer?.Dispose();
         testProgressPercent = 0;
         testProgressPhase = "";
         testProgressPhaseVerbose = "";
@@ -1349,6 +1351,9 @@
 
     private void UpdateProgress()
     {
+        // Guard against race condition - timer callback may fire after Stop()
+        if (progressTimer == null) return;
+
         var elapsed = (DateTime.UtcNow - testStartTime).TotalSeconds;
 
         if (elapsed < 3)
