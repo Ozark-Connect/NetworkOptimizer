@@ -66,6 +66,14 @@ public class PathAnalysisResult
         Insights.Clear();
         Recommendations.Clear();
 
+        // Gateway tests have inherent CPU overhead - note this and skip performance warnings
+        if (Path.TargetIsGateway)
+        {
+            Insights.Add("Gateway speed test - results limited by CPU, not network");
+            // Skip other performance-based insights for gateway tests
+            return;
+        }
+
         // Wireless connection warning (client->AP or AP->AP, not AP->Switch)
         if (Path.HasWirelessConnection)
         {

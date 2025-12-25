@@ -110,4 +110,10 @@ public class NetworkPath
     /// Whether there's a real bottleneck (a link slower than others in the path)
     /// </summary>
     public bool HasRealBottleneck { get; set; }
+
+    /// <summary>
+    /// Whether the target is a gateway device.
+    /// Gateway tests have inherent CPU overhead and will show lower efficiency.
+    /// </summary>
+    public bool TargetIsGateway { get; set; }
 }

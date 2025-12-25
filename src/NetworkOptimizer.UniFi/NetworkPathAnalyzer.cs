@@ -262,6 +262,9 @@ public class NetworkPathAnalyzer
                     path.SourceNetworkName, path.SourceVlanId, path.DestinationNetworkName, path.DestinationVlanId);
             }
 
+            // Mark if target is a gateway (affects insight generation)
+            path.TargetIsGateway = targetDevice?.Type == DeviceType.Gateway;
+
             // Get raw devices for port speed lookup
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
