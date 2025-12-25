@@ -116,4 +116,10 @@ public class NetworkPath
     /// Gateway tests have inherent CPU overhead and will show lower efficiency.
     /// </summary>
     public bool TargetIsGateway { get; set; }
+
+    /// <summary>
+    /// Whether the target is an access point.
+    /// AP tests are CPU-limited; speeds above ~4.5 Gbps are considered good.
+    /// </summary>
+    public bool TargetIsAccessPoint { get; set; }
 }

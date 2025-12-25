@@ -69,8 +69,19 @@ public class PathAnalysisResult
         // Gateway tests have inherent CPU overhead - note this and skip performance warnings
         if (Path.TargetIsGateway)
         {
-            Insights.Add("Gateway speed test - results limited by CPU, not network");
+            Insights.Add("Gateway speed test - results limited by gateway CPU, not network");
             // Skip other performance-based insights for gateway tests
+            return;
+        }
+
+        // AP tests are CPU-limited; anything above ~4.4 Gbps is considered good
+        const double ApGoodSpeedThreshold = 4400;
+        bool apPerformingWell = Path.TargetIsAccessPoint &&
+            (MeasuredFromDeviceMbps >= ApGoodSpeedThreshold || MeasuredToDeviceMbps >= ApGoodSpeedThreshold);
+
+        if (Path.TargetIsAccessPoint && apPerformingWell)
+        {
+            Insights.Add("AP speed test - excellent performance for AP CPU");
             return;
         }
 
