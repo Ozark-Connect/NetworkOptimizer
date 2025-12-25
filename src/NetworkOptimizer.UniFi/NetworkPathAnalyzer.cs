@@ -391,30 +391,46 @@ public class NetworkPathAnalyzer
 
     /// <summary>
     /// Resolves a hostname to an IP address via DNS.
+    /// Tries bare hostname first, then with common local domain suffixes.
     /// </summary>
     private async Task<string?> ResolveHostnameAsync(string hostname)
     {
-        try
+        // Skip if it's already an IP address
+        if (System.Net.IPAddress.TryParse(hostname, out _))
         {
-            // Skip if it's already an IP address
-            if (System.Net.IPAddress.TryParse(hostname, out _))
-            {
-                return hostname;
-            }
-
-            var addresses = await System.Net.Dns.GetHostAddressesAsync(hostname);
-            var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
-            if (ipv4 != null)
-            {
-                _logger.LogDebug("DNS resolved {Hostname} to {Ip}", hostname, ipv4);
-                return ipv4.ToString();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("DNS resolution failed for {Hostname}: {Error}", hostname, ex.Message);
+            return hostname;
         }
 
+        // Try the hostname as-is first, then with common local domain suffixes
+        var namesToTry = new List<string> { hostname };
+        if (!hostname.Contains('.'))
+        {
+            // Add common local domain suffixes for bare hostnames
+            namesToTry.Add($"{hostname}.local");
+            namesToTry.Add($"{hostname}.lan");
+            namesToTry.Add($"{hostname}.home");
+            namesToTry.Add($"{hostname}.localdomain");
+        }
+
+        foreach (var name in namesToTry)
+        {
+            try
+            {
+                var addresses = await System.Net.Dns.GetHostAddressesAsync(name);
+                var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                {
+                    _logger.LogDebug("DNS resolved {Hostname} to {Ip}", name, ipv4);
+                    return ipv4.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("DNS resolution failed for {Hostname}: {Error}", name, ex.Message);
+            }
+        }
+
+        _logger.LogWarning("Could not resolve hostname {Hostname} via DNS", hostname);
         return null;
     }
 
@@ -621,6 +637,10 @@ public class NetworkPathAnalyzer
                 bool isServerSwitch = currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
                 bool isGateway = device.Type == DeviceType.Gateway;
 
+                // For inter-VLAN routing: don't stop at server's switch, continue to gateway
+                // Traffic must go to gateway for L3 routing even if it passes through server's switch
+                bool stopAtServerSwitch = isServerSwitch && !path.RequiresRouting;
+
                 var hop = new NetworkHop
                 {
                     Order = hopOrder,
@@ -634,14 +654,16 @@ public class NetworkPathAnalyzer
                     IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort)
                 };
 
-                if (isServerSwitch)
+                if (stopAtServerSwitch)
                 {
+                    // Same VLAN: traffic exits to server from this switch
                     hop.EgressPort = serverPosition.SwitchPort;
                     hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, serverPosition.SwitchPort);
                     hop.EgressPortName = GetPortName(rawDevices, currentMac, serverPosition.SwitchPort);
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
+                    // Continue up the chain
                     hop.EgressPort = device.UplinkPort;
                     hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
                     hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
@@ -649,7 +671,7 @@ public class NetworkPathAnalyzer
 
                 hops.Add(hop);
 
-                if (isServerSwitch)
+                if (stopAtServerSwitch)
                     break;
 
                 if (isGateway)
