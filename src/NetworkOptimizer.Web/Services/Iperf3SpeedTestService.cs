@@ -363,7 +363,8 @@ public class Iperf3SpeedTestService
                     _logger.LogWarning("Download test failed: {Error}", downloadResult.output);
                 }
 
-                // Restart iperf3 server before second test (server closes after handling connection)
+                // Restart iperf3 server before second test for consistent performance
+                // (we've seen instability when reusing the server for back-to-back tests)
                 if (manageServer)
                 {
                     _logger.LogDebug("Restarting iperf3 server on {Host} before upload test", host);
