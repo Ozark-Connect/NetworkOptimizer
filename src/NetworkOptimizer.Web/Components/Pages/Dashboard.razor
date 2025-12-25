@@ -204,7 +204,7 @@
                         <span>Loading...</span>
                     </div>
                 }
-                else if (_latestSpeedTest == null)
+                else if (_recentSpeedTests.Count == 0)
                 {
                     <div class="empty-state">
                         <p>No speed tests yet</p>
@@ -212,21 +212,18 @@
                 }
                 else
                 {
-                    <div class="speed-test-stats">
-                        <div class="speed-stat">
-                            <span class="speed-stat-value">@_latestSpeedTest.DownloadMbps.ToString("F0")</span>
-                            <span class="speed-stat-unit">Mbps</span>
-                            <span class="speed-stat-label">↓ From Device</span>
-                        </div>
-                        <div class="speed-stat">
-                            <span class="speed-stat-value">@_latestSpeedTest.UploadMbps.ToString("F0")</span>
-                            <span class="speed-stat-unit">Mbps</span>
-                            <span class="speed-stat-label">↑ To Device</span>
-                        </div>
-                    </div>
-                    <div class="speed-test-meta">
-                        <span class="speed-test-device">@(_latestSpeedTest.DeviceName ?? "Unknown")</span>
-                        <span class="speed-test-time">@_latestSpeedTest.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                    <div class="speed-test-list">
+                        @foreach (var test in _recentSpeedTests)
+                        {
+                            <div class="speed-test-row">
+                                <span class="speed-test-device">@(test.DeviceName ?? "Unknown")</span>
+                                <span class="speed-test-speeds">
+                                    <span class="speed-down">↓@test.DownloadMbps.ToString("F0")</span>
+                                    <span class="speed-up">↑@test.UploadMbps.ToString("F0")</span>
+                                </span>
+                                <span class="speed-test-time">@test.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -298,7 +295,7 @@
     private int warningIssues = 0;
     private string lastAuditTime = "Never";
     private List<Services.DeviceInfo> devices = new();
-    private Iperf3Result? _latestSpeedTest;
+    private List<Iperf3Result> _recentSpeedTests = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -314,8 +311,8 @@
         _speedTestLoading = true;
         try
         {
-            var results = await SpeedTestService.GetRecentResultsAsync(1);
-            _latestSpeedTest = results.FirstOrDefault(r => r.Success);
+            var results = await SpeedTestService.GetRecentResultsAsync(10);
+            _recentSpeedTests = results.Where(r => r.Success).Take(3).ToList();
         }
         catch
         {

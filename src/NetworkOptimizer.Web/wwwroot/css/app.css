@@ -359,6 +359,54 @@ a:hover {
     padding-top: 0.75rem;
 }
 
+/* Speed Test List (Dashboard - multiple results) */
+.speed-test-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.speed-test-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.speed-test-row:last-child {
+    border-bottom: none;
+}
+
+.speed-test-row .speed-test-device {
+    flex: 1;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.speed-test-speeds {
+    display: flex;
+    gap: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+}
+
+.speed-down {
+    color: var(--success-color);
+}
+
+.speed-up {
+    color: var(--info-color);
+}
+
+.speed-test-row .speed-test-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 /* Stats Row */
 .stats-row {
     display: grid;
