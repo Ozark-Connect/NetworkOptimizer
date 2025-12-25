@@ -148,18 +148,18 @@
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
                 {
-                    @if (gatewayMessageClass == "success" && gatewayLastResult?.Success == true)
-                    {
-                        <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
-                            <span>@gatewayMessage</span>
-                            <span class="alert-link-hint">Click to view details →</span>
-                        </div>
-                    }
-                    else if (gatewayRunning)
+                    @if (gatewayRunning)
                     {
                         <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
                             <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
                             <span class="alert-progress-text">Testing gateway... @testProgressPhaseVerbose...</span>
+                        </div>
+                    }
+                    else if (gatewayMessageClass == "success" && gatewayLastResult?.Success == true)
+                    {
+                        <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
+                            <span>@gatewayMessage</span>
+                            <span class="alert-link-hint">Click to view details →</span>
                         </div>
                     }
                     else

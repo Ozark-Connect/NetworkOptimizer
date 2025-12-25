@@ -334,32 +334,7 @@ public class Iperf3SpeedTestService
 
             try
             {
-                // Step 3: Run upload test (client -> device)
-                _logger.LogDebug("Running upload test to {Host}", host);
-                var uploadResult = await RunLocalIperf3Async(host, durationSeconds, parallelStreams, reverse: false);
-
-                if (uploadResult.success)
-                {
-                    result.RawUploadJson = uploadResult.output;
-                    ParseIperf3Result(uploadResult.output, result, isUpload: true);
-                }
-                else
-                {
-                    _logger.LogWarning("Upload test failed: {Error}", uploadResult.output);
-                }
-
-                if (manageServer)
-                {
-                    // Server runs with -1 (one-off mode), so restart for download test
-                    await KillIperf3Async(device, isWindows);
-                    await Task.Delay(500);
-
-                    // Restart server for download test
-                    await StartIperf3ServerAsync(device, isWindows);
-                    await Task.Delay(1500);
-                }
-
-                // Step 4: Run download test (device -> client, with -R flag)
+                // Step 3: Run download test (device -> client, with -R flag) - "From Device"
                 _logger.LogDebug("Running download test from {Host}", host);
                 var downloadResult = await RunLocalIperf3Async(host, durationSeconds, parallelStreams, reverse: true);
 
@@ -373,10 +348,35 @@ public class Iperf3SpeedTestService
                     _logger.LogWarning("Download test failed: {Error}", downloadResult.output);
                 }
 
-                result.Success = uploadResult.success || downloadResult.success;
+                if (manageServer)
+                {
+                    // Server runs with -1 (one-off mode), so restart for upload test
+                    await KillIperf3Async(device, isWindows);
+                    await Task.Delay(500);
+
+                    // Restart server for upload test
+                    await StartIperf3ServerAsync(device, isWindows);
+                    await Task.Delay(1500);
+                }
+
+                // Step 4: Run upload test (client -> device) - "To Device"
+                _logger.LogDebug("Running upload test to {Host}", host);
+                var uploadResult = await RunLocalIperf3Async(host, durationSeconds, parallelStreams, reverse: false);
+
+                if (uploadResult.success)
+                {
+                    result.RawUploadJson = uploadResult.output;
+                    ParseIperf3Result(uploadResult.output, result, isUpload: true);
+                }
+                else
+                {
+                    _logger.LogWarning("Upload test failed: {Error}", uploadResult.output);
+                }
+
+                result.Success = downloadResult.success || uploadResult.success;
                 if (!result.Success)
                 {
-                    result.ErrorMessage = $"Both tests failed. Upload: {uploadResult.output}, Download: {downloadResult.output}";
+                    result.ErrorMessage = $"Both tests failed. Download: {downloadResult.output}, Upload: {uploadResult.output}";
                 }
             }
             finally
