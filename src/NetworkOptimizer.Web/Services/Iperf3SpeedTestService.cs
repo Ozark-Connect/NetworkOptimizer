@@ -95,23 +95,22 @@ public class Iperf3SpeedTestService
                 return cached;
         }
 
-        // Try uname -s first (works on Linux/macOS/Unix/Cygwin)
+        // Try uname -s first (works on Linux/macOS/Unix)
         var unameResult = await _sshService.RunCommandWithDeviceAsync(device, "uname -s 2>/dev/null");
         if (unameResult.success)
         {
             var os = unameResult.output.Trim().ToLowerInvariant();
-            // Treat Cygwin as Unix-like (nohup/& backgrounding works, WMI doesn't)
-            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix") || os.Contains("cygwin"))
+            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix"))
             {
                 lock (_lock) { _isWindowsCache[device.Host] = false; }
-                _logger.LogInformation("Detected {Host} as {OS}", device.Host, os.Contains("cygwin") ? "Cygwin (Unix-like)" : "Linux/Unix");
+                _logger.LogInformation("Detected {Host} as Linux/Unix", device.Host);
                 return false;
             }
         }
 
-        // Check for Windows by testing pwsh availability (pwsh comes with Windows SSH)
-        var pwshCheck = await _sshService.RunCommandWithDeviceAsync(device, "pwsh -Version 2>nul");
-        var isWindows = pwshCheck.success && pwshCheck.output.Contains("PowerShell");
+        // Check for Windows by testing if 'ver' command works (Windows-specific)
+        var verCheck = await _sshService.RunCommandWithDeviceAsync(device, "ver 2>nul");
+        var isWindows = verCheck.success && verCheck.output.Contains("Windows", StringComparison.OrdinalIgnoreCase);
 
         lock (_lock) { _isWindowsCache[device.Host] = isWindows; }
         _logger.LogInformation("Detected {Host} as {OS}", device.Host, isWindows ? "Windows" : "Linux/Unix");
@@ -141,9 +140,8 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Use WMI to create a detached process that survives SSH session end
-            // This is the only reliable way to background a process on Windows via SSH
-            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList 'iperf3 -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
+            // Use 'start /B' to run iperf3 in background - simpler than WMI and works with Cygwin binaries
+            var cmd = $"start /B iperf3 -s -1 -p {Iperf3Port}";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
         else
