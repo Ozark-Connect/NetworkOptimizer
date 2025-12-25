@@ -577,6 +577,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("ParallelStreams")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("PathAnalysisJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RawDownloadJson")
                         .HasColumnType("TEXT");
 

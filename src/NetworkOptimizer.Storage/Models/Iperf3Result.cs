@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Text.Json;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Storage.Models;
@@ -75,9 +76,36 @@ public class Iperf3Result
     public string? RawDownloadJson { get; set; }
 
     /// <summary>
+    /// Serialized path analysis JSON - stored as snapshot at test time.
+    /// </summary>
+    public string? PathAnalysisJson { get; set; }
+
+    /// <summary>
     /// Network path analysis with bottleneck detection and performance grading.
-    /// Not stored in database - calculated after test completes.
+    /// Deserialized from PathAnalysisJson on access, serialized on set.
     /// </summary>
     [NotMapped]
-    public PathAnalysisResult? PathAnalysis { get; set; }
+    public PathAnalysisResult? PathAnalysis
+    {
+        get
+        {
+            if (_pathAnalysis != null) return _pathAnalysis;
+            if (string.IsNullOrEmpty(PathAnalysisJson)) return null;
+            try
+            {
+                _pathAnalysis = JsonSerializer.Deserialize<PathAnalysisResult>(PathAnalysisJson);
+            }
+            catch
+            {
+                _pathAnalysis = null;
+            }
+            return _pathAnalysis;
+        }
+        set
+        {
+            _pathAnalysis = value;
+            PathAnalysisJson = value != null ? JsonSerializer.Serialize(value) : null;
+        }
+    }
+    private PathAnalysisResult? _pathAnalysis;
 }
