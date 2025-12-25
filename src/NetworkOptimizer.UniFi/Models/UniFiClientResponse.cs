@@ -148,22 +148,22 @@ public class UniFiClientResponse
     public JsonElement? FingerprintSource { get; set; }
 
     [JsonPropertyName("dev_id_override")]
-    public int DevIdOverride { get; set; }
+    public int? DevIdOverride { get; set; }
 
     [JsonPropertyName("dev_cat")]
-    public int DevCat { get; set; }
+    public int? DevCat { get; set; }
 
     [JsonPropertyName("dev_family")]
-    public int DevFamily { get; set; }
+    public int? DevFamily { get; set; }
 
     [JsonPropertyName("os_class")]
-    public int OsClass { get; set; }
+    public int? OsClass { get; set; }
 
     [JsonPropertyName("os_name")]
-    public int OsName { get; set; }
+    public int? OsName { get; set; }
 
     [JsonPropertyName("dev_vendor")]
-    public int DevVendor { get; set; }
+    public int? DevVendor { get; set; }
 
     // Blocked/allowed status
     [JsonPropertyName("blocked")]
