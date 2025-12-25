@@ -73,7 +73,7 @@
                         var hop = PathAnalysis.Path.Hops[i];
                         var hopSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : hop.EgressSpeedMbps;
                         <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
-                            <span class="hop-icon">@GetHopIcon(hop.Type)</span>
+                            <span class="hop-icon">@GetHopIcon(hop.Type, hop.DeviceName)</span>
                             <span class="hop-name">@hop.DeviceName</span>
                             @if (hopSpeed > 0)
                             {
@@ -155,10 +155,17 @@
     /// </summary>
     [Parameter] public GatewaySpeedTestResult? GatewayResult { get; set; }
 
+    // Track previous Result ID to detect when Result changes
+    private int? _previousResultId;
+
     protected override void OnParametersSet()
     {
         if (Result != null)
         {
+            // Detect if Result changed (different test)
+            bool resultChanged = _previousResultId != Result.Id;
+            _previousResultId = Result.Id;
+
             DownloadMbps = Result.DownloadMbps;
             UploadMbps = Result.UploadMbps;
             DownloadBytes = Result.DownloadBytes;
@@ -170,8 +177,18 @@
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
-            // Only use Result.PathAnalysis if no separate PathAnalysis was passed
-            PathAnalysis ??= Result.PathAnalysis;
+
+            // Sync PathAnalysis from Result when Result changes
+            // This ensures we don't show stale analysis from a previous test
+            if (resultChanged)
+            {
+                PathAnalysis = Result.PathAnalysis;
+            }
+            else
+            {
+                // Only use Result.PathAnalysis if no separate PathAnalysis was passed
+                PathAnalysis ??= Result.PathAnalysis;
+            }
         }
         else if (GatewayResult != null)
         {
@@ -229,11 +246,12 @@
         _ => ""
     };
 
-    private string GetHopIcon(HopType type) => type switch
+    private string GetHopIcon(HopType type, string? deviceName = null) => type switch
     {
+        HopType.Client when deviceName?.Contains("iperf3", StringComparison.OrdinalIgnoreCase) == true => "🖥️",
         HopType.Client => "💻",
         HopType.Switch => "🔀",
-        HopType.AccessPoint => "📡",
+        HopType.AccessPoint => "📶",
         HopType.Gateway => "🌐",
         _ => "•"
     };
