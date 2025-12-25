@@ -674,6 +674,7 @@ public class NetworkPathAnalyzer
             {
                 // Wireless client - speed depends on link rate
                 hop.EgressSpeedMbps = (int)(targetClient.TxRate / 1000); // kbps to Mbps
+                hop.IsWirelessEgress = true;
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -1045,7 +1046,7 @@ public class NetworkPathAnalyzer
                 {
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
-                    bottleneckPort = hop.IngressPortName ?? $"port {hop.IngressPort}";
+                    bottleneckPort = GetPortDescription(hop.IngressPortName, hop.IngressPort, hop.IsWirelessIngress);
                     isBottleneckWireless = hop.IsWirelessIngress;
                 }
             }
@@ -1059,7 +1060,7 @@ public class NetworkPathAnalyzer
                 {
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
-                    bottleneckPort = hop.EgressPortName ?? $"port {hop.EgressPort}";
+                    bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress);
                     isBottleneckWireless = hop.IsWirelessEgress;
                 }
             }
@@ -1096,6 +1097,27 @@ public class NetworkPathAnalyzer
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Get a human-readable description for a port/link
+    /// </summary>
+    private static string GetPortDescription(string? portName, int? portNumber, bool isWireless)
+    {
+        // If we have a port name (e.g., "wireless mesh", "WAN"), use it
+        if (!string.IsNullOrEmpty(portName))
+            return portName;
+
+        // For wireless links without a port name, just say "Wi-Fi"
+        if (isWireless)
+            return "Wi-Fi";
+
+        // For wired links with a port number
+        if (portNumber.HasValue)
+            return $"port {portNumber}";
+
+        // Fallback
+        return "unknown";
     }
 }
 

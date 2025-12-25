@@ -322,7 +322,7 @@ public class Iperf3SpeedTestService
                 // Step 1: Kill any existing iperf3 server on the device
                 _logger.LogDebug("Cleaning up any existing iperf3 processes on {Host}", host);
                 await KillIperf3Async(device, isWindows);
-                await Task.Delay(500);
+                await Task.Delay(200);
 
                 // Step 2: Start iperf3 server on the remote device
                 _logger.LogDebug("Starting iperf3 server on {Host}", host);
@@ -341,8 +341,8 @@ public class Iperf3SpeedTestService
                 var serverRunning = false;
                 for (int attempt = 1; attempt <= 5; attempt++)
                 {
-                    // Increase delay for each attempt
-                    var delayMs = attempt * 1000;
+                    // Increase delay for each attempt (start at 500ms)
+                    var delayMs = attempt * 500;
                     _logger.LogDebug("Waiting {Delay}ms before checking iperf3 server (attempt {Attempt}/5)", delayMs, attempt);
                     await Task.Delay(delayMs);
 
@@ -388,11 +388,11 @@ public class Iperf3SpeedTestService
                 {
                     // Server runs with -1 (one-off mode), so restart for upload test
                     await KillIperf3Async(device, isWindows);
-                    await Task.Delay(500);
+                    await Task.Delay(200);
 
                     // Restart server for upload test
                     await StartIperf3ServerAsync(device, isWindows);
-                    await Task.Delay(1500);
+                    await Task.Delay(500);
                 }
 
                 // Step 4: Run upload test (client -> device) - "To Device"
