@@ -30,6 +30,9 @@ public class Iperf3SpeedTestService
     // Cache detected OS per host to avoid repeated checks
     private readonly Dictionary<string, bool> _isWindowsCache = new();
 
+    // Cache iperf3 path per host (for Windows with paths containing spaces)
+    private readonly Dictionary<string, string> _iperf3PathCache = new();
+
     public Iperf3SpeedTestService(
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
@@ -134,15 +137,47 @@ public class Iperf3SpeedTestService
     }
 
     /// <summary>
+    /// Get the full path to iperf3 on Windows (needed for WMI when path contains spaces)
+    /// </summary>
+    private async Task<string?> GetWindowsIperf3PathAsync(DeviceSshConfiguration device)
+    {
+        lock (_lock)
+        {
+            if (_iperf3PathCache.TryGetValue(device.Host, out var cached))
+                return cached;
+        }
+
+        var result = await _sshService.RunCommandWithDeviceAsync(device, "where iperf3 2>nul");
+        if (result.success && !string.IsNullOrWhiteSpace(result.output))
+        {
+            // Take first line (in case multiple are found)
+            var path = result.output.Split('\n', '\r')[0].Trim();
+            if (!string.IsNullOrEmpty(path))
+            {
+                lock (_lock) { _iperf3PathCache[device.Host] = path; }
+                return path;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Start iperf3 server on the remote host (one-shot mode)
     /// </summary>
     private async Task<(bool success, string output)> StartIperf3ServerAsync(DeviceSshConfiguration device, bool isWindows)
     {
         if (isWindows)
         {
+            // Get full path to iperf3 - needed for WMI when path contains spaces
+            var iperf3Path = await GetWindowsIperf3PathAsync(device);
+            if (string.IsNullOrEmpty(iperf3Path))
+            {
+                return (false, "iperf3 not found. Install iperf3 and ensure it's in the system PATH.");
+            }
+
             // Use WMI to create a detached process that survives SSH session end
-            // This is the only reliable way to background a process on Windows via SSH
-            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList 'iperf3 -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
+            // Quote the path to handle spaces (e.g., "C:\Program Files\iperf3\iperf3.exe")
+            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '\\\"{iperf3Path}\\\" -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
         else
