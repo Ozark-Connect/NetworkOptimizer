@@ -63,5 +63,8 @@ public enum HopType
     AccessPoint,
 
     /// <summary>Gateway/router (L3 routing)</summary>
-    Gateway
+    Gateway,
+
+    /// <summary>The iperf3/speed test server (this application)</summary>
+    Server
 }

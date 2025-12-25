@@ -932,7 +932,7 @@ public class NetworkPathAnalyzer
         var serverHop = new NetworkHop
         {
             Order = hops.Count,
-            Type = HopType.Client,
+            Type = HopType.Server,
             DeviceMac = serverPosition.Mac,
             DeviceName = serverName,
             DeviceIp = serverPosition.IpAddress,

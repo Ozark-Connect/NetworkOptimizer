@@ -10,6 +10,7 @@ public static class DeviceTypes
     public const string Gateway = "Gateway";
     public const string Switch = "Switch";
     public const string AccessPoint = "AccessPoint";
+    public const string CellularModem = "CellularModem";
 
     // Non-UniFi device types
     public const string Server = "Server";
@@ -18,19 +19,20 @@ public static class DeviceTypes
     /// <summary>
     /// All valid device types for UI dropdowns
     /// </summary>
-    public static readonly string[] All = [Gateway, Switch, AccessPoint, Server, Desktop];
+    public static readonly string[] All = [Gateway, Switch, AccessPoint, CellularModem, Server, Desktop];
 
     /// <summary>
     /// UniFi device types (use UniFi parallel streams setting)
     /// </summary>
-    public static readonly string[] UniFiTypes = [Switch, AccessPoint];
+    public static readonly string[] UniFiTypes = [Switch, AccessPoint, CellularModem];
 
     /// <summary>
-    /// Check if a device type is a UniFi device (Switch or AccessPoint)
+    /// Check if a device type is a UniFi device (Switch, AccessPoint, or CellularModem)
     /// </summary>
     public static bool IsUniFi(string? deviceType) =>
         string.Equals(deviceType, Switch, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(deviceType, AccessPoint, StringComparison.OrdinalIgnoreCase);
+        string.Equals(deviceType, AccessPoint, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(deviceType, CellularModem, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a device type is a Gateway
@@ -44,6 +46,7 @@ public static class DeviceTypes
     public static string GetDisplayName(string? deviceType) => deviceType switch
     {
         AccessPoint => "Access Point",
+        CellularModem => "Cellular Modem",
         _ => deviceType ?? "Unknown"
     };
 
@@ -59,7 +62,8 @@ public static class DeviceTypes
         {
             "uap" => AccessPoint,
             "usw" => Switch,
-            "udm" or "ugw" or "uxg" => Gateway,
+            "udm" or "ugw" or "uxg" or "ucg" => Gateway,
+            "umbb" => CellularModem,
             _ => Server
         };
     }

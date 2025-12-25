@@ -34,6 +34,14 @@ public static class UniFiDeviceTypes
     };
 
     /// <summary>
+    /// Cellular Modem device type codes
+    /// </summary>
+    private static readonly HashSet<string> CellularModemTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "umbb"  // UniFi Mobile Broadband
+    };
+
+    /// <summary>
     /// Check if the device type code represents a gateway
     /// </summary>
     public static bool IsGateway(string? type) =>
@@ -50,6 +58,12 @@ public static class UniFiDeviceTypes
     /// </summary>
     public static bool IsAccessPoint(string? type) =>
         !string.IsNullOrEmpty(type) && AccessPointTypes.Contains(type);
+
+    /// <summary>
+    /// Check if the device type code represents a cellular modem
+    /// </summary>
+    public static bool IsCellularModem(string? type) =>
+        !string.IsNullOrEmpty(type) && CellularModemTypes.Contains(type);
 
     /// <summary>
     /// Get a friendly display name for a device type code
