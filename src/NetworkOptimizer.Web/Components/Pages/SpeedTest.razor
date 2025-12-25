@@ -119,7 +119,7 @@
 
                 <!-- Actions -->
                 <div class="gateway-actions">
-                    <button class="btn btn-primary test-button" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                    <button class="btn btn-primary test-button" style="width: 9.5rem;" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
                         @if (gatewayRunning)
                         {
                             <div class="test-progress">
@@ -152,7 +152,7 @@
                     {
                         <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
                             <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
-                            <span class="alert-progress-text">Testing gateway... @testProgressPhase...</span>
+                            <span class="alert-progress-text">Testing gateway... @testProgressPhaseVerbose...</span>
                         </div>
                     }
                     else
@@ -278,7 +278,7 @@
                 {
                     <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
                         <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
-                        <span class="alert-progress-text">@unifiMessage @testProgressPhase...</span>
+                        <span class="alert-progress-text">@unifiMessage @testProgressPhaseVerbose...</span>
                     </div>
                 }
                 else
@@ -460,7 +460,7 @@
                 {
                     <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
                         <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
-                        <span class="alert-progress-text">@savedDeviceMessage @testProgressPhase...</span>
+                        <span class="alert-progress-text">@savedDeviceMessage @testProgressPhaseVerbose...</span>
                     </div>
                 }
                 else
@@ -805,7 +805,8 @@
 
     // Test progress indicator (shared across all test types)
     private int testProgressPercent = 0;
-    private string testProgressPhase = "";
+    private string testProgressPhase = "";        // Abbreviated for buttons
+    private string testProgressPhaseVerbose = ""; // Verbose for alerts
     private System.Timers.Timer? progressTimer;
 
     protected override async Task OnInitializedAsync()
@@ -1321,6 +1322,7 @@
         testStartTime = DateTime.UtcNow;
         testProgressPercent = 0;
         testProgressPhase = "Starting";
+        testProgressPhaseVerbose = "Starting";
 
         progressTimer?.Dispose();
         progressTimer = new System.Timers.Timer(250); // Update every 250ms
@@ -1335,6 +1337,7 @@
         progressTimer = null;
         testProgressPercent = 0;
         testProgressPhase = "";
+        testProgressPhaseVerbose = "";
     }
 
     private void UpdateProgress()
@@ -1346,23 +1349,27 @@
             // Starting phase: 0-13%
             testProgressPercent = (int)(elapsed / 3 * 13);
             testProgressPhase = "Starting";
+            testProgressPhaseVerbose = "Starting";
         }
         else if (elapsed < 13)
         {
             // From device phase: 13-56%
             testProgressPercent = 13 + (int)((elapsed - 3) / 10 * 43);
             testProgressPhase = "↓ Testing";
+            testProgressPhaseVerbose = "From device";
         }
         else if (elapsed < 23)
         {
             // To device phase: 56-100%
             testProgressPercent = 56 + (int)((elapsed - 13) / 10 * 44);
             testProgressPhase = "↑ Testing";
+            testProgressPhaseVerbose = "To device";
         }
         else
         {
             testProgressPercent = 100;
             testProgressPhase = "Done";
+            testProgressPhaseVerbose = "Finishing";
         }
 
         InvokeAsync(StateHasChanged);
