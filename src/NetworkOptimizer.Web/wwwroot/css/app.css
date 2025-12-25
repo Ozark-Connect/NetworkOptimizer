@@ -2134,7 +2134,7 @@ td .btn + .btn {
 }
 
 .path-analysis .note.recommendation {
-    color: var(--info-color);
+    color: #93c5fd;
 }
 
 .test-error {
