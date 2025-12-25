@@ -80,17 +80,26 @@ public class NetworkPath
     public bool HasWirelessSegment => Hops.Any(h => h.Type == HopType.AccessPoint);
 
     /// <summary>
-    /// Whether the path includes wireless backhaul (AP-to-AP connection)
-    /// This is different from a client connected to an AP
+    /// Whether the path includes an actual wireless connection:
+    /// - Client followed by AP (wireless client)
+    /// - AP followed by AP (wireless backhaul)
+    /// Does NOT trigger for AP followed by Switch (wired uplink)
     /// </summary>
-    public bool HasWirelessBackhaul
+    public bool HasWirelessConnection
     {
         get
         {
-            // Check if there are two consecutive AP hops (indicates wireless backhaul)
             for (int i = 0; i < Hops.Count - 1; i++)
             {
-                if (Hops[i].Type == HopType.AccessPoint && Hops[i + 1].Type == HopType.AccessPoint)
+                var current = Hops[i].Type;
+                var next = Hops[i + 1].Type;
+
+                // Client -> AP = wireless client connection
+                if (current == HopType.Client && next == HopType.AccessPoint)
+                    return true;
+
+                // AP -> AP = wireless backhaul
+                if (current == HopType.AccessPoint && next == HopType.AccessPoint)
                     return true;
             }
             return false;

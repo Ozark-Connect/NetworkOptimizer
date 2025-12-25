@@ -66,10 +66,10 @@ public class PathAnalysisResult
         Insights.Clear();
         Recommendations.Clear();
 
-        // Wireless backhaul warning (AP-to-AP, not just client-to-AP)
-        if (Path.HasWirelessBackhaul)
+        // Wireless connection warning (client->AP or AP->AP, not AP->Switch)
+        if (Path.HasWirelessConnection)
         {
-            Insights.Add("Path includes wireless backhaul - speeds may vary with signal quality");
+            Insights.Add("Path includes wireless segment - speeds may vary with signal quality");
         }
 
         // Performance-based insights (note: enum comparison - higher value = worse grade)
