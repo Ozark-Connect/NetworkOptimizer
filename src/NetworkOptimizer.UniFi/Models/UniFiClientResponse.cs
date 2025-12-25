@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NetworkOptimizer.UniFi.Models;
@@ -142,9 +143,9 @@ public class UniFiClientResponse
     [JsonPropertyName("note")]
     public string? Note { get; set; }
 
-    // Device fingerprinting
+    // Device fingerprinting (API returns varying types: int, string, or array)
     [JsonPropertyName("fingerprint_source")]
-    public string? FingerprintSource { get; set; }
+    public JsonElement? FingerprintSource { get; set; }
 
     [JsonPropertyName("dev_id_override")]
     public int DevIdOverride { get; set; }
