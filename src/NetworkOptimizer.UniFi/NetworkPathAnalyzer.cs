@@ -673,7 +673,7 @@ public class NetworkPathAnalyzer
             var hop = new NetworkHop
             {
                 Order = 0,
-                Type = targetClient.IsWired ? HopType.Client : HopType.AccessPoint,
+                Type = HopType.Client,
                 DeviceMac = targetClient.Mac,
                 DeviceName = targetClient.Name ?? targetClient.Hostname,
                 DeviceIp = targetClient.IpAddress,
