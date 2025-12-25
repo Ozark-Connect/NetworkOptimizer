@@ -108,9 +108,9 @@ public class Iperf3SpeedTestService
             }
         }
 
-        // Check for Windows by testing if 'ver' command works (Windows-specific)
-        var verCheck = await _sshService.RunCommandWithDeviceAsync(device, "ver 2>nul");
-        var isWindows = verCheck.success && verCheck.output.Contains("Windows", StringComparison.OrdinalIgnoreCase);
+        // Check for Windows by testing pwsh availability (pwsh comes with Windows SSH)
+        var pwshCheck = await _sshService.RunCommandWithDeviceAsync(device, "pwsh -Version 2>nul");
+        var isWindows = pwshCheck.success && pwshCheck.output.Contains("PowerShell");
 
         lock (_lock) { _isWindowsCache[device.Host] = isWindows; }
         _logger.LogInformation("Detected {Host} as {OS}", device.Host, isWindows ? "Windows" : "Linux/Unix");
@@ -140,8 +140,9 @@ public class Iperf3SpeedTestService
     {
         if (isWindows)
         {
-            // Use 'start /B' to run iperf3 in background - simpler than WMI and works with Cygwin binaries
-            var cmd = $"start /B iperf3 -s -1 -p {Iperf3Port}";
+            // Use WMI to create a detached process that survives SSH session end
+            // This is the only reliable way to background a process on Windows via SSH
+            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList 'iperf3 -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
         else
