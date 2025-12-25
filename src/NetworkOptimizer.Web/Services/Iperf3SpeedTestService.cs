@@ -313,6 +313,19 @@ public class Iperf3SpeedTestService
         {
             _logger.LogInformation("Starting iperf3 speed test to {Device} ({Host})", device.Name, host);
 
+            // Quick connectivity check before proceeding - fail fast if host is unreachable
+            if (manageServer)
+            {
+                var (sshOk, sshMsg) = await _sshService.TestConnectionAsync(device);
+                if (!sshOk)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = $"Cannot connect to device: {sshMsg}";
+                    _logger.LogWarning("Speed test aborted - SSH connection failed to {Host}: {Message}", host, sshMsg);
+                    return result;
+                }
+            }
+
             // Refresh topology to get current link speeds before test
             _pathAnalyzer.InvalidateTopologyCache();
 

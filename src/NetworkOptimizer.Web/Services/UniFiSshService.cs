@@ -164,7 +164,7 @@ public class UniFiSshService
         {
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10"
+            "-o", "ConnectTimeout=5"
         };
 
         // BatchMode=yes disables password prompts, only use with key auth
