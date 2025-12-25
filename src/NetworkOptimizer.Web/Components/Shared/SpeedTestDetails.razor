@@ -72,7 +72,7 @@
                     {
                         var hop = PathAnalysis.Path.Hops[i];
                         <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
-                            <span class="hop-icon">@GetHopIcon(hop.Type, hop.DeviceName)</span>
+                            <span class="hop-icon">@GetHopIcon(hop.Type)</span>
                             <span class="hop-name">@hop.DeviceName</span>
                         </div>
                         @if (i < PathAnalysis.Path.Hops.Count - 1)
@@ -253,9 +253,8 @@
         _ => ""
     };
 
-    private string GetHopIcon(HopType type, string? deviceName = null) => type switch
+    private string GetHopIcon(HopType type) => type switch
     {
-        HopType.Client when deviceName?.Contains("iperf3", StringComparison.OrdinalIgnoreCase) == true => "🖥️",
         HopType.Client => "💻",
         HopType.Switch => "🔀",
         HopType.AccessPoint => "📶",
