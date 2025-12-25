@@ -1034,7 +1034,9 @@ a:hover {
 .test-button {
     position: relative;
     overflow: hidden;
-    min-width: 8rem;
+    width: 7.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
 }
 
 .test-button .test-progress {
@@ -1055,10 +1057,17 @@ a:hover {
 .test-button .test-phase {
     position: relative;
     z-index: 1;
+    white-space: nowrap;
+    font-size: 0.8rem;
 }
 
 .btn-sm.test-button {
-    min-width: 6.5rem;
+    width: 6.5rem;
+    font-size: 0.75rem;
+}
+
+.btn-sm.test-button .test-phase {
+    font-size: 0.7rem;
 }
 
 /* Outline variants */
