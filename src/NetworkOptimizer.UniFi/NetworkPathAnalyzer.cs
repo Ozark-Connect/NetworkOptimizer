@@ -53,6 +53,9 @@ public class NetworkPathAnalyzer
     // Fallback overhead factor for unknown link speeds
     private const double FallbackOverheadFactor = 0.94;
 
+    // WiFi overhead factor - real TCP throughput is ~60% of PHY rate due to MAC overhead, contention, etc.
+    private const double WifiOverheadFactor = 0.60;
+
     /// <summary>
     /// Known gateway inter-VLAN routing throughput limits (Mbps).
     /// These are empirical values from real-world testing.
@@ -637,6 +640,10 @@ public class NetworkPathAnalyzer
                 // Wireless mesh uplink - use the reported uplink speed
                 deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps;
                 deviceHop.EgressSpeedMbps = targetDevice.UplinkSpeedMbps;
+                deviceHop.IngressPortName = "wireless mesh";
+                deviceHop.EgressPortName = "wireless mesh";
+                deviceHop.IsWirelessIngress = true;
+                deviceHop.IsWirelessEgress = true;
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -803,14 +810,19 @@ public class NetworkPathAnalyzer
 
                 // Determine ingress speed - use device's uplink speed for wireless mesh, otherwise port speed
                 int ingressSpeed;
-                if (device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
-                    && device.UplinkSpeedMbps > 0)
+                string? ingressPortName;
+                bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                    && device.UplinkSpeedMbps > 0;
+
+                if (isWirelessUplink)
                 {
                     ingressSpeed = device.UplinkSpeedMbps;
+                    ingressPortName = "wireless mesh";
                 }
                 else
                 {
                     ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                    ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
                 }
 
                 var hop = new NetworkHop
@@ -822,8 +834,9 @@ public class NetworkPathAnalyzer
                     DeviceModel = device.ModelDisplay ?? device.Model,
                     DeviceIp = device.IpAddress,
                     IngressPort = currentPort,
-                    IngressPortName = GetPortName(rawDevices, currentMac, currentPort),
-                    IngressSpeedMbps = ingressSpeed
+                    IngressPortName = ingressPortName,
+                    IngressSpeedMbps = ingressSpeed,
+                    IsWirelessIngress = isWirelessUplink
                 };
 
                 if (stopAtServerSwitch)
@@ -842,7 +855,8 @@ public class NetworkPathAnalyzer
                     {
                         hop.EgressPort = device.UplinkPort;
                         hop.EgressSpeedMbps = uplinkDevice.UplinkSpeedMbps;
-                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                        hop.EgressPortName = "wireless mesh";
+                        hop.IsWirelessEgress = true;
                     }
                     else
                     {
@@ -986,14 +1000,20 @@ public class NetworkPathAnalyzer
     /// Gets the realistic maximum throughput for a given link speed.
     /// Uses empirical data where available, falls back to 94% overhead estimate.
     /// </summary>
-    private static int GetRealisticMax(int theoreticalMbps)
+    private static int GetRealisticMax(int theoreticalMbps, bool isWireless = false)
     {
+        // WiFi has much higher overhead than wired (~60% efficiency vs ~94%)
+        if (isWireless)
+        {
+            return (int)(theoreticalMbps * WifiOverheadFactor);
+        }
+
         if (RealisticMaxByLinkSpeed.TryGetValue(theoreticalMbps, out int realistic))
         {
             return realistic;
         }
 
-        // Fallback: use 94% for unknown speeds
+        // Fallback: use 94% for unknown wired speeds
         return (int)(theoreticalMbps * FallbackOverheadFactor);
     }
 
@@ -1012,6 +1032,7 @@ public class NetworkPathAnalyzer
         int maxSpeed = 0;
         NetworkHop? bottleneckHop = null;
         string? bottleneckPort = null;
+        bool isBottleneckWireless = false;
 
         foreach (var hop in path.Hops)
         {
@@ -1025,6 +1046,7 @@ public class NetworkPathAnalyzer
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = hop.IngressPortName ?? $"port {hop.IngressPort}";
+                    isBottleneckWireless = hop.IsWirelessIngress;
                 }
             }
 
@@ -1038,6 +1060,7 @@ public class NetworkPathAnalyzer
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = hop.EgressPortName ?? $"port {hop.EgressPort}";
+                    isBottleneckWireless = hop.IsWirelessEgress;
                 }
             }
         }
@@ -1049,7 +1072,7 @@ public class NetworkPathAnalyzer
         }
 
         path.TheoreticalMaxMbps = minSpeed;
-        path.RealisticMaxMbps = GetRealisticMax(minSpeed);
+        path.RealisticMaxMbps = GetRealisticMax(minSpeed, isBottleneckWireless);
 
         // Only mark as bottleneck if there's actually a slower link than others
         path.HasRealBottleneck = allSpeeds.Count > 0 && minSpeed < maxSpeed;

@@ -44,6 +44,12 @@ public class NetworkHop
     /// <summary>Whether this hop contains the path bottleneck</summary>
     public bool IsBottleneck { get; set; }
 
+    /// <summary>Whether the ingress link is a wireless mesh uplink</summary>
+    public bool IsWirelessIngress { get; set; }
+
+    /// <summary>Whether the egress link is a wireless mesh uplink</summary>
+    public bool IsWirelessEgress { get; set; }
+
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
 }
