@@ -1,5 +1,6 @@
 @page "/speedtest"
 @rendermode InteractiveServer
+@implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Core.Enums
@@ -51,7 +52,7 @@
             else
             {
                 <p class="section-description">
-                    Test LAN bandwidth to your gateway using iperf3.
+                    Measure throughput to your gateway.
                 </p>
 
                 <!-- iperf3 Status -->
@@ -118,11 +119,13 @@
 
                 <!-- Actions -->
                 <div class="gateway-actions">
-                    <button class="btn btn-primary" style="min-width: 10.5rem;" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
+                    <button class="btn btn-primary test-button" @onclick="RunGatewaySpeedTest" disabled="@gatewayRunning">
                         @if (gatewayRunning)
                         {
-                            <span class="spinner"></span>
-                            <span>Testing...</span>
+                            <div class="test-progress">
+                                <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
+                            </div>
+                            <span class="test-phase">@testProgressPhase...</span>
                         }
                         else
                         {
@@ -225,13 +228,15 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;"
+                                        <button class="btn btn-primary btn-sm test-button"
                                                 @onclick="() => RunSpeedTestOnDiscovered(device)"
                                                 disabled="@(isRunningTest || !isOnline || !sshConfigured || string.IsNullOrEmpty(device.Ip))">
                                             @if (runningTestHost == device.Ip)
                                             {
-                                                <span class="spinner"></span>
-                                                <span>Testing...</span>
+                                                <div class="test-progress">
+                                                    <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
+                                                </div>
+                                                <span class="test-phase">@testProgressPhase...</span>
                                             }
                                             else
                                             {
@@ -315,12 +320,14 @@
                                 </td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="btn btn-primary btn-sm" style="min-width: 6.5rem;" @onclick="() => RunSpeedTest(device)"
+                                        <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
                                                 disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
                                             @if (runningTestHost == device.Host)
                                             {
-                                                <span class="spinner"></span>
-                                                <span>Testing...</span>
+                                                <div class="test-progress">
+                                                    <div class="progress-bar" style="width: @(testProgressPercent)%"></div>
+                                                </div>
+                                                <span class="test-phase">@testProgressPhase...</span>
                                             }
                                             else
                                             {
@@ -772,6 +779,11 @@
     private GatewaySpeedTestResult? gatewayLastResult;
     private Iperf3Status? gatewayIperf3Status;
 
+    // Test progress indicator (shared across all test types)
+    private int testProgressPercent = 0;
+    private string testProgressPhase = "";
+    private System.Timers.Timer? progressTimer;
+
     protected override async Task OnInitializedAsync()
     {
         await CheckSshConfiguration();
@@ -841,6 +853,7 @@
     {
         gatewayRunning = true;
         gatewayMessage = "";
+        StartProgressTimer();
         StateHasChanged();
 
         try
@@ -868,6 +881,7 @@
         }
         finally
         {
+            StopProgressTimer();
             gatewayRunning = false;
             StateHasChanged();
         }
@@ -1088,8 +1102,9 @@
     {
         isRunningTest = true;
         runningTestHost = device.Host;
-        savedDeviceMessage = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        savedDeviceMessage = $"Running speed test to {device.Name}...";
         savedDeviceMessageClass = "info";
+        StartProgressTimer();
         StateHasChanged();
 
         try
@@ -1116,6 +1131,7 @@
         }
         finally
         {
+            StopProgressTimer();
             isRunningTest = false;
             runningTestHost = null;
             StateHasChanged();
@@ -1201,8 +1217,9 @@
 
         isRunningTest = true;
         runningTestHost = device.Ip;
-        unifiMessage = $"Running speed test to {device.Name}... This may take up to 30 seconds.";
+        unifiMessage = $"Running speed test to {device.Name}...";
         unifiMessageClass = "info";
+        StartProgressTimer();
         StateHasChanged();
 
         try
@@ -1240,6 +1257,7 @@
         }
         finally
         {
+            StopProgressTimer();
             isRunningTest = false;
             runningTestHost = null;
             StateHasChanged();
@@ -1269,4 +1287,65 @@
     }
 
     private string GetSavedDeviceTypeDisplay(string? type) => DeviceTypes.GetDisplayName(type);
+
+    // Progress indicator helpers
+    // Phases: 0-3s = Starting (13%), 3-13s = From device (43%), 13-23s = To device (100%)
+    private DateTime testStartTime;
+
+    private void StartProgressTimer()
+    {
+        testStartTime = DateTime.UtcNow;
+        testProgressPercent = 0;
+        testProgressPhase = "Starting";
+
+        progressTimer?.Dispose();
+        progressTimer = new System.Timers.Timer(250); // Update every 250ms
+        progressTimer.Elapsed += (s, e) => UpdateProgress();
+        progressTimer.Start();
+    }
+
+    private void StopProgressTimer()
+    {
+        progressTimer?.Stop();
+        progressTimer?.Dispose();
+        progressTimer = null;
+        testProgressPercent = 0;
+        testProgressPhase = "";
+    }
+
+    private void UpdateProgress()
+    {
+        var elapsed = (DateTime.UtcNow - testStartTime).TotalSeconds;
+
+        if (elapsed < 3)
+        {
+            // Starting phase: 0-13%
+            testProgressPercent = (int)(elapsed / 3 * 13);
+            testProgressPhase = "Starting";
+        }
+        else if (elapsed < 13)
+        {
+            // From device phase: 13-56%
+            testProgressPercent = 13 + (int)((elapsed - 3) / 10 * 43);
+            testProgressPhase = "From device";
+        }
+        else if (elapsed < 23)
+        {
+            // To device phase: 56-100%
+            testProgressPercent = 56 + (int)((elapsed - 13) / 10 * 44);
+            testProgressPhase = "To device";
+        }
+        else
+        {
+            testProgressPercent = 100;
+            testProgressPhase = "Finishing";
+        }
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        progressTimer?.Dispose();
+    }
 }

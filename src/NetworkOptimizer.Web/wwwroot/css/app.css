@@ -978,6 +978,37 @@ a:hover {
     color: white !important;
 }
 
+/* Test button with progress indicator */
+.test-button {
+    position: relative;
+    overflow: hidden;
+    min-width: 8rem;
+}
+
+.test-button .test-progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.test-button .test-progress .progress-bar {
+    height: 100%;
+    background: rgba(255, 255, 255, 0.25);
+    transition: width 0.25s ease-out;
+}
+
+.test-button .test-phase {
+    position: relative;
+    z-index: 1;
+}
+
+.btn-sm.test-button {
+    min-width: 6.5rem;
+}
+
 /* Outline variants */
 .btn-outline-primary {
     background: transparent;
