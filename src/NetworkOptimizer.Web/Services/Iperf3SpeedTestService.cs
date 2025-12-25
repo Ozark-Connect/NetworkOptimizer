@@ -95,14 +95,16 @@ public class Iperf3SpeedTestService
                 return cached;
         }
 
-        // Try uname -s first (works on Linux/macOS/Unix)
+        // Try uname -s first (works on Linux/macOS/Unix/Cygwin)
         var unameResult = await _sshService.RunCommandWithDeviceAsync(device, "uname -s 2>/dev/null");
         if (unameResult.success)
         {
             var os = unameResult.output.Trim().ToLowerInvariant();
-            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix"))
+            // Treat Cygwin as Unix-like (nohup/& backgrounding works, WMI doesn't)
+            if (os.Contains("linux") || os.Contains("darwin") || os.Contains("freebsd") || os.Contains("unix") || os.Contains("cygwin"))
             {
                 lock (_lock) { _isWindowsCache[device.Host] = false; }
+                _logger.LogInformation("Detected {Host} as {OS}", device.Host, os.Contains("cygwin") ? "Cygwin (Unix-like)" : "Linux/Unix");
                 return false;
             }
         }
