@@ -307,6 +307,58 @@ a:hover {
     grid-column: span 2;
 }
 
+/* Clickable card */
+.clickable-card {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.clickable-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Speed Test Stats (Dashboard panel) */
+.speed-test-stats {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.speed-stat {
+    text-align: center;
+}
+
+.speed-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.speed-stat-unit {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+.speed-stat-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+}
+
+.speed-test-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.75rem;
+}
+
 /* Stats Row */
 .stats-row {
     display: grid;
@@ -1231,6 +1283,7 @@ td .btn + .btn {
 .alert-progress {
     position: relative;
     overflow: hidden;
+    background: var(--bg-tertiary);
 }
 
 .alert-progress .alert-progress-bar {
@@ -1238,8 +1291,9 @@ td .btn + .btn {
     left: 0;
     top: 0;
     height: 100%;
-    background: rgba(5, 89, 201, 0.3);
+    background: linear-gradient(90deg, rgba(5, 89, 201, 0.4) 0%, rgba(5, 89, 201, 0.25) 100%);
     transition: width 0.25s ease-out;
+    border-right: 2px solid rgba(5, 89, 201, 0.6);
 }
 
 .alert-progress .alert-progress-text {

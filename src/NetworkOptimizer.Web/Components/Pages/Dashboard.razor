@@ -1,7 +1,10 @@
 @page "/"
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
 @inject DashboardService DashboardService
 @inject UniFiConnectionService ConnectionService
+@inject Iperf3SpeedTestService SpeedTestService
+@inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
@@ -187,6 +190,48 @@
             </div>
         </div>
 
+        <!-- LAN Speed Test Stats -->
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
+            <div class="card-header">
+                <h2 class="card-title">LAN Speed Test</h2>
+                <span class="card-action">View All →</span>
+            </div>
+            <div class="card-body">
+                @if (_speedTestLoading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_latestSpeedTest == null)
+                {
+                    <div class="empty-state">
+                        <p>No speed tests yet</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="speed-test-stats">
+                        <div class="speed-stat">
+                            <span class="speed-stat-value">@_latestSpeedTest.DownloadMbps.ToString("F0")</span>
+                            <span class="speed-stat-unit">Mbps</span>
+                            <span class="speed-stat-label">↓ From Device</span>
+                        </div>
+                        <div class="speed-stat">
+                            <span class="speed-stat-value">@_latestSpeedTest.UploadMbps.ToString("F0")</span>
+                            <span class="speed-stat-unit">Mbps</span>
+                            <span class="speed-stat-label">↑ To Device</span>
+                        </div>
+                    </div>
+                    <div class="speed-test-meta">
+                        <span class="speed-test-device">@(_latestSpeedTest.DeviceName ?? "Unknown")</span>
+                        <span class="speed-test-time">@_latestSpeedTest.TestTime.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                    </div>
+                }
+            </div>
+        </div>
+
         <!-- Recent Alerts -->
         <div class="card card-span-2">
             <div class="card-header">
@@ -244,6 +289,7 @@
 
 @code {
     private bool _loading = true;
+    private bool _speedTestLoading = true;
     private int deviceCount = 0;
     private int securityScore = 0;
     private string sqmStatus = "Not Configured";
@@ -252,10 +298,33 @@
     private int warningIssues = 0;
     private string lastAuditTime = "Never";
     private List<Services.DeviceInfo> devices = new();
+    private Iperf3Result? _latestSpeedTest;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDashboardData();
+        // Load in parallel
+        await Task.WhenAll(
+            LoadDashboardData(),
+            LoadSpeedTestData()
+        );
+    }
+
+    private async Task LoadSpeedTestData()
+    {
+        _speedTestLoading = true;
+        try
+        {
+            var results = await SpeedTestService.GetRecentResultsAsync(1);
+            _latestSpeedTest = results.FirstOrDefault(r => r.Success);
+        }
+        catch
+        {
+            // Ignore errors - just show empty state
+        }
+        finally
+        {
+            _speedTestLoading = false;
+        }
     }
 
     private async Task LoadDashboardData()
