@@ -313,8 +313,9 @@ public class Iperf3SpeedTestService
         {
             _logger.LogInformation("Starting iperf3 speed test to {Device} ({Host})", device.Name, host);
 
-            // Quick connectivity check before proceeding - fail fast if host is unreachable
-            if (manageServer)
+            // Quick connectivity check for saved devices (Id > 0) - skip for UniFi devices
+            // which already have UI-level online checks
+            if (manageServer && device.Id > 0)
             {
                 var (sshOk, sshMsg) = await _sshService.TestConnectionAsync(device);
                 if (!sshOk)
