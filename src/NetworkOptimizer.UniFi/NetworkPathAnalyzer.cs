@@ -628,9 +628,17 @@ public class NetworkPathAnalyzer
                 Notes = "Target device"
             };
 
-            // Get uplink speed from the port on the upstream switch
-            if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
+            // Get uplink speed - use device's uplink speed for wireless mesh, otherwise port speed
+            if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                && targetDevice.UplinkSpeedMbps > 0)
             {
+                // Wireless mesh uplink - use the reported uplink speed
+                deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps;
+                deviceHop.EgressSpeedMbps = targetDevice.UplinkSpeedMbps;
+            }
+            else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
+            {
+                // Wired uplink - get port speed from upstream switch
                 deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
@@ -791,6 +799,18 @@ public class NetworkPathAnalyzer
                 // Traffic must go to gateway for L3 routing even if it passes through server's switch
                 bool stopAtServerSwitch = isServerSwitch && !path.RequiresRouting;
 
+                // Determine ingress speed - use device's uplink speed for wireless mesh, otherwise port speed
+                int ingressSpeed;
+                if (device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                    && device.UplinkSpeedMbps > 0)
+                {
+                    ingressSpeed = device.UplinkSpeedMbps;
+                }
+                else
+                {
+                    ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                }
+
                 var hop = new NetworkHop
                 {
                     Order = hopOrder,
@@ -801,7 +821,7 @@ public class NetworkPathAnalyzer
                     DeviceIp = device.IpAddress,
                     IngressPort = currentPort,
                     IngressPortName = GetPortName(rawDevices, currentMac, currentPort),
-                    IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort)
+                    IngressSpeedMbps = ingressSpeed
                 };
 
                 if (stopAtServerSwitch)
@@ -813,10 +833,21 @@ public class NetworkPathAnalyzer
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
-                    // Continue up the chain
-                    hop.EgressPort = device.UplinkPort;
-                    hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
-                    hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                    // Continue up the chain - get next hop's uplink speed if wireless
+                    if (deviceDict.TryGetValue(device.UplinkMac, out var uplinkDevice)
+                        && uplinkDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                        && uplinkDevice.UplinkSpeedMbps > 0)
+                    {
+                        hop.EgressPort = device.UplinkPort;
+                        hop.EgressSpeedMbps = uplinkDevice.UplinkSpeedMbps;
+                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                    }
+                    else
+                    {
+                        hop.EgressPort = device.UplinkPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                    }
                 }
 
                 hops.Add(hop);

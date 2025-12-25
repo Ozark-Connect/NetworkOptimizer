@@ -55,6 +55,8 @@ public class UniFiDiscovery
             UplinkMac = d.Uplink?.UplinkMac,
             UplinkPort = d.Uplink?.UplinkRemotePort,
             IsUplinkConnected = d.Uplink?.Up ?? false,
+            UplinkSpeedMbps = d.Uplink?.Speed ?? 0,
+            UplinkType = d.Uplink?.Type,
             CpuUsage = d.SystemStats?.Cpu,
             MemoryUsage = d.SystemStats?.Mem,
             LoadAverage = d.SystemStats?.LoadAvg1,
@@ -309,6 +311,8 @@ public class DiscoveredDevice
     public int? UplinkPort { get; set; }
     public string? UplinkDeviceName { get; set; }
     public bool IsUplinkConnected { get; set; }
+    public int UplinkSpeedMbps { get; set; }
+    public string? UplinkType { get; set; }  // "wire" or "wireless"
     public List<string>? DownstreamDevices { get; set; }
     public string? CpuUsage { get; set; }
     public string? MemoryUsage { get; set; }
