@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Storage.Models;
@@ -93,7 +94,7 @@ public class Iperf3Result
             if (string.IsNullOrEmpty(PathAnalysisJson)) return null;
             try
             {
-                _pathAnalysis = JsonSerializer.Deserialize<PathAnalysisResult>(PathAnalysisJson);
+                _pathAnalysis = JsonSerializer.Deserialize<PathAnalysisResult>(PathAnalysisJson, JsonOptions);
             }
             catch
             {
@@ -104,8 +105,13 @@ public class Iperf3Result
         set
         {
             _pathAnalysis = value;
-            PathAnalysisJson = value != null ? JsonSerializer.Serialize(value) : null;
+            PathAnalysisJson = value != null ? JsonSerializer.Serialize(value, JsonOptions) : null;
         }
     }
     private PathAnalysisResult? _pathAnalysis;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
 }

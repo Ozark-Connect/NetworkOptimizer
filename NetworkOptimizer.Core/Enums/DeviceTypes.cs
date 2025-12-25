@@ -15,11 +15,12 @@ public static class DeviceTypes
     // Non-UniFi device types
     public const string Server = "Server";
     public const string Desktop = "Desktop";
+    public const string Laptop = "Laptop";
 
     /// <summary>
     /// All valid device types for UI dropdowns
     /// </summary>
-    public static readonly string[] All = [Gateway, Switch, AccessPoint, CellularModem, Server, Desktop];
+    public static readonly string[] All = [Gateway, Switch, AccessPoint, CellularModem, Server, Desktop, Laptop];
 
     /// <summary>
     /// UniFi device types (use UniFi parallel streams setting)
