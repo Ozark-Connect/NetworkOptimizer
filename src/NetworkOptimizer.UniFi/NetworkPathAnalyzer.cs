@@ -693,13 +693,53 @@ public class NetworkPathAnalyzer
             }
         }
 
+        // Special case: target IS the gateway - add server chain directly
+        bool targetIsGateway = targetDevice?.Type == DeviceType.Gateway;
+        if (targetIsGateway)
+        {
+            // Gateway is the target, add path from gateway to server
+            int hopOrder = 1;
+            if (serverChain.Count > 0)
+            {
+                for (int i = serverChain.Count - 1; i >= 0; i--)
+                {
+                    var (chainDevice, chainPort) = serverChain[i];
+
+                    // Skip if it's the gateway (already added as target)
+                    if (chainDevice.Type == DeviceType.Gateway)
+                        continue;
+
+                    var hop = new NetworkHop
+                    {
+                        Order = hopOrder++,
+                        Type = GetHopType(chainDevice.Type),
+                        DeviceMac = chainDevice.Mac,
+                        DeviceName = chainDevice.Name,
+                        DeviceModel = chainDevice.ModelDisplay ?? chainDevice.Model,
+                        DeviceIp = chainDevice.IpAddress,
+                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
+                        IngressPort = chainPort,
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        Notes = "Path from gateway"
+                    };
+
+                    // Set egress to server's port if this is server's switch
+                    if (chainDevice.Mac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase))
+                    {
+                        hop.EgressPort = serverPosition.SwitchPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                        hop.EgressPortName = GetPortName(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                    }
+
+                    hops.Add(hop);
+                }
+            }
+        }
         // Check if both server and target are on the same switch AND same VLAN
         // Inter-VLAN traffic must go through gateway even if on same physical switch
-        bool sameSwitch = !string.IsNullOrEmpty(currentMac) &&
-                          currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase) &&
-                          !path.RequiresRouting;
-
-        if (sameSwitch)
+        else if (!string.IsNullOrEmpty(currentMac) &&
+                 currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase) &&
+                 !path.RequiresRouting)
         {
             // Both endpoints on same switch - just add the switch as a single hop
             if (deviceDict.TryGetValue(currentMac!, out var switchDevice))
