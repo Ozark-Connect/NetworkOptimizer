@@ -247,6 +247,7 @@
     private string GetHopTypeClass(HopType type) => type switch
     {
         HopType.Client => "hop-client",
+        HopType.WirelessClient => "hop-client",
         HopType.Switch => "hop-switch",
         HopType.AccessPoint => "hop-ap",
         HopType.Gateway => "hop-gateway",
@@ -256,11 +257,12 @@
 
     private string GetHopIcon(HopType type) => type switch
     {
-        HopType.Client => "💻",
+        HopType.Client => "🖥️",
+        HopType.WirelessClient => "💻",
         HopType.Switch => "🔀",
         HopType.AccessPoint => "📶",
         HopType.Gateway => "🌐",
-        HopType.Server => "🖥️",
+        HopType.Server => "🖳",
         _ => "•"
     };
 }
