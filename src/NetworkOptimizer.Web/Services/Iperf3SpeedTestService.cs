@@ -363,16 +363,8 @@ public class Iperf3SpeedTestService
                     _logger.LogWarning("Download test failed: {Error}", downloadResult.output);
                 }
 
-                // Restart iperf3 server before second test for consistent performance
-                // (we've seen instability when reusing the server for back-to-back tests)
-                if (manageServer)
-                {
-                    _logger.LogDebug("Restarting iperf3 server on {Host} before upload test", host);
-                    await KillIperf3Async(device, isWindows);
-                    await Task.Delay(200);
-                    await StartIperf3ServerAsync(device, isWindows);
-                    await Task.Delay(300);
-                }
+                // Brief delay between tests for stability
+                await Task.Delay(500);
 
                 // Step 4: Run upload test (client -> device) - "To Device"
                 _logger.LogDebug("Running upload test to {Host}", host);
