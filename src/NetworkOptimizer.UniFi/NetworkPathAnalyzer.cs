@@ -547,6 +547,30 @@ public class NetworkPathAnalyzer
             return; // No target found
         }
 
+        // Build server's uplink chain (for finding path from gateway to server)
+        var serverChain = new List<(DiscoveredDevice device, int? port)>();
+        if (!string.IsNullOrEmpty(serverPosition.SwitchMac))
+        {
+            string? chainMac = serverPosition.SwitchMac;
+            int? chainPort = serverPosition.SwitchPort;
+            int chainHops = 0;
+
+            while (!string.IsNullOrEmpty(chainMac) && chainHops < 10)
+            {
+                if (deviceDict.TryGetValue(chainMac, out var chainDevice))
+                {
+                    serverChain.Add((chainDevice, chainPort));
+                    chainMac = chainDevice.UplinkMac;
+                    chainPort = chainDevice.UplinkPort;
+                    chainHops++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
         // Check if both server and target are on the same switch
         bool sameSwitch = !string.IsNullOrEmpty(currentMac) &&
                           currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
@@ -581,17 +605,19 @@ public class NetworkPathAnalyzer
         }
         else
         {
-            // Trace uplinks until we reach the server's switch
+            // Trace uplinks from target
             int hopOrder = 1;
-            int maxHops = 10; // Prevent infinite loops
+            int maxHops = 10;
+            bool reachedGateway = false;
 
             while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
             {
                 if (!deviceDict.TryGetValue(currentMac, out var device))
                     break;
 
-                // Check if we've reached the server's switch
+                // Check if we've reached the server's switch or gateway
                 bool isServerSwitch = currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
+                bool isGateway = device.Type == DeviceType.Gateway;
 
                 var hop = new NetworkHop
                 {
@@ -603,20 +629,18 @@ public class NetworkPathAnalyzer
                     DeviceIp = device.IpAddress,
                     IngressPort = currentPort,
                     IngressPortName = GetPortName(rawDevices, currentMac, currentPort),
-                    IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort),
-                    EgressPort = isServerSwitch ? serverPosition.SwitchPort : device.UplinkPort
+                    IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort)
                 };
 
-                // Get egress port speed
                 if (isServerSwitch)
                 {
+                    hop.EgressPort = serverPosition.SwitchPort;
                     hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, serverPosition.SwitchPort);
                     hop.EgressPortName = GetPortName(rawDevices, currentMac, serverPosition.SwitchPort);
-                    hop.Notes = "Server's switch";
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
-                    // Egress speed is the uplink speed - get from uplink switch's port
+                    hop.EgressPort = device.UplinkPort;
                     hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
                     hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                 }
@@ -626,40 +650,66 @@ public class NetworkPathAnalyzer
                 if (isServerSwitch)
                     break;
 
+                if (isGateway)
+                {
+                    reachedGateway = true;
+                    // Add known gateway routing limits
+                    if (path.RequiresRouting)
+                    {
+                        hop.Notes = "L3 routing (inter-VLAN)";
+                        if (GatewayRoutingLimits.TryGetValue(device.ModelDisplay ?? "", out int limit) ||
+                            GatewayRoutingLimits.TryGetValue(device.Model ?? "", out limit))
+                        {
+                            hop.IngressSpeedMbps = limit;
+                            hop.EgressSpeedMbps = limit;
+                            hop.Notes = $"L3 routing (inter-VLAN) - {limit / 1000.0:F1} Gbps capacity";
+                        }
+                    }
+                    break;
+                }
+
                 // Move to next hop
                 currentMac = device.UplinkMac;
                 currentPort = device.UplinkPort;
                 hopOrder++;
             }
-        }
 
-        // Add gateway hop if inter-VLAN routing is required (before server)
-        if (path.RequiresRouting && !string.IsNullOrEmpty(path.GatewayDevice))
-        {
-            var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
-            if (gateway != null)
+            // For inter-VLAN: after reaching gateway, add path from gateway to server
+            if (reachedGateway && path.RequiresRouting && serverChain.Count > 0)
             {
-                var gatewayHop = new NetworkHop
+                // Add server chain in reverse (from gateway down to server's switch)
+                for (int i = serverChain.Count - 1; i >= 0; i--)
                 {
-                    Order = hops.Count,
-                    Type = HopType.Gateway,
-                    DeviceMac = gateway.Mac,
-                    DeviceName = gateway.Name,
-                    DeviceModel = gateway.ModelDisplay ?? gateway.Model,
-                    DeviceIp = gateway.IpAddress,
-                    Notes = "L3 routing (inter-VLAN)"
-                };
+                    var (chainDevice, chainPort) = serverChain[i];
+                    hopOrder++;
 
-                // Check for known gateway routing limits
-                if (GatewayRoutingLimits.TryGetValue(gateway.ModelDisplay ?? "", out int limit) ||
-                    GatewayRoutingLimits.TryGetValue(gateway.Model ?? "", out limit))
-                {
-                    gatewayHop.IngressSpeedMbps = limit;
-                    gatewayHop.EgressSpeedMbps = limit;
-                    gatewayHop.Notes = $"L3 routing (inter-VLAN) - {limit / 1000.0:F1} Gbps routing capacity";
+                    // Skip if this device was already added (e.g., gateway)
+                    if (hops.Any(h => h.DeviceMac.Equals(chainDevice.Mac, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    var hop = new NetworkHop
+                    {
+                        Order = hopOrder,
+                        Type = GetHopType(chainDevice.Type),
+                        DeviceMac = chainDevice.Mac,
+                        DeviceName = chainDevice.Name,
+                        DeviceModel = chainDevice.ModelDisplay ?? chainDevice.Model,
+                        DeviceIp = chainDevice.IpAddress,
+                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
+                        IngressPort = chainPort,
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort)
+                    };
+
+                    // Set egress to server's port if this is server's switch
+                    if (chainDevice.Mac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase))
+                    {
+                        hop.EgressPort = serverPosition.SwitchPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                        hop.EgressPortName = GetPortName(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                    }
+
+                    hops.Add(hop);
                 }
-
-                hops.Add(gatewayHop);
             }
         }
 
