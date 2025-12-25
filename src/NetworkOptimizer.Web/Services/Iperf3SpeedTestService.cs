@@ -313,6 +313,9 @@ public class Iperf3SpeedTestService
         {
             _logger.LogInformation("Starting iperf3 speed test to {Device} ({Host})", device.Name, host);
 
+            // Refresh topology to get current link speeds before test
+            _pathAnalyzer.InvalidateTopologyCache();
+
             // Detect OS if we need to manage the server
             if (manageServer)
             {
@@ -627,9 +630,6 @@ public class Iperf3SpeedTestService
         try
         {
             _logger.LogDebug("Analyzing network path to {Host}", targetHost);
-
-            // Refresh topology to get current link speeds (e.g., Wi-Fi PHY rate may have changed)
-            _pathAnalyzer.InvalidateTopologyCache();
 
             var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
