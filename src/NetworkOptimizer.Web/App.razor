@@ -72,6 +72,18 @@
                     }
                 });
             });
+
+            // Simple tooltips for elements with data-tooltip (not .tooltip-icon)
+            document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
+                if (el._tippy) return;
+                tippy(el, {
+                    content: el.dataset.tooltip,
+                    delay: [100, 200],
+                    placement: 'top',
+                    theme: 'custom',
+                    appendTo: document.body
+                });
+            });
         }
 
         // Initialize on page load

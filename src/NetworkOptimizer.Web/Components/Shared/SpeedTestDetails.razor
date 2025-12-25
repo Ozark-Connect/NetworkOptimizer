@@ -53,13 +53,13 @@
                 </div>
                 <div class="efficiency-grades">
                     <div class="grade-item">
-                        <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" title="From device to server">
-                            ↑ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
+                        <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" data-tooltip="From device to server">
+                            ↓ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
                         </span>
                     </div>
                     <div class="grade-item">
-                        <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" title="From server to device">
-                            ↓ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
+                        <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" data-tooltip="From server to device">
+                            ↑ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
                         </span>
                     </div>
                 </div>
