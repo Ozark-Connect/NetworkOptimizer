@@ -59,8 +59,11 @@ public class NetworkHop
 /// </summary>
 public enum HopType
 {
-    /// <summary>Client endpoint (source or destination)</summary>
+    /// <summary>Wired client endpoint (desktop)</summary>
     Client,
+
+    /// <summary>Wireless client endpoint (laptop)</summary>
+    WirelessClient,
 
     /// <summary>L2 switch</summary>
     Switch,
