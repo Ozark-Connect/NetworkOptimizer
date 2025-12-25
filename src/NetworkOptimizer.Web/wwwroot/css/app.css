@@ -2062,17 +2062,13 @@ td .btn + .btn {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    flex: 1;
-    min-width: 2rem;
-    max-width: 160%;
     padding: 0 0.2rem;
     margin-top: 1rem;
     gap: 0.1rem;
 }
 
 .path-analysis .path-connector .connector-line {
-    width: 100%;
+    width: 154%;
     height: 2px;
     background: #3b82f6;
     position: relative;
