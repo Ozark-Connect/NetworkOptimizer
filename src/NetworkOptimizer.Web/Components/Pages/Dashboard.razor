@@ -191,7 +191,7 @@
         </div>
 
         <!-- LAN Speed Test Stats -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
+        <div class="card card-span-2 clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
             <div class="card-header">
                 <h2 class="card-title">LAN Speed Test</h2>
                 <span class="card-action">View All →</span>
@@ -312,7 +312,7 @@
         try
         {
             var results = await SpeedTestService.GetRecentResultsAsync(10);
-            _recentSpeedTests = results.Where(r => r.Success).Take(3).ToList();
+            _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
         }
         catch
         {
