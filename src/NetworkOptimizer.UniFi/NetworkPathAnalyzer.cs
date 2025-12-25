@@ -83,6 +83,16 @@ public class NetworkPathAnalyzer
     }
 
     /// <summary>
+    /// Invalidates the cached topology so the next call fetches fresh data from the API.
+    /// </summary>
+    public void InvalidateTopologyCache()
+    {
+        _cache.Remove(TopologyCacheKey);
+        _cache.Remove(ServerPositionCacheKey);
+        _logger.LogDebug("Topology cache invalidated");
+    }
+
+    /// <summary>
     /// Discovers the server's position in the network topology.
     /// The server is the machine running this application (the iperf3 server).
     /// </summary>

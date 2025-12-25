@@ -177,12 +177,12 @@ public class Iperf3SpeedTestService
 
             // Use WMI to create a detached process that survives SSH session end
             // Quote the path to handle spaces (e.g., "C:\Program Files\iperf3\iperf3.exe")
-            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '\\\"{iperf3Path}\\\" -s -1 -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
+            var cmd = $"pwsh -Command \"$r = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList '\\\"{iperf3Path}\\\" -s -p {Iperf3Port}'; if ($r.ReturnValue -eq 0) {{ 'started:' + $r.ProcessId }} else {{ 'failed:' + $r.ReturnValue }}\"";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
         else
         {
-            var cmd = $"nohup iperf3 -s -1 -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!";
+            var cmd = $"nohup iperf3 -s -p {Iperf3Port} > /tmp/iperf3_server.log 2>&1 & echo $!";
             return await _sshService.RunCommandWithDeviceAsync(device, cmd);
         }
     }
@@ -322,7 +322,6 @@ public class Iperf3SpeedTestService
                 // Step 1: Kill any existing iperf3 server on the device
                 _logger.LogDebug("Cleaning up any existing iperf3 processes on {Host}", host);
                 await KillIperf3Async(device, isWindows);
-                await Task.Delay(200);
 
                 // Step 2: Start iperf3 server on the remote device
                 _logger.LogDebug("Starting iperf3 server on {Host}", host);
@@ -337,31 +336,8 @@ public class Iperf3SpeedTestService
 
                 _logger.LogDebug("iperf3 server start command sent to {Host}, output: {Output}", host, serverStartResult.output);
 
-                // Verify server is running with retries (WMI process creation can be slow)
-                var serverRunning = false;
-                for (int attempt = 1; attempt <= 5; attempt++)
-                {
-                    // Increase delay for each attempt (start at 500ms)
-                    var delayMs = attempt * 500;
-                    _logger.LogDebug("Waiting {Delay}ms before checking iperf3 server (attempt {Attempt}/5)", delayMs, attempt);
-                    await Task.Delay(delayMs);
-
-                    serverRunning = await IsIperf3ServerRunningAsync(device, isWindows);
-                    if (serverRunning)
-                    {
-                        _logger.LogDebug("iperf3 server confirmed running on {Host} after {Attempt} attempt(s)", host, attempt);
-                        break;
-                    }
-                    _logger.LogDebug("iperf3 server not detected on {Host} (attempt {Attempt}/5)", host, attempt);
-                }
-
-                if (!serverRunning)
-                {
-                    var log = await GetIperf3ServerLogAsync(device, isWindows);
-                    result.Success = false;
-                    result.ErrorMessage = $"iperf3 server failed to start after 5 attempts. {log}";
-                    return result;
-                }
+                // Brief delay to let server start - iperf3 client has 5s connect timeout as fallback
+                await Task.Delay(300);
             }
             else
             {
@@ -382,17 +358,6 @@ public class Iperf3SpeedTestService
                 else
                 {
                     _logger.LogWarning("Download test failed: {Error}", downloadResult.output);
-                }
-
-                if (manageServer)
-                {
-                    // Server runs with -1 (one-off mode), so restart for upload test
-                    await KillIperf3Async(device, isWindows);
-                    await Task.Delay(200);
-
-                    // Restart server for upload test
-                    await StartIperf3ServerAsync(device, isWindows);
-                    await Task.Delay(500);
                 }
 
                 // Step 4: Run upload test (client -> device) - "To Device"
@@ -662,6 +627,9 @@ public class Iperf3SpeedTestService
         try
         {
             _logger.LogDebug("Analyzing network path to {Host}", targetHost);
+
+            // Refresh topology to get current link speeds (e.g., Wi-Fi PHY rate may have changed)
+            _pathAnalyzer.InvalidateTopologyCache();
 
             var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
