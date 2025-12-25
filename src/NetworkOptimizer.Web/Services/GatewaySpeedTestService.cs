@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -19,6 +21,7 @@ public class GatewaySpeedTestService
     private readonly UniFiConnectionService _connectionService;
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly SystemSettingsService _systemSettings;
+    private readonly NetworkPathAnalyzer _pathAnalyzer;
 
     // Cache the settings to avoid repeated DB queries
     private GatewaySshSettings? _cachedSettings;
@@ -34,13 +37,15 @@ public class GatewaySpeedTestService
         IServiceProvider serviceProvider,
         UniFiConnectionService connectionService,
         SystemSettingsService systemSettings,
-        ICredentialProtectionService credentialProtection)
+        ICredentialProtectionService credentialProtection,
+        NetworkPathAnalyzer pathAnalyzer)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _connectionService = connectionService;
         _credentialProtection = credentialProtection;
         _systemSettings = systemSettings;
+        _pathAnalyzer = pathAnalyzer;
     }
 
     #region Settings Management
@@ -492,8 +497,11 @@ public class GatewaySpeedTestService
             result.Success = true;
             _lastResult = result;
 
+            // Analyze network path before saving
+            var pathAnalysis = await AnalyzePathAsync(settings.Host, result.DownloadMbps, result.UploadMbps);
+
             // Save to history database
-            await SaveResultToHistoryAsync(result);
+            await SaveResultToHistoryAsync(result, pathAnalysis);
 
             _logger.LogInformation("Speed test completed: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
                 result.DownloadMbps, result.UploadMbps);
@@ -639,9 +647,47 @@ public class GatewaySpeedTestService
     }
 
     /// <summary>
+    /// Analyze the network path to the gateway and calculate efficiency grades
+    /// </summary>
+    private async Task<PathAnalysisResult?> AnalyzePathAsync(
+        string targetHost, double downloadMbps, double uploadMbps)
+    {
+        try
+        {
+            _logger.LogDebug("Analyzing network path to gateway {Host}", targetHost);
+
+            var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
+            var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, downloadMbps, uploadMbps);
+
+            if (analysis.Path.IsValid)
+            {
+                _logger.LogInformation("Gateway path analysis: {Hops} hops, theoretical max {MaxMbps} Mbps, " +
+                    "from-device efficiency {FromEff:F0}% ({FromGrade}), to-device efficiency {ToEff:F0}% ({ToGrade})",
+                    analysis.Path.Hops.Count,
+                    analysis.Path.TheoreticalMaxMbps,
+                    analysis.FromDeviceEfficiencyPercent,
+                    analysis.FromDeviceGrade,
+                    analysis.ToDeviceEfficiencyPercent,
+                    analysis.ToDeviceGrade);
+            }
+            else
+            {
+                _logger.LogDebug("Gateway path analysis incomplete: {Error}", analysis.Path.ErrorMessage);
+            }
+
+            return analysis;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to analyze network path to gateway {Host}", targetHost);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Save the gateway speed test result to the shared history database
     /// </summary>
-    private async Task SaveResultToHistoryAsync(GatewaySpeedTestResult result)
+    private async Task SaveResultToHistoryAsync(GatewaySpeedTestResult result, PathAnalysisResult? pathAnalysis)
     {
         try
         {
@@ -665,7 +711,8 @@ public class GatewaySpeedTestService
                 DownloadBytes = result.DownloadBytes,
                 DownloadRetransmits = result.DownloadRetransmits,
                 RawUploadJson = result.RawUploadJson,
-                RawDownloadJson = result.RawDownloadJson
+                RawDownloadJson = result.RawDownloadJson,
+                PathAnalysis = pathAnalysis
             };
 
             await repository.SaveIperf3ResultAsync(historyResult);
