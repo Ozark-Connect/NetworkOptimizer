@@ -148,9 +148,19 @@
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
                 {
-                    <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
-                        @gatewayMessage
-                    </div>
+                    @if (gatewayRunning)
+                    {
+                        <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
+                            <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
+                            <span class="alert-progress-text">Testing gateway... @testProgressPhase...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
+                            @gatewayMessage
+                        </div>
+                    }
                 }
             }
         </div>
@@ -262,6 +272,13 @@
                     <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
                         <span>@unifiMessage</span>
                         <span class="alert-link-hint">Click to view details →</span>
+                    </div>
+                }
+                else if (unifiMessageClass == "info" && isRunningTest)
+                {
+                    <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
+                        <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
+                        <span class="alert-progress-text">@unifiMessage @testProgressPhase...</span>
                     </div>
                 }
                 else
@@ -437,6 +454,13 @@
                     <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
                         <span>@savedDeviceMessage</span>
                         <span class="alert-link-hint">Click to view details →</span>
+                    </div>
+                }
+                else if (savedDeviceMessageClass == "info" && isRunningTest)
+                {
+                    <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
+                        <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
+                        <span class="alert-progress-text">@savedDeviceMessage @testProgressPhase...</span>
                     </div>
                 }
                 else

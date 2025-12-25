@@ -1227,6 +1227,26 @@ td .btn + .btn {
     color: var(--text-secondary);
 }
 
+/* Alert with progress bar */
+.alert-progress {
+    position: relative;
+    overflow: hidden;
+}
+
+.alert-progress .alert-progress-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: rgba(5, 89, 201, 0.3);
+    transition: width 0.25s ease-out;
+}
+
+.alert-progress .alert-progress-text {
+    position: relative;
+    z-index: 1;
+}
+
 /* Alert as clickable link */
 .alert-link {
     display: flex;
