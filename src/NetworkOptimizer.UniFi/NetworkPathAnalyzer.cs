@@ -468,10 +468,31 @@ public class NetworkPathAnalyzer
 
     private static DiscoveredDevice? FindDevice(NetworkTopology topology, string hostOrIp)
     {
-        return topology.Devices.FirstOrDefault(d =>
+        // Direct match on IP, name, or MAC
+        var device = topology.Devices.FirstOrDefault(d =>
             d.IpAddress.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase) ||
             d.Name.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase) ||
             d.Mac.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase));
+
+        if (device != null)
+            return device;
+
+        // Special case: Gateway devices often have their LAN gateway IPs (192.168.x.1, 10.x.x.1)
+        // as DNS entries, but the UniFi API reports a different management IP.
+        // If the IP looks like a gateway address, check if there's a gateway device.
+        if (System.Net.IPAddress.TryParse(hostOrIp, out var ip))
+        {
+            var bytes = ip.GetAddressBytes();
+            // Check for common gateway patterns: x.x.x.1 (last octet = 1)
+            if (bytes.Length == 4 && bytes[3] == 1)
+            {
+                var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+                if (gateway != null)
+                    return gateway;
+            }
+        }
+
+        return null;
     }
 
     private static DiscoveredClient? FindClient(NetworkTopology topology, string hostOrIp)
