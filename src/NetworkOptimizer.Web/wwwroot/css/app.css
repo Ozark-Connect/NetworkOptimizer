@@ -2025,6 +2025,7 @@ td .btn + .btn {
 .path-analysis .path-visualization {
     display: flex;
     align-items: center;
+    justify-content: center;
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
