@@ -221,7 +221,13 @@ public class NetworkPathAnalyzer
             if (targetDevice != null)
             {
                 path.DestinationMac = targetDevice.Mac;
-                // Devices don't have VLAN directly, they span VLANs
+                // Try to find network by device IP
+                var deviceNetwork = FindNetworkByIp(topology.Networks, targetDevice.IpAddress);
+                if (deviceNetwork != null)
+                {
+                    path.DestinationVlanId = deviceNetwork.VlanId;
+                    path.DestinationNetworkName = deviceNetwork.Name;
+                }
             }
             else if (targetClient != null)
             {
@@ -233,14 +239,16 @@ public class NetworkPathAnalyzer
             }
 
             // Detect inter-VLAN routing
-            // Check by VLAN ID if both are set, or by network name if different
+            // Check by VLAN ID if both are set, or by network name if different,
+            // or by IP subnet if source and destination are on different subnets
             bool differentVlans = path.SourceVlanId.HasValue && path.DestinationVlanId.HasValue &&
                                   path.SourceVlanId != path.DestinationVlanId;
             bool differentNetworks = !string.IsNullOrEmpty(path.SourceNetworkName) &&
                                      !string.IsNullOrEmpty(path.DestinationNetworkName) &&
                                      !path.SourceNetworkName.Equals(path.DestinationNetworkName, StringComparison.OrdinalIgnoreCase);
+            bool differentSubnets = AreDifferentSubnets(path.SourceHost, path.DestinationHost);
 
-            if (differentVlans || differentNetworks)
+            if (differentVlans || differentNetworks || differentSubnets)
             {
                 path.RequiresRouting = true;
                 var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
@@ -502,6 +510,83 @@ public class NetworkPathAnalyzer
             c.Name.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase) ||
             c.Hostname.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase) ||
             c.Mac.Equals(hostOrIp, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Finds which network contains the given IP address based on subnet.
+    /// </summary>
+    private static NetworkInfo? FindNetworkByIp(List<NetworkInfo> networks, string ipAddress)
+    {
+        if (string.IsNullOrEmpty(ipAddress) || !System.Net.IPAddress.TryParse(ipAddress, out var ip))
+            return null;
+
+        foreach (var network in networks)
+        {
+            if (string.IsNullOrEmpty(network.IpSubnet))
+                continue;
+
+            // Parse subnet (e.g., "192.168.99.0/24" or "192.168.99.1/24")
+            var parts = network.IpSubnet.Split('/');
+            if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
+                !int.TryParse(parts[1], out var prefixLength))
+                continue;
+
+            if (IsInSubnet(ip, subnetIp, prefixLength))
+                return network;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP address is within a subnet.
+    /// </summary>
+    private static bool IsInSubnet(System.Net.IPAddress ip, System.Net.IPAddress subnetIp, int prefixLength)
+    {
+        var ipBytes = ip.GetAddressBytes();
+        var subnetBytes = subnetIp.GetAddressBytes();
+
+        if (ipBytes.Length != subnetBytes.Length)
+            return false;
+
+        // Create mask
+        int fullBytes = prefixLength / 8;
+        int remainingBits = prefixLength % 8;
+
+        for (int i = 0; i < fullBytes && i < ipBytes.Length; i++)
+        {
+            if (ipBytes[i] != subnetBytes[i])
+                return false;
+        }
+
+        if (fullBytes < ipBytes.Length && remainingBits > 0)
+        {
+            byte mask = (byte)(0xFF << (8 - remainingBits));
+            if ((ipBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if two IP addresses are on different /24 subnets.
+    /// This is a fallback for detecting inter-VLAN routing when network metadata isn't available.
+    /// </summary>
+    private static bool AreDifferentSubnets(string ip1, string ip2)
+    {
+        if (!System.Net.IPAddress.TryParse(ip1, out var addr1) ||
+            !System.Net.IPAddress.TryParse(ip2, out var addr2))
+            return false;
+
+        var bytes1 = addr1.GetAddressBytes();
+        var bytes2 = addr2.GetAddressBytes();
+
+        // Compare first 3 octets (assumes /24 networks, which is typical for home/SMB)
+        if (bytes1.Length != 4 || bytes2.Length != 4)
+            return false;
+
+        return bytes1[0] != bytes2[0] || bytes1[1] != bytes2[1] || bytes1[2] != bytes2[2];
     }
 
     private void BuildHopList(
