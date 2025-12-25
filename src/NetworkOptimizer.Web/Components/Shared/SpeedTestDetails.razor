@@ -81,7 +81,11 @@
                             @* Use next hop's ingress speed (the link TO the next device) *@
                             var nextHop = PathAnalysis.Path.Hops[i + 1];
                             var linkSpeed = nextHop.IngressSpeedMbps > 0 ? nextHop.IngressSpeedMbps : hop.EgressSpeedMbps;
-                            <div class="path-connector @(nextHop.IsBottleneck ? "bottleneck" : "")">
+                            @* Mark as bottleneck if this link's speed equals the path minimum and there's a real bottleneck *@
+                            var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck &&
+                                                   linkSpeed > 0 &&
+                                                   linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+                            <div class="path-connector @(isBottleneckLink ? "bottleneck" : "")">
                                 <span class="connector-line"></span>
                                 @if (linkSpeed > 0)
                                 {
