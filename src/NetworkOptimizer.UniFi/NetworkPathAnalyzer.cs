@@ -62,14 +62,14 @@ public class NetworkPathAnalyzer
     /// </summary>
     private static readonly Dictionary<string, int> GatewayRoutingLimits = new(StringComparer.OrdinalIgnoreCase)
     {
-        // USG series (MIPS-based, limited offload)
+        // USG series
         { "USG-3P", 850 },
         { "USG", 850 },
         { "UniFi Security Gateway", 850 },
         { "USG-Pro-4", 2400 },
         { "UniFi Security Gateway Pro", 2400 },
 
-        // UDM series (Alpine AL-324, full offload)
+        // UDM series
         { "UDM", 960 },
         { "UniFi Dream Machine", 960 },
         { "UDM-Pro", 9500 },
@@ -77,7 +77,7 @@ public class NetworkPathAnalyzer
         { "UDM-SE", 9500 },
         { "UniFi Dream Machine SE", 9500 },
 
-        // UCG series (MT7986)
+        // UCG series
         { "UCG-Ultra", 2400 },
         { "UniFi Cloud Gateway Ultra", 2400 },
         { "UCG-Max", 2400 },
