@@ -144,7 +144,7 @@ public class UniFiClientResponse
 
     // Device fingerprinting
     [JsonPropertyName("fingerprint_source")]
-    public int FingerprintSource { get; set; }
+    public string? FingerprintSource { get; set; }
 
     [JsonPropertyName("dev_id_override")]
     public int DevIdOverride { get; set; }
