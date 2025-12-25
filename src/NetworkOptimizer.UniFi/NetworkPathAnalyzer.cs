@@ -1108,9 +1108,9 @@ public class NetworkPathAnalyzer
         if (!string.IsNullOrEmpty(portName))
             return portName;
 
-        // For wireless links without a port name, just say "Wi-Fi"
+        // For wireless links without a port name, just say "wireless"
         if (isWireless)
-            return "Wi-Fi";
+            return "wireless";
 
         // For wired links with a port number
         if (portNumber.HasValue)
