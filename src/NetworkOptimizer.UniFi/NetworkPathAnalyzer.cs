@@ -571,9 +571,11 @@ public class NetworkPathAnalyzer
             }
         }
 
-        // Check if both server and target are on the same switch
+        // Check if both server and target are on the same switch AND same VLAN
+        // Inter-VLAN traffic must go through gateway even if on same physical switch
         bool sameSwitch = !string.IsNullOrEmpty(currentMac) &&
-                          currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
+                          currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase) &&
+                          !path.RequiresRouting;
 
         if (sameSwitch)
         {
@@ -678,14 +680,17 @@ public class NetworkPathAnalyzer
             if (reachedGateway && path.RequiresRouting && serverChain.Count > 0)
             {
                 // Add server chain in reverse (from gateway down to server's switch)
+                // Note: We DON'T skip devices that appear in target path (except gateway)
+                // because traffic actually traverses them twice in inter-VLAN routing
                 for (int i = serverChain.Count - 1; i >= 0; i--)
                 {
                     var (chainDevice, chainPort) = serverChain[i];
-                    hopOrder++;
 
-                    // Skip if this device was already added (e.g., gateway)
-                    if (hops.Any(h => h.DeviceMac.Equals(chainDevice.Mac, StringComparison.OrdinalIgnoreCase)))
+                    // Only skip the gateway (already added)
+                    if (chainDevice.Type == DeviceType.Gateway)
                         continue;
+
+                    hopOrder++;
 
                     var hop = new NetworkHop
                     {
@@ -697,7 +702,8 @@ public class NetworkPathAnalyzer
                         DeviceIp = chainDevice.IpAddress,
                         IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
                         IngressPort = chainPort,
-                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort)
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        Notes = "Return path from gateway"
                     };
 
                     // Set egress to server's port if this is server's switch

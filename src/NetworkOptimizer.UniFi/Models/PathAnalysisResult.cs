@@ -66,16 +66,16 @@ public class PathAnalysisResult
         Insights.Clear();
         Recommendations.Clear();
 
-        // Wireless segment warning (important for performance context)
-        if (Path.HasWirelessSegment)
+        // Wireless backhaul warning (AP-to-AP, not just client-to-AP)
+        if (Path.HasWirelessBackhaul)
         {
-            Insights.Add("Path includes wireless segment - speeds may vary with signal quality");
+            Insights.Add("Path includes wireless backhaul - speeds may vary with signal quality");
         }
 
-        // Performance-based insights
+        // Performance-based insights (note: enum comparison - higher value = worse grade)
         var avgEfficiency = (FromDeviceEfficiencyPercent + ToDeviceEfficiencyPercent) / 2;
 
-        if (FromDeviceGrade <= PerformanceGrade.Poor || ToDeviceGrade <= PerformanceGrade.Poor)
+        if (FromDeviceGrade >= PerformanceGrade.Poor || ToDeviceGrade >= PerformanceGrade.Poor)
         {
             Insights.Add("Performance below expected - possible congestion or network issue");
 

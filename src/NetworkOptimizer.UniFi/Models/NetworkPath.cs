@@ -75,9 +75,27 @@ public class NetworkPath
     public int SwitchHopCount => Hops.Count(h => h.Type == HopType.Switch);
 
     /// <summary>
-    /// Whether the path includes wireless segments
+    /// Whether the path includes wireless segments (any AP)
     /// </summary>
     public bool HasWirelessSegment => Hops.Any(h => h.Type == HopType.AccessPoint);
+
+    /// <summary>
+    /// Whether the path includes wireless backhaul (AP-to-AP connection)
+    /// This is different from a client connected to an AP
+    /// </summary>
+    public bool HasWirelessBackhaul
+    {
+        get
+        {
+            // Check if there are two consecutive AP hops (indicates wireless backhaul)
+            for (int i = 0; i < Hops.Count - 1; i++)
+            {
+                if (Hops[i].Type == HopType.AccessPoint && Hops[i + 1].Type == HopType.AccessPoint)
+                    return true;
+            }
+            return false;
+        }
+    }
 
     /// <summary>
     /// Whether there's a real bottleneck (a link slower than others in the path)
