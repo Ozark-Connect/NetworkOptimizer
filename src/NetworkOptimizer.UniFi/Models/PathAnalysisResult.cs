@@ -58,54 +58,45 @@ public class PathAnalysisResult
     };
 
     /// <summary>
-    /// Generate insights based on the analysis
+    /// Generate insights based on the analysis.
+    /// Note: Path info (routing, bottleneck) shown separately in UI - don't duplicate here.
     /// </summary>
     public void GenerateInsights()
     {
         Insights.Clear();
         Recommendations.Clear();
 
-        // Path information
-        if (Path.RequiresRouting)
-        {
-            Insights.Add($"Traffic is routed through {Path.GatewayDevice ?? "gateway"} (inter-VLAN)");
-        }
-
+        // Wireless segment warning (important for performance context)
         if (Path.HasWirelessSegment)
         {
             Insights.Add("Path includes wireless segment - speeds may vary with signal quality");
         }
 
-        if (Path.SwitchHopCount > 0)
-        {
-            Insights.Add($"Path traverses {Path.SwitchHopCount} switch hop{(Path.SwitchHopCount > 1 ? "s" : "")}");
-        }
+        // Performance-based insights
+        var avgEfficiency = (FromDeviceEfficiencyPercent + ToDeviceEfficiencyPercent) / 2;
 
-        // Bottleneck
-        if (!string.IsNullOrEmpty(Path.BottleneckDescription))
+        if (FromDeviceGrade <= PerformanceGrade.Poor || ToDeviceGrade <= PerformanceGrade.Poor)
         {
-            Insights.Add($"Bottleneck: {Path.BottleneckDescription}");
-        }
-
-        // Performance insights
-        if (FromDeviceGrade == PerformanceGrade.Excellent && ToDeviceGrade == PerformanceGrade.Excellent)
-        {
-            Insights.Add("Performance is excellent - achieving near-theoretical maximum");
-        }
-        else if (FromDeviceGrade <= PerformanceGrade.Poor || ToDeviceGrade <= PerformanceGrade.Poor)
-        {
-            Insights.Add("Performance is below expected - possible network issue or congestion");
+            Insights.Add("Performance below expected - possible congestion or network issue");
 
             if (Math.Abs(FromDeviceEfficiencyPercent - ToDeviceEfficiencyPercent) > 20)
             {
                 Recommendations.Add("Large asymmetry detected - check for half-duplex links or congestion");
             }
         }
+        else if (FromDeviceGrade == PerformanceGrade.Fair || ToDeviceGrade == PerformanceGrade.Fair)
+        {
+            Insights.Add("Performance is moderate - some overhead or minor congestion");
+        }
 
         // Recommendations based on bottleneck
-        if (Path.TheoreticalMaxMbps <= 100 && Path.SwitchHopCount > 0)
+        if (Path.TheoreticalMaxMbps <= 100)
         {
-            Recommendations.Add("Consider upgrading to gigabit links - 100M port detected in path");
+            Recommendations.Add("100 Mbps link detected - consider upgrading to gigabit");
+        }
+        else if (Path.TheoreticalMaxMbps == 1000 && avgEfficiency >= 90)
+        {
+            Recommendations.Add("Maxing out 1 GbE - consider 2.5G or 10G upgrade for higher speeds");
         }
     }
 }

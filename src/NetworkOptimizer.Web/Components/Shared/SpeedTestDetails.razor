@@ -44,89 +44,83 @@
 @if (PathAnalysis != null)
 {
     <div class="path-analysis">
-        <div class="analysis-header">
-            <h4>Path Analysis</h4>
-            @if (PathAnalysis.Path.IsValid)
-            {
-                <span class="theoretical-max">Theoretical Max: @FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps)</span>
-            }
-        </div>
-
         @if (PathAnalysis.Path.IsValid)
         {
-            <div class="efficiency-grades">
-                <div class="grade-item">
-                    <span class="grade-label">From Device</span>
-                    <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)">
-                        @PathAnalysis.FromDeviceGrade (@PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%)
-                    </span>
+            <div class="path-summary">
+                <div class="path-max-speed">
+                    <span class="speed-value">@FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps)</span>
+                    <span class="speed-label">max</span>
                 </div>
-                <div class="grade-item">
-                    <span class="grade-label">To Device</span>
-                    <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)">
-                        @PathAnalysis.ToDeviceGrade (@PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%)
-                    </span>
+                <div class="efficiency-grades">
+                    <div class="grade-item">
+                        <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" title="From device to server">
+                            ↑ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
+                        </span>
+                    </div>
+                    <div class="grade-item">
+                        <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" title="From server to device">
+                            ↓ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
+                        </span>
+                    </div>
                 </div>
             </div>
 
             @if (PathAnalysis.Path.Hops.Count > 0)
             {
-                <div class="path-hops">
-                    <strong>Path:</strong>
+                <div class="path-visualization">
                     @for (var i = 0; i < PathAnalysis.Path.Hops.Count; i++)
                     {
                         var hop = PathAnalysis.Path.Hops[i];
-                        <span class="hop @(hop.IsBottleneck ? "bottleneck" : "")">
-                            @hop.DeviceName
-                            @if (hop.IsBottleneck)
+                        var hopSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : hop.EgressSpeedMbps;
+                        <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
+                            <span class="hop-icon">@GetHopIcon(hop.Type)</span>
+                            <span class="hop-name">@hop.DeviceName</span>
+                            @if (hopSpeed > 0)
                             {
-                                <span class="bottleneck-indicator" title="Bottleneck">*</span>
+                                <span class="hop-speed">@FormatSpeed(hopSpeed)</span>
                             }
-                        </span>
+                        </div>
                         @if (i < PathAnalysis.Path.Hops.Count - 1)
                         {
-                            <span class="hop-arrow">→</span>
+                            <div class="path-connector">
+                                <span class="connector-line"></span>
+                            </div>
                         }
                     }
                 </div>
             }
 
-            @if (!string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
+            @if (PathAnalysis.Path.HasRealBottleneck && !string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
             {
-                <div class="bottleneck-info">
-                    <strong>Bottleneck:</strong> @PathAnalysis.Path.BottleneckDescription
+                <div class="bottleneck-warning">
+                    ⚠️ @PathAnalysis.Path.BottleneckDescription
                 </div>
             }
 
             @if (PathAnalysis.Path.RequiresRouting)
             {
-                <div class="routing-info">
-                    Inter-VLAN routing via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
-                    @if (!string.IsNullOrEmpty(PathAnalysis.Path.GatewayModel))
-                    {
-                        <span>(@PathAnalysis.Path.GatewayModel)</span>
-                    }
+                <div class="routing-badge">
+                    🔀 Inter-VLAN via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
                 </div>
             }
         }
-
-        @if (PathAnalysis.Insights.Count > 0)
+        else
         {
-            <div class="insights">
-                @foreach (var insight in PathAnalysis.Insights)
-                {
-                    <div class="insight">@insight</div>
-                }
+            <div class="path-error">
+                @(PathAnalysis.Path.ErrorMessage ?? "Path analysis unavailable")
             </div>
         }
 
-        @if (PathAnalysis.Recommendations.Count > 0)
+        @if (PathAnalysis.Insights.Count > 0 || PathAnalysis.Recommendations.Count > 0)
         {
-            <div class="recommendations">
-                <strong>Recommendations:</strong>
+            <div class="path-notes">
+                @foreach (var insight in PathAnalysis.Insights)
+                {
+                    <div class="note insight">💡 @insight</div>
+                }
                 @foreach (var rec in PathAnalysis.Recommendations)
                 {
-                    <div class="recommendation">@rec</div>
+                    <div class="note recommendation">📈 @rec</div>
                 }
             </div>
         }
@@ -224,5 +218,23 @@
         PerformanceGrade.Poor => "grade-poor",
         PerformanceGrade.Critical => "grade-critical",
         _ => ""
+    };
+
+    private string GetHopTypeClass(HopType type) => type switch
+    {
+        HopType.Client => "hop-client",
+        HopType.Switch => "hop-switch",
+        HopType.AccessPoint => "hop-ap",
+        HopType.Gateway => "hop-gateway",
+        _ => ""
+    };
+
+    private string GetHopIcon(HopType type) => type switch
+    {
+        HopType.Client => "💻",
+        HopType.Switch => "🔀",
+        HopType.AccessPoint => "📡",
+        HopType.Gateway => "🌐",
+        _ => "•"
     };
 }

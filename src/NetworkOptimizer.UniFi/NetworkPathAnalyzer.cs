@@ -741,26 +741,39 @@ public class NetworkPathAnalyzer
             return;
         }
 
+        // Collect all link speeds in the path
+        var allSpeeds = new List<int>();
         int minSpeed = int.MaxValue;
+        int maxSpeed = 0;
         NetworkHop? bottleneckHop = null;
         string? bottleneckPort = null;
 
         foreach (var hop in path.Hops)
         {
             // Check ingress
-            if (hop.IngressSpeedMbps > 0 && hop.IngressSpeedMbps < minSpeed)
+            if (hop.IngressSpeedMbps > 0)
             {
-                minSpeed = hop.IngressSpeedMbps;
-                bottleneckHop = hop;
-                bottleneckPort = hop.IngressPortName ?? $"ingress port {hop.IngressPort}";
+                allSpeeds.Add(hop.IngressSpeedMbps);
+                if (hop.IngressSpeedMbps > maxSpeed) maxSpeed = hop.IngressSpeedMbps;
+                if (hop.IngressSpeedMbps < minSpeed)
+                {
+                    minSpeed = hop.IngressSpeedMbps;
+                    bottleneckHop = hop;
+                    bottleneckPort = hop.IngressPortName ?? $"port {hop.IngressPort}";
+                }
             }
 
             // Check egress
-            if (hop.EgressSpeedMbps > 0 && hop.EgressSpeedMbps < minSpeed)
+            if (hop.EgressSpeedMbps > 0)
             {
-                minSpeed = hop.EgressSpeedMbps;
-                bottleneckHop = hop;
-                bottleneckPort = hop.EgressPortName ?? $"egress port {hop.EgressPort}";
+                allSpeeds.Add(hop.EgressSpeedMbps);
+                if (hop.EgressSpeedMbps > maxSpeed) maxSpeed = hop.EgressSpeedMbps;
+                if (hop.EgressSpeedMbps < minSpeed)
+                {
+                    minSpeed = hop.EgressSpeedMbps;
+                    bottleneckHop = hop;
+                    bottleneckPort = hop.EgressPortName ?? $"port {hop.EgressPort}";
+                }
             }
         }
 
@@ -773,19 +786,26 @@ public class NetworkPathAnalyzer
         path.TheoreticalMaxMbps = minSpeed;
         path.RealisticMaxMbps = GetRealisticMax(minSpeed);
 
+        // Only mark as bottleneck if there's actually a slower link than others
+        path.HasRealBottleneck = allSpeeds.Count > 0 && minSpeed < maxSpeed;
+
         if (bottleneckHop != null)
         {
-            bottleneckHop.IsBottleneck = true;
+            bottleneckHop.IsBottleneck = path.HasRealBottleneck;
 
-            if (minSpeed < 1000)
+            // Only set description if there's a real bottleneck
+            if (path.HasRealBottleneck)
             {
-                path.BottleneckDescription = $"{minSpeed} Mbps link on {bottleneckPort} of {bottleneckHop.DeviceName}";
-            }
-            else
-            {
-                var gbps = minSpeed / 1000.0;
-                var gbpsStr = gbps % 1 == 0 ? $"{(int)gbps}" : $"{gbps:F1}";
-                path.BottleneckDescription = $"{gbpsStr} Gbps link on {bottleneckPort} of {bottleneckHop.DeviceName}";
+                if (minSpeed < 1000)
+                {
+                    path.BottleneckDescription = $"{minSpeed} Mbps link at {bottleneckHop.DeviceName} ({bottleneckPort})";
+                }
+                else
+                {
+                    var gbps = minSpeed / 1000.0;
+                    var gbpsStr = gbps % 1 == 0 ? $"{(int)gbps}" : $"{gbps:F1}";
+                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {bottleneckHop.DeviceName} ({bottleneckPort})";
+                }
             }
         }
     }

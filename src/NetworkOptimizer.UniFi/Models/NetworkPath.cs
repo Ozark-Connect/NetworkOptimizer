@@ -78,4 +78,9 @@ public class NetworkPath
     /// Whether the path includes wireless segments
     /// </summary>
     public bool HasWirelessSegment => Hops.Any(h => h.Type == HopType.AccessPoint);
+
+    /// <summary>
+    /// Whether there's a real bottleneck (a link slower than others in the path)
+    /// </summary>
+    public bool HasRealBottleneck { get; set; }
 }
