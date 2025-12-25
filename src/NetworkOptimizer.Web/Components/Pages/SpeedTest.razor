@@ -906,10 +906,24 @@
             testHistory = await SpeedTestService.GetRecentResultsAsync(100);
             historyPage = 1; // Reset to first page when loading fresh data
 
-            // Set currentResult to most recent test
+            // Set currentResult to most recent test and calculate path analysis
             if (testHistory.Count > 0)
             {
                 currentResult = testHistory[0];
+
+                // Auto-calculate path analysis for latest result if not already set
+                if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
+                {
+                    try
+                    {
+                        var path = await PathAnalyzer.CalculatePathAsync(currentResult.DeviceHost);
+                        currentResult.PathAnalysis = PathAnalyzer.AnalyzeSpeedTest(path, currentResult.DownloadMbps, currentResult.UploadMbps);
+                    }
+                    catch
+                    {
+                        // Path analysis failed, leave as null
+                    }
+                }
             }
         }
         catch (Exception)

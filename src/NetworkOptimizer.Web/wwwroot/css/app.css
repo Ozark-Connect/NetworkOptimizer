@@ -2026,21 +2026,23 @@ td .btn + .btn {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0;
+    gap: 0.5rem;
     margin-bottom: 0.75rem;
     padding: 0.75rem;
     background: var(--bg-card);
     border-radius: 6px;
+    row-gap: 0.75rem;
 }
 
 .path-analysis .path-hop {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.4rem;
     padding: 0.4rem 0.6rem;
     background: var(--bg-tertiary);
     border-radius: 4px;
     font-size: 0.8rem;
+    white-space: nowrap;
 }
 
 .path-analysis .path-hop .hop-icon {
@@ -2102,10 +2104,11 @@ td .btn + .btn {
 .path-analysis .routing-badge {
     display: inline-block;
     padding: 0.3rem 0.6rem;
-    background: rgba(59, 130, 246, 0.1);
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.4);
     border-radius: 4px;
     font-size: 0.8rem;
-    color: var(--info-color);
+    color: #93c5fd;
     margin-bottom: 0.5rem;
 }
 
