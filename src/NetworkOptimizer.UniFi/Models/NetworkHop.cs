@@ -62,9 +62,6 @@ public enum HopType
     /// <summary>Wired client endpoint (desktop)</summary>
     Client,
 
-    /// <summary>Wireless client endpoint (laptop)</summary>
-    WirelessClient,
-
     /// <summary>L2 switch</summary>
     Switch,
 
@@ -75,5 +72,8 @@ public enum HopType
     Gateway,
 
     /// <summary>The iperf3/speed test server (this application)</summary>
-    Server
+    Server,
+
+    /// <summary>Wireless client endpoint (laptop)</summary>
+    WirelessClient
 }
