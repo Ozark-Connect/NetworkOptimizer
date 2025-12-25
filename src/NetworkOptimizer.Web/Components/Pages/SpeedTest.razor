@@ -148,7 +148,14 @@
 
                 @if (!string.IsNullOrEmpty(gatewayMessage))
                 {
-                    @if (gatewayRunning)
+                    @if (gatewayMessageClass == "success" && gatewayLastResult?.Success == true)
+                    {
+                        <div class="alert alert-success alert-link" style="margin-top: 1rem;" @onclick="ScrollToLatestResult">
+                            <span>@gatewayMessage</span>
+                            <span class="alert-link-hint">Click to view details →</span>
+                        </div>
+                    }
+                    else if (gatewayRunning)
                     {
                         <div class="alert alert-info alert-progress" style="margin-top: 1rem;">
                             <div class="alert-progress-bar" style="width: @(testProgressPercent)%"></div>
