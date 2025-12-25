@@ -1351,18 +1351,18 @@
         {
             // From device phase: 13-56%
             testProgressPercent = 13 + (int)((elapsed - 3) / 10 * 43);
-            testProgressPhase = "From device";
+            testProgressPhase = "↓ Testing";
         }
         else if (elapsed < 23)
         {
             // To device phase: 56-100%
             testProgressPercent = 56 + (int)((elapsed - 13) / 10 * 44);
-            testProgressPhase = "To device";
+            testProgressPhase = "↑ Testing";
         }
         else
         {
             testProgressPercent = 100;
-            testProgressPhase = "Finishing";
+            testProgressPhase = "Done";
         }
 
         InvokeAsync(StateHasChanged);
