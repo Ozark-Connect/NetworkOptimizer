@@ -81,7 +81,7 @@ public class PathAnalysisResult
 
         if (Path.TargetIsAccessPoint && apPerformingWell)
         {
-            Insights.Add("AP speed test - excellent performance for AP CPU");
+            Insights.Add("AP speed test - results limited by AP CPU, not network");
             return;
         }
 
