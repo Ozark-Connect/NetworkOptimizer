@@ -62,13 +62,28 @@ public class NetworkPathAnalyzer
     /// </summary>
     private static readonly Dictionary<string, int> GatewayRoutingLimits = new(StringComparer.OrdinalIgnoreCase)
     {
-        // UCG-Fiber: Tested at 9.8+ Gbps inter-VLAN
+        // USG series (MIPS-based, limited offload)
+        { "USG-3P", 850 },
+        { "USG", 850 },
+        { "UniFi Security Gateway", 850 },
+        { "USG-Pro-4", 2400 },
+        { "UniFi Security Gateway Pro", 2400 },
+
+        // UDM series (Alpine AL-324, full offload)
+        { "UDM", 960 },
+        { "UniFi Dream Machine", 960 },
+        { "UDM-Pro", 9500 },
+        { "UniFi Dream Machine Pro", 9500 },
+        { "UDM-SE", 9500 },
+        { "UniFi Dream Machine SE", 9500 },
+
+        // UCG series (MT7986)
+        { "UCG-Ultra", 2400 },
+        { "UniFi Cloud Gateway Ultra", 2400 },
+        { "UCG-Max", 2400 },
+        { "UniFi Cloud Gateway Max", 2400 },
         { "UCG-Fiber", 9800 },
         { "UniFi Cloud Gateway Fiber", 9800 },
-
-        // Add other known gateways as we gather data
-        // { "UDM-Pro", 3500 },
-        // { "UDM-SE", 3500 },
     };
 
     public NetworkPathAnalyzer(
