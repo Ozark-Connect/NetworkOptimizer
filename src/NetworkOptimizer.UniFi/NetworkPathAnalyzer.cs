@@ -628,19 +628,24 @@ public class NetworkPathAnalyzer
                 Notes = "Target device"
             };
 
-            // Get uplink speed - use device's uplink speed for wireless mesh, otherwise port speed
-            if (targetDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
-                && targetDevice.UplinkSpeedMbps > 0)
+            // Get uplink speed - try port speed first, fall back to device's reported uplink speed
+            int portSpeed = 0;
+            if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
-                // Wireless mesh uplink - use the reported uplink speed
+                portSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+            }
+
+            if (portSpeed > 0)
+            {
+                // Use port speed from upstream switch
+                deviceHop.IngressSpeedMbps = portSpeed;
+                deviceHop.EgressSpeedMbps = portSpeed;
+            }
+            else if (targetDevice.UplinkSpeedMbps > 0)
+            {
+                // Use device's reported uplink speed (wireless mesh, cellular modem, etc.)
                 deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps;
                 deviceHop.EgressSpeedMbps = targetDevice.UplinkSpeedMbps;
-            }
-            else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
-            {
-                // Wired uplink - get port speed from upstream switch
-                deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
 
             hops.Add(deviceHop);
@@ -799,16 +804,12 @@ public class NetworkPathAnalyzer
                 // Traffic must go to gateway for L3 routing even if it passes through server's switch
                 bool stopAtServerSwitch = isServerSwitch && !path.RequiresRouting;
 
-                // Determine ingress speed - use device's uplink speed for wireless mesh, otherwise port speed
-                int ingressSpeed;
-                if (device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
-                    && device.UplinkSpeedMbps > 0)
+                // Determine ingress speed - try port speed first, fall back to device's reported uplink speed
+                int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                if (ingressSpeed == 0 && device.UplinkSpeedMbps > 0)
                 {
+                    // Use device's reported uplink speed (wireless mesh, cellular modem, etc.)
                     ingressSpeed = device.UplinkSpeedMbps;
-                }
-                else
-                {
-                    ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 }
 
                 var hop = new NetworkHop
@@ -833,21 +834,18 @@ public class NetworkPathAnalyzer
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
-                    // Continue up the chain - get next hop's uplink speed if wireless
-                    if (deviceDict.TryGetValue(device.UplinkMac, out var uplinkDevice)
-                        && uplinkDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
+                    // Continue up the chain
+                    hop.EgressPort = device.UplinkPort;
+                    hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+
+                    // Try port speed first, fall back to device's reported uplink speed
+                    int egressSpeed = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                    if (egressSpeed == 0 && deviceDict.TryGetValue(device.UplinkMac, out var uplinkDevice)
                         && uplinkDevice.UplinkSpeedMbps > 0)
                     {
-                        hop.EgressPort = device.UplinkPort;
-                        hop.EgressSpeedMbps = uplinkDevice.UplinkSpeedMbps;
-                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
+                        egressSpeed = uplinkDevice.UplinkSpeedMbps;
                     }
-                    else
-                    {
-                        hop.EgressPort = device.UplinkPort;
-                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
-                        hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
-                    }
+                    hop.EgressSpeedMbps = egressSpeed;
                 }
 
                 hops.Add(hop);
