@@ -55,7 +55,10 @@ public class UniFiDiscovery
             UplinkMac = d.Uplink?.UplinkMac,
             UplinkPort = d.Uplink?.UplinkRemotePort,
             IsUplinkConnected = d.Uplink?.Up ?? false,
-            UplinkSpeedMbps = d.Uplink?.Speed ?? 0,
+            // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
+            UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
+                ? (int)(d.Uplink.TxRate / 1000)
+                : d.Uplink?.Speed ?? 0,
             UplinkType = d.Uplink?.Type,
             CpuUsage = d.SystemStats?.Cpu,
             MemoryUsage = d.SystemStats?.Mem,

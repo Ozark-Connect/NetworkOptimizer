@@ -204,6 +204,18 @@ public class UplinkInfo
 
     [JsonPropertyName("full_duplex")]
     public bool FullDuplex { get; set; }
+
+    /// <summary>
+    /// TX rate for wireless uplinks in Kbps
+    /// </summary>
+    [JsonPropertyName("tx_rate")]
+    public long TxRate { get; set; }
+
+    /// <summary>
+    /// RX rate for wireless uplinks in Kbps
+    /// </summary>
+    [JsonPropertyName("rx_rate")]
+    public long RxRate { get; set; }
 }
 
 public class DeviceStats
