@@ -394,11 +394,11 @@ a:hover {
 }
 
 .speed-down {
-    color: var(--success-color);
+    color: var(--speed-download-color);  /* blue - From Device */
 }
 
 .speed-up {
-    color: var(--info-color);
+    color: var(--speed-upload-color);  /* green - To Device */
 }
 
 .speed-test-row .speed-test-time {
