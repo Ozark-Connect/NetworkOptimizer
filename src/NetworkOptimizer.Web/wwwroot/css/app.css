@@ -1967,10 +1967,14 @@ td .btn + .btn {
 /* Path Analysis - Redesigned */
 .path-analysis {
     margin-top: 1.25rem;
-    padding: 1rem 1rem 0.25rem;
+    padding: 1rem 1rem 0.75rem;
     background: var(--bg-tertiary);
     border-radius: var(--border-radius);
     font-size: 0.875rem;
+}
+
+.history-details .path-analysis {
+    padding-bottom: 0.25rem;
 }
 
 .path-analysis .path-summary {
