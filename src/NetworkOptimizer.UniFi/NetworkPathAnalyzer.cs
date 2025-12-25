@@ -697,9 +697,14 @@ public class NetworkPathAnalyzer
 
             if (!targetClient.IsWired)
             {
-                // Wireless client - speed depends on link rate
-                hop.EgressSpeedMbps = (int)(targetClient.TxRate / 1000); // kbps to Mbps
+                // Wireless client - use max of Tx/Rx rates as theoretical link capacity
+                var txMbps = (int)(targetClient.TxRate / 1000);
+                var rxMbps = (int)(targetClient.RxRate / 1000);
+                var maxRate = Math.Max(txMbps, rxMbps);
+                hop.EgressSpeedMbps = maxRate;
+                hop.IngressSpeedMbps = maxRate;
                 hop.IsWirelessEgress = true;
+                hop.IsWirelessIngress = true;
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
