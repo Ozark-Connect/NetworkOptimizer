@@ -2054,24 +2054,16 @@ td .btn + .btn {
     font-weight: 500;
 }
 
-.path-analysis .path-hop .hop-speed {
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    margin-left: 0.25rem;
-}
-
 .path-analysis .path-hop.bottleneck {
     border: 1px solid var(--warning-color);
 }
 
-.path-analysis .path-hop.bottleneck .hop-speed {
-    color: var(--warning-color);
-}
-
 .path-analysis .path-connector {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    padding: 0 0.3rem;
+    padding: 0 0.2rem;
+    gap: 0.1rem;
 }
 
 .path-analysis .path-connector .connector-line {
@@ -2088,6 +2080,25 @@ td .btn + .btn {
     top: -3px;
     border: 4px solid transparent;
     border-left-color: var(--border-color);
+}
+
+.path-analysis .path-connector .connector-speed {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.path-analysis .path-connector.bottleneck .connector-line {
+    background: var(--warning-color);
+}
+
+.path-analysis .path-connector.bottleneck .connector-line::after {
+    border-left-color: var(--warning-color);
+}
+
+.path-analysis .path-connector.bottleneck .connector-speed {
+    color: var(--warning-color);
+    font-weight: 500;
 }
 
 /* Warnings and badges */

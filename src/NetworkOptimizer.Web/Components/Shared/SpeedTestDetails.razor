@@ -71,19 +71,22 @@
                     @for (var i = 0; i < PathAnalysis.Path.Hops.Count; i++)
                     {
                         var hop = PathAnalysis.Path.Hops[i];
-                        var hopSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : hop.EgressSpeedMbps;
                         <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
                             <span class="hop-icon">@GetHopIcon(hop.Type, hop.DeviceName)</span>
                             <span class="hop-name">@hop.DeviceName</span>
-                            @if (hopSpeed > 0)
-                            {
-                                <span class="hop-speed">@FormatSpeed(hopSpeed)</span>
-                            }
                         </div>
                         @if (i < PathAnalysis.Path.Hops.Count - 1)
                         {
-                            <div class="path-connector">
+                            @* Speed goes on the connector (link between devices) *@
+                            @* Use next hop's ingress speed (the link TO the next device) *@
+                            var nextHop = PathAnalysis.Path.Hops[i + 1];
+                            var linkSpeed = nextHop.IngressSpeedMbps > 0 ? nextHop.IngressSpeedMbps : hop.EgressSpeedMbps;
+                            <div class="path-connector @(nextHop.IsBottleneck ? "bottleneck" : "")">
                                 <span class="connector-line"></span>
+                                @if (linkSpeed > 0)
+                                {
+                                    <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                }
                             </div>
                         }
                     }
