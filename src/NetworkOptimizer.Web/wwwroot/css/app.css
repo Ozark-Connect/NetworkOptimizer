@@ -5,40 +5,42 @@
 
 /* CSS Variables for theming - Ozark Connect Brand Colors */
 :root {
-    /* Brand Colors - Ubiquiti Blue + Accent Orange */
+    /* Brand Colors - Ozark Connect Blue + Orange */
     --primary-color: #0559C9;
-    --primary-hover: #044BA8;
+    --primary-hover: #3385d6;
     --accent-color: #F97316;
-    --accent-hover: #EA580C;
+    --accent-hover: #fb923c;
 
-    /* Status Colors */
-    --success-color: #10b981;
-    --warning-color: #F97316;
-    --danger-color: #ef4444;
-    --info-color: #0559C9;
+    /* Status Colors - refined for dark backgrounds */
+    --success-color: #37be5f;
+    --warning-color: #e79613;
+    --danger-color: #ee6368;
+    --info-color: #4797ff;
 
-    /* Dark Mode Backgrounds (matching Ozark Connect dark theme) */
-    --bg-primary: #1a2029;
-    --bg-secondary: #242c39;
-    --bg-tertiary: #334155;
-    --bg-card: #242c39;
-    --bg-hover: #334155;
+    /* Dark Mode Backgrounds - neutral grays */
+    --bg-primary: #1c1e21;
+    --bg-secondary: #242628;
+    --bg-tertiary: #2d3035;
+    --bg-card: #242628;
+    --bg-hover: #34383d;
 
-    /* Text Colors (from Ozark Connect dark theme) */
-    --text-primary: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-muted: #64748b;
-    --text-dark: #1F2937;
+    /* Text Colors - refined gray scale */
+    --text-primary: #f9fafa;
+    --text-secondary: #dee0e3;
+    --text-muted: #9ca3af;
+    --text-dark: #1c1e21;
 
-    /* Borders & Effects - UniFi-style subtle */
-    --border-color: #2a3441;
-    --border-radius: 6px;
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-    --shadow-lg: 0 4px 6px rgba(0, 0, 0, 0.15);
+    /* Borders & Effects */
+    --border-color: #34383d;
+    --border-radius: 4px;
+    --border-radius-lg: 6px;
+    --shadow: rgba(0, 0, 0, 0.4) 0px 4px 12px 0px, rgba(255, 255, 255, 0.03) 0px 0px 1px 0px;
+    --shadow-lg: rgba(0, 0, 0, 0.5) 0px 8px 24px 0px, rgba(255, 255, 255, 0.03) 0px 0px 1px 0px;
+    --focus-ring: 0 0 0 1px var(--primary-color);
 
     /* Layout */
     --sidebar-width: 260px;
-    --topbar-height: 70px;
+    --topbar-height: 56px;
 }
 
 /* Global Styles */
@@ -92,7 +94,7 @@ a:hover {
 }
 
 .sidebar-header {
-    padding: 1.5rem 1.5rem;
+    padding: 16px;
     border-bottom: 1px solid var(--border-color);
     text-align: center;
 }
@@ -137,16 +139,16 @@ a:hover {
 .nav-link {
     display: flex;
     align-items: center;
-    padding: 0.875rem 1.5rem;
-    color: var(--text-primary);
+    padding: 10px 16px;
+    color: var(--text-secondary);
     text-decoration: none;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
     border-left: 2px solid transparent;
 }
 
 .nav-link:hover {
     background: var(--bg-hover);
-    color: var(--accent-color);
+    color: var(--text-primary);
 }
 
 .nav-link.active {
@@ -206,7 +208,7 @@ a:hover {
     height: var(--topbar-height);
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
-    padding: 0 2rem;
+    padding: 0 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -249,7 +251,7 @@ a:hover {
 .page-content {
     flex: 1;
     overflow-y: auto;
-    padding: 2rem;
+    padding: 24px;
 }
 
 .content {
@@ -259,32 +261,31 @@ a:hover {
 
 /* Page Header */
 .page-header {
-    margin-bottom: 2rem;
+    margin-bottom: 24px;
 }
 
 .page-header h1 {
-    font-size: 2rem;
-    font-weight: 700;
-    margin-bottom: 0.5rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 4px;
 }
 
 .page-description {
     color: var(--text-secondary);
-    font-size: 1rem;
+    font-size: 0.875rem;
 }
 
 /* Cards */
 .card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    box-shadow: var(--shadow);
-    margin-bottom: 1.5rem;
+    border-radius: var(--border-radius-lg);
+    margin-bottom: 1rem;
     overflow: hidden;
 }
 
 .card-header {
-    padding: 1.25rem 1.5rem;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
@@ -310,7 +311,7 @@ a:hover {
 }
 
 .card-body {
-    padding: 1.5rem;
+    padding: 16px;
 }
 
 .card-span-2 {
@@ -419,21 +420,20 @@ a:hover {
 /* Stats Row */
 .stats-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
 }
 
 .stat-card {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-radius: var(--border-radius);
-    padding: 1.5rem;
+    border-radius: var(--border-radius-lg);
+    padding: 16px;
     display: flex;
     align-items: center;
-    gap: 1rem;
-    box-shadow: var(--shadow);
-    min-height: 9rem;
+    gap: 12px;
+    min-height: 88px;
 }
 
 .stat-card.stat-success {
@@ -485,7 +485,7 @@ a:hover {
 .content-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
+    gap: 16px;
 }
 
 /* Dashboard Grid */
@@ -495,15 +495,15 @@ a:hover {
 
 .device-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
 }
 
 /* Device Card */
 .device-card {
     background: var(--bg-tertiary);
     border-radius: var(--border-radius);
-    padding: 1rem;
+    padding: 12px;
     border-left: 2px solid var(--border-color);
 }
 
@@ -1002,20 +1002,37 @@ a:hover {
 .btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.625rem 1.25rem;
+    justify-content: center;
+    gap: 4px;
+    height: 32px;
+    padding: 0 16px;
     border: none;
     border-radius: var(--border-radius);
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
     text-decoration: none;
+    white-space: nowrap;
+}
+
+.btn-sm {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 0.8125rem;
+}
+
+.btn-lg {
+    height: 40px;
+    padding: 0 16px;
+    font-size: 0.9375rem;
+    border-radius: var(--border-radius-lg);
 }
 
 .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    pointer-events: none;
 }
 
 .btn-primary {
@@ -1035,6 +1052,7 @@ a:hover {
 .btn-secondary {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+    border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover:not(:disabled) {
