@@ -404,6 +404,40 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Wait for the connection to be established (for use during app startup).
+    /// Polls until connected or timeout is reached.
+    /// </summary>
+    /// <param name="timeout">Maximum time to wait</param>
+    /// <param name="pollInterval">How often to check connection status</param>
+    /// <returns>True if connected, false if timeout or no saved credentials</returns>
+    public async Task<bool> WaitForConnectionAsync(TimeSpan? timeout = null, TimeSpan? pollInterval = null)
+    {
+        timeout ??= TimeSpan.FromSeconds(10);
+        pollInterval ??= TimeSpan.FromMilliseconds(250);
+
+        // If already connected, return immediately
+        if (IsConnected) return true;
+
+        // Check if we have saved credentials to connect with
+        var settings = await GetSettingsAsync();
+        if (!settings.IsConfigured || !settings.HasCredentials || !settings.RememberCredentials)
+        {
+            // No auto-connect will happen, don't wait
+            return false;
+        }
+
+        var startTime = DateTime.UtcNow;
+        while (DateTime.UtcNow - startTime < timeout)
+        {
+            if (IsConnected) return true;
+            await Task.Delay(pollInterval.Value);
+        }
+
+        _logger.LogWarning("Timed out waiting for UniFi controller connection");
+        return false;
+    }
+
+    /// <summary>
     /// Clear saved credentials from database
     /// </summary>
     public async Task ClearCredentialsAsync()

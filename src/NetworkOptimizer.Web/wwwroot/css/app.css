@@ -1083,7 +1083,7 @@ a.btn-lg {
 
 .btn-secondary:hover:not(:disabled),
 .btn-ghost:hover:not(:disabled) {
-    background: var(--bg-hover);
+    background: #475569;
 }
 
 /* Danger - Red (for destructive actions) */

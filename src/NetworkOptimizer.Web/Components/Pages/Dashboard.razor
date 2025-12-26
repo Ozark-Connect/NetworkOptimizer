@@ -299,6 +299,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Wait for UniFi controller connection (auto-connect happens in background on startup)
+        await ConnectionService.WaitForConnectionAsync();
+
         // Load in parallel
         await Task.WhenAll(
             LoadDashboardData(),
