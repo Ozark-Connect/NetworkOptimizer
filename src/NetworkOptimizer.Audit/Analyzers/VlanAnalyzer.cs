@@ -275,7 +275,7 @@ public class VlanAnalyzer
     /// Analyze management VLAN DHCP configuration
     /// Management VLANs (not VLAN 1) should have DHCP disabled
     /// </summary>
-    public List<AuditIssue> AnalyzeManagementVlanDhcp(List<NetworkInfo> networks)
+    public List<AuditIssue> AnalyzeManagementVlanDhcp(List<NetworkInfo> networks, string gatewayName = "Gateway")
     {
         var issues = new List<AuditIssue>();
 
@@ -292,7 +292,7 @@ public class VlanAnalyzer
                     Type = "MGMT_DHCP_ENABLED",
                     Severity = AuditSeverity.Recommended,
                     Message = $"Management VLAN '{network.Name}' has DHCP enabled",
-                    DeviceName = "Gateway",
+                    DeviceName = gatewayName,
                     CurrentNetwork = network.Name,
                     CurrentVlan = network.VlanId,
                     Metadata = new Dictionary<string, object>

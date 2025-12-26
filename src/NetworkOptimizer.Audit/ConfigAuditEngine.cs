@@ -66,7 +66,8 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 4: Analyzing network configuration");
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(networks);
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(networks);
-        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(networks);
+        var gatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(networks, gatewayName);
         _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues",
             dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count);
 
