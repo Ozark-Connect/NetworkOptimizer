@@ -914,7 +914,7 @@ a:hover {
 }
 
 .data-table tr:hover {
-    background: var(--bg-hover);
+    background: #2d3a4d;
 }
 
 .data-table code {
@@ -2377,7 +2377,7 @@ td .btn + .btn {
 }
 
 .history-row-clickable:hover {
-    background: var(--bg-hover);
+    background: #2d3a4d;
 }
 
 .history-row-expanded {
