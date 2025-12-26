@@ -2380,8 +2380,9 @@ td .btn + .btn {
     background: #2d3a4d;
 }
 
-.history-row-expanded {
-    background: #2d3a4d;
+tr.history-row-expanded,
+tr.history-row-expanded:hover {
+    background: #2d3a4d !important;
 }
 
 .expand-chevron {
