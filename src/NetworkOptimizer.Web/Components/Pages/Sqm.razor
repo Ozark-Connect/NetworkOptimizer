@@ -591,12 +591,12 @@
     // WAN interfaces from controller
     private List<WanInterfaceInfo> wanInterfaces = new();
 
-    // WAN configurations
+    // WAN configurations (defaults overwritten by ApplyDetectedWanInterfaces)
     private WanConfigModel wan1Config = new()
     {
         Enabled = true,
         Name = "WAN1",
-        Interface = "eth2",
+        Interface = "",
         ConnectionType = ConnectionType.DocsisCable,
         NominalDownload = 300,
         NominalUpload = 35,
@@ -606,12 +606,12 @@
     private WanConfigModel wan2Config = new()
     {
         Enabled = false,
-        Name = "Starlink",
-        Interface = "eth0",
+        Name = "WAN2",
+        Interface = "",
         ConnectionType = ConnectionType.Starlink,
         NominalDownload = 200,
         NominalUpload = 20,
-        PingHost = "100.64.0.1"
+        PingHost = "1.1.1.1"
     };
 
     // Speedtest history
@@ -668,6 +668,8 @@
         wan1Config.Name = wan1.Name;
         wan1Config.Interface = wan1.Interface;
         wan1Config.Enabled = true;
+        if (!string.IsNullOrEmpty(wan1.SuggestedPingIp))
+            wan1Config.PingHost = wan1.SuggestedPingIp;
         UpdateCalculatedSpeeds(wan1Config);
 
         // Apply second WAN to wan2Config if available
@@ -677,6 +679,8 @@
             wan2Config.Name = wan2.Name;
             wan2Config.Interface = wan2.Interface;
             wan2Config.Enabled = true;
+            if (!string.IsNullOrEmpty(wan2.SuggestedPingIp))
+                wan2Config.PingHost = wan2.SuggestedPingIp;
             UpdateCalculatedSpeeds(wan2Config);
         }
         else
