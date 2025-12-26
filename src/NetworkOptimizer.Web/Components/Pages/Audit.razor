@@ -19,11 +19,11 @@
         </div>
         <div class="card-body">
             <div class="audit-controls">
-                <button class="btn btn-primary" @onclick="RunAudit" disabled="@isRunning">
+                <button class="btn btn-primary" @onclick="RunAudit" disabled="@isRunning" style="min-width: 140px;">
                     @if (isRunning)
                     {
                         <span class="spinner"></span>
-                        <span>Running Audit...</span>
+                        <span>Running...</span>
                     }
                     else
                     {
