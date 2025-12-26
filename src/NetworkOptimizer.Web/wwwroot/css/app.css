@@ -1834,6 +1834,7 @@ td .btn + .btn {
 .sqm-unavailable .status-message {
     color: var(--text-secondary);
     margin: 1rem 0;
+    font-size: 0.8125rem;
 }
 
 .status-not-configured {

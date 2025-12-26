@@ -94,23 +94,39 @@
     private SqmStatusData? statusData;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private const int MaxRetries = 3;
+    private const int RetryDelayMs = 1000;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadStatus();
+        await LoadStatusWithRetry();
     }
 
-    private async Task LoadStatus()
+    private async Task LoadStatusWithRetry()
     {
         isLoading = true;
-        try
+
+        for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {
-            statusData = await SqmService.GetSqmStatusAsync();
+            try
+            {
+                statusData = await SqmService.GetSqmStatusAsync();
+
+                // If we got valid data, break out of retry loop
+                if (statusData != null)
+                    break;
+            }
+            catch
+            {
+                // On failure, wait before retrying (unless last attempt)
+                if (attempt < MaxRetries)
+                {
+                    await Task.Delay(RetryDelayMs);
+                }
+            }
         }
-        finally
-        {
-            isLoading = false;
-        }
+
+        isLoading = false;
     }
 
     private async Task RefreshStats()
