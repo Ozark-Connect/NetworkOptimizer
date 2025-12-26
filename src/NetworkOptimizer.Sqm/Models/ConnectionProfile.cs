@@ -122,8 +122,8 @@ public class ConnectionProfile
             // DOCSIS cable typically hits 95% of advertised
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.95),
 
-            // Starlink varies widely, can exceed nominal during off-peak
-            ConnectionType.Starlink => (int)(nominalSpeed * 1.40),
+            // Starlink: can exceed nominal by ~10%
+            ConnectionType.Starlink => (int)(nominalSpeed * 1.10),
 
             // DSL is distance-limited, rarely exceeds nominal
             ConnectionType.Dsl => (int)(nominalSpeed * 0.95),
@@ -151,8 +151,8 @@ public class ConnectionProfile
             // DOCSIS can drop during peak congestion
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.65),
 
-            // Starlink: 10% safety margin is sufficient
-            ConnectionType.Starlink => (int)(nominalSpeed * 0.90),
+            // Starlink: wide variation, can drop to 35% of nominal
+            ConnectionType.Starlink => (int)(nominalSpeed * 0.35),
 
             // DSL is consistent once synced
             ConnectionType.Dsl => (int)(nominalSpeed * 0.85),
@@ -176,7 +176,7 @@ public class ConnectionProfile
         {
             ConnectionType.Fiber => (int)(nominalSpeed * 1.02),
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.98),
-            ConnectionType.Starlink => (int)(nominalSpeed * 1.45),
+            ConnectionType.Starlink => (int)(nominalSpeed * 1.15),
             ConnectionType.Dsl => (int)(nominalSpeed * 0.98),
             ConnectionType.FixedWireless => (int)(nominalSpeed * 1.15),
             ConnectionType.CellularHome => (int)(nominalSpeed * 1.25),
