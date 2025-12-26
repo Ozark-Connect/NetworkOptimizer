@@ -382,11 +382,12 @@
                 issues.Count, lastResult.Networks.Count, lastResult.Switches.Count);
 
             // Build report data from audit results
-            // Use gateway name as client name, fallback to "Network"
+            // Extract clean network name from gateway name for report title
             var gatewayName = lastResult.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Network";
+            var networkName = ExtractNetworkName(gatewayName);
             var reportData = new NetworkOptimizer.Reports.ReportData
             {
-                ClientName = gatewayName,
+                ClientName = networkName,
                 GeneratedAt = DateTime.Now,
                 SecurityScore = new NetworkOptimizer.Reports.SecurityScore
                 {
@@ -555,5 +556,37 @@
         infoCount = issues.Count(i => i.Severity == "Info");
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// Extract a clean network name from a device name for report titles.
+    /// Strips prefixes like [Gateway], [Switch] and parenthetical suffixes like (UCG-Fiber).
+    /// Example: "[Gateway] SeaTurtle Home" → "SeaTurtle Home"
+    /// </summary>
+    private static string ExtractNetworkName(string deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+            return "Network";
+
+        var name = deviceName.Trim();
+
+        // Strip bracketed prefix like [Gateway], [Switch], etc.
+        if (name.StartsWith("["))
+        {
+            var closeBracket = name.IndexOf(']');
+            if (closeBracket > 0 && closeBracket < name.Length - 1)
+            {
+                name = name.Substring(closeBracket + 1).TrimStart();
+            }
+        }
+
+        // Strip parenthetical suffix like (UCG-Fiber), (UDM Pro), etc.
+        var openParen = name.LastIndexOf('(');
+        if (openParen > 0 && name.EndsWith(")"))
+        {
+            name = name.Substring(0, openParen).TrimEnd();
+        }
+
+        return string.IsNullOrWhiteSpace(name) ? "Network" : name;
     }
 }
