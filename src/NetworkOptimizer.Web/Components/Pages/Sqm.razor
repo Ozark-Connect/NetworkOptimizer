@@ -29,16 +29,17 @@
                 <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
             }
 
-            @if (isLoading)
-            {
-                <div class="loading-status">
-                    <span class="spinner"></span>
-                    <span>Checking deployment status...</span>
-                </div>
-            }
-            else
-            {
-                <div class="sqm-metrics">
+            <div class="deployment-status-content" style="min-height: 120px;">
+                @if (isLoading)
+                {
+                    <div class="loading-status">
+                        <span class="spinner"></span>
+                        <span>Checking deployment status...</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="sqm-metrics">
                     <div class="metric">
                         <div class="metric-label">Gateway Connection</div>
                         <div class="metric-value">
@@ -64,8 +65,9 @@
                         <div class="metric-label">Cron Jobs</div>
                         <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
                     </div>
-                </div>
-            }
+                    </div>
+                }
+            </div>
 
             @if (tcInterfaces?.Any() == true)
             {
@@ -551,7 +553,6 @@
 @code {
     // State
     private bool isLoading = true;
-    private bool statusChecked = false;
     private bool isDeploying = false;
     private bool isRunningSpeedtest = false;
     private bool gatewayConnected = false;
@@ -654,7 +655,6 @@
         finally
         {
             isLoading = false;
-            statusChecked = true;
             StateHasChanged();
         }
     }
