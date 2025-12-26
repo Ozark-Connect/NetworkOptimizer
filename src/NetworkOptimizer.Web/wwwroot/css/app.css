@@ -1121,9 +1121,9 @@ a:hover {
 .test-button {
     position: relative;
     overflow: hidden;
-    width: 7.5rem;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    min-width: 7.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
 }
 
 .test-button .test-progress {
@@ -1145,16 +1145,10 @@ a:hover {
     position: relative;
     z-index: 1;
     white-space: nowrap;
-    font-size: 0.8rem;
 }
 
 .btn-sm.test-button {
-    width: 6.5rem;
-    font-size: 0.75rem;
-}
-
-.btn-sm.test-button .test-phase {
-    font-size: 0.7rem;
+    min-width: 6.5rem;
 }
 
 .action-buttons {
