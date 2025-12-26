@@ -6,9 +6,34 @@ namespace NetworkOptimizer.Sqm.Models;
 public class SqmConfiguration
 {
     /// <summary>
+    /// Connection type (determines speed assumptions and tuning)
+    /// </summary>
+    public ConnectionType ConnectionType { get; set; } = ConnectionType.DocsisCable;
+
+    /// <summary>
+    /// Friendly name for this connection (e.g., "Yelcot", "Starlink")
+    /// </summary>
+    public string ConnectionName { get; set; } = "";
+
+    /// <summary>
+    /// Advertised/nominal download speed in Mbps (what customer pays for)
+    /// </summary>
+    public int NominalDownloadSpeed { get; set; } = 300;
+
+    /// <summary>
+    /// Advertised/nominal upload speed in Mbps
+    /// </summary>
+    public int NominalUploadSpeed { get; set; } = 35;
+
+    /// <summary>
     /// WAN interface name (e.g., "eth2", "eth4")
     /// </summary>
     public string Interface { get; set; } = "eth2";
+
+    /// <summary>
+    /// IFB (Intermediate Functional Block) device for traffic shaping
+    /// </summary>
+    public string IfbDevice => $"ifb{Interface}";
 
     /// <summary>
     /// Maximum download speed in Mbps (ceiling)
@@ -94,4 +119,79 @@ public class SqmConfiguration
     /// Learning mode start timestamp
     /// </summary>
     public DateTime? LearningModeStarted { get; set; }
+
+    /// <summary>
+    /// Optional preferred speedtest server ID
+    /// </summary>
+    public string? PreferredSpeedtestServerId { get; set; }
+
+    /// <summary>
+    /// Apply connection profile settings to calculate optimal parameters
+    /// based on connection type and nominal speed
+    /// </summary>
+    public void ApplyProfileSettings()
+    {
+        var profile = new ConnectionProfile
+        {
+            Type = ConnectionType,
+            Name = ConnectionName,
+            Interface = Interface,
+            NominalDownloadMbps = NominalDownloadSpeed,
+            NominalUploadMbps = NominalUploadSpeed,
+            PingHost = PingHost,
+            PreferredSpeedtestServerId = PreferredSpeedtestServerId
+        };
+
+        // Apply calculated values from profile
+        MaxDownloadSpeed = profile.MaxDownloadMbps;
+        MinDownloadSpeed = profile.MinDownloadMbps;
+        AbsoluteMaxDownloadSpeed = profile.AbsoluteMaxDownloadMbps;
+        OverheadMultiplier = profile.OverheadMultiplier;
+        BaselineLatency = profile.BaselineLatency;
+        LatencyThreshold = profile.LatencyThreshold;
+        LatencyDecrease = profile.LatencyDecrease;
+        LatencyIncrease = profile.LatencyIncrease;
+    }
+
+    /// <summary>
+    /// Create a configuration from a ConnectionProfile
+    /// </summary>
+    public static SqmConfiguration FromProfile(ConnectionProfile profile)
+    {
+        return new SqmConfiguration
+        {
+            ConnectionType = profile.Type,
+            ConnectionName = profile.Name,
+            Interface = profile.Interface,
+            NominalDownloadSpeed = profile.NominalDownloadMbps,
+            NominalUploadSpeed = profile.NominalUploadMbps,
+            MaxDownloadSpeed = profile.MaxDownloadMbps,
+            MinDownloadSpeed = profile.MinDownloadMbps,
+            AbsoluteMaxDownloadSpeed = profile.AbsoluteMaxDownloadMbps,
+            OverheadMultiplier = profile.OverheadMultiplier,
+            PingHost = profile.PingHost,
+            BaselineLatency = profile.BaselineLatency,
+            LatencyThreshold = profile.LatencyThreshold,
+            LatencyDecrease = profile.LatencyDecrease,
+            LatencyIncrease = profile.LatencyIncrease,
+            PreferredSpeedtestServerId = profile.PreferredSpeedtestServerId
+        };
+    }
+
+    /// <summary>
+    /// Get a summary of the calculated SQM parameters
+    /// </summary>
+    public string GetParameterSummary()
+    {
+        return $"""
+            Connection: {ConnectionProfile.GetConnectionTypeName(ConnectionType)} ({ConnectionName})
+            Interface: {Interface} (IFB: {IfbDevice})
+            Nominal Speed: {NominalDownloadSpeed}/{NominalUploadSpeed} Mbps (down/up)
+            Speed Range: {MinDownloadSpeed}-{MaxDownloadSpeed} Mbps (floor-ceiling)
+            Absolute Max: {AbsoluteMaxDownloadSpeed} Mbps
+            Overhead: {(OverheadMultiplier - 1) * 100:F0}%
+            Latency: {BaselineLatency}ms baseline, {LatencyThreshold}ms threshold
+            Rate Adjust: -{(1 - LatencyDecrease) * 100:F0}% / +{(LatencyIncrease - 1) * 100:F0}%
+            """;
+    }
 }

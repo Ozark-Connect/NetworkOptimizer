@@ -81,6 +81,7 @@ builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
 builder.Services.AddScoped<SqmService>();
+builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<AgentService>();
 
 // Configure HTTP client for API calls

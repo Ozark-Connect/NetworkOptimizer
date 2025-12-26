@@ -1,130 +1,328 @@
 @page "/sqm"
 @inject SqmService SqmService
+@inject SqmDeploymentService DeploymentService
+@inject UniFiConnectionService ConnectionService
 @rendermode InteractiveServer
+@using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
+@using NetworkOptimizer.Sqm.Models
 
 <PageTitle>SQM Manager - Network Optimizer</PageTitle>
 
 <div class="page-header">
     <h1>Adaptive SQM Manager</h1>
-    <p class="page-description">Dynamic bandwidth optimization and bufferbloat prevention</p>
+    <p class="page-description">Dynamic bandwidth optimization with dual-mode (Speedtest + Ping) adjustment</p>
 </div>
 
 <div class="sqm-container">
-    <!-- SQM Status Overview -->
+    <!-- Deployment Status -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">SQM Status</h2>
-            <span class="status-badge status-@sqmStatus.ToLower()">@sqmStatus</span>
+            <h2 class="card-title">Deployment Status</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
         </div>
         <div class="card-body">
+            @if (!string.IsNullOrEmpty(statusMessage))
+            {
+                <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
+            }
+
             <div class="sqm-metrics">
                 <div class="metric">
-                    <div class="metric-label">Current Rate</div>
-                    <div class="metric-value">@currentRate <span class="metric-unit">Mbps</span></div>
+                    <div class="metric-label">Gateway Connection</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(gatewayConnected ? "status-active" : "status-inactive")"></span>
+                        @(gatewayConnected ? "Connected" : "Not Connected")
+                    </div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">Baseline Rate</div>
-                    <div class="metric-value">@baselineRate <span class="metric-unit">Mbps</span></div>
+                    <div class="metric-label">SQM Scripts</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(deploymentStatus?.IsDeployed == true ? "status-active" : "status-inactive")"></span>
+                        @(deploymentStatus?.IsDeployed == true ? "Deployed" : "Not Deployed")
+                    </div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">Current Latency</div>
-                    <div class="metric-value">@currentLatency <span class="metric-unit">ms</span></div>
+                    <div class="metric-label">TC Monitor</div>
+                    <div class="metric-value">
+                        <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
+                        @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
+                    </div>
                 </div>
                 <div class="metric">
-                    <div class="metric-label">Last Adjustment</div>
-                    <div class="metric-value">@lastAdjustment</div>
+                    <div class="metric-label">Cron Jobs</div>
+                    <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
                 </div>
             </div>
 
-            @if (isLearning)
+            @if (tcInterfaces?.Any() == true)
             {
-                <div class="learning-status">
-                    <div class="learning-header">
-                        <span class="learning-icon">📚</span>
-                        <span class="learning-label">Learning Mode Active</span>
+                <div class="tc-rates-panel" style="margin-top: 1rem;">
+                    <h4>Current SQM Rates</h4>
+                    <div class="tc-rates">
+                        @foreach (var iface in tcInterfaces)
+                        {
+                            <div class="tc-rate-item">
+                                <span class="tc-name">@iface.Name</span>
+                                <span class="tc-interface">(@iface.Interface)</span>
+                                <span class="tc-rate">@iface.RateMbps Mbps</span>
+                            </div>
+                        }
                     </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: @(learningProgress)%"></div>
-                    </div>
-                    <p class="progress-text">@learningProgress% complete (@hoursLearned/168 hours)</p>
                 </div>
             }
         </div>
     </div>
 
-    <!-- Configuration -->
+    <!-- WAN 1 Configuration -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">SQM Configuration</h2>
+            <h2 class="card-title">WAN 1 Configuration</h2>
+            <label class="toggle-label">
+                <input type="checkbox" @bind="wan1Config.Enabled" />
+                <span>Enable SQM</span>
+            </label>
+        </div>
+        <div class="card-body @(!wan1Config.Enabled ? "disabled-section" : "")">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Connection Name</label>
+                    <input type="text" class="form-control" @bind="wan1Config.Name" placeholder="e.g., Yelcot, Comcast" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WAN Interface</label>
+                    <select class="form-control" @bind="wan1Config.Interface">
+                        <option value="eth2">eth2</option>
+                        <option value="eth4">eth4</option>
+                        <option value="eth0">eth0</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Connection Type</label>
+                    <select class="form-control" @bind="wan1Config.ConnectionType" @bind:after="() => UpdateCalculatedSpeeds(wan1Config)">
+                        @foreach (var type in Enum.GetValues<ConnectionType>())
+                        {
+                            <option value="@type">@ConnectionProfile.GetConnectionTypeName(type)</option>
+                        }
+                    </select>
+                    <small class="form-hint">@ConnectionProfile.GetConnectionTypeDescription(wan1Config.ConnectionType)</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Nominal Download Speed (Mbps)</label>
+                    <input type="number" class="form-control" @bind="wan1Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan1Config)" min="10" max="10000" />
+                    <small class="form-hint">Advertised/paid-for download speed</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nominal Upload Speed (Mbps)</label>
+                    <input type="number" class="form-control" @bind="wan1Config.NominalUpload" min="1" max="10000" />
+                    <small class="form-hint">Advertised/paid-for upload speed</small>
+                </div>
+            </div>
+
+            <!-- Calculated Parameters (read-only preview) -->
+            <div class="calculated-params">
+                <h4>Calculated SQM Parameters</h4>
+                <div class="params-grid">
+                    <div class="param">
+                        <span class="param-label">Speed Range:</span>
+                        <span class="param-value">@wan1Config.MinSpeed - @wan1Config.MaxSpeed Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Absolute Max:</span>
+                        <span class="param-value">@wan1Config.AbsoluteMax Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Overhead:</span>
+                        <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Latency Baseline:</span>
+                        <span class="param-value">@wan1Config.BaselineLatency ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Latency Threshold:</span>
+                        <span class="param-value">@wan1Config.LatencyThreshold ms</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Ping Target Host</label>
+                <input type="text" class="form-control" @bind="wan1Config.PingHost" placeholder="1.1.1.1" />
+                <small class="form-hint">IP address to monitor for latency (ISP gateway recommended)</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- WAN 2 Configuration (Dual-WAN) -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">WAN 2 Configuration</h2>
+            <label class="toggle-label">
+                <input type="checkbox" @bind="wan2Config.Enabled" />
+                <span>Enable SQM</span>
+            </label>
+        </div>
+        <div class="card-body @(!wan2Config.Enabled ? "disabled-section" : "")">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Connection Name</label>
+                    <input type="text" class="form-control" @bind="wan2Config.Name" placeholder="e.g., Starlink" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WAN Interface</label>
+                    <select class="form-control" @bind="wan2Config.Interface">
+                        <option value="eth0">eth0</option>
+                        <option value="eth2">eth2</option>
+                        <option value="eth4">eth4</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Connection Type</label>
+                    <select class="form-control" @bind="wan2Config.ConnectionType" @bind:after="() => UpdateCalculatedSpeeds(wan2Config)">
+                        @foreach (var type in Enum.GetValues<ConnectionType>())
+                        {
+                            <option value="@type">@ConnectionProfile.GetConnectionTypeName(type)</option>
+                        }
+                    </select>
+                    <small class="form-hint">@ConnectionProfile.GetConnectionTypeDescription(wan2Config.ConnectionType)</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Nominal Download Speed (Mbps)</label>
+                    <input type="number" class="form-control" @bind="wan2Config.NominalDownload" @bind:after="() => UpdateCalculatedSpeeds(wan2Config)" min="10" max="10000" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nominal Upload Speed (Mbps)</label>
+                    <input type="number" class="form-control" @bind="wan2Config.NominalUpload" min="1" max="10000" />
+                </div>
+            </div>
+
+            <!-- Calculated Parameters -->
+            <div class="calculated-params">
+                <h4>Calculated SQM Parameters</h4>
+                <div class="params-grid">
+                    <div class="param">
+                        <span class="param-label">Speed Range:</span>
+                        <span class="param-value">@wan2Config.MinSpeed - @wan2Config.MaxSpeed Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Absolute Max:</span>
+                        <span class="param-value">@wan2Config.AbsoluteMax Mbps</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Overhead:</span>
+                        <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Latency Baseline:</span>
+                        <span class="param-value">@wan2Config.BaselineLatency ms</span>
+                    </div>
+                    <div class="param">
+                        <span class="param-label">Latency Threshold:</span>
+                        <span class="param-value">@wan2Config.LatencyThreshold ms</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Ping Target Host</label>
+                <input type="text" class="form-control" @bind="wan2Config.PingHost" placeholder="100.64.0.1" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployment Actions -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Deployment</h2>
         </div>
         <div class="card-body">
-            <div class="form-group">
-                <label class="form-label">WAN Interface</label>
-                <select class="form-control" @bind="selectedInterface">
-                    <option value="eth2">eth2 (Primary WAN)</option>
-                    <option value="eth3">eth3 (Secondary WAN)</option>
-                </select>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Speed Tier (Mbps)</label>
-                <div class="input-row">
-                    <input type="number" class="form-control" @bind="downloadSpeed" placeholder="Download" />
-                    <input type="number" class="form-control" @bind="uploadSpeed" placeholder="Upload" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Monitoring Schedule</label>
-                <div class="schedule-options">
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="enableSpeedtest" />
-                        <span>Enable scheduled speedtests (6AM/6PM)</span>
-                    </label>
-                    <label class="checkbox-label">
-                        <input type="checkbox" @bind="enableLatencyMonitoring" />
-                        <span>Enable continuous latency monitoring (5 min intervals)</span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Blending Algorithm</label>
-                <select class="form-control" @bind="blendingRatio">
-                    <option value="6040">60/40 (Baseline/Measured) - Conservative</option>
-                    <option value="8020">80/20 (Baseline/Measured) - Aggressive</option>
-                </select>
-            </div>
+            <p class="info-text">
+                SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily (6 AM/6 PM)
+                to calibrate baseline speeds, while <strong>Ping-based</strong> adjustments run every 5 minutes
+                for real-time latency optimization.
+            </p>
 
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="DeploySqm">
-                    Deploy SQM Scripts
+                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || (!wan1Config.Enabled && !wan2Config.Enabled))">
+                    @if (isDeploying)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>Deploy SQM Scripts</span>
+                    }
                 </button>
-                <button class="btn btn-secondary" @onclick="GenerateScripts">
-                    Generate Scripts Only
+                <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@isDeploying">
+                    Deploy TC Monitor Only
                 </button>
-                <button class="btn btn-danger" @onclick="DisableSqm" disabled="@(sqmStatus == "Inactive")">
-                    Disable SQM
+                <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                    Remove SQM
                 </button>
             </div>
+
+            @if (deploymentSteps.Any())
+            {
+                <div class="deployment-log" style="margin-top: 1rem;">
+                    <h4>Deployment Progress</h4>
+                    <ul class="step-list">
+                        @foreach (var step in deploymentSteps)
+                        {
+                            <li>@step</li>
+                        }
+                    </ul>
+                </div>
+            }
         </div>
     </div>
 
     <!-- Speedtest History -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Speedtest History</h2>
-            <button class="btn btn-sm btn-secondary" @onclick="RunSpeedtest">Run Speedtest Now</button>
+            <h2 class="card-title">Recent Speedtests</h2>
+            <button class="btn btn-sm btn-secondary" @onclick="RunSpeedtest" disabled="@(isRunningSpeedtest || deploymentStatus?.IsDeployed != true)">
+                @if (isRunningSpeedtest)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                }
+                else
+                {
+                    <span>Run Speedtest Now</span>
+                }
+            </button>
         </div>
         <div class="card-body">
-            <div class="speedtest-table">
+            @if (speedtestHistory.Any())
+            {
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>Timestamp</th>
-                            <th>Download (Mbps)</th>
-                            <th>Upload (Mbps)</th>
-                            <th>Latency (ms)</th>
+                            <th>Download</th>
+                            <th>Upload</th>
+                            <th>Latency</th>
                             <th>Server</th>
                         </tr>
                     </thead>
@@ -133,118 +331,553 @@
                         {
                             <tr>
                                 <td>@test.Timestamp.ToString("MMM dd HH:mm")</td>
-                                <td>@test.Download</td>
-                                <td>@test.Upload</td>
-                                <td>@test.Latency</td>
+                                <td>@test.Download.ToString("F1") Mbps</td>
+                                <td>@test.Upload.ToString("F1") Mbps</td>
+                                <td>@test.Latency.ToString("F1") ms</td>
                                 <td>@test.Server</td>
                             </tr>
                         }
                     </tbody>
                 </table>
-
-                @if (!speedtestHistory.Any())
-                {
-                    <div class="empty-state">
-                        <p>No speedtest results yet. Run a speedtest to see results.</p>
-                    </div>
-                }
-            </div>
-        </div>
-    </div>
-
-    <!-- Baseline Data -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">7-Day Baseline (168 Hours)</h2>
-        </div>
-        <div class="card-body">
-            <div class="baseline-chart">
-                <p class="chart-placeholder">📊 Baseline chart would be displayed here</p>
-                <p class="chart-note">Shows hourly baseline rates by day of week</p>
-            </div>
-
-            <div class="baseline-stats">
-                <div class="stat">
-                    <span class="stat-label">Mean Download:</span>
-                    <span class="stat-value">@baselineStats.MeanDownload Mbps</span>
+            }
+            else
+            {
+                <div class="empty-state">
+                    <p>No speedtest results yet. Deploy SQM and run a speedtest to see results.</p>
                 </div>
-                <div class="stat">
-                    <span class="stat-label">Std Dev:</span>
-                    <span class="stat-value">@baselineStats.StdDev Mbps</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Min/Max:</span>
-                    <span class="stat-value">@baselineStats.Min / @baselineStats.Max Mbps</span>
-                </div>
-            </div>
+            }
         </div>
     </div>
 </div>
 
+<style>
+    .sqm-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .form-hint {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin-top: 0.25rem;
+        display: block;
+    }
+
+    .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+    }
+
+    .disabled-section {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    .calculated-params {
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin: 1rem 0;
+    }
+
+    .calculated-params h4 {
+        margin: 0 0 0.75rem 0;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+
+    .params-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .param {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .param-label {
+        color: var(--text-secondary);
+    }
+
+    .param-value {
+        font-weight: 500;
+        font-family: var(--font-mono);
+    }
+
+    .sqm-metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+    }
+
+    .metric {
+        text-align: center;
+        padding: 0.75rem;
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+    }
+
+    .metric-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+    }
+
+    .metric-value {
+        font-size: 1rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+
+    .status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+    .status-active {
+        background: var(--success);
+    }
+
+    .status-inactive {
+        background: var(--danger);
+    }
+
+    .tc-rates-panel h4 {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+    }
+
+    .tc-rates {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .tc-rate-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+    }
+
+    .tc-name {
+        font-weight: 500;
+    }
+
+    .tc-interface {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .tc-rate {
+        font-family: var(--font-mono);
+        color: var(--primary);
+    }
+
+    .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .info-text {
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+        line-height: 1.5;
+    }
+
+    .deployment-log {
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+
+    .deployment-log h4 {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.9rem;
+    }
+
+    .step-list {
+        margin: 0;
+        padding-left: 1.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+    }
+
+    .step-list li {
+        margin: 0.25rem 0;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
+</style>
+
 @code {
-    private string sqmStatus = "Active";
-    private double currentRate = 265.5;
-    private double baselineRate = 270.0;
-    private double currentLatency = 18.2;
-    private string lastAdjustment = "2 mins ago";
+    // State
+    private bool isLoading = false;
+    private bool isDeploying = false;
+    private bool isRunningSpeedtest = false;
+    private bool gatewayConnected = false;
+    private string? statusMessage;
+    private bool statusSuccess = false;
 
-    private bool isLearning = true;
-    private int learningProgress = 45;
-    private int hoursLearned = 76;
+    // Deployment status
+    private SqmDeploymentStatus? deploymentStatus;
+    private List<string> deploymentSteps = new();
+    private List<TcInterfaceStats>? tcInterfaces;
 
-    private string selectedInterface = "eth2";
-    private int downloadSpeed = 300;
-    private int uploadSpeed = 35;
-    private bool enableSpeedtest = true;
-    private bool enableLatencyMonitoring = true;
-    private string blendingRatio = "6040";
+    // WAN configurations
+    private WanConfigModel wan1Config = new()
+    {
+        Enabled = true,
+        Name = "WAN1",
+        Interface = "eth2",
+        ConnectionType = ConnectionType.DocsisCable,
+        NominalDownload = 300,
+        NominalUpload = 35,
+        PingHost = "1.1.1.1"
+    };
 
+    private WanConfigModel wan2Config = new()
+    {
+        Enabled = false,
+        Name = "Starlink",
+        Interface = "eth0",
+        ConnectionType = ConnectionType.Starlink,
+        NominalDownload = 200,
+        NominalUpload = 20,
+        PingHost = "100.64.0.1"
+    };
+
+    // Speedtest history
     private List<Services.SpeedtestResult> speedtestHistory = new();
-    private Services.BaselineStats baselineStats = new();
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadSqmData();
+        UpdateCalculatedSpeeds(wan1Config);
+        UpdateCalculatedSpeeds(wan2Config);
+        await RefreshStatus();
     }
 
-    private async Task LoadSqmData()
+    private void UpdateCalculatedSpeeds(WanConfigModel config)
     {
-        var data = await SqmService.GetSqmStatusAsync();
-        sqmStatus = data.Status;
-        currentRate = data.CurrentRate;
-        baselineRate = data.BaselineRate;
-        currentLatency = data.CurrentLatency;
-        lastAdjustment = data.LastAdjustment;
-        isLearning = data.IsLearning;
-        learningProgress = data.LearningProgress;
-        hoursLearned = data.HoursLearned;
-        speedtestHistory = data.SpeedtestHistory;
-        baselineStats = data.BaselineStats;
+        var profile = new ConnectionProfile
+        {
+            Type = config.ConnectionType,
+            NominalDownloadMbps = config.NominalDownload,
+            NominalUploadMbps = config.NominalUpload
+        };
+
+        config.MaxSpeed = profile.MaxDownloadMbps;
+        config.MinSpeed = profile.MinDownloadMbps;
+        config.AbsoluteMax = profile.AbsoluteMaxDownloadMbps;
+        config.Overhead = profile.OverheadMultiplier;
+        config.BaselineLatency = profile.BaselineLatency;
+        config.LatencyThreshold = profile.LatencyThreshold;
+    }
+
+    private async Task RefreshStatus()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Test gateway connection
+            var connectionResult = await DeploymentService.TestConnectionAsync();
+            gatewayConnected = connectionResult.success;
+
+            if (gatewayConnected)
+            {
+                // Check deployment status
+                deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
+
+                // Get TC interface stats
+                tcInterfaces = await SqmService.GetTcInterfaceStatsAsync();
+            }
+            else
+            {
+                statusMessage = connectionResult.message;
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private async Task DeploySqm()
     {
-        // TODO: Implement SQM deployment
-        await Task.CompletedTask;
-    }
+        if (!wan1Config.Enabled && !wan2Config.Enabled)
+        {
+            statusMessage = "Enable at least one WAN interface";
+            statusSuccess = false;
+            return;
+        }
 
-    private async Task GenerateScripts()
-    {
-        // TODO: Implement script generation
-        await Task.CompletedTask;
-    }
-
-    private async Task DisableSqm()
-    {
-        // TODO: Implement SQM disable
-        sqmStatus = "Inactive";
+        isDeploying = true;
+        deploymentSteps.Clear();
+        statusMessage = null;
         StateHasChanged();
-        await Task.CompletedTask;
+
+        try
+        {
+            // Deploy WAN 1
+            if (wan1Config.Enabled)
+            {
+                deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
+                StateHasChanged();
+
+                var config = CreateSqmConfiguration(wan1Config);
+                var result = await DeploymentService.DeployAsync(config);
+
+                if (result.Success)
+                {
+                    deploymentSteps.AddRange(result.Steps);
+                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully");
+                }
+                else
+                {
+                    throw new Exception($"WAN 1 deployment failed: {result.Error}");
+                }
+            }
+
+            // Deploy WAN 2
+            if (wan2Config.Enabled)
+            {
+                deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
+                StateHasChanged();
+
+                var config = CreateSqmConfiguration(wan2Config);
+                var result = await DeploymentService.DeployAsync(config);
+
+                if (result.Success)
+                {
+                    deploymentSteps.AddRange(result.Steps);
+                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully");
+                }
+                else
+                {
+                    throw new Exception($"WAN 2 deployment failed: {result.Error}");
+                }
+            }
+
+            // Deploy TC Monitor
+            if (wan1Config.Enabled || wan2Config.Enabled)
+            {
+                deploymentSteps.Add("Deploying TC Monitor...");
+                StateHasChanged();
+
+                var w1 = wan1Config.Enabled ? wan1Config : wan2Config;
+                var w2 = wan2Config.Enabled ? wan2Config : wan1Config;
+
+                await DeploymentService.DeployTcMonitorAsync(
+                    $"ifb{w1.Interface}", w1.Name,
+                    $"ifb{w2.Interface}", w2.Name);
+
+                deploymentSteps.Add("TC Monitor deployed");
+            }
+
+            statusMessage = "SQM deployment completed successfully!";
+            statusSuccess = true;
+
+            // Refresh status
+            await RefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Deployment failed: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeployTcMonitor()
+    {
+        isDeploying = true;
+        deploymentSteps.Clear();
+        statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            deploymentSteps.Add("Deploying TC Monitor...");
+            StateHasChanged();
+
+            var success = await DeploymentService.DeployTcMonitorAsync(
+                $"ifb{wan1Config.Interface}", wan1Config.Name,
+                $"ifb{wan2Config.Interface}", wan2Config.Name);
+
+            if (success)
+            {
+                deploymentSteps.Add("TC Monitor deployed successfully");
+                statusMessage = "TC Monitor deployed!";
+                statusSuccess = true;
+                await RefreshStatus();
+            }
+            else
+            {
+                statusMessage = "TC Monitor deployment failed";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveSqm()
+    {
+        isDeploying = true;
+        statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var success = await DeploymentService.RemoveAsync();
+
+            if (success)
+            {
+                statusMessage = "SQM scripts removed";
+                statusSuccess = true;
+                await RefreshStatus();
+            }
+            else
+            {
+                statusMessage = "Failed to remove SQM scripts";
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isDeploying = false;
+            StateHasChanged();
+        }
     }
 
     private async Task RunSpeedtest()
     {
-        // TODO: Implement speedtest execution
-        await Task.CompletedTask;
+        isRunningSpeedtest = true;
+        StatusMessage("Running speedtest...", true);
+        StateHasChanged();
+
+        try
+        {
+            var config = wan1Config.Enabled
+                ? CreateSqmConfiguration(wan1Config)
+                : CreateSqmConfiguration(wan2Config);
+
+            var result = await DeploymentService.RunSpeedtestAsync(config);
+
+            if (result != null)
+            {
+                speedtestHistory.Insert(0, result);
+                if (speedtestHistory.Count > 10)
+                    speedtestHistory.RemoveAt(speedtestHistory.Count - 1);
+
+                StatusMessage($"Speedtest complete: {result.Download:F1} Mbps down, {result.Upload:F1} Mbps up", true);
+            }
+            else
+            {
+                StatusMessage("Speedtest failed", false);
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage($"Speedtest error: {ex.Message}", false);
+        }
+        finally
+        {
+            isRunningSpeedtest = false;
+            StateHasChanged();
+        }
+    }
+
+    private SqmConfig CreateSqmConfiguration(WanConfigModel model)
+    {
+        var config = new SqmConfig
+        {
+            ConnectionType = model.ConnectionType,
+            ConnectionName = model.Name,
+            Interface = model.Interface,
+            NominalDownloadSpeed = model.NominalDownload,
+            NominalUploadSpeed = model.NominalUpload,
+            PingHost = model.PingHost
+        };
+
+        config.ApplyProfileSettings();
+        return config;
+    }
+
+    private void StatusMessage(string message, bool success)
+    {
+        statusMessage = message;
+        statusSuccess = success;
+    }
+
+    // Model for WAN configuration form
+    private class WanConfigModel
+    {
+        public bool Enabled { get; set; }
+        public string Name { get; set; } = "";
+        public string Interface { get; set; } = "";
+        public ConnectionType ConnectionType { get; set; }
+        public int NominalDownload { get; set; }
+        public int NominalUpload { get; set; }
+        public string PingHost { get; set; } = "1.1.1.1";
+
+        // Calculated values
+        public int MaxSpeed { get; set; }
+        public int MinSpeed { get; set; }
+        public int AbsoluteMax { get; set; }
+        public double Overhead { get; set; }
+        public double BaselineLatency { get; set; }
+        public double LatencyThreshold { get; set; }
     }
 }
