@@ -35,33 +35,43 @@
                 <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
             }
 
-            <div class="sqm-metrics">
-                <div class="metric">
-                    <div class="metric-label">Gateway Connection</div>
-                    <div class="metric-value">
-                        <span class="status-indicator @(gatewayConnected ? "status-active" : "status-inactive")"></span>
-                        @(gatewayConnected ? "Connected" : "Not Connected")
+            @if (isLoading && !statusChecked)
+            {
+                <div class="loading-status">
+                    <span class="spinner-border spinner-border-sm"></span>
+                    <span>Checking gateway connection...</span>
+                </div>
+            }
+            else
+            {
+                <div class="sqm-metrics">
+                    <div class="metric">
+                        <div class="metric-label">Gateway Connection</div>
+                        <div class="metric-value">
+                            <span class="status-indicator @(gatewayConnected ? "status-active" : "status-inactive")"></span>
+                            @(gatewayConnected ? "Connected" : "Not Connected")
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">SQM Scripts</div>
+                        <div class="metric-value">
+                            <span class="status-indicator @(deploymentStatus?.IsDeployed == true ? "status-active" : "status-inactive")"></span>
+                            @(deploymentStatus?.IsDeployed == true ? "Deployed" : "Not Deployed")
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">TC Monitor</div>
+                        <div class="metric-value">
+                            <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
+                            @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
+                        </div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Cron Jobs</div>
+                        <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
                     </div>
                 </div>
-                <div class="metric">
-                    <div class="metric-label">SQM Scripts</div>
-                    <div class="metric-value">
-                        <span class="status-indicator @(deploymentStatus?.IsDeployed == true ? "status-active" : "status-inactive")"></span>
-                        @(deploymentStatus?.IsDeployed == true ? "Deployed" : "Not Deployed")
-                    </div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">TC Monitor</div>
-                    <div class="metric-value">
-                        <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
-                        @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
-                    </div>
-                </div>
-                <div class="metric">
-                    <div class="metric-label">Cron Jobs</div>
-                    <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
-                </div>
-            </div>
+            }
 
             @if (tcInterfaces?.Any() == true)
             {
@@ -533,11 +543,21 @@
         padding: 2rem;
         color: var(--text-secondary);
     }
+
+    .loading-status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        padding: 2rem;
+        color: var(--text-secondary);
+    }
 </style>
 
 @code {
     // State
-    private bool isLoading = false;
+    private bool isLoading = true;
+    private bool statusChecked = false;
     private bool isDeploying = false;
     private bool isRunningSpeedtest = false;
     private bool gatewayConnected = false;
@@ -640,6 +660,7 @@
         finally
         {
             isLoading = false;
+            statusChecked = true;
             StateHasChanged();
         }
     }
