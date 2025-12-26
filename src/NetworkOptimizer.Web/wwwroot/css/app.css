@@ -566,7 +566,7 @@ a:hover {
 .device-meta {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    justify-content: space-between;
     margin-top: 0.125rem;
 }
 
