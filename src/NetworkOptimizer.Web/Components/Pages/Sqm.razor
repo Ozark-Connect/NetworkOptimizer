@@ -665,28 +665,38 @@
 
         // Apply first WAN to wan1Config
         var wan1 = wanInterfaces[0];
-        wan1Config.Name = wan1.Name;
-        wan1Config.Interface = wan1.Interface;
-        wan1Config.Enabled = true;
-        if (!string.IsNullOrEmpty(wan1.SuggestedPingIp))
-            wan1Config.PingHost = wan1.SuggestedPingIp;
-        UpdateCalculatedSpeeds(wan1Config);
+        ApplyWanInterfaceToConfig(wan1, wan1Config);
 
         // Apply second WAN to wan2Config if available
         if (wanInterfaces.Count > 1)
         {
             var wan2 = wanInterfaces[1];
-            wan2Config.Name = wan2.Name;
-            wan2Config.Interface = wan2.Interface;
-            wan2Config.Enabled = true;
-            if (!string.IsNullOrEmpty(wan2.SuggestedPingIp))
-                wan2Config.PingHost = wan2.SuggestedPingIp;
-            UpdateCalculatedSpeeds(wan2Config);
+            ApplyWanInterfaceToConfig(wan2, wan2Config);
         }
         else
         {
             wan2Config.Enabled = false;
         }
+    }
+
+    private void ApplyWanInterfaceToConfig(WanInterfaceInfo wan, WanConfigModel config)
+    {
+        config.Name = wan.Name;
+        config.Interface = wan.Interface;
+        config.Enabled = true;
+
+        if (!string.IsNullOrEmpty(wan.SuggestedPingIp))
+            config.PingHost = wan.SuggestedPingIp;
+
+        // Apply Starlink defaults when detected
+        if (wan.Name.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Starlink;
+            config.NominalDownload = 410;
+            config.NominalUpload = 40;
+        }
+
+        UpdateCalculatedSpeeds(config);
     }
 
     private void UpdateCalculatedSpeeds(WanConfigModel config)
