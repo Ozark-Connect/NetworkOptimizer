@@ -12,15 +12,14 @@ namespace NetworkOptimizer.Web.Services;
 public class TcMonitorClient
 {
     private readonly ILogger<TcMonitorClient> _logger;
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public const int DefaultPort = 8088;
 
     public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
-        _httpClient = httpClientFactory.CreateClient("TcMonitor");
-        _httpClient.Timeout = TimeSpan.FromSeconds(5);
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
@@ -41,7 +40,10 @@ public class TcMonitorClient
             {
                 _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxRetries);
 
-                var response = await _httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
+                // Create fresh HttpClient for each request to avoid DNS caching issues in Docker
+                using var httpClient = _httpClientFactory.CreateClient("TcMonitor");
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+                var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
 
                 if (response != null)
                 {
