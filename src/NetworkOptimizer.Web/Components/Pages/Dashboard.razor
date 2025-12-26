@@ -194,7 +194,7 @@
         <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
             <div class="card-header">
                 <h2 class="card-title">LAN Speed Test</h2>
-                <span class="card-action">View All →</span>
+                <a href="/speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 @if (_speedTestLoading)
