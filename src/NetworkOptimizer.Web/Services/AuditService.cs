@@ -550,7 +550,7 @@ public class AuditService
     private static string GetCategory(string issueType) => issueType switch
     {
         "FW_SHADOWED" or "FW_PERMISSIVE" or "FW_ORPHANED" or "FW_ANY_ANY" => "Firewall Rules",
-        "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" => "VLAN Security",
+        "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" or "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
         "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATE-001" or "PORT_SECURITY" => "Port Security",
         "DNS_LEAKAGE" => "DNS Security",
         "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Device Placement",
@@ -593,6 +593,7 @@ public class AuditService
             "DNS_LEAKAGE" => "DNS Leak Detected",
             "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "IoT Device on Wrong VLAN",
             "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Camera on Wrong VLAN",
+            "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
             _ => message.Split('.').FirstOrDefault() ?? type
         };
     }
