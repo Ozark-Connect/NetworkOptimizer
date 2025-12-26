@@ -1021,6 +1021,14 @@ a:hover {
     transition: background-color 0.2s ease, color 0.2s ease;
     text-decoration: none;
     white-space: nowrap;
+    box-sizing: border-box;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* Ensure anchor buttons match button elements */
+a.btn {
+    line-height: 36px;
 }
 
 .btn-sm {
@@ -1029,11 +1037,19 @@ a:hover {
     font-size: 0.8125rem;
 }
 
+a.btn-sm {
+    line-height: 28px;
+}
+
 .btn-lg {
     height: 44px;
     padding: 0 24px;
     font-size: 0.9375rem;
     border-radius: var(--border-radius-lg);
+}
+
+a.btn-lg {
+    line-height: 44px;
 }
 
 .btn:disabled {
