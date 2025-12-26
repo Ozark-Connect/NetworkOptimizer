@@ -29,7 +29,7 @@
                 <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
             }
 
-            <div class="deployment-status-content" style="min-height: 120px;">
+            <div class="deployment-status-content" style="min-height: 90px;">
                 @if (isLoading)
                 {
                     <div class="loading-status">
@@ -430,7 +430,7 @@
 
     .metric {
         text-align: center;
-        padding: 0.75rem;
+        padding: 1.25rem;
         background: var(--surface-secondary);
         border-radius: 0.5rem;
     }
