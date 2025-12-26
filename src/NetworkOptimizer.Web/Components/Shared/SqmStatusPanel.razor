@@ -94,54 +94,23 @@
     private SqmStatusData? statusData;
     private bool isLoading = true;
     private bool isRefreshing = false;
-    private const int MaxRetries = 3;
-    private const int RetryDelayMs = 1000;
-    private DateTime _lastLoad = DateTime.MinValue;
-    private static readonly TimeSpan StaleThreshold = TimeSpan.FromSeconds(30);
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadStatusWithRetry();
+        await LoadStatus();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        // Reload if data is stale (e.g., after navigation back to page)
-        if (!firstRender && !isLoading && DateTime.UtcNow - _lastLoad > StaleThreshold)
-        {
-            await LoadStatusWithRetry();
-            StateHasChanged();
-        }
-    }
-
-    private async Task LoadStatusWithRetry()
+    private async Task LoadStatus()
     {
         isLoading = true;
-
-        for (int attempt = 1; attempt <= MaxRetries; attempt++)
+        try
         {
-            try
-            {
-                statusData = await SqmService.GetSqmStatusAsync();
-
-                // If we got valid data, break out of retry loop
-                if (statusData != null)
-                {
-                    _lastLoad = DateTime.UtcNow;
-                    break;
-                }
-            }
-            catch
-            {
-                // On failure, wait before retrying (unless last attempt)
-                if (attempt < MaxRetries)
-                {
-                    await Task.Delay(RetryDelayMs);
-                }
-            }
+            statusData = await SqmService.GetSqmStatusAsync();
         }
-
-        isLoading = false;
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     private async Task RefreshStats()

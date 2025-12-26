@@ -5,6 +5,7 @@
 @inject UniFiConnectionService ConnectionService
 @inject Iperf3SpeedTestService SpeedTestService
 @inject NavigationManager NavigationManager
+@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Dashboard - Network Optimizer</PageTitle>
@@ -176,7 +177,7 @@
                 <h2 class="card-title">SQM Performance</h2>
             </div>
             <div class="card-body">
-                <SqmStatusPanel />
+                <SqmStatusPanel @key="_sqmPanelKey" />
             </div>
         </div>
 
@@ -296,9 +297,12 @@
     private string lastAuditTime = "Never";
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
+    private int _sqmPanelKey = 0;
 
     protected override async Task OnInitializedAsync()
     {
+        NavigationManager.LocationChanged += OnLocationChanged;
+
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
         await ConnectionService.WaitForConnectionAsync();
 
@@ -307,6 +311,25 @@
             LoadDashboardData(),
             LoadSpeedTestData()
         );
+    }
+
+    private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // If navigating to dashboard, reload data
+        if (e.Location.EndsWith("/") || e.Location.EndsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
+        {
+            _sqmPanelKey++; // Force SqmStatusPanel to recreate
+            await Task.WhenAll(
+                LoadDashboardData(),
+                LoadSpeedTestData()
+            );
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
     }
 
     private async Task LoadSpeedTestData()
