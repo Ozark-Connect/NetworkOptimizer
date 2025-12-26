@@ -232,30 +232,23 @@ public class SqmService
             var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
 
             // Get actual interface names from device data (wan1.uplink_ifname, wan2.uplink_ifname, etc.)
+            // This maps WAN IP -> interface name (e.g., "67.209.42.120" -> "eth2")
             var deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync();
-            var deviceWanInterfaces = !string.IsNullOrEmpty(deviceJson)
+            var wanIpToInterface = !string.IsNullOrEmpty(deviceJson)
                 ? ExtractWanInterfacesFromDeviceData(deviceJson)
-                : new List<(int index, string ifname)>();
+                : new Dictionary<string, string>();
 
-            // Match WAN configs to device wan1/wan2/wan3 by index
-            // WAN configs are typically ordered, so wan1 = first config, wan2 = second, etc.
-            var sortedWanConfigs = wanConfigs.OrderBy(w => w.Name).ToList();
-
-            for (int i = 0; i < sortedWanConfigs.Count; i++)
+            foreach (var wan in wanConfigs)
             {
-                var wan = sortedWanConfigs[i];
-                var wanIndex = i + 1; // wan1, wan2, etc.
-
                 // Try wan_ifname from API first
                 var interfaceName = wan.WanIfname;
 
-                // If empty, try to find from device data by index
-                if (string.IsNullOrEmpty(interfaceName))
+                // If empty, try to find from device data by matching WAN IP
+                if (string.IsNullOrEmpty(interfaceName) && !string.IsNullOrEmpty(wan.WanIp))
                 {
-                    var deviceWan = deviceWanInterfaces.FirstOrDefault(d => d.index == wanIndex);
-                    if (!string.IsNullOrEmpty(deviceWan.ifname))
+                    if (wanIpToInterface.TryGetValue(wan.WanIp, out var deviceIfname))
                     {
-                        interfaceName = deviceWan.ifname;
+                        interfaceName = deviceIfname;
                     }
                 }
 
@@ -275,8 +268,8 @@ public class SqmService
                     LoadBalanceWeight = wan.WanLoadBalanceWeight
                 });
 
-                _logger.LogDebug("WAN interface: {Name} (wan{Index}) -> {Interface} (TC: {TcInterface})",
-                    wan.Name, wanIndex, interfaceName, tcInterface);
+                _logger.LogDebug("WAN interface: {Name} (IP: {Ip}) -> {Interface} (TC: {TcInterface})",
+                    wan.Name, wan.WanIp, interfaceName, tcInterface);
             }
 
             _logger.LogInformation("Found {Count} WAN interfaces from controller", result.Count);
@@ -291,11 +284,11 @@ public class SqmService
 
     /// <summary>
     /// Extract WAN interface names from device data (wan1, wan2, etc. with uplink_ifname)
-    /// Returns a list of (index, interfaceName) tuples, e.g., [(1, "eth2"), (2, "eth4")]
+    /// Returns a dictionary mapping WAN IP to interface name, e.g., {"67.209.42.120": "eth2"}
     /// </summary>
-    private List<(int index, string ifname)> ExtractWanInterfacesFromDeviceData(string deviceJson)
+    private Dictionary<string, string> ExtractWanInterfacesFromDeviceData(string deviceJson)
     {
-        var result = new List<(int index, string ifname)>();
+        var result = new Dictionary<string, string>();
 
         try
         {
@@ -320,14 +313,22 @@ public class SqmService
                     var wanKey = $"wan{i}";
                     if (device.TryGetProperty(wanKey, out var wanObj))
                     {
-                        if (wanObj.TryGetProperty("uplink_ifname", out var ifnameProp))
+                        // Get interface name from uplink_ifname or ifname
+                        string? ifname = null;
+                        if (wanObj.TryGetProperty("uplink_ifname", out var uplinkProp))
+                            ifname = uplinkProp.GetString();
+                        else if (wanObj.TryGetProperty("ifname", out var ifnameProp))
+                            ifname = ifnameProp.GetString();
+
+                        // Get WAN IP for matching
+                        string? wanIp = null;
+                        if (wanObj.TryGetProperty("ip", out var ipProp))
+                            wanIp = ipProp.GetString();
+
+                        if (!string.IsNullOrEmpty(ifname) && !string.IsNullOrEmpty(wanIp))
                         {
-                            var ifname = ifnameProp.GetString();
-                            if (!string.IsNullOrEmpty(ifname))
-                            {
-                                result.Add((i, ifname));
-                                _logger.LogDebug("Found {WanKey} -> {Interface}", wanKey, ifname);
-                            }
+                            result[wanIp] = ifname;
+                            _logger.LogDebug("Found {WanKey}: IP {Ip} -> {Interface}", wanKey, wanIp, ifname);
                         }
                     }
                 }
