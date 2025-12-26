@@ -228,12 +228,21 @@ public class SqmService
 
         try
         {
-            // Get WAN interfaces directly from device data (wan1, wan2, wan3 with uplink_ifname)
+            // Get WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname and ip)
             var deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync();
-            if (!string.IsNullOrEmpty(deviceJson))
+            if (string.IsNullOrEmpty(deviceJson))
             {
-                result = ExtractWanInterfacesFromDeviceData(deviceJson);
+                _logger.LogWarning("No device data available");
+                return result;
             }
+
+            // Get WAN network configs for friendly names
+            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+            var ipToName = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanIp))
+                .ToDictionary(w => w.WanIp!, w => w.Name);
+
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
@@ -247,9 +256,9 @@ public class SqmService
 
     /// <summary>
     /// Extract WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname)
-    /// Returns WAN interfaces directly from device wan1/wan2/wan3 objects
+    /// Correlates with network config names via IP address matching
     /// </summary>
-    private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(string deviceJson)
+    private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(string deviceJson, Dictionary<string, string> ipToName)
     {
         var result = new List<WanInterfaceInfo>();
 
@@ -284,16 +293,24 @@ public class SqmService
                         if (string.IsNullOrEmpty(ifname))
                             continue;
 
-                        // Skip non-ethernet interfaces (like gre tunnels)
-                        if (!ifname.StartsWith("eth"))
-                            continue;
+                        // Get WAN IP to correlate with network config name
+                        string? wanIp = null;
+                        if (wanObj.TryGetProperty("ip", out var ipProp))
+                            wanIp = ipProp.GetString();
+
+                        // Try to get friendly name from network config, fallback to WAN1/WAN2
+                        var friendlyName = wanKey.ToUpper();
+                        if (!string.IsNullOrEmpty(wanIp) && ipToName.TryGetValue(wanIp, out var configName))
+                        {
+                            friendlyName = configName;
+                        }
 
                         // TC monitor uses "ifb" + interface name format
                         var tcInterface = $"ifb{ifname}";
 
                         result.Add(new WanInterfaceInfo
                         {
-                            Name = wanKey.ToUpper(), // "WAN1", "WAN2", etc.
+                            Name = friendlyName,
                             Interface = ifname,
                             TcInterface = tcInterface,
                             WanType = "dhcp",
@@ -301,7 +318,7 @@ public class SqmService
                             LoadBalanceWeight = null
                         });
 
-                        _logger.LogDebug("Found {WanKey} -> {Interface}", wanKey, ifname);
+                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (IP: {Ip})", wanKey, ifname, friendlyName, wanIp);
                     }
                 }
 
