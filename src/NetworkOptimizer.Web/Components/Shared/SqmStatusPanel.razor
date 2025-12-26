@@ -96,10 +96,22 @@
     private bool isRefreshing = false;
     private const int MaxRetries = 3;
     private const int RetryDelayMs = 1000;
+    private DateTime _lastLoad = DateTime.MinValue;
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromSeconds(30);
 
     protected override async Task OnInitializedAsync()
     {
         await LoadStatusWithRetry();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Reload if data is stale (e.g., after navigation back to page)
+        if (!firstRender && !isLoading && DateTime.UtcNow - _lastLoad > StaleThreshold)
+        {
+            await LoadStatusWithRetry();
+            StateHasChanged();
+        }
     }
 
     private async Task LoadStatusWithRetry()
@@ -114,7 +126,10 @@
 
                 // If we got valid data, break out of retry loop
                 if (statusData != null)
+                {
+                    _lastLoad = DateTime.UtcNow;
                     break;
+                }
             }
             catch
             {
