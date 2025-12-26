@@ -95,9 +95,13 @@
     private bool isLoading = true;
     private bool isRefreshing = false;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await LoadStatus();
+        if (firstRender)
+        {
+            await LoadStatus();
+            StateHasChanged();
+        }
     }
 
     private async Task LoadStatus()
