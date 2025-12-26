@@ -2564,7 +2564,8 @@ td .btn + .btn {
    Blazor Reconnection Dialog (Dark Theme)
    ============================================ */
 .components-reconnect-dialog {
-    background: var(--bg-secondary) !important;
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: var(--border-radius) !important;
     padding: 2rem !important;
