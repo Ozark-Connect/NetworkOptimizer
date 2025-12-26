@@ -2658,6 +2658,7 @@ td .btn + .btn {
     flex-wrap: wrap;
     align-items: flex-start;
     gap: 1rem;
+    padding-top: 1rem;
 }
 
 .audit-controls .btn {
@@ -2669,7 +2670,7 @@ td .btn + .btn {
     display: flex;
     flex-wrap: wrap;
     gap: 1.25rem;
-    margin-top: 1.5rem;
+    margin-top: 1rem;
     padding-top: 1.25rem;
     border-top: 1px solid var(--border-color);
     width: 100%;
