@@ -2380,8 +2380,12 @@ td .btn + .btn {
     background: #2d3a4d;
 }
 
-tr.history-row-expanded,
-tr.history-row-expanded:hover {
+.history-row-expanded {
+    background: #2d3a4d;
+}
+
+.history-details-row,
+.history-details-row:hover {
     background: #2d3a4d !important;
 }
 
