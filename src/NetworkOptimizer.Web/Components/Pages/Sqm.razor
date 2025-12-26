@@ -575,11 +575,19 @@
     // Speedtest history
     private List<Services.SpeedtestResult> speedtestHistory = new();
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         UpdateCalculatedSpeeds(wan1Config);
         UpdateCalculatedSpeeds(wan2Config);
-        await RefreshStatus();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Load status in background after UI renders
+            await RefreshStatus();
+        }
     }
 
     private void UpdateCalculatedSpeeds(WanConfigModel config)
