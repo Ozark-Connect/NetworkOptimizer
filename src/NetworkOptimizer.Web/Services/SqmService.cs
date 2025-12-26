@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Interfaces;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -14,6 +15,7 @@ public class SqmService
     private readonly ILogger<SqmService> _logger;
     private readonly UniFiConnectionService _connectionService;
     private readonly TcMonitorClient _tcMonitorClient;
+    private readonly IServiceProvider _serviceProvider;
 
     // Track SQM state
     private SqmConfiguration? _currentConfig;
@@ -27,11 +29,13 @@ public class SqmService
     public SqmService(
         ILogger<SqmService> logger,
         UniFiConnectionService connectionService,
-        TcMonitorClient tcMonitorClient)
+        TcMonitorClient tcMonitorClient,
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _connectionService = connectionService;
         _tcMonitorClient = tcMonitorClient;
+        _serviceProvider = serviceProvider;
     }
 
     /// <summary>
@@ -61,16 +65,26 @@ public class SqmService
             };
         }
 
-        // Try to get TC stats from the gateway
-        var tcStats = await PollTcStatsAsync();
+        // Get gateway host for TC Monitor
+        var gatewayHost = _tcMonitorHost ?? await GetGatewayHostAsync();
 
-        if (tcStats == null && string.IsNullOrEmpty(_tcMonitorHost))
+        // Check if gateway is configured
+        if (string.IsNullOrEmpty(gatewayHost))
         {
             return new SqmStatusData
             {
                 Status = "Not Configured",
-                StatusMessage = "TC Monitor not configured. Deploy the tc-monitor script to your gateway and configure the endpoint."
+                StatusMessage = "Gateway SSH not configured. Go to Settings to configure your gateway connection."
             };
+        }
+
+        // Try to get TC stats from the gateway
+        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, _tcMonitorPort);
+
+        if (tcStats != null)
+        {
+            _lastTcStats = tcStats;
+            _lastPollTime = DateTime.UtcNow;
         }
 
         if (tcStats == null)
@@ -78,7 +92,7 @@ public class SqmService
             return new SqmStatusData
             {
                 Status = "Offline",
-                StatusMessage = $"Cannot reach TC Monitor at {_tcMonitorHost}:{_tcMonitorPort}. Ensure the script is running on your gateway."
+                StatusMessage = $"Cannot reach TC Monitor at {gatewayHost}:{_tcMonitorPort}. Deploy tc-monitor script via the SQM Manager."
             };
         }
 
@@ -106,25 +120,11 @@ public class SqmService
     /// </summary>
     private async Task<TcMonitorResponse?> PollTcStatsAsync()
     {
-        // If no explicit host configured, try to use the connected controller
+        // If no explicit host configured, try to use the gateway SSH host
         var host = _tcMonitorHost;
         if (string.IsNullOrEmpty(host))
         {
-            // Extract host from controller URL
-            var controllerUrl = _connectionService.CurrentConfig?.ControllerUrl;
-            if (!string.IsNullOrEmpty(controllerUrl))
-            {
-                try
-                {
-                    var uri = new Uri(controllerUrl);
-                    host = uri.Host;
-                    _logger.LogDebug("Using controller host for TC monitor: {Host}", host);
-                }
-                catch
-                {
-                    return null;
-                }
-            }
+            host = await GetGatewayHostAsync();
         }
 
         if (string.IsNullOrEmpty(host))
@@ -139,6 +139,29 @@ public class SqmService
         }
 
         return stats;
+    }
+
+    /// <summary>
+    /// Get the gateway host from SSH settings
+    /// </summary>
+    private async Task<string?> GetGatewayHostAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+            var settings = await repository.GetGatewaySshSettingsAsync();
+            if (!string.IsNullOrEmpty(settings?.Host))
+            {
+                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}", settings.Host);
+                return settings.Host;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get gateway SSH settings");
+        }
+        return null;
     }
 
     /// <summary>
