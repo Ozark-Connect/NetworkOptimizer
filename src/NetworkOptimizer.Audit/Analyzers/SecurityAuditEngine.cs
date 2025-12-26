@@ -76,8 +76,7 @@ public class SecurityAuditEngine
     {
         var deviceType = device.GetStringOrNull("type");
         var isGateway = UniFiDeviceTypes.IsGateway(deviceType);
-        var rawName = device.GetStringFromAny("name", "mac") ?? "Unknown";
-        var name = CleanDeviceName(rawName);
+        var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
 
         var mac = device.GetStringOrNull("mac");
         var model = device.GetStringOrNull("model");
@@ -183,17 +182,6 @@ public class SecurityAuditEngine
         };
     }
 
-    /// <summary>
-    /// Clean device name (remove redundant prefixes)
-    /// </summary>
-    private string CleanDeviceName(string name)
-    {
-        if (name.StartsWith("[Gateway] "))
-            return name.Substring(10);
-        if (name.StartsWith("[Switch] "))
-            return name.Substring(9);
-        return name;
-    }
 
     /// <summary>
     /// Analyze all ports across all switches
