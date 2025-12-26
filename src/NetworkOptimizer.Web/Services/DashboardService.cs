@@ -8,15 +8,21 @@ public class DashboardService
     private readonly ILogger<DashboardService> _logger;
     private readonly UniFiConnectionService _connectionService;
     private readonly AuditService _auditService;
+    private readonly GatewaySpeedTestService _gatewayService;
+    private readonly SqmService _sqmService;
 
     public DashboardService(
         ILogger<DashboardService> logger,
         UniFiConnectionService connectionService,
-        AuditService auditService)
+        AuditService auditService,
+        GatewaySpeedTestService gatewayService,
+        SqmService sqmService)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditService = auditService;
+        _gatewayService = gatewayService;
+        _sqmService = sqmService;
     }
 
     public async Task<DashboardData> GetDashboardDataAsync()
@@ -96,6 +102,27 @@ public class DashboardService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to load audit summary");
+        }
+
+        // Get SQM status (quick check - just TC monitor, no SSH)
+        try
+        {
+            var gatewaySettings = await _gatewayService.GetSettingsAsync();
+            if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
+            {
+                data.SqmStatus = "Not Configured";
+            }
+            else
+            {
+                // Try to get TC monitor status (this is fast - just HTTP)
+                var sqmData = await _sqmService.GetSqmStatusAsync();
+                data.SqmStatus = sqmData.Status;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get SQM status");
+            data.SqmStatus = "Unknown";
         }
 
         return data;

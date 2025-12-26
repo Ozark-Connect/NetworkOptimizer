@@ -1,6 +1,5 @@
 @using NetworkOptimizer.Web.Services
 @inject SqmService SqmService
-@inject SqmDeploymentService DeploymentService
 @inject GatewaySpeedTestService GatewayService
 
 <div class="sqm-status-panel">
@@ -71,31 +70,6 @@
                 }
             </div>
         }
-        else if (deploymentStatus != null)
-        {
-            <div class="deployment-summary">
-                <div class="deployment-item @(deploymentStatus.TcMonitorDeployed ? "deployed" : "not-deployed")">
-                    <span class="item-icon">@(deploymentStatus.TcMonitorDeployed ? "✓" : "○")</span>
-                    <span>TC Monitor</span>
-                    @if (deploymentStatus.TcMonitorRunning)
-                    {
-                        <span class="badge badge-success">Running</span>
-                    }
-                </div>
-                <div class="deployment-item @(deploymentStatus.IsDeployed ? "deployed" : "not-deployed")">
-                    <span class="item-icon">@(deploymentStatus.IsDeployed ? "✓" : "○")</span>
-                    <span>SQM Scripts</span>
-                </div>
-                @if (deploymentStatus.CronJobsConfigured > 0)
-                {
-                    <div class="deployment-item deployed">
-                        <span class="item-icon">✓</span>
-                        <span>@deploymentStatus.CronJobsConfigured Cron Jobs</span>
-                    </div>
-                }
-            </div>
-        }
-
         <div class="sqm-actions">
             <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
                 @if (isRefreshing)
@@ -114,7 +88,6 @@
 
 @code {
     private SqmStatusData? statusData;
-    private SqmDeploymentStatus? deploymentStatus;
     private bool isLoading = true;
     private bool isRefreshing = false;
     private string statusLabel = "";
@@ -151,46 +124,26 @@
                 return;
             }
 
-            // Check deployment status (this is what works on the SQM page)
-            deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
-
-            if (!string.IsNullOrEmpty(deploymentStatus.Error))
-            {
-                statusLabel = "Error";
-                statusClass = "offline";
-                errorMessage = deploymentStatus.Error;
-                return;
-            }
-
-            // Try to get live TC stats
+            // Try to get live TC stats (fast - just HTTP to TC Monitor)
             statusData = await SqmService.GetSqmStatusAsync();
 
-            // Determine status based on deployment and TC monitor
-            if (deploymentStatus.TcMonitorRunning && statusData?.TcInterfaces?.Any() == true)
+            // Determine status based on TC monitor response
+            if (statusData?.TcInterfaces?.Any() == true)
             {
                 statusLabel = "Active";
                 statusClass = "active";
             }
-            else if (deploymentStatus.TcMonitorDeployed)
+            else if (statusData?.Status == "Offline")
             {
-                statusLabel = "Deployed";
-                statusClass = "deployed";
-                if (!deploymentStatus.TcMonitorRunning)
-                {
-                    errorMessage = "TC Monitor deployed but not running. Check gateway.";
-                }
-            }
-            else if (deploymentStatus.IsDeployed)
-            {
-                statusLabel = "Partial";
-                statusClass = "warning";
-                errorMessage = "SQM scripts deployed, but TC Monitor not installed.";
+                statusLabel = "Offline";
+                statusClass = "offline";
+                errorMessage = statusData.StatusMessage ?? "TC Monitor not responding. Deploy via SQM Manager.";
             }
             else
             {
-                statusLabel = "Not Deployed";
-                statusClass = "not-deployed";
-                errorMessage = "SQM is not deployed. Deploy via the SQM Manager.";
+                statusLabel = statusData?.Status ?? "Unknown";
+                statusClass = "warning";
+                errorMessage = statusData?.StatusMessage;
             }
         }
         catch (Exception ex)
