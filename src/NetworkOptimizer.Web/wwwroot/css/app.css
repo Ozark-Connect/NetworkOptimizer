@@ -558,7 +558,7 @@ a:hover {
 }
 
 .device-name {
-    font-size: 1.125rem;
+    font-size: 0.9375rem;
     font-weight: 600;
     margin: 0;
 }
@@ -596,7 +596,7 @@ a:hover {
 .device-detail {
     display: flex;
     justify-content: space-between;
-    font-size: 1rem;
+    font-size: 0.8125rem;
 }
 
 .detail-label {
