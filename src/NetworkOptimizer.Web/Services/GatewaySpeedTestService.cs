@@ -53,10 +53,11 @@ public class GatewaySpeedTestService
     /// <summary>
     /// Get the gateway SSH settings (creates default if none exist)
     /// </summary>
-    public async Task<GatewaySshSettings> GetSettingsAsync()
+    /// <param name="forceRefresh">If true, bypasses cache and loads fresh from database</param>
+    public async Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
     {
-        // Check cache first
-        if (_cachedSettings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
+        // Check cache first (unless force refresh requested)
+        if (!forceRefresh && _cachedSettings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
         {
             return _cachedSettings;
         }
@@ -141,7 +142,8 @@ public class GatewaySpeedTestService
     /// </summary>
     public async Task<(bool success, string message)> TestConnectionAsync()
     {
-        var settings = await GetSettingsAsync();
+        // Always get fresh settings from DB to ensure we have the latest credentials
+        var settings = await GetSettingsAsync(forceRefresh: true);
 
         if (string.IsNullOrEmpty(settings.Host))
         {

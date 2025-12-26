@@ -1,5 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @inject SqmService SqmService
+@inject SqmDeploymentService DeploymentService
+@inject GatewaySpeedTestService GatewayService
 
 <div class="sqm-status-panel">
     @if (isLoading)
@@ -9,16 +11,23 @@
             <span>Loading SQM status...</span>
         </div>
     }
-    else if (!string.IsNullOrEmpty(statusData?.StatusMessage))
+    else if (!string.IsNullOrEmpty(errorMessage))
     {
         <div class="sqm-unavailable">
             <div class="sqm-status">
-                <span class="status-indicator status-@statusData.Status.ToLower().Replace(" ", "-")"></span>
-                <span class="status-label">@statusData.Status</span>
+                <span class="status-indicator status-@statusClass"></span>
+                <span class="status-label">@statusLabel</span>
             </div>
-            <p class="status-message">@statusData.StatusMessage</p>
+            <p class="status-message">@errorMessage</p>
             <div class="sqm-actions">
-                <a href="/sqm" class="btn btn-sm btn-primary">Configure SQM</a>
+                @if (needsGatewayConfig)
+                {
+                    <a href="/settings" class="btn btn-sm btn-primary">Configure Gateway</a>
+                }
+                else
+                {
+                    <a href="/sqm" class="btn btn-sm btn-primary">Configure SQM</a>
+                }
             </div>
         </div>
     }
@@ -26,8 +35,8 @@
     {
         <div class="sqm-header">
             <div class="sqm-status">
-                <span class="status-indicator status-active"></span>
-                <span class="status-label">@statusData?.Status</span>
+                <span class="status-indicator status-@statusClass"></span>
+                <span class="status-label">@statusLabel</span>
             </div>
             @if (statusData?.TcMonitorTimestamp != null)
             {
@@ -62,15 +71,28 @@
                 }
             </div>
         }
-        else
+        else if (deploymentStatus != null)
         {
-            <div class="sqm-metrics-grid">
-                <div class="metric-box">
-                    <div class="metric-content">
-                        <div class="metric-value">@statusData?.CurrentRate.ToString("F1") <span class="unit">Mbps</span></div>
-                        <div class="metric-label">Current Rate</div>
-                    </div>
+            <div class="deployment-summary">
+                <div class="deployment-item @(deploymentStatus.TcMonitorDeployed ? "deployed" : "not-deployed")">
+                    <span class="item-icon">@(deploymentStatus.TcMonitorDeployed ? "✓" : "○")</span>
+                    <span>TC Monitor</span>
+                    @if (deploymentStatus.TcMonitorRunning)
+                    {
+                        <span class="badge badge-success">Running</span>
+                    }
                 </div>
+                <div class="deployment-item @(deploymentStatus.IsDeployed ? "deployed" : "not-deployed")">
+                    <span class="item-icon">@(deploymentStatus.IsDeployed ? "✓" : "○")</span>
+                    <span>SQM Scripts</span>
+                </div>
+                @if (deploymentStatus.CronJobsConfigured > 0)
+                {
+                    <div class="deployment-item deployed">
+                        <span class="item-icon">✓</span>
+                        <span>@deploymentStatus.CronJobsConfigured Cron Jobs</span>
+                    </div>
+                }
             </div>
         }
 
@@ -92,8 +114,13 @@
 
 @code {
     private SqmStatusData? statusData;
+    private SqmDeploymentStatus? deploymentStatus;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private string statusLabel = "";
+    private string statusClass = "";
+    private string? errorMessage;
+    private bool needsGatewayConfig = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -107,9 +134,70 @@
     private async Task LoadStatus()
     {
         isLoading = true;
+        errorMessage = null;
+        needsGatewayConfig = false;
+
         try
         {
+            // First check if gateway SSH is configured (use forceRefresh to get latest)
+            var gatewaySettings = await GatewayService.GetSettingsAsync(forceRefresh: true);
+
+            if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
+            {
+                statusLabel = "Not Configured";
+                statusClass = "not-configured";
+                errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
+                needsGatewayConfig = true;
+                return;
+            }
+
+            // Check deployment status (this is what works on the SQM page)
+            deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
+
+            if (!string.IsNullOrEmpty(deploymentStatus.Error))
+            {
+                statusLabel = "Error";
+                statusClass = "offline";
+                errorMessage = deploymentStatus.Error;
+                return;
+            }
+
+            // Try to get live TC stats
             statusData = await SqmService.GetSqmStatusAsync();
+
+            // Determine status based on deployment and TC monitor
+            if (deploymentStatus.TcMonitorRunning && statusData?.TcInterfaces?.Any() == true)
+            {
+                statusLabel = "Active";
+                statusClass = "active";
+            }
+            else if (deploymentStatus.TcMonitorDeployed)
+            {
+                statusLabel = "Deployed";
+                statusClass = "deployed";
+                if (!deploymentStatus.TcMonitorRunning)
+                {
+                    errorMessage = "TC Monitor deployed but not running. Check gateway.";
+                }
+            }
+            else if (deploymentStatus.IsDeployed)
+            {
+                statusLabel = "Partial";
+                statusClass = "warning";
+                errorMessage = "SQM scripts deployed, but TC Monitor not installed.";
+            }
+            else
+            {
+                statusLabel = "Not Deployed";
+                statusClass = "not-deployed";
+                errorMessage = "SQM is not deployed. Deploy via the SQM Manager.";
+            }
+        }
+        catch (Exception ex)
+        {
+            statusLabel = "Error";
+            statusClass = "offline";
+            errorMessage = $"Failed to load status: {ex.Message}";
         }
         finally
         {
@@ -124,7 +212,7 @@
 
         try
         {
-            statusData = await SqmService.GetSqmStatusAsync();
+            await LoadStatus();
         }
         finally
         {
