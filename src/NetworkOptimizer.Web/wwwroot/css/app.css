@@ -913,7 +913,7 @@ a:hover {
     border-bottom: 1px solid var(--border-color);
 }
 
-.data-table tr:hover {
+.data-table tr:not(.history-details-row):hover {
     background: #2d3a4d;
 }
 
@@ -2384,9 +2384,8 @@ td .btn + .btn {
     background: #2d3a4d;
 }
 
-.history-details-row,
-.history-details-row:hover {
-    background: #2d3a4d !important;
+.history-details-row {
+    background: #2d3a4d;
 }
 
 .expand-chevron {
