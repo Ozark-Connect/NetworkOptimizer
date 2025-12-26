@@ -20,7 +20,7 @@
             <h2 class="card-title">Deployment Status</h2>
             @if (!isLoading)
             {
-                <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus">Refresh</button>
+                <button class="btn btn-sm btn-secondary" @onclick="() => RefreshStatus()">Refresh</button>
             }
         </div>
         <div class="card-body">
@@ -106,9 +106,17 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan1Config.Interface">
-                        <option value="eth2">eth2</option>
-                        <option value="eth4">eth4</option>
-                        <option value="eth0">eth0</option>
+                        @if (wanInterfaces.Any())
+                        {
+                            @foreach (var wan in wanInterfaces)
+                            {
+                                <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
+                            }
+                        }
+                        else
+                        {
+                            <option value="@wan1Config.Interface">@wan1Config.Interface</option>
+                        }
                     </select>
                 </div>
             </div>
@@ -192,9 +200,17 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan2Config.Interface">
-                        <option value="eth0">eth0</option>
-                        <option value="eth2">eth2</option>
-                        <option value="eth4">eth4</option>
+                        @if (wanInterfaces.Any())
+                        {
+                            @foreach (var wan in wanInterfaces)
+                            {
+                                <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
+                            }
+                        }
+                        else
+                        {
+                            <option value="@wan2Config.Interface">@wan2Config.Interface</option>
+                        }
                     </select>
                 </div>
             </div>
@@ -551,6 +567,14 @@
 </style>
 
 @code {
+    // Cache settings
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+    private static DateTime _lastStatusCheck = DateTime.MinValue;
+    private static SqmDeploymentStatus? _cachedDeploymentStatus;
+    private static List<TcInterfaceStats>? _cachedTcInterfaces;
+    private static List<WanInterfaceInfo>? _cachedWanInterfaces;
+    private static bool _cachedGatewayConnected;
+
     // State
     private bool isLoading = true;
     private bool isDeploying = false;
@@ -563,6 +587,9 @@
     private SqmDeploymentStatus? deploymentStatus;
     private List<string> deploymentSteps = new();
     private List<TcInterfaceStats>? tcInterfaces;
+
+    // WAN interfaces from controller
+    private List<WanInterfaceInfo> wanInterfaces = new();
 
     // WAN configurations
     private WanConfigModel wan1Config = new()
@@ -600,8 +627,61 @@
     {
         if (firstRender)
         {
-            // Load status in background after UI renders
-            await RefreshStatus();
+            // Check if we have valid cached data
+            if (IsCacheValid())
+            {
+                // Use cached data
+                gatewayConnected = _cachedGatewayConnected;
+                deploymentStatus = _cachedDeploymentStatus;
+                tcInterfaces = _cachedTcInterfaces;
+                wanInterfaces = _cachedWanInterfaces ?? new();
+                ApplyDetectedWanInterfaces();
+                isLoading = false;
+                StateHasChanged();
+            }
+            else
+            {
+                // Load fresh status
+                await RefreshStatus(forceRefresh: false);
+            }
+        }
+    }
+
+    private static bool IsCacheValid()
+    {
+        return _cachedDeploymentStatus != null &&
+               DateTime.UtcNow - _lastStatusCheck < CacheDuration;
+    }
+
+    private static void InvalidateCache()
+    {
+        _lastStatusCheck = DateTime.MinValue;
+    }
+
+    private void ApplyDetectedWanInterfaces()
+    {
+        if (wanInterfaces.Count == 0)
+            return;
+
+        // Apply first WAN to wan1Config
+        var wan1 = wanInterfaces[0];
+        wan1Config.Name = wan1.Name;
+        wan1Config.Interface = wan1.Interface;
+        wan1Config.Enabled = true;
+        UpdateCalculatedSpeeds(wan1Config);
+
+        // Apply second WAN to wan2Config if available
+        if (wanInterfaces.Count > 1)
+        {
+            var wan2 = wanInterfaces[1];
+            wan2Config.Name = wan2.Name;
+            wan2Config.Interface = wan2.Interface;
+            wan2Config.Enabled = true;
+            UpdateCalculatedSpeeds(wan2Config);
+        }
+        else
+        {
+            wan2Config.Enabled = false;
         }
     }
 
@@ -622,7 +702,7 @@
         config.LatencyThreshold = profile.LatencyThreshold;
     }
 
-    private async Task RefreshStatus()
+    private async Task RefreshStatus(bool forceRefresh = true)
     {
         isLoading = true;
         StateHasChanged();
@@ -640,6 +720,25 @@
 
                 // Get TC interface stats
                 tcInterfaces = await SqmService.GetTcInterfaceStatsAsync();
+
+                // Get WAN interfaces from controller
+                try
+                {
+                    wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+                    ApplyDetectedWanInterfaces();
+                }
+                catch
+                {
+                    // WAN detection failed, keep defaults
+                    wanInterfaces = new();
+                }
+
+                // Update cache
+                _cachedGatewayConnected = gatewayConnected;
+                _cachedDeploymentStatus = deploymentStatus;
+                _cachedTcInterfaces = tcInterfaces;
+                _cachedWanInterfaces = wanInterfaces;
+                _lastStatusCheck = DateTime.UtcNow;
             }
             else
             {
@@ -734,7 +833,8 @@
             statusMessage = "SQM deployment completed successfully!";
             statusSuccess = true;
 
-            // Refresh status
+            // Invalidate cache and refresh status
+            InvalidateCache();
             await RefreshStatus();
         }
         catch (Exception ex)
@@ -770,6 +870,7 @@
                 deploymentSteps.Add("TC Monitor deployed successfully");
                 statusMessage = "TC Monitor deployed!";
                 statusSuccess = true;
+                InvalidateCache();
                 await RefreshStatus();
             }
             else
@@ -804,6 +905,7 @@
             {
                 statusMessage = "SQM scripts removed";
                 statusSuccess = true;
+                InvalidateCache();
                 await RefreshStatus();
             }
             else

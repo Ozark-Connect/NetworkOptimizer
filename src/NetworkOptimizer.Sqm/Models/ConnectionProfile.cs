@@ -20,7 +20,7 @@ public enum ConnectionType
     /// <summary>Fixed Wireless (WISP) - Variable, weather-sensitive</summary>
     FixedWireless,
 
-    /// <summary>5G/LTE Home Internet - Variable, cell congestion-sensitive</summary>
+    /// <summary>Fixed LTE/5G - Variable, cell congestion-sensitive</summary>
     CellularHome
 }
 
@@ -325,7 +325,7 @@ public class ConnectionProfile
             ConnectionType.Fiber => "Fiber (FTTH)",
             ConnectionType.Dsl => "DSL",
             ConnectionType.FixedWireless => "Fixed Wireless (WISP)",
-            ConnectionType.CellularHome => "5G/LTE Home",
+            ConnectionType.CellularHome => "Fixed LTE/5G",
             _ => type.ToString()
         };
     }
