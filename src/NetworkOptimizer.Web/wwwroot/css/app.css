@@ -2381,7 +2381,7 @@ td .btn + .btn {
 }
 
 .history-row-expanded {
-    background: var(--bg-tertiary);
+    background: #2d3a4d;
 }
 
 .expand-chevron {
