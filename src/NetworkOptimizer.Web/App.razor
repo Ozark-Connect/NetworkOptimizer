@@ -18,22 +18,22 @@
             position: fixed;
             inset: 0;
             z-index: 10000;
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             background-color: rgba(0, 0, 0, 0.5);
         }
-        #components-reconnect-modal.components-reconnect-hide {
-            display: none;
+        #components-reconnect-modal.components-reconnect-show {
+            display: flex;
         }
         #components-reconnect-modal .reconnect-dialog {
             background-color: #242c39;
             color: #f1f5f9;
-            padding: 2rem;
+            padding: 2rem 3rem;
             border-radius: 6px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
             text-align: center;
-            max-width: 20rem;
+            min-width: 20rem;
         }
         #components-reconnect-modal .reconnect-dialog p {
             margin: 0;
@@ -62,7 +62,7 @@
     <Routes />
 
     <!-- Custom reconnect modal (prevents Blazor from injecting shadow DOM version) -->
-    <div id="components-reconnect-modal" class="components-reconnect-hide">
+    <div id="components-reconnect-modal">
         <div class="reconnect-dialog">
             <div class="reconnect-spinner"></div>
             <p>Connection lost. Attempting to reconnect...</p>
