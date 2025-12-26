@@ -228,28 +228,55 @@ public class SqmService
 
         try
         {
+            // Get WAN configs for friendly names
             var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
 
-            foreach (var wan in wanConfigs)
+            // Get actual interface names from device data (wan1.uplink_ifname, wan2.uplink_ifname, etc.)
+            var deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync();
+            var deviceWanInterfaces = !string.IsNullOrEmpty(deviceJson)
+                ? ExtractWanInterfacesFromDeviceData(deviceJson)
+                : new List<(int index, string ifname)>();
+
+            // Match WAN configs to device wan1/wan2/wan3 by index
+            // WAN configs are typically ordered, so wan1 = first config, wan2 = second, etc.
+            var sortedWanConfigs = wanConfigs.OrderBy(w => w.Name).ToList();
+
+            for (int i = 0; i < sortedWanConfigs.Count; i++)
             {
+                var wan = sortedWanConfigs[i];
+                var wanIndex = i + 1; // wan1, wan2, etc.
+
+                // Try wan_ifname from API first
+                var interfaceName = wan.WanIfname;
+
+                // If empty, try to find from device data by index
+                if (string.IsNullOrEmpty(interfaceName))
+                {
+                    var deviceWan = deviceWanInterfaces.FirstOrDefault(d => d.index == wanIndex);
+                    if (!string.IsNullOrEmpty(deviceWan.ifname))
+                    {
+                        interfaceName = deviceWan.ifname;
+                    }
+                }
+
                 // The TC monitor uses "ifb" + interface name format on UDM
                 // e.g., eth4 -> ifbeth4, eth0 -> ifbeth0
-                var tcInterface = !string.IsNullOrEmpty(wan.WanIfname)
-                    ? $"ifb{wan.WanIfname}"
+                var tcInterface = !string.IsNullOrEmpty(interfaceName)
+                    ? $"ifb{interfaceName}"
                     : null;
 
                 result.Add(new WanInterfaceInfo
                 {
                     Name = wan.Name,
-                    Interface = wan.WanIfname ?? "",
+                    Interface = interfaceName ?? "",
                     TcInterface = tcInterface ?? "",
                     WanType = wan.WanType ?? "dhcp",
                     LoadBalanceType = wan.WanLoadBalanceType,
                     LoadBalanceWeight = wan.WanLoadBalanceWeight
                 });
 
-                _logger.LogDebug("WAN interface: {Name} -> {Interface} (TC: {TcInterface})",
-                    wan.Name, wan.WanIfname, tcInterface);
+                _logger.LogDebug("WAN interface: {Name} (wan{Index}) -> {Interface} (TC: {TcInterface})",
+                    wan.Name, wanIndex, interfaceName, tcInterface);
             }
 
             _logger.LogInformation("Found {Count} WAN interfaces from controller", result.Count);
@@ -257,6 +284,62 @@ public class SqmService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching WAN interfaces from controller");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extract WAN interface names from device data (wan1, wan2, etc. with uplink_ifname)
+    /// Returns a list of (index, interfaceName) tuples, e.g., [(1, "eth2"), (2, "eth4")]
+    /// </summary>
+    private List<(int index, string ifname)> ExtractWanInterfacesFromDeviceData(string deviceJson)
+    {
+        var result = new List<(int index, string ifname)>();
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(deviceJson);
+            var root = doc.RootElement;
+
+            // Handle both {data: [...]} and [...] formats
+            var devices = root.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? root
+                : root.TryGetProperty("data", out var data) ? data : root;
+
+            foreach (var device in devices.EnumerateArray())
+            {
+                // Only look at gateways
+                var deviceType = device.TryGetProperty("type", out var typeProp) ? typeProp.GetString() : null;
+                if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
+                    continue;
+
+                // Check for wan1, wan2, wan3, etc.
+                for (int i = 1; i <= 4; i++)
+                {
+                    var wanKey = $"wan{i}";
+                    if (device.TryGetProperty(wanKey, out var wanObj))
+                    {
+                        if (wanObj.TryGetProperty("uplink_ifname", out var ifnameProp))
+                        {
+                            var ifname = ifnameProp.GetString();
+                            if (!string.IsNullOrEmpty(ifname))
+                            {
+                                result.Add((i, ifname));
+                                _logger.LogDebug("Found {WanKey} -> {Interface}", wanKey, ifname);
+                            }
+                        }
+                    }
+                }
+
+                // Found gateway, no need to check other devices
+                if (result.Count > 0)
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error extracting WAN interfaces from device data");
         }
 
         return result;
