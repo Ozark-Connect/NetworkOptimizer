@@ -103,6 +103,26 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     public UniFiApiClient? Client => _isConnected ? _client : null;
 
     /// <summary>
+    /// Get the stored (decrypted) password for testing connection
+    /// </summary>
+    public async Task<string?> GetStoredPasswordAsync()
+    {
+        var settings = await GetSettingsAsync();
+        if (!string.IsNullOrEmpty(settings.Password))
+        {
+            try
+            {
+                return _credentialProtection.Decrypt(settings.Password);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Get the connection settings from database
     /// </summary>
     public async Task<UniFiConnectionSettings> GetSettingsAsync()

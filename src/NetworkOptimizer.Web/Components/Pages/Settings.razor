@@ -213,12 +213,12 @@
 
             <div class="form-group">
                 <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" />
+                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" autocomplete="off" />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" />
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
@@ -1485,12 +1485,14 @@
         }
     }
 
-    private UniFiConnectionConfig BuildConfig()
+    private async Task<UniFiConnectionConfig> BuildConfigAsync()
     {
-        // Use newly entered password, or fall back to existing stored password
-        var password = !string.IsNullOrEmpty(controllerPassword)
-            ? controllerPassword
-            : ConnectionService.CurrentConfig?.Password ?? "";
+        // Use newly entered password, or fall back to stored password from database
+        var password = controllerPassword;
+        if (string.IsNullOrEmpty(password))
+        {
+            password = await ConnectionService.GetStoredPasswordAsync() ?? "";
+        }
 
         return new UniFiConnectionConfig
         {
@@ -1510,7 +1512,7 @@
 
         try
         {
-            var config = BuildConfig();
+            var config = await BuildConfigAsync();
             var (success, error, info) = await ConnectionService.TestConnectionAsync(config);
 
             if (success)
@@ -1548,7 +1550,7 @@
 
         try
         {
-            var config = BuildConfig();
+            var config = await BuildConfigAsync();
             var success = await ConnectionService.ConnectAsync(config);
 
             if (success)

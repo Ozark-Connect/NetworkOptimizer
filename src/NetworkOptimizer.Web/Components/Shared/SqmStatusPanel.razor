@@ -139,8 +139,8 @@
 
         try
         {
-            // First check if gateway SSH is configured (use forceRefresh to get latest)
-            var gatewaySettings = await GatewayService.GetSettingsAsync(forceRefresh: true);
+            // First check if gateway SSH is configured
+            var gatewaySettings = await GatewayService.GetSettingsAsync();
 
             if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
             {

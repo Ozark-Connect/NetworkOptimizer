@@ -142,8 +142,7 @@ public class GatewaySpeedTestService
     /// </summary>
     public async Task<(bool success, string message)> TestConnectionAsync()
     {
-        // Always get fresh settings from DB to ensure we have the latest credentials
-        var settings = await GetSettingsAsync(forceRefresh: true);
+        var settings = await GetSettingsAsync();
 
         if (string.IsNullOrEmpty(settings.Host))
         {
