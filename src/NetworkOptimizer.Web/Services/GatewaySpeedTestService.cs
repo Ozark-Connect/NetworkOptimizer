@@ -155,8 +155,9 @@ public class GatewaySpeedTestService
 
         try
         {
-            var result = await RunSshCommandAsync("echo 'Connection successful'");
-            if (result.success && result.output.Contains("Connection successful"))
+            // Use echo without quotes for cross-platform compatibility
+            var result = await RunSshCommandAsync("echo Connection_OK");
+            if (result.success && result.output.Contains("Connection_OK"))
             {
                 // Update last tested
                 settings.LastTestedAt = DateTime.UtcNow;
@@ -165,7 +166,7 @@ public class GatewaySpeedTestService
 
                 return (true, "SSH connection successful");
             }
-            return (false, result.output);
+            return (false, string.IsNullOrEmpty(result.output) ? "Connection failed" : result.output);
         }
         catch (Exception ex)
         {
