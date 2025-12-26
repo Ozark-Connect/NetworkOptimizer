@@ -91,11 +91,11 @@
                     </div>
 
                     <div class="issue-counts">
-                        <div class="issue-count critical">
+                        <div class="issue-count @(criticalCount > 0 ? "critical" : "")">
                             <span class="count">@criticalCount</span>
                             <span class="label">Critical</span>
                         </div>
-                        <div class="issue-count warning">
+                        <div class="issue-count @(warningCount > 0 ? "warning" : "")">
                             <span class="count">@warningCount</span>
                             <span class="label">Warnings</span>
                         </div>
