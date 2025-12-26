@@ -228,51 +228,14 @@ public class SqmService
 
         try
         {
-            // Get WAN configs for friendly names
-            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
-
-            // Get actual interface names from device data (wan1.uplink_ifname, wan2.uplink_ifname, etc.)
-            // This maps WAN IP -> interface name (e.g., "67.209.42.120" -> "eth2")
+            // Get WAN interfaces directly from device data (wan1, wan2, wan3 with uplink_ifname)
             var deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync();
-            var wanIpToInterface = !string.IsNullOrEmpty(deviceJson)
-                ? ExtractWanInterfacesFromDeviceData(deviceJson)
-                : new Dictionary<string, string>();
-
-            foreach (var wan in wanConfigs)
+            if (!string.IsNullOrEmpty(deviceJson))
             {
-                // Try wan_ifname from API first
-                var interfaceName = wan.WanIfname;
-
-                // If empty, try to find from device data by matching WAN IP
-                if (string.IsNullOrEmpty(interfaceName) && !string.IsNullOrEmpty(wan.WanIp))
-                {
-                    if (wanIpToInterface.TryGetValue(wan.WanIp, out var deviceIfname))
-                    {
-                        interfaceName = deviceIfname;
-                    }
-                }
-
-                // The TC monitor uses "ifb" + interface name format on UDM
-                // e.g., eth4 -> ifbeth4, eth0 -> ifbeth0
-                var tcInterface = !string.IsNullOrEmpty(interfaceName)
-                    ? $"ifb{interfaceName}"
-                    : null;
-
-                result.Add(new WanInterfaceInfo
-                {
-                    Name = wan.Name,
-                    Interface = interfaceName ?? "",
-                    TcInterface = tcInterface ?? "",
-                    WanType = wan.WanType ?? "dhcp",
-                    LoadBalanceType = wan.WanLoadBalanceType,
-                    LoadBalanceWeight = wan.WanLoadBalanceWeight
-                });
-
-                _logger.LogDebug("WAN interface: {Name} (IP: {Ip}) -> {Interface} (TC: {TcInterface})",
-                    wan.Name, wan.WanIp, interfaceName, tcInterface);
+                result = ExtractWanInterfacesFromDeviceData(deviceJson);
             }
 
-            _logger.LogInformation("Found {Count} WAN interfaces from controller", result.Count);
+            _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
         catch (Exception ex)
         {
@@ -283,12 +246,12 @@ public class SqmService
     }
 
     /// <summary>
-    /// Extract WAN interface names from device data (wan1, wan2, etc. with uplink_ifname)
-    /// Returns a dictionary mapping WAN IP to interface name, e.g., {"67.209.42.120": "eth2"}
+    /// Extract WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname)
+    /// Returns WAN interfaces directly from device wan1/wan2/wan3 objects
     /// </summary>
-    private Dictionary<string, string> ExtractWanInterfacesFromDeviceData(string deviceJson)
+    private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(string deviceJson)
     {
-        var result = new Dictionary<string, string>();
+        var result = new List<WanInterfaceInfo>();
 
         try
         {
@@ -313,23 +276,32 @@ public class SqmService
                     var wanKey = $"wan{i}";
                     if (device.TryGetProperty(wanKey, out var wanObj))
                     {
-                        // Get interface name from uplink_ifname or ifname
+                        // Get interface name from uplink_ifname
                         string? ifname = null;
                         if (wanObj.TryGetProperty("uplink_ifname", out var uplinkProp))
                             ifname = uplinkProp.GetString();
-                        else if (wanObj.TryGetProperty("ifname", out var ifnameProp))
-                            ifname = ifnameProp.GetString();
 
-                        // Get WAN IP for matching
-                        string? wanIp = null;
-                        if (wanObj.TryGetProperty("ip", out var ipProp))
-                            wanIp = ipProp.GetString();
+                        if (string.IsNullOrEmpty(ifname))
+                            continue;
 
-                        if (!string.IsNullOrEmpty(ifname) && !string.IsNullOrEmpty(wanIp))
+                        // Skip non-ethernet interfaces (like gre tunnels)
+                        if (!ifname.StartsWith("eth"))
+                            continue;
+
+                        // TC monitor uses "ifb" + interface name format
+                        var tcInterface = $"ifb{ifname}";
+
+                        result.Add(new WanInterfaceInfo
                         {
-                            result[wanIp] = ifname;
-                            _logger.LogDebug("Found {WanKey}: IP {Ip} -> {Interface}", wanKey, wanIp, ifname);
-                        }
+                            Name = wanKey.ToUpper(), // "WAN1", "WAN2", etc.
+                            Interface = ifname,
+                            TcInterface = tcInterface,
+                            WanType = "dhcp",
+                            LoadBalanceType = null,
+                            LoadBalanceWeight = null
+                        });
+
+                        _logger.LogDebug("Found {WanKey} -> {Interface}", wanKey, ifname);
                     }
                 }
 
