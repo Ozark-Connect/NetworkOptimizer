@@ -151,8 +151,8 @@ public class ConnectionProfile
             // DOCSIS can drop during peak congestion
             ConnectionType.DocsisCable => (int)(nominalSpeed * 0.65),
 
-            // Starlink has wide variation
-            ConnectionType.Starlink => (int)(nominalSpeed * 0.35),
+            // Starlink: 10% safety margin is sufficient
+            ConnectionType.Starlink => (int)(nominalSpeed * 0.90),
 
             // DSL is consistent once synced
             ConnectionType.Dsl => (int)(nominalSpeed * 0.85),
@@ -321,7 +321,7 @@ public class ConnectionProfile
         return type switch
         {
             ConnectionType.DocsisCable => "DOCSIS Cable",
-            ConnectionType.Starlink => "Starlink Satellite",
+            ConnectionType.Starlink => "Starlink",
             ConnectionType.Fiber => "Fiber (FTTH)",
             ConnectionType.Dsl => "DSL",
             ConnectionType.FixedWireless => "Fixed Wireless (WISP)",
