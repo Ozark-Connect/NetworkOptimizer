@@ -32,36 +32,48 @@ public class TcMonitorClient
     public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort)
     {
         var url = $"http://{host}:{port}/";
+        const int maxRetries = 3;
+        const int retryDelayMs = 500;
 
-        try
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            _logger.LogDebug("Polling TC stats from {Url}", url);
-
-            var response = await _httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
-
-            if (response != null)
+            try
             {
-                _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
-                    response.Interfaces?.Count ?? 0);
+                _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxRetries);
+
+                var response = await _httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
+
+                if (response != null)
+                {
+                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
+                        response.Interfaces?.Count ?? 0);
+                    return response;
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning("Failed to reach TC monitor at {Url} (attempt {Attempt}/{Max}): {Message}",
+                    url, attempt, maxRetries, ex.Message);
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("TC monitor request timed out for {Url} (attempt {Attempt}/{Max})",
+                    url, attempt, maxRetries);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error polling TC monitor at {Url} (attempt {Attempt}/{Max})",
+                    url, attempt, maxRetries);
             }
 
-            return response;
+            // Wait before retrying (unless last attempt)
+            if (attempt < maxRetries)
+            {
+                await Task.Delay(retryDelayMs);
+            }
         }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning("Failed to reach TC monitor at {Url}: {Message}", url, ex.Message);
-            return null;
-        }
-        catch (TaskCanceledException)
-        {
-            _logger.LogWarning("TC monitor request timed out for {Url}", url);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
-            return null;
-        }
+
+        return null;
     }
 
     /// <summary>
