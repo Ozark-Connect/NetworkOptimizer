@@ -462,11 +462,9 @@ public class PdfReportGenerator
         {
             foreach (var switchDevice in data.Switches)
             {
-                var switchType = switchDevice.IsGateway ? "Gateway" : "Switch";
-
                 column.Item()
                     .PaddingBottom(8)
-                    .Text($"[{switchType}] {switchDevice.Name} ({switchDevice.ModelName})")
+                    .Text($"{switchDevice.Name} ({switchDevice.ModelName})")
                     .FontSize(12)
                     .Bold()
                     .FontColor(primaryColor);
@@ -658,7 +656,7 @@ public class PdfReportGenerator
                 table.Header(header =>
                 {
                     header.Cell().Background(headerBg).Padding(6)
-                        .Text("Switch").Bold().FontSize(9).FontColor(Colors.White);
+                        .Text("Device").Bold().FontSize(9).FontColor(Colors.White);
                     header.Cell().Background(headerBg).Padding(6)
                         .Text("Total").Bold().FontSize(9).FontColor(Colors.White);
                     header.Cell().Background(headerBg).Padding(6)
