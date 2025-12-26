@@ -305,6 +305,36 @@ public class SqmService
                             friendlyName = configName;
                         }
 
+                        // Extract ISP info from mac_table
+                        string? suggestedPingIp = null;
+                        if (wanObj.TryGetProperty("mac_table", out var macTable) && macTable.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var entry in macTable.EnumerateArray())
+                            {
+                                var hostname = entry.TryGetProperty("hostname", out var hostProp) ? hostProp.GetString() : null;
+                                var entryIp = entry.TryGetProperty("ip", out var entryIpProp) ? entryIpProp.GetString() : null;
+
+                                // Try to extract ISP name from hostname if we still have default name
+                                if (friendlyName == wanKey.ToUpper() && !string.IsNullOrEmpty(hostname) && hostname != "?")
+                                {
+                                    var ispName = ExtractIspNameFromHostname(hostname);
+                                    if (!string.IsNullOrEmpty(ispName))
+                                    {
+                                        friendlyName = ispName;
+                                    }
+                                }
+
+                                // Get non-private IP for ping monitoring (prefer public IPs)
+                                if (!string.IsNullOrEmpty(entryIp) && suggestedPingIp == null)
+                                {
+                                    if (!IsPrivateIp(entryIp))
+                                    {
+                                        suggestedPingIp = entryIp;
+                                    }
+                                }
+                            }
+                        }
+
                         // TC monitor uses "ifb" + interface name format
                         var tcInterface = $"ifb{ifname}";
 
@@ -315,10 +345,12 @@ public class SqmService
                             TcInterface = tcInterface,
                             WanType = "dhcp",
                             LoadBalanceType = null,
-                            LoadBalanceWeight = null
+                            LoadBalanceWeight = null,
+                            SuggestedPingIp = suggestedPingIp
                         });
 
-                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (IP: {Ip})", wanKey, ifname, friendlyName, wanIp);
+                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (IP: {Ip}, PingIp: {PingIp})",
+                            wanKey, ifname, friendlyName, wanIp, suggestedPingIp);
                     }
                 }
 
@@ -333,6 +365,89 @@ public class SqmService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Extract ISP name from gateway hostname (e.g., "cgnat-gw01.chi.starlink.net" -> "Starlink")
+    /// </summary>
+    private string? ExtractIspNameFromHostname(string hostname)
+    {
+        if (string.IsNullOrEmpty(hostname) || hostname == "?")
+            return null;
+
+        var lower = hostname.ToLowerInvariant();
+
+        // Known ISP patterns
+        if (lower.Contains("starlink"))
+            return "Starlink";
+        if (lower.Contains("yelcot"))
+            return "Yelcot";
+        if (lower.Contains("comcast") || lower.Contains("xfinity"))
+            return "Xfinity";
+        if (lower.Contains("spectrum") || lower.Contains("charter"))
+            return "Spectrum";
+        if (lower.Contains("att.net") || lower.Contains("sbcglobal"))
+            return "AT&T";
+        if (lower.Contains("verizon") || lower.Contains("fios"))
+            return "Verizon";
+        if (lower.Contains("cox.net"))
+            return "Cox";
+        if (lower.Contains("centurylink") || lower.Contains("lumen"))
+            return "CenturyLink";
+        if (lower.Contains("frontier"))
+            return "Frontier";
+        if (lower.Contains("t-mobile") || lower.Contains("tmobile"))
+            return "T-Mobile";
+
+        // Try to extract from domain (second-to-last segment before TLD)
+        var parts = hostname.Split('.');
+        if (parts.Length >= 2)
+        {
+            // Get the second-to-last part (e.g., "yelcot" from "yellville-cmts.yelcot.net")
+            var ispPart = parts[^2];
+            if (ispPart.Length >= 3 && ispPart != "com" && ispPart != "net" && ispPart != "org")
+            {
+                // Capitalize first letter
+                return char.ToUpper(ispPart[0]) + ispPart[1..];
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Check if an IP address is in a private range (RFC 1918 or CGNAT)
+    /// </summary>
+    private bool IsPrivateIp(string ip)
+    {
+        if (string.IsNullOrEmpty(ip))
+            return true;
+
+        var parts = ip.Split('.');
+        if (parts.Length != 4)
+            return true;
+
+        if (!int.TryParse(parts[0], out var first) || !int.TryParse(parts[1], out var second))
+            return true;
+
+        // 10.0.0.0/8
+        if (first == 10)
+            return true;
+
+        // 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+        if (first == 172 && second >= 16 && second <= 31)
+            return true;
+
+        // 192.168.0.0/16
+        if (first == 192 && second == 168)
+            return true;
+
+        // 100.64.0.0/10 (CGNAT) - still useful for ping, but deprioritize
+        // We'll accept CGNAT IPs since some ISPs like Starlink only give CGNAT
+        // if (first == 100 && second >= 64 && second <= 127)
+        //     return true;
+
+        return false;
     }
 
     /// <summary>
@@ -497,4 +612,7 @@ public class WanInterfaceInfo
 
     /// <summary>Load balance weight (if weighted)</summary>
     public int? LoadBalanceWeight { get; set; }
+
+    /// <summary>Suggested ISP gateway IP for ping monitoring (from mac_table)</summary>
+    public string? SuggestedPingIp { get; set; }
 }
