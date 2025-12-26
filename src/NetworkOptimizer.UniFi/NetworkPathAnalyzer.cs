@@ -104,6 +104,7 @@ public class NetworkPathAnalyzer
     {
         _cache.Remove(TopologyCacheKey);
         _cache.Remove(ServerPositionCacheKey);
+        _cache.Remove(RawDevicesCacheKey);
         _logger.LogDebug("Topology cache invalidated");
     }
 
