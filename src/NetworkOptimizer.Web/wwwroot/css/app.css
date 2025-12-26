@@ -1007,9 +1007,9 @@ a:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    height: 32px;
-    padding: 0 16px;
+    gap: 6px;
+    height: 36px;
+    padding: 0 20px;
     border: none;
     border-radius: var(--border-radius);
     font-size: 0.875rem;
@@ -1021,14 +1021,14 @@ a:hover {
 }
 
 .btn-sm {
-    height: 24px;
-    padding: 0 8px;
+    height: 28px;
+    padding: 0 12px;
     font-size: 0.8125rem;
 }
 
 .btn-lg {
-    height: 40px;
-    padding: 0 16px;
+    height: 44px;
+    padding: 0 24px;
     font-size: 0.9375rem;
     border-radius: var(--border-radius-lg);
 }
@@ -1167,6 +1167,44 @@ a:hover {
 /* Action button spacing in tables */
 td .btn + .btn {
     margin-left: 0.5rem;
+}
+
+/* Data Management Section */
+.data-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.action-item {
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.action-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.action-item:first-child {
+    padding-top: 0;
+}
+
+.action-item h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.action-item p {
+    margin: 0 0 1rem 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.action-item.danger-zone h4 {
+    color: var(--danger-color);
 }
 
 /* Forms */
