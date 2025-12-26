@@ -66,8 +66,9 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 4: Analyzing network configuration");
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(networks);
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(networks);
-        _logger.LogInformation("Found {DnsIssues} DNS issues and {GatewayIssues} gateway issues",
-            dnsIssues.Count, gatewayIssues.Count);
+        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(networks);
+        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues",
+            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count);
 
         // Extract and analyze firewall rules
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
@@ -82,6 +83,7 @@ public class ConfigAuditEngine
         allIssues.AddRange(portIssues);
         allIssues.AddRange(dnsIssues);
         allIssues.AddRange(gatewayIssues);
+        allIssues.AddRange(mgmtDhcpIssues);
         allIssues.AddRange(firewallIssues);
 
         // Analyze hardening measures

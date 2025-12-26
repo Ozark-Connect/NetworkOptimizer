@@ -85,4 +85,9 @@ public class NetworkInfo
     /// Whether inter-VLAN routing is enabled
     /// </summary>
     public bool AllowsRouting { get; init; }
+
+    /// <summary>
+    /// Whether DHCP server is enabled on this network
+    /// </summary>
+    public bool DhcpEnabled { get; init; }
 }

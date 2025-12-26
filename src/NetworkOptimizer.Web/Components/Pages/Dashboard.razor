@@ -130,7 +130,7 @@
                 <div class="security-summary">
                     <div class="summary-item">
                         <span class="summary-label">Critical Issues:</span>
-                        <span class="summary-value critical">
+                        <span class="summary-value @(criticalIssues > 0 ? "critical" : "")">
                             @if (_loading)
                             {
                                 <span class="spinner-sm"></span>
@@ -143,7 +143,7 @@
                     </div>
                     <div class="summary-item">
                         <span class="summary-label">Warnings:</span>
-                        <span class="summary-value warning">
+                        <span class="summary-value @(warningIssues > 0 ? "warning" : "")">
                             @if (_loading)
                             {
                                 <span class="spinner-sm"></span>

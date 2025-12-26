@@ -53,7 +53,8 @@ public class VlanAnalyzer
                 if (networkInfo != null)
                 {
                     networks.Add(networkInfo);
-                    _logger.LogDebug("Discovered network: {Name} (VLAN {VlanId})", networkInfo.Name, networkInfo.VlanId);
+                    _logger.LogDebug("Discovered network: {Name} (VLAN {VlanId}, DHCP: {DhcpEnabled})",
+                        networkInfo.Name, networkInfo.VlanId, networkInfo.DhcpEnabled);
                 }
             }
 
@@ -78,8 +79,9 @@ public class VlanAnalyzer
         var vlanId = network.GetIntOrDefault("vlan", network.GetIntOrDefault("vlan_id", 1));
         var purposeStr = network.GetStringOrNull("purpose");
         var purpose = ClassifyNetwork(name, purposeStr);
+        var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
 
-        _logger.LogDebug("Network '{Name}' classified as: {Purpose}", name, purpose);
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}", name, purpose, dhcpEnabled);
 
         return new NetworkInfo
         {
@@ -89,7 +91,8 @@ public class VlanAnalyzer
             Purpose = purpose,
             Subnet = network.GetStringOrNull("ip_subnet"),
             Gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway"),
-            DnsServers = network.GetStringArrayOrNull("dhcpd_dns")
+            DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
+            DhcpEnabled = dhcpEnabled
         };
     }
 
@@ -261,6 +264,42 @@ public class VlanAnalyzer
                     },
                     RuleId = "ROUTE-001",
                     ScoreImpact = 5
+                });
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Analyze management VLAN DHCP configuration
+    /// Management VLANs (not VLAN 1) should have DHCP disabled
+    /// </summary>
+    public List<AuditIssue> AnalyzeManagementVlanDhcp(List<NetworkInfo> networks)
+    {
+        var issues = new List<AuditIssue>();
+
+        // Find management networks that are not the native VLAN
+        var managementNetworks = networks.Where(n =>
+            n.Purpose == NetworkPurpose.Management && !n.IsNative).ToList();
+
+        foreach (var network in managementNetworks)
+        {
+            if (network.DhcpEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_DHCP_ENABLED",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"Management VLAN '{network.Name}' has DHCP enabled - should use static IPs for infrastructure devices",
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId }
+                    },
+                    RuleId = "MGMT-DHCP-001",
+                    ScoreImpact = 3,
+                    RecommendedAction = "Disable DHCP and configure static IPs for management devices"
                 });
             }
         }
