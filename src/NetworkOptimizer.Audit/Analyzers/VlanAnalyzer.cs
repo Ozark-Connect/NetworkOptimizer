@@ -291,7 +291,10 @@ public class VlanAnalyzer
                 {
                     Type = "MGMT_DHCP_ENABLED",
                     Severity = AuditSeverity.Recommended,
-                    Message = $"Management VLAN '{network.Name}' has DHCP enabled - should use static IPs for infrastructure devices",
+                    Message = $"Management VLAN '{network.Name}' has DHCP enabled",
+                    DeviceName = "Gateway",
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
                     Metadata = new Dictionary<string, object>
                     {
                         { "network", network.Name },
