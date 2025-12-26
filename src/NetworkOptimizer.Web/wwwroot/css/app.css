@@ -420,6 +420,7 @@ a:hover {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 33%;
 }
 
 .speed-test-speeds {
