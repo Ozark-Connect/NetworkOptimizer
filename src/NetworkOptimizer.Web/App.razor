@@ -12,14 +12,32 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/app.css" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
-    <!-- Blazor reconnect dialog dark theme override -->
+    <!-- Custom Blazor reconnect modal styles -->
     <style>
-        .components-reconnect-dialog {
-            background-color: #242c39 !important;
-            color: #f1f5f9 !important;
+        #components-reconnect-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0, 0, 0, 0.5);
         }
-        .components-reconnect-dialog p {
-            color: #f1f5f9 !important;
+        #components-reconnect-modal.components-reconnect-hide {
+            display: none;
+        }
+        #components-reconnect-modal .reconnect-dialog {
+            background-color: #242c39;
+            color: #f1f5f9;
+            padding: 2rem;
+            border-radius: 6px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            text-align: center;
+            max-width: 20rem;
+        }
+        #components-reconnect-modal .reconnect-dialog p {
+            margin: 0;
+            font-size: 1rem;
         }
     </style>
     <!-- Tippy.js for interactive tooltips/popovers -->
@@ -30,6 +48,14 @@
 
 <body>
     <Routes />
+
+    <!-- Custom reconnect modal (prevents Blazor from injecting shadow DOM version) -->
+    <div id="components-reconnect-modal" class="components-reconnect-hide">
+        <div class="reconnect-dialog">
+            <p>Connection lost. Attempting to reconnect...</p>
+        </div>
+    </div>
+
     <script src="_framework/blazor.web.js"></script>
     <script>
         function downloadFile(fileName, contentType, base64Data) {
