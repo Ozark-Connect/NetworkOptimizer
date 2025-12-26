@@ -1012,6 +1012,7 @@ a:hover {
     justify-content: center;
     gap: 6px;
     height: 36px;
+    min-width: 6rem;
     padding: 0 20px;
     border: none;
     border-radius: var(--border-radius);
