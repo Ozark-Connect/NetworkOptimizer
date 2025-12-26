@@ -50,41 +50,6 @@
             border-radius: 50%;
             animation: reconnect-spin 0.8s linear infinite;
         }
-        #components-reconnect-modal .reconnect-reload {
-            display: none;
-            margin-top: 1rem;
-            padding: 0.5rem 1.5rem;
-            background-color: #3b82f6;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-        }
-        #components-reconnect-modal .reconnect-reload:hover {
-            background-color: #2563eb;
-        }
-        /* Hide spinner and show reload button when failed/rejected */
-        #components-reconnect-modal.components-reconnect-failed .reconnect-spinner,
-        #components-reconnect-modal.components-reconnect-rejected .reconnect-spinner {
-            display: none;
-        }
-        #components-reconnect-modal.components-reconnect-failed .reconnect-reload,
-        #components-reconnect-modal.components-reconnect-rejected .reconnect-reload {
-            display: inline-block;
-        }
-        #components-reconnect-modal.components-reconnect-failed .reconnect-message,
-        #components-reconnect-modal.components-reconnect-rejected .reconnect-message {
-            display: none;
-        }
-        #components-reconnect-modal.components-reconnect-failed .reconnect-failed-message,
-        #components-reconnect-modal.components-reconnect-rejected .reconnect-failed-message {
-            display: block;
-        }
-        #components-reconnect-modal .reconnect-failed-message {
-            display: none;
-        }
         @@keyframes reconnect-spin {
             to { transform: rotate(360deg); }
         }
@@ -102,9 +67,7 @@
     <div id="components-reconnect-modal">
         <div class="reconnect-dialog">
             <div class="reconnect-spinner"></div>
-            <p class="reconnect-message">Connection lost. Attempting to reconnect...</p>
-            <p class="reconnect-failed-message">Connection lost. Please reload the page.</p>
-            <button class="reconnect-reload" onclick="location.reload()">Reload</button>
+            <p>Reconnecting...</p>
         </div>
     </div>
 
@@ -204,6 +167,23 @@
             }
         });
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // Auto-reload when Blazor connection fails or is rejected
+        const reconnectModal = document.getElementById('components-reconnect-modal');
+        if (reconnectModal) {
+            const reconnectObserver = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.attributeName === 'class') {
+                        const classList = reconnectModal.classList;
+                        if (classList.contains('components-reconnect-failed') ||
+                            classList.contains('components-reconnect-rejected')) {
+                            location.reload();
+                        }
+                    }
+                });
+            });
+            reconnectObserver.observe(reconnectModal, { attributes: true });
+        }
     </script>
 </body>
 

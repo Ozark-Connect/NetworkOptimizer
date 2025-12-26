@@ -416,7 +416,6 @@ a:hover {
 }
 
 .speed-test-row .speed-test-device {
-    flex: 1;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -442,6 +441,7 @@ a:hover {
     font-size: 0.75rem;
     color: var(--text-muted);
     white-space: nowrap;
+    margin-left: auto;
 }
 
 /* Stats Row */
@@ -1372,6 +1372,7 @@ td .btn + .btn {
 .empty-state p {
     color: var(--text-secondary);
     margin-bottom: 1.5rem;
+    font-size: 0.8125rem;
 }
 
 /* Alerts/Messages */
@@ -1643,6 +1644,7 @@ td .btn + .btn {
     text-align: center;
     padding: 2rem;
     color: var(--text-muted);
+    font-size: 0.8125rem;
 }
 
 .issue-item.issue-dismissed {
@@ -1810,6 +1812,7 @@ td .btn + .btn {
 
 .empty-state p {
     margin-bottom: 1.5rem;
+    font-size: 0.8125rem;
 }
 
 /* Status indicators for disconnected state */
