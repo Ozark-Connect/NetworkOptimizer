@@ -18,16 +18,10 @@
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Deployment Status</h2>
-            <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus" disabled="@isLoading">
-                @if (isLoading)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                else
-                {
-                    <span>Refresh</span>
-                }
-            </button>
+            @if (!isLoading)
+            {
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshStatus">Refresh</button>
+            }
         </div>
         <div class="card-body">
             @if (!string.IsNullOrEmpty(statusMessage))
@@ -35,11 +29,11 @@
                 <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
             }
 
-            @if (isLoading && !statusChecked)
+            @if (isLoading)
             {
                 <div class="loading-status">
                     <span class="spinner"></span>
-                    <span>Checking gateway connection...</span>
+                    <span>Checking deployment status...</span>
                 </div>
             }
             else
