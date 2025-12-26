@@ -75,7 +75,7 @@
         }
 
         <div class="sqm-actions">
-            <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+            <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
                 @if (isRefreshing)
                 {
                     <span class="spinner-sm"></span>
@@ -85,7 +85,7 @@
                     <span>Refresh</span>
                 }
             </button>
-            <a href="/sqm" class="btn btn-sm btn-primary">Manage SQM</a>
+            <a href="/sqm" class="btn btn-primary">Manage SQM</a>
         </div>
     }
 </div>

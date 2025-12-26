@@ -30,7 +30,7 @@
             <div class="sqm-actions">
                 @if (hasConfiguredModems)
                 {
-                    <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+                    <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
                         @if (isRefreshing)
                         {
                             <span class="spinner-sm"></span>
@@ -41,7 +41,7 @@
                         }
                     </button>
                 }
-                <a href="/settings#cellular-modem" class="btn btn-sm btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
+                <a href="/settings#cellular-modem" class="btn btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
             </div>
         </div>
     }
@@ -165,7 +165,7 @@
         }
 
         <div class="sqm-actions">
-            <button class="btn btn-sm btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
+            <button class="btn btn-secondary" @onclick="RefreshStats" disabled="@isRefreshing">
                 @if (isRefreshing)
                 {
                     <span class="spinner-sm"></span>
@@ -175,7 +175,7 @@
                     <span>Refresh</span>
                 }
             </button>
-            <a href="/settings#cellular-modem" class="btn btn-sm btn-primary">Modem Settings</a>
+            <a href="/settings#cellular-modem" class="btn btn-primary">Modem Settings</a>
         </div>
     }
 </div>
