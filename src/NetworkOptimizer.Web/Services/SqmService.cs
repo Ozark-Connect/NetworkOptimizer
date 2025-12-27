@@ -92,7 +92,7 @@ public class SqmService
             return new SqmStatusData
             {
                 Status = "Offline",
-                StatusMessage = $"Cannot reach TC Monitor at {gatewayHost}:{_tcMonitorPort}. Deploy tc-monitor script via the SQM Manager."
+                StatusMessage = "TC Monitor not running"
             };
         }
 
