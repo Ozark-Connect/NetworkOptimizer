@@ -95,90 +95,38 @@
     <!-- TC Monitor Configuration -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">TC Monitor Configuration</h2>
+            <h2 class="card-title">TC Monitor</h2>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                TC Monitor runs on your UniFi gateway and exposes SQM/Traffic Control rates via HTTP.
-                The interface names are pulled from your controller configuration.
+                TC Monitor runs on your gateway and exposes SQM rates via HTTP. Deploy it from the SQM Manager page.
             </p>
 
-            <div class="form-group">
-                <label class="form-label">Gateway Host</label>
-                <input type="text" class="form-control" @bind="tcMonitorHost" placeholder="Auto-detected from controller" />
-                <small class="form-help">Leave blank to use controller host</small>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Port</label>
-                <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
-                    @if (testingTcMonitor)
-                    {
-                        <span class="spinner"></span>
-                        <span>Testing...</span>
-                    }
-                    else
-                    {
-                        <span>Test Connection</span>
-                    }
-                </button>
-                <button class="btn btn-secondary" @onclick="LoadWanInterfaces" disabled="@(!ConnectionService.IsConnected || loadingWanInterfaces)">
-                    @if (loadingWanInterfaces)
-                    {
-                        <span class="spinner"></span>
-                        <span>Loading...</span>
-                    }
-                    else
-                    {
-                        <span>Load WAN Interfaces</span>
-                    }
-                </button>
+            <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label">Port</label>
+                    <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
+                </div>
+                <div class="form-group" style="flex: 0; align-self: flex-end;">
+                    <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
+                        @if (testingTcMonitor)
+                        {
+                            <span class="spinner"></span>
+                            <span>Testing...</span>
+                        }
+                        else
+                        {
+                            <span>Test</span>
+                        }
+                    </button>
+                </div>
             </div>
 
             @if (!string.IsNullOrEmpty(tcMonitorMessage))
             {
                 <div class="alert alert-@tcMonitorMessageClass">
                     @tcMonitorMessage
-                </div>
-            }
-
-            @if (wanInterfaces.Count > 0)
-            {
-                <div class="wan-interfaces-section">
-                    <h4>WAN Interfaces from Controller</h4>
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Interface</th>
-                                <th>TC Interface</th>
-                                <th>Type</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var wan in wanInterfaces)
-                            {
-                                <tr>
-                                    <td>@wan.Name</td>
-                                    <td><code>@wan.Interface</code></td>
-                                    <td><code>@wan.TcInterface</code></td>
-                                    <td>@wan.WanType</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-
-                    <div class="config-output">
-                        <h4>TC Monitor Configuration</h4>
-                        <p class="form-help">Copy this to <code>/data/tc-monitor/interfaces.conf</code> on your gateway:</p>
-                        <pre class="config-block">@tcMonitorConfig</pre>
-                        <button class="btn btn-secondary btn-sm" @onclick="CopyTcMonitorConfig">Copy to Clipboard</button>
-                    </div>
                 </div>
             }
         </div>
@@ -908,15 +856,11 @@
     private string? controllerInfo = null;
 
     // TC Monitor
-    private string tcMonitorHost = "";
     private int tcMonitorPort = 8088;
     private string tcMonitorStatus = "Unknown";
     private bool testingTcMonitor = false;
-    private bool loadingWanInterfaces = false;
     private string tcMonitorMessage = "";
     private string tcMonitorMessageClass = "";
-    private List<WanInterfaceInfo> wanInterfaces = new();
-    private string tcMonitorConfig = "";
 
     // Cellular Modem
     private List<ModemConfiguration> modemConfigs = new();
@@ -1600,8 +1544,7 @@
 
         try
         {
-            var host = string.IsNullOrWhiteSpace(tcMonitorHost) ? null : tcMonitorHost;
-            var (available, error) = await SqmService.TestTcMonitorAsync(host, tcMonitorPort);
+            var (available, error) = await SqmService.TestTcMonitorAsync(null, tcMonitorPort);
 
             if (available)
             {
@@ -1627,50 +1570,6 @@
             testingTcMonitor = false;
             StateHasChanged();
         }
-    }
-
-    private async Task LoadWanInterfaces()
-    {
-        loadingWanInterfaces = true;
-        tcMonitorMessage = "";
-        StateHasChanged();
-
-        try
-        {
-            wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
-
-            if (wanInterfaces.Count > 0)
-            {
-                tcMonitorConfig = await SqmService.GenerateTcMonitorConfigAsync();
-                tcMonitorMessage = $"Found {wanInterfaces.Count} WAN interface(s)";
-                tcMonitorMessageClass = "success";
-            }
-            else
-            {
-                tcMonitorMessage = "No WAN interfaces found in controller configuration";
-                tcMonitorMessageClass = "warning";
-            }
-        }
-        catch (Exception ex)
-        {
-            tcMonitorMessage = $"Error loading WAN interfaces: {ex.Message}";
-            tcMonitorMessageClass = "danger";
-        }
-        finally
-        {
-            loadingWanInterfaces = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task CopyTcMonitorConfig()
-    {
-        // Note: Clipboard API requires JS interop in Blazor
-        // For now, just show a message
-        tcMonitorMessage = "Copy the configuration text above manually";
-        tcMonitorMessageClass = "info";
-        await Task.CompletedTask;
-        StateHasChanged();
     }
 
     // Modem methods
