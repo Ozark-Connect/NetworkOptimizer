@@ -70,6 +70,83 @@ public class SqmDeploymentService
     }
 
     /// <summary>
+    /// Install udm-boot package on the gateway.
+    /// This enables scripts in /data/on_boot.d/ to run automatically on boot
+    /// and persist across firmware updates.
+    /// </summary>
+    public async Task<(bool success, string message)> InstallUdmBootAsync()
+    {
+        var settings = await GetGatewaySettingsAsync();
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return (false, "Gateway SSH not configured");
+        }
+
+        if (!settings.HasCredentials)
+        {
+            return (false, "Gateway SSH credentials not configured");
+        }
+
+        var device = new DeviceSshConfiguration
+        {
+            Host = settings.Host,
+            SshUsername = settings.Username,
+            SshPassword = settings.Password,
+            SshPrivateKeyPath = settings.PrivateKeyPath
+        };
+
+        try
+        {
+            _logger.LogInformation("Installing udm-boot on gateway {Host}", settings.Host);
+
+            // Create the udm-boot service file directly (works on all UDM/UCG devices)
+            var serviceContent = @"[Unit]
+Description=Run On Startup UDM 2.x and above
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=500
+StartLimitBurst=1
+
+[Service]
+Type=oneshot
+ExecStart=bash -c 'mkdir -p /data/on_boot.d && find -L /data/on_boot.d -mindepth 1 -maxdepth 1 -type f -name ""*.sh"" -print0 | sort -z | xargs -0 -r -n 1 -- bash'
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target";
+
+            // Write service file, enable and start
+            var installCmd = $@"
+cat > /etc/systemd/system/udm-boot.service << 'SERVICEEOF'
+{serviceContent}
+SERVICEEOF
+mkdir -p /data/on_boot.d && \
+systemctl daemon-reload && \
+systemctl enable udm-boot && \
+systemctl start udm-boot && \
+echo 'udm-boot installed successfully'
+";
+            var result = await _sshService.RunCommandWithDeviceAsync(device, installCmd);
+
+            if (result.success && result.output.Contains("udm-boot installed successfully"))
+            {
+                _logger.LogInformation("udm-boot installed successfully on {Host}", settings.Host);
+                return (true, "udm-boot installed successfully. Scripts in /data/on_boot.d/ will now run on boot.");
+            }
+            else
+            {
+                _logger.LogError("udm-boot installation failed: {Output}", result.output);
+                return (false, $"Installation failed: {result.output}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to install udm-boot");
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Check if SQM scripts are already deployed
     /// </summary>
     public async Task<SqmDeploymentStatus> CheckDeploymentStatusAsync()
@@ -92,6 +169,17 @@ public class SqmDeploymentService
 
         try
         {
+            // Check for udm-boot (required for on_boot.d scripts to run on boot)
+            // Check for service file (supports both manual install and deb package)
+            var udmBootCheck = await _sshService.RunCommandWithDeviceAsync(device,
+                "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
+            status.UdmBootInstalled = udmBootCheck.success && udmBootCheck.output.Contains("installed");
+
+            // Check if udm-boot is enabled
+            var udmBootEnabled = await _sshService.RunCommandWithDeviceAsync(device,
+                "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
+            status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
+
             // Check for speedtest script
             var speedtestCheck = await _sshService.RunCommandWithDeviceAsync(device,
                 $"test -f {OnBootDir}/20-sqm-speedtest-setup.sh && echo 'exists' || echo 'missing'");
@@ -567,6 +655,8 @@ public class SqmDeploymentService
 public class SqmDeploymentStatus
 {
     public bool IsDeployed { get; set; }
+    public bool UdmBootInstalled { get; set; }
+    public bool UdmBootEnabled { get; set; }
     public bool SpeedtestScriptDeployed { get; set; }
     public bool PingScriptDeployed { get; set; }
     public bool TcMonitorDeployed { get; set; }

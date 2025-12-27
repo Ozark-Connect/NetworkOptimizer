@@ -48,6 +48,20 @@
                         </div>
                     </div>
                     <div class="metric">
+                        <div class="metric-label">UDM Boot</div>
+                        <div class="metric-value">
+                            <span class="status-indicator @(deploymentStatus?.UdmBootInstalled == true ? "status-active" : "status-inactive")"></span>
+                            @if (deploymentStatus?.UdmBootInstalled == true)
+                            {
+                                <span>@(deploymentStatus?.UdmBootEnabled == true ? "Enabled" : "Installed")</span>
+                            }
+                            else
+                            {
+                                <span>Not Installed</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="metric">
                         <div class="metric-label">SQM Scripts</div>
                         <div class="metric-value">
                             <span class="status-indicator @(deploymentStatus?.IsDeployed == true ? "status-active" : "status-inactive")"></span>
@@ -66,6 +80,24 @@
                         <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
                     </div>
                     </div>
+
+                    @if (gatewayConnected && deploymentStatus?.UdmBootInstalled != true)
+                    {
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not run on reboot without udm-boot installed.
+                            <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
+                                @if (isInstallingUdmBoot)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Installing...</span>
+                                }
+                                else
+                                {
+                                    <span>Install UDM Boot</span>
+                                }
+                            </button>
+                        </div>
+                    }
                 }
             </div>
 
@@ -579,6 +611,7 @@
     private bool isLoading = true;
     private bool isDeploying = false;
     private bool isRunningSpeedtest = false;
+    private bool isInstallingUdmBoot = false;
     private bool gatewayConnected = false;
     private string? statusMessage;
     private bool statusSuccess = false;
@@ -768,6 +801,41 @@
         finally
         {
             isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InstallUdmBoot()
+    {
+        isInstallingUdmBoot = true;
+        statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await DeploymentService.InstallUdmBootAsync();
+
+            if (result.success)
+            {
+                statusMessage = result.message;
+                statusSuccess = true;
+                InvalidateCache();
+                await RefreshStatus();
+            }
+            else
+            {
+                statusMessage = result.message;
+                statusSuccess = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            statusMessage = $"Error: {ex.Message}";
+            statusSuccess = false;
+        }
+        finally
+        {
+            isInstallingUdmBoot = false;
             StateHasChanged();
         }
     }
