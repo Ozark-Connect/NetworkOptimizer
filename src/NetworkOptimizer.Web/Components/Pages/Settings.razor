@@ -204,12 +204,12 @@
 
             <div class="form-group">
                 <label class="form-label">Username</label>
-                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" autocomplete="off" />
+                <input type="text" class="form-control" @bind="gatewayUsername" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" />
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
@@ -338,7 +338,7 @@
             <div class="form-row">
                 <div class="form-group" style="flex: 2;">
                     <label class="form-label">Username</label>
-                    <input type="text" class="form-control" @bind="sshUsername" placeholder="root" />
+                    <input type="text" class="form-control" @bind="sshUsername" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                     <small class="form-help">Usually 'root' for UniFi devices</small>
                 </div>
                 <div class="form-group" style="flex: 1;">
@@ -349,7 +349,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(hasSshPassword ? "Saved — enter new to update" : "Enter password")" />
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(hasSshPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
