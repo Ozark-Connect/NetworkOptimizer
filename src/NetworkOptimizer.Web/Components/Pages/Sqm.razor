@@ -2,9 +2,11 @@
 @inject SqmService SqmService
 @inject SqmDeploymentService DeploymentService
 @inject UniFiConnectionService ConnectionService
+@inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
+@using NetworkOptimizer.Storage.Models
 
 <PageTitle>SQM Manager - Network Optimizer</PageTitle>
 
@@ -672,6 +674,9 @@
     {
         if (firstRender)
         {
+            // Load saved WAN configs from database first
+            await LoadSavedConfigsAsync();
+
             // Check if we have valid cached data
             if (IsCacheValid())
             {
@@ -680,7 +685,9 @@
                 deploymentStatus = _cachedDeploymentStatus;
                 tcInterfaces = _cachedTcInterfaces;
                 wanInterfaces = _cachedWanInterfaces ?? new();
-                ApplyDetectedWanInterfaces();
+                // Only apply detected interfaces if we don't have saved configs
+                if (!hasSavedConfigs)
+                    ApplyDetectedWanInterfaces();
                 isLoading = false;
                 StateHasChanged();
             }
@@ -689,6 +696,81 @@
                 // Load fresh status
                 await RefreshStatus(forceRefresh: false);
             }
+        }
+    }
+
+    private bool hasSavedConfigs = false;
+
+    private async Task LoadSavedConfigsAsync()
+    {
+        try
+        {
+            var savedConfigs = await SpeedTestRepository.GetAllSqmWanConfigsAsync();
+            if (savedConfigs.Count > 0)
+            {
+                hasSavedConfigs = true;
+
+                foreach (var saved in savedConfigs)
+                {
+                    var config = saved.WanNumber == 1 ? wan1Config : wan2Config;
+                    config.Enabled = saved.Enabled;
+                    config.ConnectionType = (ConnectionType)saved.ConnectionType;
+                    config.Name = saved.Name;
+                    config.Interface = saved.Interface;
+                    config.NominalDownload = saved.NominalDownloadMbps;
+                    config.NominalUpload = saved.NominalUploadMbps;
+                    config.PingHost = saved.PingHost;
+                    config.SpeedtestServerId = saved.SpeedtestServerId;
+                    UpdateCalculatedSpeeds(config);
+                }
+            }
+        }
+        catch
+        {
+            // If loading fails, continue with defaults
+        }
+    }
+
+    private async Task SaveWanConfigsAsync()
+    {
+        try
+        {
+            if (wan1Config.Enabled || wan2Config.Enabled)
+            {
+                // Save WAN 1 config
+                var wan1Saved = new SqmWanConfiguration
+                {
+                    WanNumber = 1,
+                    Enabled = wan1Config.Enabled,
+                    ConnectionType = (int)wan1Config.ConnectionType,
+                    Name = wan1Config.Name,
+                    Interface = wan1Config.Interface,
+                    NominalDownloadMbps = wan1Config.NominalDownload,
+                    NominalUploadMbps = wan1Config.NominalUpload,
+                    PingHost = wan1Config.PingHost,
+                    SpeedtestServerId = wan1Config.SpeedtestServerId
+                };
+                await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
+
+                // Save WAN 2 config
+                var wan2Saved = new SqmWanConfiguration
+                {
+                    WanNumber = 2,
+                    Enabled = wan2Config.Enabled,
+                    ConnectionType = (int)wan2Config.ConnectionType,
+                    Name = wan2Config.Name,
+                    Interface = wan2Config.Interface,
+                    NominalDownloadMbps = wan2Config.NominalDownload,
+                    NominalUploadMbps = wan2Config.NominalUpload,
+                    PingHost = wan2Config.PingHost,
+                    SpeedtestServerId = wan2Config.SpeedtestServerId
+                };
+                await SpeedTestRepository.SaveSqmWanConfigAsync(wan2Saved);
+            }
+        }
+        catch
+        {
+            // If saving fails, continue with deployment
         }
     }
 
@@ -784,7 +866,9 @@
                 try
                 {
                     wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
-                    ApplyDetectedWanInterfaces();
+                    // Only apply detected interfaces if we don't have saved configs
+                    if (!hasSavedConfigs)
+                        ApplyDetectedWanInterfaces();
                 }
                 catch
                 {
@@ -868,6 +952,11 @@
 
         try
         {
+            // Save WAN configs to database before deploying
+            await SaveWanConfigsAsync();
+            deploymentSteps.Add("WAN configurations saved");
+            StateHasChanged();
+
             // Deploy WAN 1
             if (wan1Config.Enabled)
             {

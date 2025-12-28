@@ -682,6 +682,60 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("UniFiConnectionSettings", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.SqmWanConfiguration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConnectionType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Interface")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NominalDownloadMbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("NominalUploadMbps")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PingHost")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SpeedtestServerId")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WanNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WanNumber")
+                        .IsUnique();
+
+                    b.ToTable("SqmWanConfigurations", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

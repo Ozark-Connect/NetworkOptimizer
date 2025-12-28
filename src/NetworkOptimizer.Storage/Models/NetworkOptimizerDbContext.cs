@@ -24,6 +24,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<DismissedIssue> DismissedIssues { get; set; }
     public DbSet<SystemSetting> SystemSettings { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
+    public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -120,6 +121,13 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<UniFiConnectionSettings>(entity =>
         {
             entity.ToTable("UniFiConnectionSettings");
+        });
+
+        // SqmWanConfiguration configuration (one row per WAN)
+        modelBuilder.Entity<SqmWanConfiguration>(entity =>
+        {
+            entity.ToTable("SqmWanConfigurations");
+            entity.HasIndex(e => e.WanNumber).IsUnique();
         });
     }
 }

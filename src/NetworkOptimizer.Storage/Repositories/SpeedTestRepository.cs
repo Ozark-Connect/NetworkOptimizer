@@ -50,6 +50,7 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.PrivateKeyPath = settings.PrivateKeyPath;
                 existing.Enabled = settings.Enabled;
                 existing.Iperf3Port = settings.Iperf3Port;
+                existing.TcMonitorPort = settings.TcMonitorPort;
                 existing.LastTestedAt = settings.LastTestedAt;
                 existing.LastTestResult = settings.LastTestResult;
                 existing.UpdatedAt = DateTime.UtcNow;
@@ -141,6 +142,77 @@ public class SpeedTestRepository : ISpeedTestRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to clear iperf3 history");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region SQM WAN Configuration
+
+    public async Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.SqmWanConfigurations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.WanNumber == wanNumber, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get SQM WAN config for WAN {WanNumber}", wanNumber);
+            throw;
+        }
+    }
+
+    public async Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.SqmWanConfigurations
+                .AsNoTracking()
+                .OrderBy(c => c.WanNumber)
+                .ToListAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get all SQM WAN configs");
+            throw;
+        }
+    }
+
+    public async Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var existing = await _context.SqmWanConfigurations
+                .FirstOrDefaultAsync(c => c.WanNumber == config.WanNumber, cancellationToken);
+
+            if (existing != null)
+            {
+                existing.Enabled = config.Enabled;
+                existing.ConnectionType = config.ConnectionType;
+                existing.Name = config.Name;
+                existing.Interface = config.Interface;
+                existing.NominalDownloadMbps = config.NominalDownloadMbps;
+                existing.NominalUploadMbps = config.NominalUploadMbps;
+                existing.PingHost = config.PingHost;
+                existing.SpeedtestServerId = config.SpeedtestServerId;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                config.CreatedAt = DateTime.UtcNow;
+                config.UpdatedAt = DateTime.UtcNow;
+                _context.SqmWanConfigurations.Add(config);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Saved SQM WAN config for WAN {WanNumber} ({Name})", config.WanNumber, config.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save SQM WAN config for WAN {WanNumber}", config.WanNumber);
             throw;
         }
     }

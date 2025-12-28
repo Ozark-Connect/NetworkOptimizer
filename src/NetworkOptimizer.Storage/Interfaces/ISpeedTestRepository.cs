@@ -16,4 +16,9 @@ public interface ISpeedTestRepository
     Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, CancellationToken cancellationToken = default);
     Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(string deviceHost, int count = 50, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
+
+    // SQM WAN Configuration
+    Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
+    Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);
+    Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default);
 }
