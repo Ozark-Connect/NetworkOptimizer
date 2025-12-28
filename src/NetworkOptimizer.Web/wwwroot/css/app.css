@@ -1045,7 +1045,7 @@ a:hover {
 
 .status-badge.status-active,
 .status-badge.status-connected {
-    background: rgba(16, 185, 129, 0.2);
+    background: rgba(36, 188, 112, 0.2);
     color: var(--success-color);
 }
 
@@ -1409,7 +1409,7 @@ td .btn + .btn {
 }
 
 .alert-success {
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(36, 188, 112, 0.1);
     border: 1px solid var(--success-color);
     color: var(--success-color);
 }
@@ -1464,7 +1464,7 @@ td .btn + .btn {
 }
 
 .alert-link:hover {
-    background: rgba(16, 185, 129, 0.25);
+    background: rgba(36, 188, 112, 0.25);
     transform: translateY(-1px);
 }
 
@@ -1926,10 +1926,6 @@ td .btn + .btn {
     border: 1px solid var(--border-color);
 }
 
-.tc-interface-card.active {
-    border-color: var(--success-color);
-}
-
 .tc-interface-card.inactive {
     opacity: 0.6;
 }
@@ -1954,7 +1950,7 @@ td .btn + .btn {
 }
 
 .interface-status.status-active {
-    background: rgba(16, 185, 129, 0.2);
+    background: rgba(36, 188, 112, 0.2);
     color: var(--success-color);
 }
 
@@ -2167,7 +2163,7 @@ td .btn + .btn {
 
 /* Color variables for speed test */
 :root {
-    --speed-upload-color: #22c55e;    /* green - To Device */
+    --speed-upload-color: #24bc70;    /* green - To Device (matches success-color) */
     --speed-download-color: #0ea5e9;  /* blue - From Device */
 }
 
@@ -2322,7 +2318,7 @@ td .btn + .btn {
     cursor: help;
 }
 
-.grade-excellent { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.grade-excellent { background: rgba(36, 188, 112, 0.2); color: var(--success-color); }
 .grade-good { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
 .grade-fair { background: rgba(234, 179, 8, 0.2); color: #eab308; }
 .grade-poor { background: rgba(249, 115, 22, 0.2); color: #f97316; }
@@ -2773,7 +2769,7 @@ td .btn + .btn {
 
 .score-circle.score-excellent {
     border-color: var(--success-color);
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(36, 188, 112, 0.1);
 }
 
 .score-circle.score-good {
