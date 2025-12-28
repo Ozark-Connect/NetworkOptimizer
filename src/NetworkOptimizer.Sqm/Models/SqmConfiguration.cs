@@ -184,6 +184,9 @@ public class SqmConfiguration
         var (belowWeight, _) = profile.GetBlendingRatios(withinThreshold: false);
         BlendingWeightWithin = withinWeight;
         BlendingWeightBelow = belowWeight;
+
+        // Apply default speedtest server if not specified
+        PreferredSpeedtestServerId ??= profile.PreferredSpeedtestServerId;
     }
 
     /// <summary>
