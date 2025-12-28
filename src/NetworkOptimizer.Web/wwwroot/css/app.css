@@ -2993,13 +2993,13 @@ td .btn + .btn {
 
 .login-header {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
 }
 
 .login-logo {
-    width: 80px;
+    width: 140px;
     height: auto;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 
 .login-header h1 {
