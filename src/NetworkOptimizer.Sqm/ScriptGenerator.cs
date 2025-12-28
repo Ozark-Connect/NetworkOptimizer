@@ -212,7 +212,10 @@ public class ScriptGenerator
         sb.AppendLine("update_all_tc_classes $IFB_DEVICE $MAX_DOWNLOAD_SPEED");
         sb.AppendLine();
         sb.AppendLine("# Run the speedtest and accept the license");
-        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --format=json --interface={_config.Interface})");
+        var serverIdArg = string.IsNullOrEmpty(_config.PreferredSpeedtestServerId)
+            ? ""
+            : $" --server-id={_config.PreferredSpeedtestServerId}";
+        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --format=json --interface={_config.Interface}{serverIdArg})");
         sb.AppendLine();
         sb.AppendLine("# Parse the JSON output to get the download speed in bytes/sec");
         sb.AppendLine("download_speed_bytes_per_sec=$(echo \"$speedtest_output\" | jq .download.bandwidth)");
@@ -285,6 +288,7 @@ public class ScriptGenerator
         sb.AppendLine($"LATENCY_THRESHOLD={_config.LatencyThreshold} # ms (threshold for latency increase)");
         sb.AppendLine($"LATENCY_DECREASE={_config.LatencyDecrease} # Incremental decrease in rate when latency exceeds threshold");
         sb.AppendLine($"LATENCY_INCREASE={_config.LatencyIncrease} # Increase when latency is normal or decreases");
+        sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\" # Minimum floor for rate adjustments");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\" # Max achievable download speed in Mbps");
         sb.AppendLine("MAX_DOWNLOAD_SPEED=$ABSOLUTE_MAX_DOWNLOAD_SPEED");
         sb.AppendLine();
@@ -591,8 +595,8 @@ if (( $(echo ""$latency >= $BASELINE_LATENCY + $LATENCY_THRESHOLD"" | bc -l) ));
     new_rate=$(echo ""$MAX_DOWNLOAD_SPEED * $decrease_multiplier"" | bc)
 
     # Enforce minimum rate
-    if (( $(echo ""$new_rate < 180"" | bc) )); then
-        new_rate=180
+    if (( $(echo ""$new_rate < $MIN_DOWNLOAD_SPEED"" | bc) )); then
+        new_rate=$MIN_DOWNLOAD_SPEED
     fi
 
 elif (( $(echo ""$latency < $BASELINE_LATENCY - 0.4"" | bc -l) )); then
