@@ -20,7 +20,7 @@ public class SqmDeploymentService
 
     // Gateway paths
     private const string OnBootDir = "/data/on_boot.d";
-    private const string ScriptsDir = "/data/sqm-scripts";
+    private const string SqmDir = "/data/sqm";
     private const string TcMonitorDir = "/data/tc-monitor";
 
     public SqmDeploymentService(
@@ -181,15 +181,23 @@ echo 'udm-boot installed successfully'
                 "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
             status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
 
-            // Check for speedtest script
-            var speedtestCheck = await _sshService.RunCommandWithDeviceAsync(device,
-                $"test -f {OnBootDir}/20-sqm-speedtest-setup.sh && echo 'exists' || echo 'missing'");
-            status.SpeedtestScriptDeployed = speedtestCheck.success && speedtestCheck.output.Contains("exists");
+            // Check for SQM boot scripts (new pattern: 20-sqm-{name}.sh)
+            var sqmBootCheck = await _sshService.RunCommandWithDeviceAsync(device,
+                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | wc -l");
+            var bootScriptCount = 0;
+            if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out bootScriptCount))
+            {
+                status.SpeedtestScriptDeployed = bootScriptCount > 0;
+                status.PingScriptDeployed = bootScriptCount > 0; // Both are in the same boot script now
+            }
 
-            // Check for ping script
-            var pingCheck = await _sshService.RunCommandWithDeviceAsync(device,
-                $"test -f {OnBootDir}/21-sqm-ping-setup.sh && echo 'exists' || echo 'missing'");
-            status.PingScriptDeployed = pingCheck.success && pingCheck.output.Contains("exists");
+            // Check for deployed SQM scripts in /data/sqm/
+            var sqmScriptsCheck = await _sshService.RunCommandWithDeviceAsync(device,
+                $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
+            if (sqmScriptsCheck.success && int.TryParse(sqmScriptsCheck.output.Trim(), out int sqmScriptCount))
+            {
+                status.SpeedtestScriptDeployed = status.SpeedtestScriptDeployed || sqmScriptCount > 0;
+            }
 
             // Check for tc-monitor
             var tcMonitorCheck = await _sshService.RunCommandWithDeviceAsync(device,
@@ -263,19 +271,20 @@ echo 'udm-boot installed successfully'
             // Step 1: Create directories
             steps.Add("Creating directories...");
             var mkdirResult = await _sshService.RunCommandWithDeviceAsync(device,
-                $"mkdir -p {OnBootDir} {ScriptsDir}");
+                $"mkdir -p {OnBootDir} {SqmDir}");
             if (!mkdirResult.success)
             {
                 throw new Exception($"Failed to create directories: {mkdirResult.output}");
             }
 
-            // Step 2: Generate scripts
-            steps.Add("Generating SQM scripts...");
+            // Step 2: Generate the self-contained boot script
+            steps.Add("Generating SQM boot script...");
             var generator = new ScriptGenerator(config);
             baseline ??= GenerateDefaultBaseline(config);
             var scripts = generator.GenerateAllScripts(baseline);
+            var bootScriptName = generator.GetBootScriptName();
 
-            // Step 3: Deploy each script
+            // Step 3: Deploy the boot script
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
@@ -286,22 +295,22 @@ echo 'udm-boot installed successfully'
                 }
             }
 
-            // Step 4: Run boot scripts to configure cron and initial setup
-            steps.Add("Running initial setup...");
+            // Step 4: Run the boot script to set up everything
+            steps.Add("Running boot script (installs deps, creates scripts, configures cron)...");
             var setupResult = await _sshService.RunCommandWithDeviceAsync(device,
-                $"chmod +x {OnBootDir}/20-sqm-speedtest-setup.sh {OnBootDir}/21-sqm-ping-setup.sh && " +
-                $"{OnBootDir}/20-sqm-speedtest-setup.sh && {OnBootDir}/21-sqm-ping-setup.sh");
+                $"chmod +x {OnBootDir}/{bootScriptName} && {OnBootDir}/{bootScriptName}");
 
             if (!setupResult.success)
             {
-                _logger.LogWarning("Boot script setup returned: {Output}", setupResult.output);
-                // Don't fail deployment, scripts are in place
+                _logger.LogWarning("Boot script returned: {Output}", setupResult.output);
+                // Don't fail deployment, script is in place for next boot
             }
 
             result.Success = true;
             result.Steps = steps;
-            result.Message = "SQM deployment completed successfully";
-            _logger.LogInformation("SQM deployment completed for {Interface}", config.Interface);
+            result.Message = $"SQM deployed for {config.ConnectionName} ({config.Interface})";
+            _logger.LogInformation("SQM deployment completed for {Name} ({Interface})",
+                config.ConnectionName, config.Interface);
         }
         catch (Exception ex)
         {
@@ -319,14 +328,8 @@ echo 'udm-boot installed successfully'
     /// </summary>
     private async Task<bool> DeployScriptAsync(DeviceSshConfiguration device, string filename, string content)
     {
-        // Determine target directory
-        var targetDir = filename.StartsWith("20-") || filename.StartsWith("21-")
-            ? OnBootDir
-            : ScriptsDir;
-        var targetPath = $"{targetDir}/{filename}";
-
-        // Escape content for bash heredoc
-        var escapedContent = content.Replace("'", "'\"'\"'");
+        // All SQM scripts now go to on_boot.d (self-contained boot scripts)
+        var targetPath = $"{OnBootDir}/{filename}";
 
         // Write file using heredoc
         var writeCmd = $"cat > '{targetPath}' << 'SQMSCRIPTEOF'\n{content}\nSQMSCRIPTEOF";
@@ -420,20 +423,25 @@ echo 'udm-boot installed successfully'
 
         try
         {
-            // Remove cron jobs
+            // Remove SQM-related cron jobs
             await _sshService.RunCommandWithDeviceAsync(device,
-                "crontab -l 2>/dev/null | grep -v sqm | crontab -");
+                "crontab -l 2>/dev/null | grep -v '/data/sqm/' | crontab -");
 
-            // Remove scripts
+            // Remove boot scripts (new format: 20-sqm-{name}.sh)
             await _sshService.RunCommandWithDeviceAsync(device,
-                $"rm -f {OnBootDir}/20-sqm-*.sh {OnBootDir}/21-sqm-*.sh");
+                $"rm -f {OnBootDir}/20-sqm-*.sh");
 
+            // Remove legacy boot scripts (old format)
             await _sshService.RunCommandWithDeviceAsync(device,
-                $"rm -rf {ScriptsDir}");
+                $"rm -f {OnBootDir}/21-sqm-*.sh");
 
-            // Remove data files
+            // Remove SQM directory with all scripts and data
             await _sshService.RunCommandWithDeviceAsync(device,
-                "rm -f /data/sqm-*.sh /data/sqm-*.txt");
+                $"rm -rf {SqmDir}");
+
+            // Remove legacy data files
+            await _sshService.RunCommandWithDeviceAsync(device,
+                "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
             _logger.LogInformation("SQM scripts removed");
             return true;
