@@ -488,8 +488,15 @@ a:hover {
 }
 
 .stat-icon {
-    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
+    font-size: 2.5rem;
+    line-height: 1;
     opacity: 0.8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
 .stat-icon svg {
@@ -502,6 +509,7 @@ a:hover {
     height: 3rem;
     object-fit: contain;
     opacity: 0.9;
+    flex-shrink: 0;
 }
 
 .stat-content {
@@ -516,7 +524,7 @@ a:hover {
 }
 
 .stat-value-text {
-    font-size: 1rem;
+    font-size: 1.5rem;
     font-weight: 600;
 }
 
