@@ -308,7 +308,7 @@ public class ConnectionProfile
             {
                 var key = $"{day}_{hour}";
                 // Scale the pattern percentage by nominal speed
-                var speed = (int)(pattern[hour] * NominalDownloadMbps);
+                var speed = (int)(pattern[day, hour] * NominalDownloadMbps);
                 baseline[key] = speed.ToString();
             }
         }
@@ -354,77 +354,88 @@ public class ConnectionProfile
     }
 
     /// <summary>
-    /// Get hourly baseline pattern as percentage of nominal speed.
+    /// Get 168-hour baseline pattern as percentage of nominal speed (7 days × 24 hours).
     /// Based on real-world data from DOCSIS and Starlink connections.
+    /// Returns [day][hour] where day 0=Monday, 6=Sunday.
     /// </summary>
-    private double[] GetBaselinePattern()
+    private double[,] GetBaselinePattern()
     {
         return Type switch
         {
             // DOCSIS Cable: stable with predictable peak-hour congestion
-            // Pattern: Night (87%), Day (85%), Evening peak (75%)
-            ConnectionType.DocsisCable => new double[]
+            // Based on ~300 Mbps nominal: 225-262 Mbps range
+            ConnectionType.DocsisCable => new double[,]
             {
-                0.87, 0.87, 0.87, 0.87, 0.87, 0.87,  // 00-05: Night (high)
-                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 06-11: Morning (good)
-                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 12-17: Afternoon (good)
-                0.75, 0.75, 0.75, 0.75,              // 18-21: Evening peak (congested)
-                0.87, 0.87                           // 22-23: Late night (high)
+                // Monday (day 0)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Tuesday (day 1)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Wednesday (day 2)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Thursday (day 3)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Friday (day 4)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Saturday (day 5)
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.75, 0.75, 0.75, 0.75, 0.87, 0.87 },
+                // Sunday (day 6) - slightly better evening
+                { 0.87, 0.87, 0.87, 0.87, 0.87, 0.87, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.77, 0.77, 0.77, 0.79, 0.85, 0.87 }
             },
 
-            // Starlink: highly variable, pattern from real data (normalized to ~400 Mbps nominal)
-            // Values range from 37% to 100%+ of nominal
-            ConnectionType.Starlink => new double[]
+            // Starlink: highly variable per day/hour - based on ~400 Mbps nominal
+            // Real data normalized from 150-417 Mbps observations
+            ConnectionType.Starlink => new double[,]
             {
-                0.75, 0.77, 0.60, 0.50, 0.47, 0.45,  // 00-05: Night (variable)
-                0.50, 0.65, 0.70, 0.60, 0.55, 0.55,  // 06-11: Morning (moderate)
-                0.70, 0.75, 0.70, 0.75, 0.68, 0.68,  // 12-17: Afternoon (better)
-                0.60, 0.70, 0.65, 0.55,              // 18-21: Evening (congested)
-                0.55, 0.70                           // 22-23: Late night
+                // Monday (day 0)
+                { 0.75, 0.77, 0.47, 0.46, 0.44, 0.44, 0.41, 0.91, 0.66, 0.42, 0.41, 0.38, 0.80, 0.76, 0.73, 0.71, 0.68, 0.65, 0.42, 0.85, 0.51, 0.48, 0.43, 0.38 },
+                // Tuesday (day 1)
+                { 0.90, 0.98, 0.78, 0.84, 0.86, 0.73, 0.89, 0.79, 0.87, 0.85, 0.72, 0.74, 0.74, 0.68, 0.58, 0.84, 0.64, 0.70, 0.49, 0.66, 0.62, 0.59, 0.56, 0.75 },
+                // Wednesday (day 2)
+                { 0.64, 0.65, 0.56, 0.47, 0.40, 0.42, 0.55, 0.68, 0.73, 0.43, 0.44, 0.38, 1.04, 0.76, 0.61, 0.94, 0.79, 0.65, 0.54, 0.69, 0.73, 0.64, 0.63, 0.80 },
+                // Thursday (day 3)
+                { 0.72, 0.80, 0.67, 0.50, 0.49, 0.55, 0.48, 0.50, 0.57, 0.88, 0.86, 0.84, 0.82, 0.80, 0.78, 0.65, 0.67, 0.68, 0.66, 0.64, 0.49, 0.39, 0.57, 0.75 },
+                // Friday (day 4)
+                { 0.59, 0.73, 0.74, 0.59, 0.45, 0.43, 0.44, 0.68, 0.80, 0.55, 0.48, 0.55, 0.45, 0.55, 0.65, 0.60, 0.40, 0.77, 0.77, 0.77, 1.01, 0.74, 0.54, 0.73 },
+                // Saturday (day 5)
+                { 0.64, 0.56, 0.85, 0.76, 0.69, 0.58, 0.53, 0.54, 0.41, 0.62, 0.40, 0.53, 0.66, 0.80, 0.81, 0.74, 0.68, 0.61, 0.55, 0.45, 0.85, 0.74, 0.66, 0.51 },
+                // Sunday (day 6)
+                { 0.77, 0.75, 0.79, 0.67, 0.49, 0.44, 0.41, 0.43, 0.52, 0.87, 0.71, 0.55, 0.60, 0.51, 0.66, 0.77, 0.72, 0.71, 0.71, 0.70, 0.70, 0.48, 0.41, 0.62 }
             },
 
-            // Fiber: very stable, minimal variation
-            ConnectionType.Fiber => new double[]
-            {
-                0.98, 0.98, 0.98, 0.98, 0.98, 0.98,  // 00-05
-                0.97, 0.97, 0.97, 0.97, 0.97, 0.97,  // 06-11
-                0.97, 0.97, 0.97, 0.97, 0.97, 0.97,  // 12-17
-                0.95, 0.95, 0.95, 0.95,              // 18-21
-                0.98, 0.98                           // 22-23
-            },
+            // Fiber: very stable, minimal variation (same pattern all week)
+            ConnectionType.Fiber => CreateUniformWeekPattern(new double[]
+                { 0.98, 0.98, 0.98, 0.98, 0.98, 0.98, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.95, 0.95, 0.95, 0.95, 0.98, 0.98 }),
 
-            // DSL: stable but may have minor peak-hour drops
-            ConnectionType.Dsl => new double[]
-            {
-                0.92, 0.92, 0.92, 0.92, 0.92, 0.92,  // 00-05
-                0.90, 0.90, 0.90, 0.90, 0.90, 0.90,  // 06-11
-                0.90, 0.90, 0.90, 0.90, 0.90, 0.90,  // 12-17
-                0.85, 0.85, 0.85, 0.85,              // 18-21
-                0.92, 0.92                           // 22-23
-            },
+            // DSL: stable but may have minor peak-hour drops (same pattern all week)
+            ConnectionType.Dsl => CreateUniformWeekPattern(new double[]
+                { 0.92, 0.92, 0.92, 0.92, 0.92, 0.92, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.85, 0.85, 0.85, 0.85, 0.92, 0.92 }),
 
-            // Fixed Wireless: weather and time-of-day sensitive
-            ConnectionType.FixedWireless => new double[]
-            {
-                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 00-05
-                0.80, 0.80, 0.80, 0.75, 0.75, 0.75,  // 06-11
-                0.75, 0.75, 0.75, 0.70, 0.70, 0.70,  // 12-17
-                0.65, 0.65, 0.65, 0.70,              // 18-21
-                0.80, 0.85                           // 22-23
-            },
+            // Fixed Wireless: weather and time-of-day sensitive (same pattern all week)
+            ConnectionType.FixedWireless => CreateUniformWeekPattern(new double[]
+                { 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.80, 0.80, 0.80, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.70, 0.70, 0.70, 0.65, 0.65, 0.65, 0.70, 0.80, 0.85 }),
 
-            // Cellular: cell congestion patterns
-            ConnectionType.CellularHome => new double[]
-            {
-                0.90, 0.90, 0.90, 0.90, 0.90, 0.85,  // 00-05
-                0.75, 0.70, 0.70, 0.75, 0.75, 0.75,  // 06-11
-                0.70, 0.70, 0.70, 0.70, 0.65, 0.60,  // 12-17
-                0.55, 0.55, 0.60, 0.70,              // 18-21
-                0.80, 0.85                           // 22-23
-            },
+            // Cellular: cell congestion patterns (same pattern all week)
+            ConnectionType.CellularHome => CreateUniformWeekPattern(new double[]
+                { 0.90, 0.90, 0.90, 0.90, 0.90, 0.85, 0.75, 0.70, 0.70, 0.75, 0.75, 0.75, 0.70, 0.70, 0.70, 0.70, 0.65, 0.60, 0.55, 0.55, 0.60, 0.70, 0.80, 0.85 }),
 
-            _ => Enumerable.Repeat(0.85, 24).ToArray()
+            _ => CreateUniformWeekPattern(Enumerable.Repeat(0.85, 24).ToArray())
         };
+    }
+
+    /// <summary>
+    /// Create a 7-day pattern from a single day pattern (for stable connection types)
+    /// </summary>
+    private static double[,] CreateUniformWeekPattern(double[] dailyPattern)
+    {
+        var result = new double[7, 24];
+        for (int day = 0; day < 7; day++)
+        {
+            for (int hour = 0; hour < 24; hour++)
+            {
+                result[day, hour] = dailyPattern[hour];
+            }
+        }
+        return result;
     }
 
     /// <summary>
