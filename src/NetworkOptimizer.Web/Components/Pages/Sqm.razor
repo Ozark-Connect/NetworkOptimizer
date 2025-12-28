@@ -110,6 +110,21 @@
     <!-- SQM Live Status Dashboard -->
     @if (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true))
     {
+        <div class="card sqm-dashboard-card">
+            <div class="card-header">
+                <h2 class="card-title">Live SQM Status</h2>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
+                    @if (isRefreshingDashboard)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+            <div class="card-body">
         <div class="sqm-live-dashboard">
             @if (sqmMonitorData.Wan1?.Active == true)
             {
@@ -224,6 +239,8 @@
                     </div>
                 </div>
             }
+        </div>
+            </div>
         </div>
     }
 
@@ -781,10 +798,7 @@
         font-size: 3rem;
         font-weight: 700;
         font-family: var(--font-mono);
-        background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        color: var(--primary);
         line-height: 1;
     }
 
@@ -914,6 +928,7 @@
 
     // SQM Monitor data (from HTTP endpoint)
     private TcMonitorResponse? sqmMonitorData;
+    private bool isRefreshingDashboard = false;
 
     protected override void OnInitialized()
     {
@@ -1461,6 +1476,24 @@
         catch
         {
             // Silently fail - dashboard just won't show
+        }
+    }
+
+    private async Task RefreshDashboard()
+    {
+        if (isRefreshingDashboard) return;
+
+        isRefreshingDashboard = true;
+        StateHasChanged();
+
+        try
+        {
+            await LoadSqmMonitorDataAsync();
+        }
+        finally
+        {
+            isRefreshingDashboard = false;
+            StateHasChanged();
         }
     }
 
