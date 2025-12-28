@@ -356,7 +356,7 @@ echo 'udm-boot installed successfully'
     /// <summary>
     /// Deploy TC Monitor script
     /// </summary>
-    public async Task<bool> DeployTcMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
+    public async Task<bool> DeployTcMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port = 8088)
     {
         var settings = await GetGatewaySettingsAsync();
         if (settings == null || string.IsNullOrEmpty(settings.Host))
@@ -376,7 +376,7 @@ echo 'udm-boot installed successfully'
         try
         {
             // Generate tc-monitor script content
-            var tcMonitorScript = GenerateTcMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name);
+            var tcMonitorScript = GenerateTcMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, port);
 
             // Deploy to on_boot.d
             var success = await DeployScriptAsync(device, "20-tc-monitor.sh", tcMonitorScript);
@@ -553,7 +553,7 @@ echo 'udm-boot installed successfully'
     /// <summary>
     /// Generate TC Monitor script content
     /// </summary>
-    private string GenerateTcMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
+    private string GenerateTcMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
     {
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/sh");
@@ -564,7 +564,7 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("LOG_FILE=\"/var/log/tc-monitor.log\"");
         sb.AppendLine("SERVICE_NAME=\"tc-monitor\"");
         sb.AppendLine("SERVICE_FILE=\"/etc/systemd/system/${SERVICE_NAME}.service\"");
-        sb.AppendLine("PORT=\"8088\"");
+        sb.AppendLine($"PORT=\"{port}\"");
         sb.AppendLine();
         sb.AppendLine("echo \"$(date): Setting up TC Monitor systemd service...\" >> \"$LOG_FILE\"");
         sb.AppendLine();
@@ -626,7 +626,7 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("# Create HTTP server script");
         sb.AppendLine("cat > \"$TC_MONITOR_DIR/tc-server-nc.sh\" << 'SERVER_EOF'");
         sb.AppendLine("#!/bin/sh");
-        sb.AppendLine("PORT=\"${TC_MONITOR_PORT:-8088}\"");
+        sb.AppendLine($"PORT=\"${{TC_MONITOR_PORT:-{port}}}\"");
         sb.AppendLine("SCRIPT_DIR=\"$(dirname \"$(readlink -f \"$0\")\")\"");
         sb.AppendLine();
         sb.AppendLine("while true; do");
@@ -651,7 +651,7 @@ echo 'udm-boot installed successfully'
         sb.AppendLine();
         sb.AppendLine("[Service]");
         sb.AppendLine("Type=simple");
-        sb.AppendLine("Environment=\"TC_MONITOR_PORT=8088\"");
+        sb.AppendLine($"Environment=\"TC_MONITOR_PORT={port}\"");
         sb.AppendLine("ExecStart=/data/tc-monitor/tc-server-nc.sh");
         sb.AppendLine("Restart=always");
         sb.AppendLine("RestartSec=5");
