@@ -211,23 +211,23 @@ public class ConnectionProfile
     {
         return Type switch
         {
-            // Fiber: minimal overhead needed
-            ConnectionType.Fiber => 1.02,
+            // Fiber: stable, can run close to line rate
+            ConnectionType.Fiber => 1.08,
 
-            // DOCSIS: small overhead for peak-hour variation
+            // DOCSIS: needs buffer for peak-hour congestion
             ConnectionType.DocsisCable => 1.05,
 
-            // Starlink: larger overhead due to variability
+            // Starlink: can run close to line rate despite variability
             ConnectionType.Starlink => 1.15,
 
-            // DSL: consistent, minimal overhead
-            ConnectionType.Dsl => 1.03,
+            // DSL: stable once synced
+            ConnectionType.Dsl => 1.10,
 
-            // Fixed wireless: moderate overhead
+            // Fixed wireless: moderate buffer needed
             ConnectionType.FixedWireless => 1.10,
 
-            // Cellular: higher overhead for congestion variability
-            ConnectionType.CellularHome => 1.12,
+            // Cellular: buffer for congestion
+            ConnectionType.CellularHome => 1.08,
 
             _ => 1.05
         };
