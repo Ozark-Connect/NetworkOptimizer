@@ -105,9 +105,29 @@ public class ConnectionProfile
     public string PingHost { get; set; } = "1.1.1.1";
 
     /// <summary>
-    /// Optional preferred speedtest server ID
+    /// Preferred speedtest server ID. Defaults based on connection type.
+    /// Starlink defaults to 59762 (BBR-enabled server near common Starlink PoPs).
     /// </summary>
-    public string? PreferredSpeedtestServerId { get; set; }
+    public string? PreferredSpeedtestServerId
+    {
+        get => _preferredSpeedtestServerId ?? GetDefaultSpeedtestServer();
+        set => _preferredSpeedtestServerId = value;
+    }
+    private string? _preferredSpeedtestServerId;
+
+    /// <summary>
+    /// Get default speedtest server based on connection type
+    /// </summary>
+    private string? GetDefaultSpeedtestServer()
+    {
+        return Type switch
+        {
+            // Starlink: BBR-enabled server near common Starlink PoPs
+            ConnectionType.Starlink => "59762",
+            // Other connection types: let Ookla auto-select
+            _ => null
+        };
+    }
 
     /// <summary>
     /// Calculate maximum speed based on connection type characteristics
