@@ -316,24 +316,28 @@
                 <h4>Calculated SQM Parameters</h4>
                 <div class="params-grid">
                     <div class="param">
-                        <span class="param-label">Speed Range:</span>
-                        <span class="param-value">@wan1Config.MinSpeed - @wan1Config.MaxSpeed Mbps</span>
+                        <span class="param-label">Speed Range</span>
+                        <span class="param-value">@wan1Config.MinSpeed–@wan1Config.MaxSpeed</span>
+                        <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Absolute Max:</span>
-                        <span class="param-value">@wan1Config.AbsoluteMax Mbps</span>
+                        <span class="param-label">Absolute Max</span>
+                        <span class="param-value">@wan1Config.AbsoluteMax</span>
+                        <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Overhead:</span>
+                        <span class="param-label">Overhead</span>
                         <span class="param-value">@(((wan1Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Baseline:</span>
-                        <span class="param-value">@wan1Config.BaselineLatency ms</span>
+                        <span class="param-label">Baseline Latency</span>
+                        <span class="param-value">@wan1Config.BaselineLatency</span>
+                        <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Threshold:</span>
-                        <span class="param-value">@wan1Config.LatencyThreshold ms</span>
+                        <span class="param-label">Latency Threshold</span>
+                        <span class="param-value">@wan1Config.LatencyThreshold</span>
+                        <span class="param-unit">ms</span>
                     </div>
                 </div>
             </div>
@@ -414,24 +418,28 @@
                 <h4>Calculated SQM Parameters</h4>
                 <div class="params-grid">
                     <div class="param">
-                        <span class="param-label">Speed Range:</span>
-                        <span class="param-value">@wan2Config.MinSpeed - @wan2Config.MaxSpeed Mbps</span>
+                        <span class="param-label">Speed Range</span>
+                        <span class="param-value">@wan2Config.MinSpeed–@wan2Config.MaxSpeed</span>
+                        <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Absolute Max:</span>
-                        <span class="param-value">@wan2Config.AbsoluteMax Mbps</span>
+                        <span class="param-label">Absolute Max</span>
+                        <span class="param-value">@wan2Config.AbsoluteMax</span>
+                        <span class="param-unit">Mbps</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Overhead:</span>
+                        <span class="param-label">Overhead</span>
                         <span class="param-value">@(((wan2Config.Overhead - 1) * 100).ToString("F0"))%</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Baseline:</span>
-                        <span class="param-value">@wan2Config.BaselineLatency ms</span>
+                        <span class="param-label">Baseline Latency</span>
+                        <span class="param-value">@wan2Config.BaselineLatency</span>
+                        <span class="param-unit">ms</span>
                     </div>
                     <div class="param">
-                        <span class="param-label">Latency Threshold:</span>
-                        <span class="param-value">@wan2Config.LatencyThreshold ms</span>
+                        <span class="param-label">Latency Threshold</span>
+                        <span class="param-value">@wan2Config.LatencyThreshold</span>
+                        <span class="param-unit">ms</span>
                     </div>
                 </div>
             </div>
@@ -595,23 +603,49 @@
 
     .params-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 0.5rem;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 1rem;
+    }
+
+    @@media (max-width: 900px) {
+        .params-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+    }
+
+    @@media (max-width: 600px) {
+        .params-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
     }
 
     .param {
         display: flex;
-        justify-content: space-between;
-        gap: 0.5rem;
+        flex-direction: column;
+        gap: 0.25rem;
+        padding: 0.5rem;
+        background: var(--surface);
+        border-radius: 0.375rem;
+        text-align: center;
     }
 
     .param-label {
         color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
     .param-value {
-        font-weight: 500;
+        font-weight: 600;
         font-family: var(--font-mono);
+        font-size: 1.1rem;
+        color: var(--text-primary);
+    }
+
+    .param-unit {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
     }
 
     .sqm-metrics {
