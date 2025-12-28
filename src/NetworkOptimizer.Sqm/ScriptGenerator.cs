@@ -212,6 +212,7 @@ public class ScriptGenerator
         sb.AppendLine($"INTERFACE=\"{_config.Interface}\"");
         sb.AppendLine($"IFB_DEVICE=\"ifb{_config.Interface}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED=\"{_config.MaxDownloadSpeed}\"");
+        sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{_config.OverheadMultiplier}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
@@ -242,9 +243,9 @@ public class ScriptGenerator
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
 
-        // Set max before speedtest
-        sb.AppendLine("# Set SQM to max before speedtest");
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $MAX_DOWNLOAD_SPEED");
+        // Set absolute max before speedtest for clean, unlimited test
+        sb.AppendLine("# Set SQM to absolute max before speedtest for accurate measurement");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $ABSOLUTE_MAX_DOWNLOAD_SPEED");
         sb.AppendLine();
 
         // Run speedtest
