@@ -143,7 +143,7 @@ a:hover {
 .nav-link {
     display: flex;
     align-items: center;
-    padding: 10px 16px;
+    padding: 10px 16px 10px 11px;
     color: var(--text-secondary);
     text-decoration: none;
     transition: background-color 0.2s ease, color 0.2s ease;
@@ -170,7 +170,7 @@ a:hover {
 }
 
 .nav-icon-img {
-    width: 2.25rem;
+    width: 2.5rem;
     height: 1.875rem;
     margin-right: 0.5rem;
     object-fit: contain;
