@@ -931,14 +931,17 @@
             // Check if we have valid cached data
             if (IsCacheValid())
             {
-                // Use cached data
+                // Use cached data for deployment status
                 gatewayConnected = _cachedGatewayConnected;
                 deploymentStatus = _cachedDeploymentStatus;
-                tcInterfaces = _cachedTcInterfaces;
                 wanInterfaces = _cachedWanInterfaces ?? new();
                 // Only apply detected interfaces if we don't have saved configs
                 if (!hasSavedConfigs)
                     ApplyDetectedWanInterfaces();
+
+                // Always fetch fresh SQM Monitor data for the dashboard
+                await LoadSqmMonitorDataAsync();
+
                 isLoading = false;
                 StateHasChanged();
             }
@@ -1441,6 +1444,23 @@
         catch
         {
             return null;
+        }
+    }
+
+    private async Task LoadSqmMonitorDataAsync()
+    {
+        try
+        {
+            var gatewayHost = await GetGatewayHostAsync();
+            if (!string.IsNullOrEmpty(gatewayHost))
+            {
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                tcInterfaces = sqmMonitorData?.GetAllInterfaces();
+            }
+        }
+        catch
+        {
+            // Silently fail - dashboard just won't show
         }
     }
 
