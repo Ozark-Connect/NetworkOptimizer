@@ -23,7 +23,7 @@
             <h2 class="card-title">Deployment Status</h2>
             @if (!isLoading)
             {
-                <button class="btn btn-sm btn-secondary" @onclick="() => { statusMessage = null; _ = RefreshStatus(); }">Refresh</button>
+                <button class="btn btn-sm btn-secondary" @onclick="ManualRefresh">Refresh</button>
             }
         </div>
         <div class="card-body">
@@ -1188,6 +1188,12 @@
         config.Overhead = profile.OverheadMultiplier;
         config.BaselineLatency = profile.BaselineLatency;
         config.LatencyThreshold = profile.LatencyThreshold;
+    }
+
+    private async Task ManualRefresh()
+    {
+        statusMessage = null;
+        await RefreshStatus();
     }
 
     private async Task RefreshStatus(bool forceRefresh = true)
