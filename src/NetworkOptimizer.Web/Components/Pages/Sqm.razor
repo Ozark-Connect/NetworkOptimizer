@@ -1188,20 +1188,6 @@
 
     private async Task RefreshStatus(bool forceRefresh = true)
     {
-        // If not forcing refresh and cache is valid, use cached data
-        if (!forceRefresh && IsCacheValid())
-        {
-            gatewayConnected = _cachedGatewayConnected;
-            deploymentStatus = _cachedDeploymentStatus;
-            tcInterfaces = _cachedTcInterfaces;
-            wanInterfaces = _cachedWanInterfaces ?? new();
-            if (!hasSavedConfigs)
-                ApplyDetectedWanInterfaces();
-            isLoading = false;
-            StateHasChanged();
-            return;
-        }
-
         isLoading = true;
         StateHasChanged();
 
@@ -1238,7 +1224,7 @@
                     wanInterfaces = new();
                 }
 
-                // Update cache
+                // Update cache - always update when gateway connected
                 _cachedGatewayConnected = gatewayConnected;
                 _cachedDeploymentStatus = deploymentStatus;
                 _cachedTcInterfaces = tcInterfaces;
@@ -1247,12 +1233,20 @@
             }
             else
             {
+                // Gateway not connected - still update cache timestamp to prevent repeated attempts
+                _cachedGatewayConnected = false;
+                _cachedDeploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                _lastStatusCheck = DateTime.UtcNow;
                 statusMessage = connectionResult.message;
                 statusSuccess = false;
             }
         }
         catch (Exception ex)
         {
+            // Error occurred - still update cache timestamp to prevent repeated attempts
+            _cachedGatewayConnected = false;
+            _cachedDeploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
+            _lastStatusCheck = DateTime.UtcNow;
             statusMessage = $"Error: {ex.Message}";
             statusSuccess = false;
         }
