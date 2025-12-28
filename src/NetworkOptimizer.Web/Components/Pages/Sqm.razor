@@ -211,6 +211,12 @@
                 <input type="text" class="form-control" @bind="wan1Config.PingHost" placeholder="1.1.1.1" />
                 <small class="form-hint">ISP host/router recommended for accurate latency monitoring</small>
             </div>
+
+            <div class="form-group">
+                <label class="form-label">Speedtest Server ID</label>
+                <input type="text" class="form-control" @bind="wan1Config.SpeedtestServerId" placeholder="@(wan1Config.ConnectionType == ConnectionType.Starlink ? "59762 (default)" : "Auto-select")" />
+                <small class="form-hint">Optional Ookla server ID override</small>
+            </div>
         </div>
     </div>
 
@@ -301,6 +307,12 @@
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan2Config.PingHost" placeholder="100.64.0.1" />
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Speedtest Server ID</label>
+                <input type="text" class="form-control" @bind="wan2Config.SpeedtestServerId" placeholder="@(wan2Config.ConnectionType == ConnectionType.Starlink ? "59762 (default)" : "Auto-select")" />
+                <small class="form-hint">Optional Ookla server ID override</small>
             </div>
         </div>
     </div>
@@ -1055,7 +1067,8 @@
             Interface = model.Interface,
             NominalDownloadSpeed = model.NominalDownload,
             NominalUploadSpeed = model.NominalUpload,
-            PingHost = model.PingHost
+            PingHost = model.PingHost,
+            PreferredSpeedtestServerId = model.SpeedtestServerId
         };
 
         config.ApplyProfileSettings();
@@ -1078,6 +1091,7 @@
         public int NominalDownload { get; set; }
         public int NominalUpload { get; set; }
         public string PingHost { get; set; } = "1.1.1.1";
+        public string? SpeedtestServerId { get; set; }
 
         // Calculated values
         public int MaxSpeed { get; set; }
