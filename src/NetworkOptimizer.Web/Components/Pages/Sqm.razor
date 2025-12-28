@@ -1007,36 +1007,40 @@
     {
         UpdateCalculatedSpeeds(wan1Config);
         UpdateCalculatedSpeeds(wan2Config);
+
+        // Check cache synchronously BEFORE first render to avoid loading flash
+        if (IsCacheValid())
+        {
+            gatewayConnected = _cachedGatewayConnected;
+            deploymentStatus = _cachedDeploymentStatus;
+            tcInterfaces = _cachedTcInterfaces;
+            wanInterfaces = _cachedWanInterfaces ?? new();
+            isLoading = false;  // Prevents "Checking deployment status..." flash
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // Start loading SQM Monitor data immediately (don't wait for deployment status)
-            var dashboardTask = LoadSqmMonitorDataAsync();
-
             // Load saved WAN configs from database
             await LoadSavedConfigsAsync();
 
-            // Check if we have valid cached data for deployment status
-            if (IsCacheValid())
+            // If cache was valid in OnInitialized, just load dashboard data
+            if (!isLoading)
             {
-                // Use cached data for deployment status
-                gatewayConnected = _cachedGatewayConnected;
-                deploymentStatus = _cachedDeploymentStatus;
-                wanInterfaces = _cachedWanInterfaces ?? new();
-                if (!hasSavedConfigs)
-                    ApplyDetectedWanInterfaces();
-                isLoading = false;
-            }
-            else
-            {
-                // Load fresh deployment status (in parallel with dashboard)
-                _ = RefreshStatus(forceRefresh: false);
+                // Cache was used - just load SQM Monitor data
+                if (deploymentStatus?.IsDeployed == true)
+                {
+                    await LoadSqmMonitorDataAsync();
+                    StateHasChanged();
+                }
+                return;
             }
 
-            // Wait for dashboard data and update UI
+            // Cache was not valid - load everything fresh
+            var dashboardTask = LoadSqmMonitorDataAsync();
+            _ = RefreshStatus(forceRefresh: false);
             await dashboardTask;
             StateHasChanged();
         }
