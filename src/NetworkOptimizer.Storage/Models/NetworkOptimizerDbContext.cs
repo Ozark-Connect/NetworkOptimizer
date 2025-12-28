@@ -25,6 +25,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<SystemSetting> SystemSettings { get; set; }
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
+    public DbSet<AdminSettings> AdminSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -128,6 +129,12 @@ public class NetworkOptimizerDbContext : DbContext
         {
             entity.ToTable("SqmWanConfigurations");
             entity.HasIndex(e => e.WanNumber).IsUnique();
+        });
+
+        // AdminSettings configuration (singleton - only one row)
+        modelBuilder.Entity<AdminSettings>(entity =>
+        {
+            entity.ToTable("AdminSettings");
         });
     }
 }

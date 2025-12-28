@@ -808,6 +808,71 @@ public class UniFiApiClient : IDisposable
 
     #endregion
 
+    #region Fingerprint Database APIs
+
+    /// <summary>
+    /// GET /proxy/network/v2/api/fingerprint_devices/{index} - Get fingerprint database
+    /// The database is split across multiple indices (0-n)
+    /// </summary>
+    public async Task<UniFiFingerprintDatabase?> GetFingerprintDatabaseAsync(
+        int index = 0,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching fingerprint database index {Index}", index);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = $"{_controllerUrl}/proxy/network/v2/api/fingerprint_devices/{index}";
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<UniFiFingerprintDatabase>(
+                    cancellationToken: cancellationToken);
+            }
+
+            _logger.LogDebug("Fingerprint database index {Index} returned {StatusCode}",
+                index, response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
+    /// Get the complete fingerprint database by fetching all indices
+    /// </summary>
+    public async Task<UniFiFingerprintDatabase> GetCompleteFingerprintDatabaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var combined = new UniFiFingerprintDatabase();
+        var maxIndices = 15; // UniFi typically has indices 0-10+
+
+        for (int i = 0; i <= maxIndices; i++)
+        {
+            var db = await GetFingerprintDatabaseAsync(i, cancellationToken);
+            if (db == null)
+            {
+                _logger.LogDebug("Fingerprint database ends at index {Index}", i - 1);
+                break;
+            }
+
+            combined.Merge(db);
+            _logger.LogDebug("Merged fingerprint index {Index} - Total devices: {Count}",
+                i, combined.DevIds.Count);
+        }
+
+        _logger.LogInformation("Loaded fingerprint database: {DevTypes} device types, {Vendors} vendors, {Devices} devices",
+            combined.DevTypeIds.Count, combined.VendorIds.Count, combined.DevIds.Count);
+
+        return combined;
+    }
+
+    #endregion
+
     /// <summary>
     /// Logout from the controller (optional, as cookies typically expire)
     /// </summary>

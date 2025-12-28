@@ -1,10 +1,13 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Enums;
+
+using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
 namespace NetworkOptimizer.Audit.Rules;
 
 /// <summary>
 /// Detects IoT devices connected to non-IoT VLANs
-/// Checks port names for IoT device patterns (IKEA, Hue, Smart, etc.)
+/// Uses enhanced detection: fingerprint > MAC OUI > port name patterns
 /// </summary>
 public class IotVlanRule : AuditRuleBase
 {
@@ -20,17 +23,17 @@ public class IotVlanRule : AuditRuleBase
         if (!port.IsUp || port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;
 
-        // Check if port name suggests an IoT device
-        if (!IsIoTDeviceName(port.Name))
+        // Use enhanced detection
+        var detection = DetectDeviceType(port);
+
+        // Check if this is an IoT device category
+        if (!detection.Category.IsIoT())
             return null;
 
         // Get the network this port is on
         var network = GetNetwork(port.NativeNetworkId, networks);
         if (network == null)
             return null;
-
-        // DEBUG: Log IoT device detection
-        Console.WriteLine($"[IotVlanRule] IoT device '{port.Name}' on network '{network.Name}' (ID: {network.Id}) has Purpose: {network.Purpose}");
 
         // Check if it's on an isolated network (IoT or Security are both acceptable)
         if (network.Purpose == NetworkPurpose.IoT || network.Purpose == NetworkPurpose.Security)
@@ -46,7 +49,7 @@ public class IotVlanRule : AuditRuleBase
         {
             Type = RuleId,
             Severity = Severity,
-            Message = $"IoT device on {network.Name} VLAN - should be isolated",
+            Message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated",
             DeviceName = port.Switch.Name,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
@@ -57,7 +60,11 @@ public class IotVlanRule : AuditRuleBase
             RecommendedAction = $"Move to {recommendedVlan}",
             Metadata = new Dictionary<string, object>
             {
-                { "device_type", "IoT" },
+                { "device_type", detection.CategoryName },
+                { "device_category", detection.Category.ToString() },
+                { "detection_source", detection.Source.ToString() },
+                { "detection_confidence", detection.ConfidenceScore },
+                { "vendor", detection.VendorName ?? "Unknown" },
                 { "current_network_purpose", network.Purpose.ToString() }
             },
             RuleId = RuleId,

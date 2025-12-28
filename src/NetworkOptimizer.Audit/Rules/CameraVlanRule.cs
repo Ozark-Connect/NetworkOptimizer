@@ -1,10 +1,13 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Enums;
+
+using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
 namespace NetworkOptimizer.Audit.Rules;
 
 /// <summary>
 /// Detects security cameras not on a dedicated security VLAN
-/// Cameras should be isolated on security VLANs
+/// Uses enhanced detection: fingerprint > MAC OUI > port name patterns
 /// </summary>
 public class CameraVlanRule : AuditRuleBase
 {
@@ -20,8 +23,11 @@ public class CameraVlanRule : AuditRuleBase
         if (!port.IsUp || port.ForwardMode != "native" || port.IsUplink || port.IsWan)
             return null;
 
-        // Check if port name suggests a camera
-        if (!IsCameraDeviceName(port.Name))
+        // Use enhanced detection
+        var detection = DetectDeviceType(port);
+
+        // Check if this is a surveillance/security device
+        if (!detection.Category.IsSurveillance())
             return null;
 
         // Get the network this port is on
@@ -30,9 +36,6 @@ public class CameraVlanRule : AuditRuleBase
             return null;
 
         // Check if it's on a security network
-        // DEBUG: Log network purpose for troubleshooting
-        Console.WriteLine($"[CameraVlanRule] Camera '{port.Name}' on network '{network.Name}' (ID: {network.Id}) has Purpose: {network.Purpose}");
-
         if (network.Purpose == NetworkPurpose.Security)
             return null; // Correctly placed
 
@@ -46,7 +49,7 @@ public class CameraVlanRule : AuditRuleBase
         {
             Type = RuleId,
             Severity = Severity,
-            Message = $"Camera on {network.Name} VLAN - should be on security VLAN",
+            Message = $"{detection.CategoryName} on {network.Name} VLAN - should be on security VLAN",
             DeviceName = port.Switch.Name,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
@@ -57,7 +60,11 @@ public class CameraVlanRule : AuditRuleBase
             RecommendedAction = $"Move to {recommendedVlan}",
             Metadata = new Dictionary<string, object>
             {
-                { "device_type", "Camera" },
+                { "device_type", detection.CategoryName },
+                { "device_category", detection.Category.ToString() },
+                { "detection_source", detection.Source.ToString() },
+                { "detection_confidence", detection.ConfidenceScore },
+                { "vendor", detection.VendorName ?? "Unknown" },
                 { "current_network_purpose", network.Purpose.ToString() }
             },
             RuleId = RuleId,

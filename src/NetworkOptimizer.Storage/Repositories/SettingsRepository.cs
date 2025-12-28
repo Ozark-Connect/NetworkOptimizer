@@ -125,4 +125,52 @@ public class SettingsRepository : ISettingsRepository
     }
 
     #endregion
+
+    #region Admin Settings
+
+    public async Task<AdminSettings?> GetAdminSettingsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AdminSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get admin settings");
+            throw;
+        }
+    }
+
+    public async Task SaveAdminSettingsAsync(AdminSettings settings, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var existing = await _context.AdminSettings.FirstOrDefaultAsync(cancellationToken);
+
+            if (existing != null)
+            {
+                existing.Password = settings.Password;
+                existing.Enabled = settings.Enabled;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                settings.CreatedAt = DateTime.UtcNow;
+                settings.UpdatedAt = DateTime.UtcNow;
+                _context.AdminSettings.Add(settings);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogDebug("Saved admin settings");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save admin settings");
+            throw;
+        }
+    }
+
+    #endregion
 }

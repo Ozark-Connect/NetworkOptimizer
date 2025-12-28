@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -13,11 +14,30 @@ public class SecurityAuditEngine
 {
     private readonly ILogger<SecurityAuditEngine> _logger;
     private readonly List<IAuditRule> _rules;
+    private readonly DeviceTypeDetectionService? _detectionService;
 
     public SecurityAuditEngine(ILogger<SecurityAuditEngine> logger)
+        : this(logger, null)
+    {
+    }
+
+    public SecurityAuditEngine(
+        ILogger<SecurityAuditEngine> logger,
+        DeviceTypeDetectionService? detectionService)
     {
         _logger = logger;
+        _detectionService = detectionService;
         _rules = InitializeRules();
+
+        // Inject detection service into rules
+        if (_detectionService != null)
+        {
+            foreach (var rule in _rules.OfType<AuditRuleBase>())
+            {
+                rule.SetDetectionService(_detectionService);
+            }
+            _logger.LogInformation("Enhanced device detection enabled for audit rules");
+        }
     }
 
     /// <summary>

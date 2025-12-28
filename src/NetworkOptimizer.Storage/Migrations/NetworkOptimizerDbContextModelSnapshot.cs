@@ -736,6 +736,30 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("SqmWanConfigurations", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.AdminSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Password")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AdminSettings", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

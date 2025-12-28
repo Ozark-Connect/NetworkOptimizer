@@ -15,4 +15,8 @@ public interface ISettingsRepository
     Task<int> SaveLicenseAsync(LicenseInfo license, CancellationToken cancellationToken = default);
     Task<LicenseInfo?> GetLicenseAsync(CancellationToken cancellationToken = default);
     Task UpdateLicenseAsync(LicenseInfo license, CancellationToken cancellationToken = default);
+
+    // Admin Settings
+    Task<AdminSettings?> GetAdminSettingsAsync(CancellationToken cancellationToken = default);
+    Task SaveAdminSettingsAsync(AdminSettings settings, CancellationToken cancellationToken = default);
 }

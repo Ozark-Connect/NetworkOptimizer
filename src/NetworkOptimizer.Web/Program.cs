@@ -77,6 +77,9 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 
+// Register Admin Auth service (scoped - depends on ISettingsRepository)
+builder.Services.AddScoped<AdminAuthService>();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
@@ -169,47 +172,68 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
     app.UseHsts();
 }
 
-// Simple basic auth middleware (optional - set APP_PASSWORD env var to enable)
-var appPassword = Environment.GetEnvironmentVariable("APP_PASSWORD");
-if (!string.IsNullOrEmpty(appPassword))
+// Admin auth middleware - supports database password (priority) or APP_PASSWORD env var
+// Log startup configuration
+using (var startupScope = app.Services.CreateScope())
 {
-    app.Use(async (context, next) =>
-    {
-        // Skip auth for health endpoint and static files
-        if (context.Request.Path.StartsWithSegments("/api/health") ||
-            context.Request.Path.StartsWithSegments("/downloads"))
-        {
-            await next();
-            return;
-        }
-
-        // Check for basic auth header
-        var authHeader = context.Request.Headers.Authorization.ToString();
-        if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
-        {
-            var encoded = authHeader["Basic ".Length..].Trim();
-            var credentials = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-            var parts = credentials.Split(':', 2);
-            if (parts.Length == 2 && parts[1] == appPassword)
-            {
-                await next();
-                return;
-            }
-        }
-
-        // Check for session cookie (set after successful auth)
-        if (context.Request.Cookies.TryGetValue("auth", out var cookie) && cookie == ComputeHash(appPassword))
-        {
-            await next();
-            return;
-        }
-
-        // Return 401 with basic auth challenge
-        context.Response.StatusCode = 401;
-        context.Response.Headers.WWWAuthenticate = "Basic realm=\"Network Optimizer\"";
-        await context.Response.WriteAsync("Unauthorized");
-    });
+    var adminAuthService = startupScope.ServiceProvider.GetRequiredService<AdminAuthService>();
+    await adminAuthService.LogStartupConfigurationAsync();
 }
+
+app.Use(async (context, next) =>
+{
+    // Skip auth for health endpoint and static files
+    if (context.Request.Path.StartsWithSegments("/api/health") ||
+        context.Request.Path.StartsWithSegments("/downloads"))
+    {
+        await next();
+        return;
+    }
+
+    // Get AdminAuthService from request scope
+    var adminAuth = context.RequestServices.GetRequiredService<AdminAuthService>();
+
+    // Check if authentication is required
+    var isAuthRequired = await adminAuth.IsAuthenticationRequiredAsync();
+    if (!isAuthRequired)
+    {
+        await next();
+        return;
+    }
+
+    var effectivePassword = await adminAuth.GetEffectivePasswordAsync();
+    if (string.IsNullOrEmpty(effectivePassword))
+    {
+        await next();
+        return;
+    }
+
+    // Check for basic auth header
+    var authHeader = context.Request.Headers.Authorization.ToString();
+    if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
+    {
+        var encoded = authHeader["Basic ".Length..].Trim();
+        var credentials = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+        var parts = credentials.Split(':', 2);
+        if (parts.Length == 2 && await adminAuth.ValidatePasswordAsync(parts[1]))
+        {
+            await next();
+            return;
+        }
+    }
+
+    // Check for session cookie (set after successful auth)
+    if (context.Request.Cookies.TryGetValue("auth", out var cookie) && cookie == ComputeHash(effectivePassword))
+    {
+        await next();
+        return;
+    }
+
+    // Return 401 with basic auth challenge
+    context.Response.StatusCode = 401;
+    context.Response.Headers.WWWAuthenticate = "Basic realm=\"Network Optimizer\"";
+    await context.Response.WriteAsync("Unauthorized");
+});
 
 static string ComputeHash(string input)
 {

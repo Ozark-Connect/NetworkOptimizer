@@ -1,4 +1,8 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
+
+using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
 namespace NetworkOptimizer.Audit.Rules;
 
@@ -55,7 +59,57 @@ public abstract class AuditRuleBase : IAuditRule
     public virtual int ScoreImpact { get; } = 5;
     public virtual bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Device type detection service for enhanced detection
+    /// </summary>
+    protected DeviceTypeDetectionService? DetectionService { get; private set; }
+
+    /// <summary>
+    /// Set the detection service for enhanced device type detection
+    /// </summary>
+    public void SetDetectionService(DeviceTypeDetectionService service)
+    {
+        DetectionService = service;
+    }
+
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks);
+
+    /// <summary>
+    /// Detect device type using all available signals.
+    /// Falls back to legacy pattern matching if detection service not configured.
+    /// </summary>
+    protected DeviceDetectionResult DetectDeviceType(PortInfo port)
+    {
+        if (DetectionService != null)
+        {
+            return DetectionService.DetectFromPortName(port.Name ?? string.Empty);
+        }
+
+        // Fallback to legacy pattern matching
+        if (IsCameraDeviceName(port.Name))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Camera,
+                Source = DetectionSource.PortName,
+                ConfidenceScore = 70,
+                RecommendedNetwork = NetworkPurpose.Security
+            };
+        }
+
+        if (IsIoTDeviceName(port.Name))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.IoTGeneric,
+                Source = DetectionSource.PortName,
+                ConfidenceScore = 60,
+                RecommendedNetwork = NetworkPurpose.IoT
+            };
+        }
+
+        return DeviceDetectionResult.Unknown;
+    }
 
     /// <summary>
     /// Helper to get network info by ID
