@@ -1837,6 +1837,46 @@ td .btn + .btn {
     font-size: 0.8125rem;
 }
 
+/* SQM not deployed state */
+.sqm-not-deployed {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    text-align: center;
+}
+
+.not-deployed-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.not-deployed-icon {
+    font-size: 2rem;
+    opacity: 0.5;
+}
+
+.not-deployed-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.not-deployed-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.not-deployed-message {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
 .status-not-configured {
     color: var(--text-muted);
 }

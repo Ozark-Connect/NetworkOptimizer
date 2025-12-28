@@ -12,20 +12,22 @@
     }
     else if (!string.IsNullOrEmpty(errorMessage))
     {
-        <div class="sqm-unavailable">
-            <div class="sqm-status">
-                <span class="status-indicator status-@statusClass"></span>
-                <span class="status-label">@statusLabel</span>
+        <div class="sqm-not-deployed">
+            <div class="not-deployed-content">
+                <div class="not-deployed-icon">⚡</div>
+                <div class="not-deployed-text">
+                    <span class="not-deployed-title">@statusLabel</span>
+                    <span class="not-deployed-message">@errorMessage</span>
+                </div>
             </div>
-            <p class="status-message">@errorMessage</p>
             <div class="sqm-actions">
                 @if (needsGatewayConfig)
                 {
-                    <a href="/settings" class="btn btn-sm btn-primary">Configure Gateway</a>
+                    <a href="/settings" class="btn btn-primary">Configure Gateway</a>
                 }
                 else
                 {
-                    <a href="/sqm" class="btn btn-sm btn-primary">Configure SQM</a>
+                    <a href="/sqm" class="btn btn-primary">Deploy Adaptive SQM</a>
                 }
             </div>
         </div>
@@ -137,9 +139,9 @@
             }
             else if (statusData?.Status == "Offline")
             {
-                statusLabel = "Offline";
+                statusLabel = "Not Deployed";
                 statusClass = "offline";
-                errorMessage = statusData.StatusMessage ?? "TC Monitor not responding. Deploy via SQM Manager.";
+                errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
             }
             else
             {
