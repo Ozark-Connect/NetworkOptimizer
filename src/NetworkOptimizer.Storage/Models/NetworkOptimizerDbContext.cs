@@ -14,6 +14,7 @@ public class NetworkOptimizerDbContext : DbContext
 
     public DbSet<AuditResult> AuditResults { get; set; }
     public DbSet<SqmBaseline> SqmBaselines { get; set; }
+    public DbSet<AgentConfiguration> AgentConfigurations { get; set; }
     public DbSet<LicenseInfo> Licenses { get; set; }
     public DbSet<ModemConfiguration> ModemConfigurations { get; set; }
     public DbSet<DeviceSshConfiguration> DeviceSshConfigurations { get; set; }
@@ -46,6 +47,14 @@ public class NetworkOptimizerDbContext : DbContext
             entity.HasIndex(e => e.InterfaceId);
             entity.HasIndex(e => new { e.DeviceId, e.InterfaceId }).IsUnique();
             entity.HasIndex(e => e.BaselineStart);
+        });
+
+        // AgentConfiguration configuration
+        modelBuilder.Entity<AgentConfiguration>(entity =>
+        {
+            entity.ToTable("AgentConfigurations");
+            entity.HasIndex(e => e.IsEnabled);
+            entity.HasIndex(e => e.LastSeenAt);
         });
 
         // LicenseInfo configuration

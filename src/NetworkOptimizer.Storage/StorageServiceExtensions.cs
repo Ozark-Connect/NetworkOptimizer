@@ -61,6 +61,7 @@ public static class StorageServiceExtensions
         services.AddScoped<IModemRepository, ModemRepository>();
         services.AddScoped<ISpeedTestRepository, SpeedTestRepository>();
         services.AddScoped<ISqmRepository, SqmRepository>();
+        services.AddScoped<IAgentRepository, AgentRepository>();
 
         return services;
     }

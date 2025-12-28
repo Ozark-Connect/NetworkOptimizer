@@ -1,0 +1,175 @@
+#!/bin/bash
+#
+# Network Optimizer - UDM/UCG Metrics Collector
+#
+# Configuration
+AGENT_ID="{{ agent_id }}"
+DEVICE_NAME="{{ device_name }}"
+AGENT_TYPE="{{ agent_type }}"
+INFLUXDB_URL="{{ influxdb_url }}"
+INFLUXDB_ORG="{{ influxdb_org }}"
+INFLUXDB_BUCKET="{{ influxdb_bucket }}"
+INFLUXDB_TOKEN="{{ influxdb_token }}"
+COLLECTION_INTERVAL={{ collection_interval }}
+SPEEDTEST_INTERVAL={{ speedtest_interval }}
+
+# Paths
+LOG_DIR="/data/network-optimizer"
+LOG_FILE="$LOG_DIR/collector.log"
+LAST_SPEEDTEST_FILE="$LOG_DIR/last_speedtest"
+
+# Ensure log directory exists
+mkdir -p "$LOG_DIR"
+
+# Logging function
+log() {
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" >> "$LOG_FILE"
+}
+
+# Send metrics to InfluxDB
+send_metric() {
+    local measurement=$1
+    local tags=$2
+    local fields=$3
+    local timestamp=$(date +%s)000000000
+
+    local line_protocol="${measurement},agent_id=${AGENT_ID},device=${DEVICE_NAME},agent_type=${AGENT_TYPE}${tags} ${fields} ${timestamp}"
+
+    curl -s -X POST "${INFLUXDB_URL}/api/v2/write?org=${INFLUXDB_ORG}&bucket=${INFLUXDB_BUCKET}" \
+        -H "Authorization: Token ${INFLUXDB_TOKEN}" \
+        -H "Content-Type: text/plain" \
+        --data-binary "$line_protocol" >/dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        log "Sent metric: $measurement"
+    else
+        log "ERROR: Failed to send metric: $measurement"
+    fi
+}
+
+# Collect SQM metrics
+collect_sqm_metrics() {
+    # Check if SQM is enabled
+    if [ -f "/sys/class/net/ifb4eth2/statistics/rx_bytes" ]; then
+        local rx_bytes=$(cat /sys/class/net/ifb4eth2/statistics/rx_bytes 2>/dev/null || echo "0")
+        local tx_bytes=$(cat /sys/class/net/ifb4eth2/statistics/tx_bytes 2>/dev/null || echo "0")
+
+        # Get SQM stats from tc if available
+        local sqm_stats=$(tc -s qdisc show dev ifb4eth2 2>/dev/null)
+
+        send_metric "sqm_traffic" "" "rx_bytes=${rx_bytes}i,tx_bytes=${tx_bytes}i"
+    fi
+}
+
+# Collect WAN metrics
+collect_wan_metrics() {
+    # Get WAN interface (typically eth4 or pppoe0)
+    local wan_iface=$(ip route | grep default | awk '{print $5}' | head -1)
+
+    if [ -n "$wan_iface" ]; then
+        local rx_bytes=$(cat /sys/class/net/${wan_iface}/statistics/rx_bytes 2>/dev/null || echo "0")
+        local tx_bytes=$(cat /sys/class/net/${wan_iface}/statistics/tx_bytes 2>/dev/null || echo "0")
+        local rx_packets=$(cat /sys/class/net/${wan_iface}/statistics/rx_packets 2>/dev/null || echo "0")
+        local tx_packets=$(cat /sys/class/net/${wan_iface}/statistics/tx_packets 2>/dev/null || echo "0")
+        local rx_errors=$(cat /sys/class/net/${wan_iface}/statistics/rx_errors 2>/dev/null || echo "0")
+        local tx_errors=$(cat /sys/class/net/${wan_iface}/statistics/tx_errors 2>/dev/null || echo "0")
+
+        send_metric "wan_traffic" ",interface=${wan_iface}" "rx_bytes=${rx_bytes}i,tx_bytes=${tx_bytes}i,rx_packets=${rx_packets}i,tx_packets=${tx_packets}i,rx_errors=${rx_errors}i,tx_errors=${tx_errors}i"
+    fi
+}
+
+# Collect system metrics
+collect_system_metrics() {
+    # CPU usage
+    local cpu_usage=$(top -bn1 | grep "CPU:" | awk '{print $2}' | sed 's/%//')
+
+    # Memory usage
+    local mem_total=$(free | grep Mem | awk '{print $2}')
+    local mem_used=$(free | grep Mem | awk '{print $3}')
+    local mem_percent=$(awk "BEGIN {printf \"%.2f\", ($mem_used/$mem_total)*100}")
+
+    # Load average
+    local load_avg=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//')
+
+    send_metric "system_stats" "" "cpu_percent=${cpu_usage},memory_percent=${mem_percent},load_average=${load_avg},memory_total=${mem_total}i,memory_used=${mem_used}i"
+}
+
+# Run speedtest
+run_speedtest() {
+    log "Running speedtest..."
+
+    # Check if speedtest-cli is available
+    if ! command -v speedtest-cli &> /dev/null; then
+        log "WARNING: speedtest-cli not found, skipping speedtest"
+        return
+    fi
+
+    # Run speedtest and parse results
+    local speedtest_output=$(speedtest-cli --simple 2>/dev/null)
+
+    if [ $? -eq 0 ]; then
+        local ping=$(echo "$speedtest_output" | grep "Ping:" | awk '{print $2}')
+        local download=$(echo "$speedtest_output" | grep "Download:" | awk '{print $2}')
+        local upload=$(echo "$speedtest_output" | grep "Upload:" | awk '{print $2}')
+
+        # Convert to Mbps
+        download_mbps=$(awk "BEGIN {printf \"%.2f\", $download}")
+        upload_mbps=$(awk "BEGIN {printf \"%.2f\", $upload}")
+
+        send_metric "speedtest" "" "download_mbps=${download_mbps},upload_mbps=${upload_mbps},ping_ms=${ping}"
+
+        log "Speedtest complete: Down=${download_mbps}Mbps Up=${upload_mbps}Mbps Ping=${ping}ms"
+        echo "$(date +%s)" > "$LAST_SPEEDTEST_FILE"
+    else
+        log "ERROR: Speedtest failed"
+    fi
+}
+
+# Check if speedtest should run
+should_run_speedtest() {
+    if [ ! -f "$LAST_SPEEDTEST_FILE" ]; then
+        return 0  # Never run, so run now
+    fi
+
+    local last_run=$(cat "$LAST_SPEEDTEST_FILE")
+    local now=$(date +%s)
+    local elapsed=$((now - last_run))
+    local interval_seconds=$((SPEEDTEST_INTERVAL * 60))
+
+    if [ $elapsed -ge $interval_seconds ]; then
+        return 0  # Time to run
+    else
+        return 1  # Not yet
+    fi
+}
+
+# Send heartbeat
+send_heartbeat() {
+    send_metric "agent_heartbeat" "" "status=1i"
+}
+
+# Main collection loop
+log "Starting Network Optimizer metrics collector"
+log "Agent ID: $AGENT_ID"
+log "Device: $DEVICE_NAME"
+log "Collection interval: ${COLLECTION_INTERVAL}s"
+log "Speedtest interval: ${SPEEDTEST_INTERVAL}m"
+
+# Send initial heartbeat
+send_heartbeat
+
+while true; do
+    # Collect all metrics
+    collect_sqm_metrics
+    collect_wan_metrics
+    collect_system_metrics
+    send_heartbeat
+
+    # Run speedtest if it's time
+    if should_run_speedtest; then
+        run_speedtest
+    fi
+
+    # Wait for next collection
+    sleep $COLLECTION_INTERVAL
+done
