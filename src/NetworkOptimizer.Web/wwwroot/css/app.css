@@ -719,6 +719,11 @@ a:hover {
     gap: 0.5rem;
 }
 
+.sqm-status-icon {
+    width: 32px;
+    height: 32px;
+}
+
 .status-indicator {
     width: 12px;
     height: 12px;
