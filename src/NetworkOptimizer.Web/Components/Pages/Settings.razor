@@ -1900,16 +1900,33 @@
 
     private async Task SaveAdminPassword()
     {
-        // Validate password
-        if (string.IsNullOrEmpty(adminNewPassword) && adminPasswordEnabled)
+        // Validate - must enter a new password
+        if (string.IsNullOrEmpty(adminNewPassword))
         {
-            adminPasswordMessage = "Please enter a password to enable database authentication";
+            adminPasswordMessage = "Please enter a new password";
             adminPasswordMessageClass = "warning";
             StateHasChanged();
             return;
         }
 
-        if (!string.IsNullOrEmpty(adminNewPassword) && adminNewPassword != adminConfirmPassword)
+        // Password complexity: minimum 8 chars, at least one letter and one number
+        if (adminNewPassword.Length < 8)
+        {
+            adminPasswordMessage = "Password must be at least 8 characters";
+            adminPasswordMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        if (!adminNewPassword.Any(char.IsLetter) || !adminNewPassword.Any(char.IsDigit))
+        {
+            adminPasswordMessage = "Password must contain at least one letter and one number";
+            adminPasswordMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        if (adminNewPassword != adminConfirmPassword)
         {
             adminPasswordMessage = "Passwords do not match";
             adminPasswordMessageClass = "danger";
