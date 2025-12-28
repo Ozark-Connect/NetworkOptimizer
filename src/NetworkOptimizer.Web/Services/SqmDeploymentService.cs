@@ -483,7 +483,63 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
-    /// Trigger a speedtest on the gateway
+    /// Trigger the SQM adjustment speedtest script on the gateway
+    /// This runs the deployed script which does baseline blending and TC adjustment
+    /// </summary>
+    public async Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName)
+    {
+        var settings = await GetGatewaySettingsAsync();
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return (false, "Gateway SSH not configured");
+        }
+
+        var device = new DeviceSshConfiguration
+        {
+            Host = settings.Host,
+            SshUsername = settings.Username,
+            SshPassword = settings.Password,
+            SshPrivateKeyPath = settings.PrivateKeyPath
+        };
+
+        try
+        {
+            // Normalize wan name for script path (lowercase, replace spaces with dashes)
+            var scriptName = wanName.ToLowerInvariant().Replace(" ", "-");
+            var scriptPath = $"/data/sqm/{scriptName}-speedtest.sh";
+
+            _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
+
+            // Check if script exists
+            var checkResult = await _sshService.RunCommandWithDeviceAsync(device, $"test -f {scriptPath} && echo 'exists'");
+            if (!checkResult.success || !checkResult.output.Contains("exists"))
+            {
+                return (false, $"SQM script not found: {scriptPath}");
+            }
+
+            // Run the script (speedtest can take up to 60 seconds)
+            var result = await _sshService.RunCommandWithDeviceAsync(device, scriptPath);
+
+            if (result.success)
+            {
+                _logger.LogInformation("SQM adjustment completed for {Wan}", wanName);
+                return (true, "SQM adjustment completed successfully");
+            }
+            else
+            {
+                _logger.LogWarning("SQM adjustment script returned error: {Output}", result.output);
+                return (false, $"Script error: {result.output}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to trigger SQM adjustment for {Wan}", wanName);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment)
     /// </summary>
     public async Task<SpeedtestResult?> RunSpeedtestAsync(SqmConfig config)
     {
