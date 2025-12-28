@@ -3,6 +3,7 @@
 @inject SqmDeploymentService DeploymentService
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
+@inject TcMonitorClient SqmMonitorClient
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
@@ -71,7 +72,7 @@
                         </div>
                     </div>
                     <div class="metric">
-                        <div class="metric-label">TC Monitor</div>
+                        <div class="metric-label">SQM Monitor</div>
                         <div class="metric-value">
                             <span class="status-indicator @(deploymentStatus?.TcMonitorRunning == true ? "status-active" : "status-inactive")"></span>
                             @(deploymentStatus?.TcMonitorRunning == true ? "Running" : "Stopped")
@@ -103,90 +104,126 @@
                 }
             </div>
 
-            @if (tcInterfaces?.Any() == true)
+        </div>
+    </div>
+
+    <!-- SQM Live Status Dashboard -->
+    @if (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true))
+    {
+        <div class="sqm-live-dashboard">
+            @if (sqmMonitorData.Wan1?.Active == true)
             {
-                <div class="tc-rates-panel" style="margin-top: 1rem;">
-                    <h4>Current SQM Rates</h4>
-                    <div class="tc-rates">
-                        @foreach (var iface in tcInterfaces)
+                <div class="wan-status-card">
+                    <div class="wan-status-header">
+                        <div class="wan-status-title">
+                            <span class="wan-status-indicator active"></span>
+                            <span class="wan-status-name">@sqmMonitorData.Wan1.Name</span>
+                        </div>
+                        <span class="wan-status-interface">@sqmMonitorData.Wan1.Interface</span>
+                    </div>
+                    <div class="wan-status-rate">
+                        <span class="rate-value">@sqmMonitorData.Wan1.EffectiveRateMbps.ToString("F0")</span>
+                        <span class="rate-unit">Mbps</span>
+                    </div>
+                    <div class="wan-status-details">
+                        @if (sqmMonitorData.Wan1.LastSpeedtest != null)
                         {
-                            <div class="tc-rate-item">
-                                <span class="tc-name">@iface.Name</span>
-                                <span class="tc-interface">(@iface.Interface)</span>
-                                <span class="tc-rate">@iface.RateMbps Mbps</span>
+                            <div class="detail-section">
+                                <div class="detail-header">Last Speedtest</div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Measured</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.MeasuredMbps Mbps</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Adjusted</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.AdjustedMbps Mbps</span>
+                                </div>
+                                @if (!string.IsNullOrEmpty(sqmMonitorData.Wan1.LastSpeedtest.Timestamp))
+                                {
+                                    <div class="detail-time">@sqmMonitorData.Wan1.LastSpeedtest.Timestamp</div>
+                                }
+                            </div>
+                        }
+                        @if (sqmMonitorData.Wan1.LastPing != null)
+                        {
+                            <div class="detail-section">
+                                <div class="detail-header">Last Ping Adjustment</div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Latency</span>
+                                    <span class="detail-value @(sqmMonitorData.Wan1.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan1.LastPing.LatencyMs.ToString("F1") ms</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Rate</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastPing.RateMbps Mbps</span>
+                                </div>
+                            </div>
+                        }
+                        @if (sqmMonitorData.Wan1.BaselineMbps > 0)
+                        {
+                            <div class="baseline-info">
+                                Baseline: @sqmMonitorData.Wan1.BaselineMbps Mbps
                             </div>
                         }
                     </div>
                 </div>
             }
-        </div>
-    </div>
 
-    <!-- SQM Dashboard (shows when deployed) -->
-    @if (sqmWanStatuses.Any())
-    {
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">SQM Dashboard</h2>
-                <button class="btn btn-sm btn-secondary" @onclick="RefreshSqmStatus" disabled="@isRefreshingSqmStatus">
-                    @if (isRefreshingSqmStatus)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
-            </div>
-            <div class="card-body">
-                <div class="sqm-dashboard">
-                    @foreach (var wan in sqmWanStatuses)
-                    {
-                        <div class="sqm-wan-card">
-                            <div class="wan-header">
-                                <span class="wan-name">@wan.Name</span>
-                                <span class="wan-rate">@wan.CurrentRateMbps Mbps</span>
-                            </div>
-                            <div class="wan-stats">
-                                @if (wan.LastSpeedtest.HasValue)
-                                {
-                                    <div class="stat-row">
-                                        <span class="stat-label">Last Speedtest:</span>
-                                        <span class="stat-value">@wan.LastSpeedtest.Value.ToString("MMM dd HH:mm")</span>
-                                    </div>
-                                    <div class="stat-row">
-                                        <span class="stat-label">Measured:</span>
-                                        <span class="stat-value">@wan.LastSpeedtestMeasured Mbps</span>
-                                    </div>
-                                    <div class="stat-row">
-                                        <span class="stat-label">Adjusted:</span>
-                                        <span class="stat-value">@wan.LastSpeedtestAdjusted Mbps</span>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="stat-row">
-                                        <span class="stat-label">Last Speedtest:</span>
-                                        <span class="stat-value text-muted">No data</span>
-                                    </div>
-                                }
-                                @if (wan.LastPingAdjustment.HasValue)
-                                {
-                                    <div class="stat-row">
-                                        <span class="stat-label">Last Ping:</span>
-                                        <span class="stat-value">@wan.LastPingAdjustment.Value.ToString("HH:mm")</span>
-                                    </div>
-                                    <div class="stat-row">
-                                        <span class="stat-label">Latency:</span>
-                                        <span class="stat-value">@wan.LastLatencyMs?.ToString("F1") ms</span>
-                                    </div>
-                                }
-                            </div>
+            @if (sqmMonitorData.Wan2?.Active == true)
+            {
+                <div class="wan-status-card">
+                    <div class="wan-status-header">
+                        <div class="wan-status-title">
+                            <span class="wan-status-indicator active"></span>
+                            <span class="wan-status-name">@sqmMonitorData.Wan2.Name</span>
                         </div>
-                    }
+                        <span class="wan-status-interface">@sqmMonitorData.Wan2.Interface</span>
+                    </div>
+                    <div class="wan-status-rate">
+                        <span class="rate-value">@sqmMonitorData.Wan2.EffectiveRateMbps.ToString("F0")</span>
+                        <span class="rate-unit">Mbps</span>
+                    </div>
+                    <div class="wan-status-details">
+                        @if (sqmMonitorData.Wan2.LastSpeedtest != null)
+                        {
+                            <div class="detail-section">
+                                <div class="detail-header">Last Speedtest</div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Measured</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.MeasuredMbps Mbps</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Adjusted</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.AdjustedMbps Mbps</span>
+                                </div>
+                                @if (!string.IsNullOrEmpty(sqmMonitorData.Wan2.LastSpeedtest.Timestamp))
+                                {
+                                    <div class="detail-time">@sqmMonitorData.Wan2.LastSpeedtest.Timestamp</div>
+                                }
+                            </div>
+                        }
+                        @if (sqmMonitorData.Wan2.LastPing != null)
+                        {
+                            <div class="detail-section">
+                                <div class="detail-header">Last Ping Adjustment</div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Latency</span>
+                                    <span class="detail-value @(sqmMonitorData.Wan2.LastPing.LatencyMs > 50 ? "text-warning" : "")">@sqmMonitorData.Wan2.LastPing.LatencyMs.ToString("F1") ms</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Rate</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastPing.RateMbps Mbps</span>
+                                </div>
+                            </div>
+                        }
+                        @if (sqmMonitorData.Wan2.BaselineMbps > 0)
+                        {
+                            <div class="baseline-info">
+                                Baseline: @sqmMonitorData.Wan2.BaselineMbps Mbps
+                            </div>
+                        }
+                    </div>
                 </div>
-            </div>
+            }
         </div>
     }
 
@@ -412,7 +449,7 @@
                     }
                 </button>
                 <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@isDeploying">
-                    Deploy TC Monitor Only
+                    Deploy SQM Monitor Only
                 </button>
                 <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
                     Remove SQM
@@ -679,58 +716,142 @@
         color: var(--text-secondary);
     }
 
-    /* SQM Dashboard styles */
-    .sqm-dashboard {
+    /* SQM Live Dashboard */
+    .sqm-live-dashboard {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
     }
 
-    .sqm-wan-card {
-        background: var(--surface-secondary);
-        border-radius: 0.5rem;
-        padding: 1rem;
+    .wan-status-card {
+        background: linear-gradient(135deg, var(--surface) 0%, var(--surface-secondary) 100%);
+        border: 1px solid var(--border-color);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     }
 
-    .wan-header {
+    .wan-status-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 0.75rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 1rem;
     }
 
-    .wan-name {
-        font-weight: 600;
-        font-size: 1.1rem;
+    .wan-status-title {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
 
-    .wan-rate {
-        font-family: var(--font-mono);
+    .wan-status-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--text-secondary);
+    }
+
+    .wan-status-indicator.active {
+        background: #10b981;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    }
+
+    .wan-status-name {
         font-size: 1.25rem;
-        color: var(--primary);
         font-weight: 600;
+        color: var(--text-primary);
     }
 
-    .wan-stats {
+    .wan-status-interface {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+    }
+
+    .wan-status-rate {
+        text-align: center;
+        padding: 1.5rem 0;
+        border-top: 1px solid var(--border-color);
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 1rem;
+    }
+
+    .rate-value {
+        font-size: 3rem;
+        font-weight: 700;
+        font-family: var(--font-mono);
+        background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        line-height: 1;
+    }
+
+    .rate-unit {
+        display: block;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .wan-status-details {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
+        gap: 1rem;
     }
 
-    .stat-row {
+    .detail-section {
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+
+    .detail-header {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--text-secondary);
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+    }
+
+    .detail-row {
         display: flex;
         justify-content: space-between;
+        align-items: center;
+        padding: 0.25rem 0;
+    }
+
+    .detail-label {
+        color: var(--text-secondary);
         font-size: 0.9rem;
     }
 
-    .stat-label {
-        color: var(--text-secondary);
+    .detail-value {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        color: var(--text-primary);
     }
 
-    .stat-value {
+    .detail-time {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-top: 0.5rem;
         font-family: var(--font-mono);
+    }
+
+    .baseline-info {
+        text-align: center;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        padding-top: 0.5rem;
+    }
+
+    .text-warning {
+        color: #f59e0b;
     }
 
     .text-muted {
@@ -791,9 +912,8 @@
     // Speedtest history
     private List<Services.SpeedtestResult> speedtestHistory = new();
 
-    // SQM Dashboard state
-    private List<SqmWanStatus> sqmWanStatuses = new();
-    private bool isRefreshingSqmStatus = false;
+    // SQM Monitor data (from HTTP endpoint)
+    private TcMonitorResponse? sqmMonitorData;
 
     protected override void OnInitialized()
     {
@@ -990,13 +1110,12 @@
                 // Check deployment status
                 deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
 
-                // Get TC interface stats
-                tcInterfaces = await SqmService.GetTcInterfaceStatsAsync();
-
-                // Load SQM dashboard status if deployed
-                if (deploymentStatus?.IsDeployed == true)
+                // Load SQM Monitor data (includes TC rates, speedtest, ping data)
+                var gatewayHost = await GetGatewayHostAsync();
+                if (!string.IsNullOrEmpty(gatewayHost))
                 {
-                    sqmWanStatuses = await DeploymentService.GetSqmWanStatusAsync();
+                    sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                    tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                 }
 
                 // Get WAN interfaces from controller
@@ -1134,20 +1253,20 @@
                 }
             }
 
-            // Deploy TC Monitor
+            // Deploy SQM Monitor
             if (wan1Config.Enabled || wan2Config.Enabled)
             {
-                deploymentSteps.Add("Deploying TC Monitor...");
+                deploymentSteps.Add("Deploying SQM Monitor...");
                 StateHasChanged();
 
                 var w1 = wan1Config.Enabled ? wan1Config : wan2Config;
                 var w2 = wan2Config.Enabled ? wan2Config : wan1Config;
 
-                await DeploymentService.DeployTcMonitorAsync(
+                await DeploymentService.DeploySqmMonitorAsync(
                     $"ifb{w1.Interface}", w1.Name,
                     $"ifb{w2.Interface}", w2.Name);
 
-                deploymentSteps.Add("TC Monitor deployed");
+                deploymentSteps.Add("SQM Monitor deployed");
             }
 
             statusMessage = "SQM deployment completed successfully!";
@@ -1178,24 +1297,24 @@
 
         try
         {
-            deploymentSteps.Add("Deploying TC Monitor...");
+            deploymentSteps.Add("Deploying SQM Monitor...");
             StateHasChanged();
 
-            var success = await DeploymentService.DeployTcMonitorAsync(
+            var success = await DeploymentService.DeploySqmMonitorAsync(
                 $"ifb{wan1Config.Interface}", wan1Config.Name,
                 $"ifb{wan2Config.Interface}", wan2Config.Name);
 
             if (success)
             {
-                deploymentSteps.Add("TC Monitor deployed successfully");
-                statusMessage = "TC Monitor deployed!";
+                deploymentSteps.Add("SQM Monitor deployed successfully");
+                statusMessage = "SQM Monitor deployed!";
                 statusSuccess = true;
                 InvalidateCache();
                 await RefreshStatus();
             }
             else
             {
-                statusMessage = "TC Monitor deployment failed";
+                statusMessage = "SQM Monitor deployment failed";
                 statusSuccess = false;
             }
         }
@@ -1216,7 +1335,7 @@
         isDeploying = true;
         statusMessage = null;
         deploymentSteps.Clear();
-        deploymentSteps.Add("Removing SQM and TC Monitor...");
+        deploymentSteps.Add("Removing SQM and SQM Monitor...");
         StateHasChanged();
 
         try
@@ -1227,7 +1346,7 @@
 
             if (success)
             {
-                statusMessage = "SQM and TC Monitor removed successfully";
+                statusMessage = "SQM and SQM Monitor removed successfully";
                 statusSuccess = true;
                 InvalidateCache();
                 await RefreshStatus();
@@ -1312,26 +1431,16 @@
         statusSuccess = success;
     }
 
-    private async Task RefreshSqmStatus()
+    private async Task<string?> GetGatewayHostAsync()
     {
-        if (isRefreshingSqmStatus) return;
-
-        isRefreshingSqmStatus = true;
-        StateHasChanged();
-
         try
         {
-            sqmWanStatuses = await DeploymentService.GetSqmWanStatusAsync();
+            var settings = await SpeedTestRepository.GetGatewaySshSettingsAsync();
+            return settings?.Host;
         }
         catch
         {
-            // Silently fail - dashboard just won't show
-            sqmWanStatuses = new();
-        }
-        finally
-        {
-            isRefreshingSqmStatus = false;
-            StateHasChanged();
+            return null;
         }
     }
 

@@ -117,7 +117,7 @@ public class TcMonitorResponse
     public TcWanStats? Wan2 { get; set; }
 
     /// <summary>
-    /// Get all interfaces, converting from legacy format if needed
+    /// Get all interfaces, converting from wan1/wan2 format
     /// </summary>
     public List<TcInterfaceStats> GetAllInterfaces()
     {
@@ -125,7 +125,7 @@ public class TcMonitorResponse
         if (Interfaces != null && Interfaces.Count > 0)
             return Interfaces;
 
-        // Otherwise, convert from legacy wan1/wan2 format
+        // Otherwise, convert from wan1/wan2 format
         var result = new List<TcInterfaceStats>();
 
         if (Wan1 != null)
@@ -134,9 +134,9 @@ public class TcMonitorResponse
             {
                 Name = Wan1.Name,
                 Interface = Wan1.Interface,
-                RateMbps = Wan1.RateMbps,
+                RateMbps = Wan1.EffectiveRateMbps,
                 RateRaw = Wan1.RateRaw,
-                Status = Wan1.RateMbps > 0 ? "active" : "inactive"
+                Status = Wan1.Active ? "active" : (Wan1.EffectiveRateMbps > 0 ? "active" : "inactive")
             });
         }
 
@@ -146,9 +146,9 @@ public class TcMonitorResponse
             {
                 Name = Wan2.Name,
                 Interface = Wan2.Interface,
-                RateMbps = Wan2.RateMbps,
+                RateMbps = Wan2.EffectiveRateMbps,
                 RateRaw = Wan2.RateRaw,
-                Status = Wan2.RateMbps > 0 ? "active" : "inactive"
+                Status = Wan2.Active ? "active" : (Wan2.EffectiveRateMbps > 0 ? "active" : "inactive")
             });
         }
 
@@ -178,7 +178,7 @@ public class TcInterfaceStats
 }
 
 /// <summary>
-/// Legacy WAN stats format (for backwards compatibility)
+/// WAN stats from SQM Monitor (includes speedtest/ping data)
 /// </summary>
 public class TcWanStats
 {
@@ -188,9 +188,61 @@ public class TcWanStats
     [JsonPropertyName("interface")]
     public string Interface { get; set; } = "";
 
+    [JsonPropertyName("active")]
+    public bool Active { get; set; }
+
+    // New SQM Monitor format
+    [JsonPropertyName("current_rate_mbps")]
+    public double CurrentRateMbps { get; set; }
+
+    [JsonPropertyName("baseline_mbps")]
+    public double BaselineMbps { get; set; }
+
+    [JsonPropertyName("last_speedtest")]
+    public SqmSpeedtestData? LastSpeedtest { get; set; }
+
+    [JsonPropertyName("last_ping")]
+    public SqmPingData? LastPing { get; set; }
+
+    // Legacy format (for backwards compatibility with old tc-monitor)
     [JsonPropertyName("rate_mbps")]
     public double RateMbps { get; set; }
 
     [JsonPropertyName("rate_raw")]
     public string? RateRaw { get; set; }
+
+    /// <summary>
+    /// Get the effective rate (prefers new format, falls back to legacy)
+    /// </summary>
+    public double EffectiveRateMbps => CurrentRateMbps > 0 ? CurrentRateMbps : RateMbps;
+}
+
+/// <summary>
+/// Speedtest data from SQM logs
+/// </summary>
+public class SqmSpeedtestData
+{
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
+
+    [JsonPropertyName("measured_mbps")]
+    public double MeasuredMbps { get; set; }
+
+    [JsonPropertyName("adjusted_mbps")]
+    public double AdjustedMbps { get; set; }
+}
+
+/// <summary>
+/// Ping adjustment data from SQM logs
+/// </summary>
+public class SqmPingData
+{
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
+
+    [JsonPropertyName("rate_mbps")]
+    public double RateMbps { get; set; }
+
+    [JsonPropertyName("latency_ms")]
+    public double LatencyMs { get; set; }
 }

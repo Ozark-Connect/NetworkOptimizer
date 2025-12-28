@@ -199,15 +199,15 @@ echo 'udm-boot installed successfully'
                 status.SpeedtestScriptDeployed = status.SpeedtestScriptDeployed || sqmScriptCount > 0;
             }
 
-            // Check for tc-monitor
-            var tcMonitorCheck = await _sshService.RunCommandWithDeviceAsync(device,
-                $"test -f {OnBootDir}/20-tc-monitor.sh && echo 'exists' || echo 'missing'");
-            status.TcMonitorDeployed = tcMonitorCheck.success && tcMonitorCheck.output.Contains("exists");
+            // Check for SQM Monitor (check both new sqm-monitor and old tc-monitor)
+            var sqmMonitorCheck = await _sshService.RunCommandWithDeviceAsync(device,
+                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || (test -f {OnBootDir}/20-tc-monitor.sh && echo 'exists' || echo 'missing')");
+            status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
 
-            // Check if tc-monitor is running
-            var tcMonitorRunning = await _sshService.RunCommandWithDeviceAsync(device,
-                "systemctl is-active tc-monitor 2>/dev/null || echo 'inactive'");
-            status.TcMonitorRunning = tcMonitorRunning.success && tcMonitorRunning.output.Trim() == "active";
+            // Check if SQM Monitor is running (check both new sqm-monitor and old tc-monitor)
+            var sqmMonitorRunning = await _sshService.RunCommandWithDeviceAsync(device,
+                "systemctl is-active sqm-monitor 2>/dev/null || systemctl is-active tc-monitor 2>/dev/null || echo 'inactive'");
+            status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
             // Check for cron jobs
             var cronCheck = await _sshService.RunCommandWithDeviceAsync(device,
@@ -357,9 +357,10 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
-    /// Deploy TC Monitor script. Uses TcMonitorPort from gateway settings.
+    /// Deploy SQM Monitor script. Uses TcMonitorPort from gateway settings.
+    /// Exposes all SQM data (TC rates, speedtest results, ping data) via HTTP.
     /// </summary>
-    public async Task<bool> DeployTcMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
+    public async Task<bool> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
     {
         var settings = await GetGatewaySettingsAsync();
         if (settings == null || string.IsNullOrEmpty(settings.Host))
@@ -378,30 +379,30 @@ echo 'udm-boot installed successfully'
 
         try
         {
-            // Generate tc-monitor script content using port from settings
-            var tcMonitorScript = GenerateTcMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
+            // Generate SQM monitor script content using port from settings
+            var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync(device, "20-tc-monitor.sh", tcMonitorScript);
+            var success = await DeployScriptAsync(device, "20-sqm-monitor.sh", sqmMonitorScript);
             if (!success)
             {
                 return false;
             }
 
-            // Run the script to set up tc-monitor
+            // Run the script to set up SQM monitor (also cleans up old tc-monitor)
             var runResult = await _sshService.RunCommandWithDeviceAsync(device,
-                $"{OnBootDir}/20-tc-monitor.sh");
+                $"{OnBootDir}/20-sqm-monitor.sh");
 
             if (!runResult.success)
             {
-                _logger.LogWarning("TC Monitor setup returned: {Output}", runResult.output);
+                _logger.LogWarning("SQM Monitor setup returned: {Output}", runResult.output);
             }
 
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deploy TC Monitor");
+            _logger.LogError(ex, "Failed to deploy SQM Monitor");
             return false;
         }
     }
@@ -451,20 +452,22 @@ echo 'udm-boot installed successfully'
             await _sshService.RunCommandWithDeviceAsync(device,
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
-            // Remove TC Monitor if requested
+            // Remove SQM Monitor if requested (handles both old tc-monitor and new sqm-monitor)
             if (includeTcMonitor)
             {
-                steps.Add("Stopping TC Monitor service...");
+                steps.Add("Stopping SQM Monitor service...");
+                // Stop both old and new services
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "systemctl stop tc-monitor 2>/dev/null; systemctl disable tc-monitor 2>/dev/null");
+                    "systemctl stop sqm-monitor tc-monitor 2>/dev/null; systemctl disable sqm-monitor tc-monitor 2>/dev/null");
 
-                steps.Add("Removing TC Monitor...");
+                steps.Add("Removing SQM Monitor...");
+                // Remove both old and new boot scripts and directories
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    $"rm -f {OnBootDir}/20-tc-monitor.sh");
+                    $"rm -f {OnBootDir}/20-sqm-monitor.sh {OnBootDir}/20-tc-monitor.sh");
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    $"rm -rf {TcMonitorDir}");
+                    $"rm -rf /data/sqm-monitor {TcMonitorDir}");
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "rm -f /etc/systemd/system/tc-monitor.service && systemctl daemon-reload");
+                    "rm -f /etc/systemd/system/sqm-monitor.service /etc/systemd/system/tc-monitor.service && systemctl daemon-reload");
             }
 
             steps.Add("SQM removal complete");
@@ -697,38 +700,49 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
-    /// Generate TC Monitor script content
+    /// Generate SQM Monitor script content - exposes all SQM data via HTTP
     /// </summary>
-    private string GenerateTcMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
+    private string GenerateSqmMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
     {
+        // Normalize names for log file lookup (lowercase, dashes for spaces)
+        var wan1LogName = wan1Name.ToLowerInvariant().Replace(" ", "-");
+        var wan2LogName = wan2Name.ToLowerInvariant().Replace(" ", "-");
+
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/sh");
-        sb.AppendLine("# UniFi on_boot.d script for TC Monitor");
+        sb.AppendLine("# UniFi on_boot.d script for SQM Monitor");
         sb.AppendLine("# Auto-generated by Network Optimizer");
+        sb.AppendLine("# Exposes SQM status, TC rates, and speedtest/ping data via HTTP");
         sb.AppendLine();
-        sb.AppendLine("TC_MONITOR_DIR=\"/data/tc-monitor\"");
-        sb.AppendLine("LOG_FILE=\"/var/log/tc-monitor.log\"");
-        sb.AppendLine("SERVICE_NAME=\"tc-monitor\"");
+        sb.AppendLine("SQM_MONITOR_DIR=\"/data/sqm-monitor\"");
+        sb.AppendLine("LOG_FILE=\"/var/log/sqm-monitor.log\"");
+        sb.AppendLine("SERVICE_NAME=\"sqm-monitor\"");
         sb.AppendLine("SERVICE_FILE=\"/etc/systemd/system/${SERVICE_NAME}.service\"");
         sb.AppendLine($"PORT=\"{port}\"");
         sb.AppendLine();
-        sb.AppendLine("echo \"$(date): Setting up TC Monitor systemd service...\" >> \"$LOG_FILE\"");
+        sb.AppendLine("echo \"$(date): Setting up SQM Monitor systemd service...\" >> \"$LOG_FILE\"");
         sb.AppendLine();
-        sb.AppendLine("mkdir -p \"$TC_MONITOR_DIR\"");
+        sb.AppendLine("mkdir -p \"$SQM_MONITOR_DIR\"");
         sb.AppendLine();
-        sb.AppendLine("# Create the TC monitor handler script");
-        sb.AppendLine("cat > \"$TC_MONITOR_DIR/tc-monitor.sh\" << 'HANDLER_EOF'");
+        sb.AppendLine("# Create the SQM monitor handler script");
+        sb.AppendLine("cat > \"$SQM_MONITOR_DIR/sqm-monitor.sh\" << 'HANDLER_EOF'");
         sb.AppendLine("#!/bin/sh");
+        sb.AppendLine();
+        sb.AppendLine("# WAN Configuration");
         sb.AppendLine($"WAN1_INTERFACE=\"{wan1Interface}\"");
         sb.AppendLine($"WAN1_NAME=\"{wan1Name}\"");
+        sb.AppendLine($"WAN1_LOG_NAME=\"{wan1LogName}\"");
         sb.AppendLine($"WAN2_INTERFACE=\"{wan2Interface}\"");
         sb.AppendLine($"WAN2_NAME=\"{wan2Name}\"");
+        sb.AppendLine($"WAN2_LOG_NAME=\"{wan2LogName}\"");
         sb.AppendLine();
+        sb.AppendLine("# Get current TC rate for an interface");
         sb.AppendLine("get_tc_rate() {");
         sb.AppendLine("    local interface=$1");
         sb.AppendLine("    tc class show dev \"$interface\" 2>/dev/null | grep \"class htb 1:1 root\" | grep -o 'rate [0-9.]*[MGK]bit' | head -n1 | awk '{print $2}'");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("# Convert rate to Mbps");
         sb.AppendLine("rate_to_mbps() {");
         sb.AppendLine("    local rate=$1");
         sb.AppendLine("    if echo \"$rate\" | grep -q \"Mbit\"; then");
@@ -742,37 +756,122 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("    fi");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("# Get last speedtest data from log");
+        sb.AppendLine("get_speedtest_data() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ ! -f \"$log_file\" ]; then");
+        sb.AppendLine("        echo 'null'");
+        sb.AppendLine("        return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Find last speedtest entry (look for \"Measured:\" line)");
+        sb.AppendLine("    local measured_line=$(grep 'Measured:' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local adjusted_line=$(grep 'Adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ -z \"$measured_line\" ]; then");
+        sb.AppendLine("        echo 'null'");
+        sb.AppendLine("        return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Extract timestamp, measured, adjusted");
+        sb.AppendLine("    local ts=$(echo \"$measured_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
+        sb.AppendLine("    local measured=$(echo \"$measured_line\" | grep -oE 'Measured: [0-9]+' | awk '{print $2}')");
+        sb.AppendLine("    local adjusted=$(echo \"$adjusted_line\" | grep -oE 'Adjusted to [0-9]+' | awk '{print $3}')");
+        sb.AppendLine("    ");
+        sb.AppendLine("    echo \"{\\\"timestamp\\\": \\\"$ts\\\", \\\"measured_mbps\\\": ${measured:-0}, \\\"adjusted_mbps\\\": ${adjusted:-0}}\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("# Get last ping adjustment data from log");
+        sb.AppendLine("get_ping_data() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ ! -f \"$log_file\" ]; then");
+        sb.AppendLine("        echo 'null'");
+        sb.AppendLine("        return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Find last ping adjustment entry");
+        sb.AppendLine("    local ping_line=$(grep 'Ping adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ -z \"$ping_line\" ]; then");
+        sb.AppendLine("        echo 'null'");
+        sb.AppendLine("        return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Extract timestamp, rate, latency");
+        sb.AppendLine("    local ts=$(echo \"$ping_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
+        sb.AppendLine("    local rate=$(echo \"$ping_line\" | grep -oE 'Ping adjusted to [0-9.]+' | awk '{print $4}')");
+        sb.AppendLine("    local latency=$(echo \"$ping_line\" | grep -oE 'latency: [0-9.]+' | awk '{print $2}')");
+        sb.AppendLine("    ");
+        sb.AppendLine("    echo \"{\\\"timestamp\\\": \\\"$ts\\\", \\\"rate_mbps\\\": ${rate:-0}, \\\"latency_ms\\\": ${latency:-0}}\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("# Get baseline rate from result file");
+        sb.AppendLine("get_baseline() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local result_file=\"/data/sqm/${log_name}-result.txt\"");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ -f \"$result_file\" ]; then");
+        sb.AppendLine("        grep -oE '[0-9]+' \"$result_file\" | head -1");
+        sb.AppendLine("    else");
+        sb.AppendLine("        echo \"0\"");
+        sb.AppendLine("    fi");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("# Collect all data");
         sb.AppendLine("wan1_rate=$(get_tc_rate \"$WAN1_INTERFACE\")");
         sb.AppendLine("wan2_rate=$(get_tc_rate \"$WAN2_INTERFACE\")");
         sb.AppendLine("wan1_mbps=$(rate_to_mbps \"$wan1_rate\")");
         sb.AppendLine("wan2_mbps=$(rate_to_mbps \"$wan2_rate\")");
+        sb.AppendLine("wan1_baseline=$(get_baseline \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_baseline=$(get_baseline \"$WAN2_LOG_NAME\")");
+        sb.AppendLine("wan1_speedtest=$(get_speedtest_data \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_speedtest=$(get_speedtest_data \"$WAN2_LOG_NAME\")");
+        sb.AppendLine("wan1_ping=$(get_ping_data \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_ping=$(get_ping_data \"$WAN2_LOG_NAME\")");
         sb.AppendLine("timestamp=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")");
         sb.AppendLine();
+        sb.AppendLine("# Check if SQM is active (has TC rules)");
+        sb.AppendLine("wan1_active=\"false\"");
+        sb.AppendLine("wan2_active=\"false\"");
+        sb.AppendLine("[ -n \"$wan1_rate\" ] && wan1_active=\"true\"");
+        sb.AppendLine("[ -n \"$wan2_rate\" ] && wan2_active=\"true\"");
+        sb.AppendLine();
+        sb.AppendLine("# Output JSON");
         sb.AppendLine("cat <<EOF");
         sb.AppendLine("{");
         sb.AppendLine("  \"timestamp\": \"$timestamp\",");
         sb.AppendLine("  \"wan1\": {");
         sb.AppendLine("    \"name\": \"$WAN1_NAME\",");
         sb.AppendLine("    \"interface\": \"$WAN1_INTERFACE\",");
-        sb.AppendLine("    \"rate_mbps\": $wan1_mbps,");
-        sb.AppendLine("    \"rate_raw\": \"$wan1_rate\"");
+        sb.AppendLine("    \"active\": $wan1_active,");
+        sb.AppendLine("    \"current_rate_mbps\": ${wan1_mbps:-0},");
+        sb.AppendLine("    \"baseline_mbps\": ${wan1_baseline:-0},");
+        sb.AppendLine("    \"last_speedtest\": $wan1_speedtest,");
+        sb.AppendLine("    \"last_ping\": $wan1_ping");
         sb.AppendLine("  },");
         sb.AppendLine("  \"wan2\": {");
         sb.AppendLine("    \"name\": \"$WAN2_NAME\",");
         sb.AppendLine("    \"interface\": \"$WAN2_INTERFACE\",");
-        sb.AppendLine("    \"rate_mbps\": $wan2_mbps,");
-        sb.AppendLine("    \"rate_raw\": \"$wan2_rate\"");
+        sb.AppendLine("    \"active\": $wan2_active,");
+        sb.AppendLine("    \"current_rate_mbps\": ${wan2_mbps:-0},");
+        sb.AppendLine("    \"baseline_mbps\": ${wan2_baseline:-0},");
+        sb.AppendLine("    \"last_speedtest\": $wan2_speedtest,");
+        sb.AppendLine("    \"last_ping\": $wan2_ping");
         sb.AppendLine("  }");
         sb.AppendLine("}");
         sb.AppendLine("EOF");
         sb.AppendLine("HANDLER_EOF");
         sb.AppendLine();
-        sb.AppendLine("chmod +x \"$TC_MONITOR_DIR/tc-monitor.sh\"");
+        sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-monitor.sh\"");
         sb.AppendLine();
         sb.AppendLine("# Create HTTP server script");
-        sb.AppendLine("cat > \"$TC_MONITOR_DIR/tc-server-nc.sh\" << 'SERVER_EOF'");
+        sb.AppendLine("cat > \"$SQM_MONITOR_DIR/sqm-server.sh\" << 'SERVER_EOF'");
         sb.AppendLine("#!/bin/sh");
-        sb.AppendLine($"PORT=\"${{TC_MONITOR_PORT:-{port}}}\"");
+        sb.AppendLine($"PORT=\"${{SQM_MONITOR_PORT:-{port}}}\"");
         sb.AppendLine("SCRIPT_DIR=\"$(dirname \"$(readlink -f \"$0\")\")\"");
         sb.AppendLine();
         sb.AppendLine("while true; do");
@@ -781,42 +880,48 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("        echo \"Content-Type: application/json\"");
         sb.AppendLine("        echo \"Access-Control-Allow-Origin: *\"");
         sb.AppendLine("        echo \"\"");
-        sb.AppendLine("        \"$SCRIPT_DIR/tc-monitor.sh\"");
+        sb.AppendLine("        \"$SCRIPT_DIR/sqm-monitor.sh\"");
         sb.AppendLine("    } | nc -l -p \"$PORT\" -q 1 > /dev/null 2>&1");
         sb.AppendLine("    sleep 0.1");
         sb.AppendLine("done");
         sb.AppendLine("SERVER_EOF");
         sb.AppendLine();
-        sb.AppendLine("chmod +x \"$TC_MONITOR_DIR/tc-server-nc.sh\"");
+        sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-server.sh\"");
         sb.AppendLine();
         sb.AppendLine("# Create systemd service");
         sb.AppendLine("cat > \"$SERVICE_FILE\" << 'SERVICE_EOF'");
         sb.AppendLine("[Unit]");
-        sb.AppendLine("Description=TC Monitor HTTP Server");
+        sb.AppendLine("Description=SQM Monitor HTTP Server");
         sb.AppendLine("After=network.target");
         sb.AppendLine();
         sb.AppendLine("[Service]");
         sb.AppendLine("Type=simple");
-        sb.AppendLine($"Environment=\"TC_MONITOR_PORT={port}\"");
-        sb.AppendLine("ExecStart=/data/tc-monitor/tc-server-nc.sh");
+        sb.AppendLine($"Environment=\"SQM_MONITOR_PORT={port}\"");
+        sb.AppendLine("ExecStart=/data/sqm-monitor/sqm-server.sh");
         sb.AppendLine("Restart=always");
         sb.AppendLine("RestartSec=5");
-        sb.AppendLine("StandardOutput=append:/var/log/tc-monitor.log");
-        sb.AppendLine("StandardError=append:/var/log/tc-monitor.log");
+        sb.AppendLine("StandardOutput=append:/var/log/sqm-monitor.log");
+        sb.AppendLine("StandardError=append:/var/log/sqm-monitor.log");
         sb.AppendLine("User=root");
         sb.AppendLine();
         sb.AppendLine("[Install]");
         sb.AppendLine("WantedBy=multi-user.target");
         sb.AppendLine("SERVICE_EOF");
         sb.AppendLine();
+        sb.AppendLine("# Stop old tc-monitor if running");
+        sb.AppendLine("systemctl stop tc-monitor 2>/dev/null || true");
+        sb.AppendLine("systemctl disable tc-monitor 2>/dev/null || true");
+        sb.AppendLine("rm -f /etc/systemd/system/tc-monitor.service 2>/dev/null || true");
+        sb.AppendLine("rm -rf /data/tc-monitor 2>/dev/null || true");
+        sb.AppendLine();
         sb.AppendLine("systemctl daemon-reload");
         sb.AppendLine("systemctl enable \"$SERVICE_NAME\"");
         sb.AppendLine("systemctl restart \"$SERVICE_NAME\"");
         sb.AppendLine();
         sb.AppendLine("if systemctl is-active --quiet \"$SERVICE_NAME\"; then");
-        sb.AppendLine("    echo \"$(date): TC Monitor started on port $PORT\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    echo \"$(date): SQM Monitor started on port $PORT\" >> \"$LOG_FILE\"");
         sb.AppendLine("else");
-        sb.AppendLine("    echo \"$(date): TC Monitor failed to start\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    echo \"$(date): SQM Monitor failed to start\" >> \"$LOG_FILE\"");
         sb.AppendLine("    exit 1");
         sb.AppendLine("fi");
 
