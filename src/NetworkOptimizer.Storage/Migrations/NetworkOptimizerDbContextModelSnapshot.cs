@@ -362,6 +362,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<int>("Iperf3Port")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("TcMonitorPort")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("LastTestResult")
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");

@@ -1029,6 +1029,7 @@
             gatewayPort = gatewaySettings.Port;
             gatewayPrivateKeyPath = gatewaySettings.PrivateKeyPath ?? "";
             gatewayEnabled = gatewaySettings.Enabled;
+            tcMonitorPort = gatewaySettings.TcMonitorPort;
             hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             // Don't load password - keep it empty for security
         }
@@ -1053,6 +1054,7 @@
             settings.Port = gatewayPort;
             settings.PrivateKeyPath = string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) ? null : gatewayPrivateKeyPath;
             settings.Enabled = gatewayEnabled;
+            settings.TcMonitorPort = tcMonitorPort;
 
             // If using private key, clear the password; otherwise update if new one entered
             if (!string.IsNullOrWhiteSpace(gatewayPrivateKeyPath))

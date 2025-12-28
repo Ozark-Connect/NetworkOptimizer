@@ -354,9 +354,9 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
-    /// Deploy TC Monitor script
+    /// Deploy TC Monitor script. Uses TcMonitorPort from gateway settings.
     /// </summary>
-    public async Task<bool> DeployTcMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port = 8088)
+    public async Task<bool> DeployTcMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
     {
         var settings = await GetGatewaySettingsAsync();
         if (settings == null || string.IsNullOrEmpty(settings.Host))
@@ -375,8 +375,8 @@ echo 'udm-boot installed successfully'
 
         try
         {
-            // Generate tc-monitor script content
-            var tcMonitorScript = GenerateTcMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, port);
+            // Generate tc-monitor script content using port from settings
+            var tcMonitorScript = GenerateTcMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
             var success = await DeployScriptAsync(device, "20-tc-monitor.sh", tcMonitorScript);

@@ -38,6 +38,9 @@ public class GatewaySshSettings
     /// <summary>iperf3 port on the gateway (typically 5201 or 5202)</summary>
     public int Iperf3Port { get; set; } = 5201;
 
+    /// <summary>TC Monitor HTTP port for SQM rate monitoring</summary>
+    public int TcMonitorPort { get; set; } = 8088;
+
     /// <summary>Last successful connection test timestamp</summary>
     public DateTime? LastTestedAt { get; set; }
 
