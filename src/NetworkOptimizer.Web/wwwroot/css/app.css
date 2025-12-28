@@ -1856,8 +1856,9 @@ td .btn + .btn {
 }
 
 .not-deployed-icon {
-    font-size: 2rem;
-    opacity: 0.5;
+    width: 48px;
+    height: 48px;
+    opacity: 0.6;
 }
 
 .not-deployed-text {
