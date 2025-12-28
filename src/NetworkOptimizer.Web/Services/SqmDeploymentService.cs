@@ -331,8 +331,9 @@ echo 'udm-boot installed successfully'
         // All SQM scripts now go to on_boot.d (self-contained boot scripts)
         var targetPath = $"{OnBootDir}/{filename}";
 
-        // Write file using heredoc
-        var writeCmd = $"cat > '{targetPath}' << 'SQMSCRIPTEOF'\n{content}\nSQMSCRIPTEOF";
+        // Use base64 encoding to safely transfer script content (avoids shell quoting issues)
+        var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(content));
+        var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
         var writeResult = await _sshService.RunCommandWithDeviceAsync(device, writeCmd);
 
         if (!writeResult.success)
@@ -405,12 +406,13 @@ echo 'udm-boot installed successfully'
     /// <summary>
     /// Remove SQM scripts from the gateway
     /// </summary>
-    public async Task<bool> RemoveAsync()
+    public async Task<(bool success, List<string> steps)> RemoveAsync(bool includeTcMonitor = true)
     {
+        var steps = new List<string>();
         var settings = await GetGatewaySettingsAsync();
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
-            return false;
+            return (false, new List<string> { "Gateway SSH not configured" });
         }
 
         var device = new DeviceSshConfiguration
@@ -424,10 +426,12 @@ echo 'udm-boot installed successfully'
         try
         {
             // Remove SQM-related cron jobs
+            steps.Add("Removing SQM cron jobs...");
             await _sshService.RunCommandWithDeviceAsync(device,
                 "crontab -l 2>/dev/null | grep -v '/data/sqm/' | crontab -");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
+            steps.Add("Removing SQM boot scripts...");
             await _sshService.RunCommandWithDeviceAsync(device,
                 $"rm -f {OnBootDir}/20-sqm-*.sh");
 
@@ -436,6 +440,7 @@ echo 'udm-boot installed successfully'
                 $"rm -f {OnBootDir}/21-sqm-*.sh");
 
             // Remove SQM directory with all scripts and data
+            steps.Add("Removing SQM data directory...");
             await _sshService.RunCommandWithDeviceAsync(device,
                 $"rm -rf {SqmDir}");
 
@@ -443,13 +448,31 @@ echo 'udm-boot installed successfully'
             await _sshService.RunCommandWithDeviceAsync(device,
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
-            _logger.LogInformation("SQM scripts removed");
-            return true;
+            // Remove TC Monitor if requested
+            if (includeTcMonitor)
+            {
+                steps.Add("Stopping TC Monitor service...");
+                await _sshService.RunCommandWithDeviceAsync(device,
+                    "systemctl stop tc-monitor 2>/dev/null; systemctl disable tc-monitor 2>/dev/null");
+
+                steps.Add("Removing TC Monitor...");
+                await _sshService.RunCommandWithDeviceAsync(device,
+                    $"rm -f {OnBootDir}/20-tc-monitor.sh");
+                await _sshService.RunCommandWithDeviceAsync(device,
+                    $"rm -rf {TcMonitorDir}");
+                await _sshService.RunCommandWithDeviceAsync(device,
+                    "rm -f /etc/systemd/system/tc-monitor.service && systemctl daemon-reload");
+            }
+
+            steps.Add("SQM removal complete");
+            _logger.LogInformation("SQM scripts removed (TC Monitor: {TcMonitor})", includeTcMonitor);
+            return (true, steps);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to remove SQM scripts");
-            return false;
+            steps.Add($"Error: {ex.Message}");
+            return (false, steps);
         }
     }
 
