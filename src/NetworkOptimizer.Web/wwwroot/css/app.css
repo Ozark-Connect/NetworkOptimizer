@@ -170,10 +170,11 @@ a:hover {
 }
 
 .nav-icon-img {
-    width: 1.875rem;
+    width: 2.25rem;
     height: 1.875rem;
-    margin-right: 0.75rem;
+    margin-right: 0.5rem;
     object-fit: contain;
+    object-position: right;
     flex-shrink: 0;
 }
 
