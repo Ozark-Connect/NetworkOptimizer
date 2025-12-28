@@ -12,7 +12,7 @@ public class AdminSettings
     [Key]
     public int Id { get; set; }
 
-    /// <summary>Admin password (encrypted at rest using CredentialProtectionService)</summary>
+    /// <summary>Admin password hash (PBKDF2-SHA256, format: iterations.salt.hash)</summary>
     [MaxLength(500)]
     public string? Password { get; set; }
 

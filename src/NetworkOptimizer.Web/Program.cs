@@ -80,6 +80,9 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 
+// Register password hasher (singleton - stateless)
+builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
+
 // Register Admin Auth service (scoped - depends on ISettingsRepository)
 builder.Services.AddScoped<AdminAuthService>();
 
