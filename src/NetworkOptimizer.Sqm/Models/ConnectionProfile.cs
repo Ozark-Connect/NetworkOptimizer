@@ -502,12 +502,12 @@ public class ConnectionProfile
     {
         return type switch
         {
-            ConnectionType.DocsisCable => "Stable with peak-hour congestion (190-285 Mbps typical for 300 Mbps plan)",
-            ConnectionType.Starlink => "Variable speeds (50-300+ Mbps), weather-sensitive, 20-80ms latency",
-            ConnectionType.Fiber => "Very stable, low latency (~5ms), typically exceeds advertised speeds",
-            ConnectionType.Dsl => "Stable but speed limited by distance from DSLAM, 10-100 Mbps typical",
-            ConnectionType.FixedWireless => "Variable (25-500 Mbps), weather and interference sensitive",
-            ConnectionType.CellularHome => "Variable (100-1000 Mbps), cell congestion affects speeds",
+            ConnectionType.DocsisCable => "Slows during prime time",
+            ConnectionType.Starlink => "Weather and congestion dependent",
+            ConnectionType.Fiber => "Fast and reliable",
+            ConnectionType.Dsl => "Line quality varies by distance",
+            ConnectionType.FixedWireless => "Weather and interference sensitive",
+            ConnectionType.CellularHome => "Varies by tower load",
             _ => ""
         };
     }
