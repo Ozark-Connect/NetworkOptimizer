@@ -488,13 +488,18 @@ a:hover {
 }
 
 .stat-icon {
-    font-size: 2rem;
+    font-size: 3rem;
     opacity: 0.8;
 }
 
+.stat-icon svg {
+    width: 3rem;
+    height: 3rem;
+}
+
 .stat-icon-img {
-    width: 2rem;
-    height: 2rem;
+    width: 3rem;
+    height: 3rem;
     object-fit: contain;
     opacity: 0.9;
 }
