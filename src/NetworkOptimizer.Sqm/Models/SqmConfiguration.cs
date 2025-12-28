@@ -126,6 +126,33 @@ public class SqmConfiguration
     public string? PreferredSpeedtestServerId { get; set; }
 
     /// <summary>
+    /// Baseline blending weight when within 10% threshold (baseline portion)
+    /// </summary>
+    public double BlendingWeightWithin { get; set; } = 0.60;
+
+    /// <summary>
+    /// Baseline blending weight when below 10% threshold (baseline portion)
+    /// </summary>
+    public double BlendingWeightBelow { get; set; } = 0.80;
+
+    /// <summary>
+    /// Get the ConnectionProfile for this configuration
+    /// </summary>
+    public ConnectionProfile GetProfile()
+    {
+        return new ConnectionProfile
+        {
+            Type = ConnectionType,
+            Name = ConnectionName,
+            Interface = Interface,
+            NominalDownloadMbps = NominalDownloadSpeed,
+            NominalUploadMbps = NominalUploadSpeed,
+            PingHost = PingHost,
+            PreferredSpeedtestServerId = PreferredSpeedtestServerId
+        };
+    }
+
+    /// <summary>
     /// Apply connection profile settings to calculate optimal parameters
     /// based on connection type and nominal speed
     /// </summary>
@@ -151,6 +178,12 @@ public class SqmConfiguration
         LatencyThreshold = profile.LatencyThreshold;
         LatencyDecrease = profile.LatencyDecrease;
         LatencyIncrease = profile.LatencyIncrease;
+
+        // Apply blending ratios
+        var (withinWeight, _) = profile.GetBlendingRatios(withinThreshold: true);
+        var (belowWeight, _) = profile.GetBlendingRatios(withinThreshold: false);
+        BlendingWeightWithin = withinWeight;
+        BlendingWeightBelow = belowWeight;
     }
 
     /// <summary>
@@ -158,6 +191,9 @@ public class SqmConfiguration
     /// </summary>
     public static SqmConfiguration FromProfile(ConnectionProfile profile)
     {
+        var (withinWeight, _) = profile.GetBlendingRatios(withinThreshold: true);
+        var (belowWeight, _) = profile.GetBlendingRatios(withinThreshold: false);
+
         return new SqmConfiguration
         {
             ConnectionType = profile.Type,
@@ -174,7 +210,9 @@ public class SqmConfiguration
             LatencyThreshold = profile.LatencyThreshold,
             LatencyDecrease = profile.LatencyDecrease,
             LatencyIncrease = profile.LatencyIncrease,
-            PreferredSpeedtestServerId = profile.PreferredSpeedtestServerId
+            PreferredSpeedtestServerId = profile.PreferredSpeedtestServerId,
+            BlendingWeightWithin = withinWeight,
+            BlendingWeightBelow = belowWeight
         };
     }
 

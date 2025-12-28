@@ -490,14 +490,23 @@ update_all_tc_classes() {
     /// </summary>
     private string GetBaselineBlendingLogic()
     {
-        return @"# Get current day of week (0=Mon, 6=Sun) and hour
+        // Use connection-specific blending ratios
+        var withinBaseline = _config.BlendingWeightWithin;
+        var withinMeasured = 1.0 - withinBaseline;
+        var belowBaseline = _config.BlendingWeightBelow;
+        var belowMeasured = 1.0 - belowBaseline;
+
+        var withinRatio = $"{(int)(withinBaseline * 100)}/{(int)(withinMeasured * 100)}";
+        var belowRatio = $"{(int)(belowBaseline * 100)}/{(int)(belowMeasured * 100)}";
+
+        return $@"# Get current day of week (0=Mon, 6=Sun) and hour
 current_day=$(date +%u)  # 1=Mon, 7=Sun
 current_day=$((current_day - 1))  # Convert to 0=Mon, 6=Sun
 current_hour=$(date +%H | sed 's/^0//')  # Remove leading zero
-lookup_key=""${current_day}_${current_hour}""
+lookup_key=""${{current_day}}_${{current_hour}}""
 
 # Look up baseline speed for this day/hour
-baseline_speed=${BASELINE[$lookup_key]}
+baseline_speed=${{BASELINE[$lookup_key]}}
 
 if [ -n ""$baseline_speed"" ]; then
     echo ""Baseline speed for day $current_day hour $current_hour: $baseline_speed Mbps""
@@ -506,13 +515,13 @@ if [ -n ""$baseline_speed"" ]; then
     threshold=$(echo ""scale=0; $baseline_speed * 0.9 / 1"" | bc)
 
     if [ ""$download_speed_mbps"" -ge ""$threshold"" ]; then
-        # Within 10% of baseline: weight toward baseline (60/40)
-        blended_speed=$(echo ""scale=0; ($baseline_speed * 0.6 + $download_speed_mbps * 0.4) / 1"" | bc)
-        echo ""Speedtest within 10% of baseline: blending (60/40 baseline/measured) → $blended_speed Mbps""
+        # Within 10% of baseline: blend ({withinRatio} baseline/measured)
+        blended_speed=$(echo ""scale=0; ($baseline_speed * {withinBaseline} + $download_speed_mbps * {withinMeasured}) / 1"" | bc)
+        echo ""Speedtest within 10% of baseline: blending ({withinRatio} baseline/measured) → $blended_speed Mbps""
     else
-        # More than 10% below baseline: heavily favor baseline (80/20)
-        blended_speed=$(echo ""scale=0; ($baseline_speed * 0.8 + $download_speed_mbps * 0.2) / 1"" | bc)
-        echo ""Speedtest below 10% threshold: weighting toward baseline (80/20) → $blended_speed Mbps""
+        # More than 10% below baseline: favor baseline ({belowRatio} baseline/measured)
+        blended_speed=$(echo ""scale=0; ($baseline_speed * {belowBaseline} + $download_speed_mbps * {belowMeasured}) / 1"" | bc)
+        echo ""Speedtest below 10% threshold: weighting toward baseline ({belowRatio}) → $blended_speed Mbps""
     fi
 
     # Apply overhead
@@ -532,29 +541,34 @@ fi";
     /// </summary>
     private string GetBaselineBlendingLogicForPing()
     {
-        return @"# Get current day of week (0=Mon, 6=Sun) and hour
+        // Use connection-specific blending ratios (use the "within threshold" ratio for ping)
+        var baselineWeight = _config.BlendingWeightWithin;
+        var measuredWeight = 1.0 - baselineWeight;
+        var ratio = $"{(int)(baselineWeight * 100)}/{(int)(measuredWeight * 100)}";
+
+        return $@"# Get current day of week (0=Mon, 6=Sun) and hour
 current_day=$(date +%u)  # 1=Mon, 7=Sun
 current_day=$((current_day - 1))  # Convert to 0=Mon, 6=Sun
 current_hour=$(date +%H | sed 's/^0//')  # Remove leading zero
-lookup_key=""${current_day}_${current_hour}""
+lookup_key=""${{current_day}}_${{current_hour}}""
 
 echo ""[$(date)] Baseline lookup: day=$current_day hour=$current_hour key=$lookup_key"" >> /var/log/sqm-ping-adjust.log
 
 # Look up baseline speed for this day/hour
-baseline_speed=${BASELINE[$lookup_key]}
+baseline_speed=${{BASELINE[$lookup_key]}}
 
 # Use average of speedtest result (already has overhead) and baseline+overhead
 if [ -n ""$baseline_speed"" ]; then
     # Apply overhead to baseline to match speedtest calculation
-    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * " + _config.OverheadMultiplier + @" / 1"" | bc)
+    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {_config.OverheadMultiplier} / 1"" | bc)
     # Cap baseline at MAX_DOWNLOAD_SPEED
-    if [ ""$baseline_with_overhead"" -gt """ + _config.MaxDownloadSpeed + @""" ]; then
-        baseline_with_overhead=" + _config.MaxDownloadSpeed + @"
+    if [ ""$baseline_with_overhead"" -gt ""{_config.MaxDownloadSpeed}"" ]; then
+        baseline_with_overhead={_config.MaxDownloadSpeed}
     fi
-    # Blend speedtest result and baseline+overhead (60/40 toward baseline)
-    MAX_DOWNLOAD_SPEED=$(echo ""scale=0; ($baseline_with_overhead * 0.6 + $SPEEDTEST_SPEED * 0.4) / 1"" | bc)
-    echo ""[$(date)] Speedtest: $SPEEDTEST_SPEED Mbps, Baseline: $baseline_speed Mbps (+overhead = $baseline_with_overhead Mbps), Blended (60/40): $MAX_DOWNLOAD_SPEED Mbps"" >> /var/log/sqm-ping-adjust.log
-    echo ""Speedtest (pre-padded): $SPEEDTEST_SPEED Mbps, Baseline: $baseline_speed Mbps (+overhead = $baseline_with_overhead Mbps), Blended (60/40): $MAX_DOWNLOAD_SPEED Mbps""
+    # Blend speedtest result and baseline+overhead ({ratio} toward baseline)
+    MAX_DOWNLOAD_SPEED=$(echo ""scale=0; ($baseline_with_overhead * {baselineWeight} + $SPEEDTEST_SPEED * {measuredWeight}) / 1"" | bc)
+    echo ""[$(date)] Speedtest: $SPEEDTEST_SPEED Mbps, Baseline: $baseline_speed Mbps (+overhead = $baseline_with_overhead Mbps), Blended ({ratio}): $MAX_DOWNLOAD_SPEED Mbps"" >> /var/log/sqm-ping-adjust.log
+    echo ""Speedtest (pre-padded): $SPEEDTEST_SPEED Mbps, Baseline: $baseline_speed Mbps (+overhead = $baseline_with_overhead Mbps), Blended ({ratio}): $MAX_DOWNLOAD_SPEED Mbps""
 else
     # Speedtest result already has overhead applied
     MAX_DOWNLOAD_SPEED=$SPEEDTEST_SPEED

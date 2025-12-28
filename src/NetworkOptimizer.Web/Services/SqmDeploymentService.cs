@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Sqm;
+using NetworkOptimizer.Sqm.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using System.Text;
@@ -499,26 +500,23 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
-    /// Generate a default baseline based on connection type (flat baseline)
+    /// Generate a baseline based on connection type patterns.
+    /// Uses empirical data patterns scaled to the nominal speed.
     /// </summary>
     private Dictionary<string, string> GenerateDefaultBaseline(SqmConfig config)
     {
-        var baseline = new Dictionary<string, string>();
-
-        // Generate 168 entries (7 days x 24 hours)
-        // Use nominal speed as the default baseline value
-        var defaultSpeed = config.NominalDownloadSpeed.ToString();
-
-        for (int day = 0; day < 7; day++)
+        // Create a ConnectionProfile to get the hourly baseline pattern
+        var profile = new ConnectionProfile
         {
-            for (int hour = 0; hour < 24; hour++)
-            {
-                var key = $"{day}_{hour}";
-                baseline[key] = defaultSpeed;
-            }
-        }
+            Type = config.ConnectionType,
+            Name = config.ConnectionName ?? "",
+            Interface = config.Interface,
+            NominalDownloadMbps = config.NominalDownloadSpeed,
+            NominalUploadMbps = config.NominalUploadSpeed
+        };
 
-        return baseline;
+        // Get the 168-hour baseline scaled to nominal speed
+        return profile.GetHourlyBaseline();
     }
 
     /// <summary>

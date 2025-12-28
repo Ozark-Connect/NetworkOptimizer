@@ -294,6 +294,140 @@ public class ConnectionProfile
     }
 
     /// <summary>
+    /// Get 168-hour baseline dictionary scaled to nominal speed.
+    /// Keys are "day_hour" format (0=Mon, 6=Sun), values are speeds in Mbps.
+    /// </summary>
+    public Dictionary<string, string> GetHourlyBaseline()
+    {
+        var baseline = new Dictionary<string, string>();
+        var pattern = GetBaselinePattern();
+
+        for (int day = 0; day < 7; day++)
+        {
+            for (int hour = 0; hour < 24; hour++)
+            {
+                var key = $"{day}_{hour}";
+                // Scale the pattern percentage by nominal speed
+                var speed = (int)(pattern[hour] * NominalDownloadMbps);
+                baseline[key] = speed.ToString();
+            }
+        }
+
+        return baseline;
+    }
+
+    /// <summary>
+    /// Get blending ratios for baseline/measured speed mixing.
+    /// Returns (withinThreshold, belowThreshold) as (baseline%, measured%) tuples.
+    /// </summary>
+    public (double baselineWeight, double measuredWeight) GetBlendingRatios(bool withinThreshold)
+    {
+        return Type switch
+        {
+            // Starlink: more trust in measured speed due to high variability
+            ConnectionType.Starlink => withinThreshold
+                ? (0.50, 0.50)  // 50/50 average when close to baseline
+                : (0.70, 0.30), // 70/30 favor baseline when below
+
+            // DOCSIS: trust baseline more (stable connection)
+            ConnectionType.DocsisCable => withinThreshold
+                ? (0.60, 0.40)  // 60/40 favor baseline when close
+                : (0.80, 0.20), // 80/20 heavily favor baseline when below
+
+            // Fiber: very stable, trust baseline heavily
+            ConnectionType.Fiber => withinThreshold
+                ? (0.70, 0.30)
+                : (0.85, 0.15),
+
+            // DSL: stable once synced
+            ConnectionType.Dsl => withinThreshold
+                ? (0.65, 0.35)
+                : (0.80, 0.20),
+
+            // Variable connections: balance baseline and measured
+            ConnectionType.FixedWireless or ConnectionType.CellularHome => withinThreshold
+                ? (0.50, 0.50)
+                : (0.65, 0.35),
+
+            _ => withinThreshold ? (0.60, 0.40) : (0.80, 0.20)
+        };
+    }
+
+    /// <summary>
+    /// Get hourly baseline pattern as percentage of nominal speed.
+    /// Based on real-world data from DOCSIS and Starlink connections.
+    /// </summary>
+    private double[] GetBaselinePattern()
+    {
+        return Type switch
+        {
+            // DOCSIS Cable: stable with predictable peak-hour congestion
+            // Pattern: Night (87%), Day (85%), Evening peak (75%)
+            ConnectionType.DocsisCable => new double[]
+            {
+                0.87, 0.87, 0.87, 0.87, 0.87, 0.87,  // 00-05: Night (high)
+                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 06-11: Morning (good)
+                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 12-17: Afternoon (good)
+                0.75, 0.75, 0.75, 0.75,              // 18-21: Evening peak (congested)
+                0.87, 0.87                           // 22-23: Late night (high)
+            },
+
+            // Starlink: highly variable, pattern from real data (normalized to ~400 Mbps nominal)
+            // Values range from 37% to 100%+ of nominal
+            ConnectionType.Starlink => new double[]
+            {
+                0.75, 0.77, 0.60, 0.50, 0.47, 0.45,  // 00-05: Night (variable)
+                0.50, 0.65, 0.70, 0.60, 0.55, 0.55,  // 06-11: Morning (moderate)
+                0.70, 0.75, 0.70, 0.75, 0.68, 0.68,  // 12-17: Afternoon (better)
+                0.60, 0.70, 0.65, 0.55,              // 18-21: Evening (congested)
+                0.55, 0.70                           // 22-23: Late night
+            },
+
+            // Fiber: very stable, minimal variation
+            ConnectionType.Fiber => new double[]
+            {
+                0.98, 0.98, 0.98, 0.98, 0.98, 0.98,  // 00-05
+                0.97, 0.97, 0.97, 0.97, 0.97, 0.97,  // 06-11
+                0.97, 0.97, 0.97, 0.97, 0.97, 0.97,  // 12-17
+                0.95, 0.95, 0.95, 0.95,              // 18-21
+                0.98, 0.98                           // 22-23
+            },
+
+            // DSL: stable but may have minor peak-hour drops
+            ConnectionType.Dsl => new double[]
+            {
+                0.92, 0.92, 0.92, 0.92, 0.92, 0.92,  // 00-05
+                0.90, 0.90, 0.90, 0.90, 0.90, 0.90,  // 06-11
+                0.90, 0.90, 0.90, 0.90, 0.90, 0.90,  // 12-17
+                0.85, 0.85, 0.85, 0.85,              // 18-21
+                0.92, 0.92                           // 22-23
+            },
+
+            // Fixed Wireless: weather and time-of-day sensitive
+            ConnectionType.FixedWireless => new double[]
+            {
+                0.85, 0.85, 0.85, 0.85, 0.85, 0.85,  // 00-05
+                0.80, 0.80, 0.80, 0.75, 0.75, 0.75,  // 06-11
+                0.75, 0.75, 0.75, 0.70, 0.70, 0.70,  // 12-17
+                0.65, 0.65, 0.65, 0.70,              // 18-21
+                0.80, 0.85                           // 22-23
+            },
+
+            // Cellular: cell congestion patterns
+            ConnectionType.CellularHome => new double[]
+            {
+                0.90, 0.90, 0.90, 0.90, 0.90, 0.85,  // 00-05
+                0.75, 0.70, 0.70, 0.75, 0.75, 0.75,  // 06-11
+                0.70, 0.70, 0.70, 0.70, 0.65, 0.60,  // 12-17
+                0.55, 0.55, 0.60, 0.70,              // 18-21
+                0.80, 0.85                           // 22-23
+            },
+
+            _ => Enumerable.Repeat(0.85, 24).ToArray()
+        };
+    }
+
+    /// <summary>
     /// Create an SqmConfiguration from this profile
     /// </summary>
     public SqmConfiguration ToSqmConfiguration()
