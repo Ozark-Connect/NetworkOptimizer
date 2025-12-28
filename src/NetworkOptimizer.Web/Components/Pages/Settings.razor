@@ -131,12 +131,12 @@
 
             <div class="form-group">
                 <label class="form-label">New Password</label>
-                <input type="password" class="form-control" @bind="adminNewPassword" placeholder="Enter new password" autocomplete="new-password" />
+                <input type="password" class="form-control" @bind="adminNewPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Enter new password" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
                 <label class="form-label">Confirm Password</label>
-                <input type="password" class="form-control" @bind="adminConfirmPassword" placeholder="Confirm new password" autocomplete="new-password" />
+                <input type="password" class="form-control" @bind="adminConfirmPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Confirm new password" autocomplete="new-password" />
             </div>
 
             <div class="form-group">
@@ -1887,6 +1887,15 @@
             AdminPasswordSource.None => "Not Set",
             _ => "Unknown"
         };
+    }
+
+    private void OnAdminPasswordInput()
+    {
+        // Auto-enable when user enters matching passwords
+        if (!string.IsNullOrEmpty(adminNewPassword) && adminNewPassword == adminConfirmPassword)
+        {
+            adminPasswordEnabled = true;
+        }
     }
 
     private async Task SaveAdminPassword()
