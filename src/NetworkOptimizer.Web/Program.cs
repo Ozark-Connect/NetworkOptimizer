@@ -60,6 +60,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IUniFiRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository, NetworkOptimizer.Storage.Repositories.ModemRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
 
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
@@ -81,6 +82,7 @@ builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
+builder.Services.AddScoped<AgentService>();
 
 // Configure HTTP client for API calls
 builder.Services.AddHttpClient();

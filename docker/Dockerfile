@@ -12,6 +12,7 @@ COPY ["src/NetworkOptimizer.Audit/NetworkOptimizer.Audit.csproj", "src/NetworkOp
 COPY ["src/NetworkOptimizer.Sqm/NetworkOptimizer.Sqm.csproj", "src/NetworkOptimizer.Sqm/"]
 COPY ["src/NetworkOptimizer.Monitoring/NetworkOptimizer.Monitoring.csproj", "src/NetworkOptimizer.Monitoring/"]
 COPY ["src/NetworkOptimizer.Storage/NetworkOptimizer.Storage.csproj", "src/NetworkOptimizer.Storage/"]
+COPY ["src/NetworkOptimizer.Agents/NetworkOptimizer.Agents.csproj", "src/NetworkOptimizer.Agents/"]
 COPY ["src/NetworkOptimizer.Reports/NetworkOptimizer.Reports.csproj", "src/NetworkOptimizer.Reports/"]
 
 # Restore dependencies

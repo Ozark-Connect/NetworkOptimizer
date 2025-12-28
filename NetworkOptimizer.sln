@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetworkOptimizer.Sqm", "src
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetworkOptimizer.Monitoring", "src\NetworkOptimizer.Monitoring\NetworkOptimizer.Monitoring.csproj", "{A1B2C3D4-0006-0006-0006-000000000006}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetworkOptimizer.Agents", "src\NetworkOptimizer.Agents\NetworkOptimizer.Agents.csproj", "{A1B2C3D4-0007-0007-0007-000000000007}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetworkOptimizer.Reports", "src\NetworkOptimizer.Reports\NetworkOptimizer.Reports.csproj", "{A1B2C3D4-0008-0008-0008-000000000008}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetworkOptimizer.Web", "src\NetworkOptimizer.Web\NetworkOptimizer.Web.csproj", "{A1B2C3D4-0009-0009-0009-000000000009}"
@@ -59,6 +61,10 @@ Global
 		{A1B2C3D4-0006-0006-0006-000000000006}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-0006-0006-0006-000000000006}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-0006-0006-0006-000000000006}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0007-0007-0007-000000000007}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0007-0007-0007-000000000007}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0007-0007-0007-000000000007}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0007-0007-0007-000000000007}.Release|Any CPU.Build.0 = Release|Any CPU
 		{A1B2C3D4-0008-0008-0008-000000000008}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{A1B2C3D4-0008-0008-0008-000000000008}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-0008-0008-0008-000000000008}.Release|Any CPU.ActiveCfg = Release|Any CPU
