@@ -23,7 +23,7 @@
             <h2 class="card-title">Deployment Status</h2>
             @if (!isLoading)
             {
-                <button class="btn btn-sm btn-secondary" @onclick="() => RefreshStatus()">Refresh</button>
+                <button class="btn btn-sm btn-secondary" @onclick="() => { statusMessage = null; _ = RefreshStatus(); }">Refresh</button>
             }
         </div>
         <div class="card-body">
@@ -1193,7 +1193,6 @@
     private async Task RefreshStatus(bool forceRefresh = true)
     {
         isLoading = true;
-        statusMessage = null;  // Clear any previous status messages
         StateHasChanged();
 
         try
