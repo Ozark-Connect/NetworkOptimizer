@@ -170,8 +170,8 @@ a:hover {
 }
 
 .nav-icon-img {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.875rem;
+    height: 1.875rem;
     margin-right: 0.75rem;
     object-fit: contain;
     flex-shrink: 0;
@@ -294,6 +294,17 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+.card-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.card-icon {
+    width: 32px;
+    height: 32px;
 }
 
 .card-title {
@@ -717,11 +728,6 @@ a:hover {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-}
-
-.sqm-status-icon {
-    width: 32px;
-    height: 32px;
 }
 
 .status-indicator {
