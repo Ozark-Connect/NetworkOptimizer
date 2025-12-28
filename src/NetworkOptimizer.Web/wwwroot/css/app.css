@@ -512,6 +512,11 @@ a:hover {
     flex-shrink: 0;
 }
 
+.stat-icon-img.stat-icon-sm {
+    width: 2.5rem;
+    height: 2.5rem;
+}
+
 .stat-content {
     flex: 1;
 }
