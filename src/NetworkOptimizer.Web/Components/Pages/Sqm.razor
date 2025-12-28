@@ -1119,8 +1119,12 @@
 
     private static bool IsCacheValid()
     {
-        return _cachedDeploymentStatus != null &&
-               DateTime.UtcNow - _lastStatusCheck < CacheDuration;
+        var hasCache = _cachedDeploymentStatus != null;
+        var age = DateTime.UtcNow - _lastStatusCheck;
+        var notExpired = age < CacheDuration;
+        var isValid = hasCache && notExpired;
+        Console.WriteLine($"[SQM Cache] hasCache={hasCache}, age={age.TotalSeconds:F1}s, notExpired={notExpired}, isValid={isValid}");
+        return isValid;
     }
 
     private static void InvalidateCache()
@@ -1239,6 +1243,7 @@
                 _cachedTcInterfaces = tcInterfaces;
                 _cachedWanInterfaces = wanInterfaces;
                 _lastStatusCheck = DateTime.UtcNow;
+                Console.WriteLine($"[SQM Cache] Updated: IsDeployed={deploymentStatus?.IsDeployed}, timestamp={_lastStatusCheck:HH:mm:ss}");
             }
             else
             {
