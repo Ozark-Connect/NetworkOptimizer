@@ -470,7 +470,7 @@
                     }
                     else
                     {
-                        <span>Deploy SQM Scripts</span>
+                        <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
                     }
                 </button>
                 <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@isDeploying">
