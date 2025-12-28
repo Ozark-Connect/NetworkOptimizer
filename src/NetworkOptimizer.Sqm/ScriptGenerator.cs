@@ -183,6 +183,14 @@ public class ScriptGenerator
         sb.AppendLine("# Section 6: Schedule Initial Calibration");
         sb.AppendLine("# ============================================");
         sb.AppendLine();
+        sb.AppendLine("# Cancel any previously scheduled speedtest timers for this WAN");
+        sb.AppendLine("for unit in $(systemctl list-units --type=timer --state=active --no-legend | grep -E 'run-.*speedtest' | awk '{print $1}'); do");
+        sb.AppendLine("    if systemctl cat \"$unit\" 2>/dev/null | grep -q \"$SPEEDTEST_SCRIPT\"; then");
+        sb.AppendLine("        echo \"[$(date)] Canceling previous timer: $unit\" >> $LOG_FILE");
+        sb.AppendLine("        systemctl stop \"$unit\" 2>/dev/null || true");
+        sb.AppendLine("    fi");
+        sb.AppendLine("done");
+        sb.AppendLine();
         sb.AppendLine($"# Schedule speedtest calibration {_initialDelaySeconds} seconds after boot");
         sb.AppendLine($"echo \"[$(date)] Scheduling initial SQM calibration in {_initialDelaySeconds} seconds...\" >> $LOG_FILE");
         sb.AppendLine($"systemd-run --on-active={_initialDelaySeconds}sec --timer-property=AccuracySec=1s \\");
