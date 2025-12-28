@@ -1,6 +1,9 @@
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Audit;
@@ -85,6 +88,40 @@ builder.Services.AddSingleton<JwtService>();
 
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
+
+// Configure JWT Authentication using standard ASP.NET Core pattern
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        // Token validation will be configured after app build (needs JwtService)
+        options.Events = new JwtBearerEvents
+        {
+            // Read JWT from cookie instead of Authorization header
+            OnMessageReceived = context =>
+            {
+                if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+                {
+                    context.Token = token;
+                }
+                return Task.CompletedTask;
+            },
+            // Redirect to login page instead of 401 for web requests
+            OnChallenge = context =>
+            {
+                // Skip default behavior for API requests
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    return Task.CompletedTask;
+                }
+
+                context.HandleResponse();
+                context.Response.Redirect("/login");
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
@@ -178,63 +215,75 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
     app.UseHsts();
 }
 
-// JWT Auth middleware - supports database password (priority) or APP_PASSWORD env var
-// Log startup configuration
+// Log admin auth startup configuration
 using (var startupScope = app.Services.CreateScope())
 {
     var adminAuthService = startupScope.ServiceProvider.GetRequiredService<AdminAuthService>();
     await adminAuthService.LogStartupConfigurationAsync();
 }
 
-// Pre-initialize JWT service to generate secret key if needed
+// Configure JWT Bearer token validation parameters (requires JwtService from DI)
 var jwtService = app.Services.GetRequiredService<JwtService>();
-await jwtService.GetTokenValidationParametersAsync();
+var tokenValidationParams = await jwtService.GetTokenValidationParametersAsync();
 
+// Get the JwtBearerOptions and set the token validation parameters
+var jwtBearerOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<JwtBearerOptions>>();
+jwtBearerOptions.Get(JwtBearerDefaults.AuthenticationScheme).TokenValidationParameters = tokenValidationParams;
+
+// Standard ASP.NET Core authentication middleware (must come before auth check)
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Auth middleware that checks if authentication is required and protects all endpoints
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
-    // Skip auth for public endpoints
-    var publicPaths = new[] { "/login", "/api/auth", "/api/health", "/downloads", "/_blazor", "/_framework", "/css", "/js", "/images", "/_content" };
-    if (publicPaths.Any(p => path.StartsWith(p)))
+    // Only these paths are public (no auth required)
+    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health" };
+    var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
+
+    // Allow public endpoints
+    if (publicPaths.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)))
     {
         await next();
         return;
     }
 
-    // Skip for static files
-    if (path.Contains('.') && !path.EndsWith(".razor"))
+    // Allow static files and Blazor framework
+    if (staticPaths.Any(p => path.StartsWith(p)) || (path.Contains('.') && !path.EndsWith(".razor")))
     {
         await next();
         return;
     }
 
-    // Get services
+    // Check if authentication is required (admin may have disabled it)
     var adminAuth = context.RequestServices.GetRequiredService<AdminAuthService>();
-    var jwt = context.RequestServices.GetRequiredService<JwtService>();
-
-    // Check if authentication is required
     var isAuthRequired = await adminAuth.IsAuthenticationRequiredAsync();
+
     if (!isAuthRequired)
     {
         await next();
         return;
     }
 
-    // Check for JWT token in cookie
-    if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+    // If auth is required but user is not authenticated
+    if (context.User.Identity?.IsAuthenticated != true)
     {
-        var principal = await jwt.ValidateTokenAsync(token);
-        if (principal != null)
+        // API endpoints return 401
+        if (path.StartsWith("/api/"))
         {
-            context.User = principal;
-            await next();
+            context.Response.StatusCode = 401;
+            await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
             return;
         }
+
+        // Web pages redirect to login
+        context.Response.Redirect("/login");
+        return;
     }
 
-    // Not authenticated - redirect to login page
-    context.Response.Redirect("/login");
+    await next();
 });
 
 // Configure static files with custom MIME types for package downloads
