@@ -241,7 +241,10 @@ echo 'udm-boot installed successfully'
     /// <summary>
     /// Deploy SQM scripts to the gateway
     /// </summary>
-    public async Task<SqmDeploymentResult> DeployAsync(SqmConfig config, Dictionary<string, string>? baseline = null)
+    /// <param name="config">SQM configuration for this WAN</param>
+    /// <param name="baseline">Optional hourly baseline data</param>
+    /// <param name="initialDelaySeconds">Delay before first speedtest (default 60s, use higher values for additional WANs to stagger)</param>
+    public async Task<SqmDeploymentResult> DeployAsync(SqmConfig config, Dictionary<string, string>? baseline = null, int initialDelaySeconds = 60)
     {
         var result = new SqmDeploymentResult();
         var steps = new List<string>();
@@ -279,7 +282,7 @@ echo 'udm-boot installed successfully'
 
             // Step 2: Generate the self-contained boot script
             steps.Add("Generating SQM boot script...");
-            var generator = new ScriptGenerator(config);
+            var generator = new ScriptGenerator(config, initialDelaySeconds);
             baseline ??= GenerateDefaultBaseline(config);
             var scripts = generator.GenerateAllScripts(baseline);
             var bootScriptName = generator.GetBootScriptName();
@@ -551,6 +554,149 @@ echo 'udm-boot installed successfully'
     }
 
     /// <summary>
+    /// Get SQM status for all WANs by parsing gateway logs
+    /// </summary>
+    public async Task<List<SqmWanStatus>> GetSqmWanStatusAsync()
+    {
+        var result = new List<SqmWanStatus>();
+
+        var settings = await GetGatewaySettingsAsync();
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return result;
+        }
+
+        var device = new DeviceSshConfiguration
+        {
+            Host = settings.Host,
+            SshUsername = settings.Username,
+            SshPassword = settings.Password,
+            SshPrivateKeyPath = settings.PrivateKeyPath
+        };
+
+        try
+        {
+            // Find all SQM log files
+            var logListResult = await _sshService.RunCommandWithDeviceAsync(device,
+                "ls /var/log/sqm-*.log 2>/dev/null | xargs -I {} basename {} .log | sed 's/sqm-//'");
+
+            if (!logListResult.success || string.IsNullOrWhiteSpace(logListResult.output))
+            {
+                return result;
+            }
+
+            var wanNames = logListResult.output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var wanName in wanNames)
+            {
+                var status = new SqmWanStatus { Name = wanName };
+
+                // Get last 50 lines of the log file
+                var logResult = await _sshService.RunCommandWithDeviceAsync(device,
+                    $"tail -50 /var/log/sqm-{wanName}.log 2>/dev/null");
+
+                if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
+                {
+                    ParseSqmLog(logResult.output, status);
+                }
+
+                // Get current rate from result file
+                var resultFileResult = await _sshService.RunCommandWithDeviceAsync(device,
+                    $"cat /data/sqm/{wanName}-result.txt 2>/dev/null");
+
+                if (resultFileResult.success && !string.IsNullOrWhiteSpace(resultFileResult.output))
+                {
+                    // Format: "Measured download speed: 206 Mbps"
+                    var match = System.Text.RegularExpressions.Regex.Match(
+                        resultFileResult.output, @"(\d+)\s*Mbps");
+                    if (match.Success && double.TryParse(match.Groups[1].Value, out var rate))
+                    {
+                        status.CurrentRateMbps = rate;
+                    }
+                }
+
+                result.Add(status);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get SQM WAN status");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parse SQM log output to extract status information
+    /// </summary>
+    private void ParseSqmLog(string logContent, SqmWanStatus status)
+    {
+        var lines = logContent.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        // Process lines in reverse to find most recent entries
+        foreach (var line in lines.Reverse())
+        {
+            // Parse timestamp: [Fri Dec 27 19:48:02 UTC 2024]
+            var timestampMatch = System.Text.RegularExpressions.Regex.Match(
+                line, @"\[([A-Za-z]+ [A-Za-z]+ \d+ \d+:\d+:\d+ [A-Z]+ \d+)\]");
+
+            DateTime? timestamp = null;
+            if (timestampMatch.Success)
+            {
+                // Try to parse the date
+                if (DateTime.TryParse(timestampMatch.Groups[1].Value, out var parsed))
+                {
+                    timestamp = parsed;
+                }
+            }
+
+            // Look for speedtest results: "Measured: 206 Mbps"
+            if (status.LastSpeedtestMeasured == null)
+            {
+                var measuredMatch = System.Text.RegularExpressions.Regex.Match(
+                    line, @"Measured:\s*(\d+(?:\.\d+)?)\s*Mbps");
+                if (measuredMatch.Success && double.TryParse(measuredMatch.Groups[1].Value, out var measured))
+                {
+                    status.LastSpeedtestMeasured = measured;
+                    status.LastSpeedtest = timestamp;
+                }
+            }
+
+            // Look for adjusted speed: "Adjusted to 196 Mbps"
+            if (status.LastSpeedtestAdjusted == null)
+            {
+                var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
+                    line, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
+                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjusted))
+                {
+                    status.LastSpeedtestAdjusted = adjusted;
+                    if (status.LastSpeedtest == null)
+                        status.LastSpeedtest = timestamp;
+                }
+            }
+
+            // Look for ping adjustment: "Ping adjusted to 195 Mbps (latency: 12.5ms)"
+            if (status.LastPingAdjustment == null)
+            {
+                var pingMatch = System.Text.RegularExpressions.Regex.Match(
+                    line, @"Ping adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps\s*\(latency:\s*(\d+(?:\.\d+)?)ms\)");
+                if (pingMatch.Success)
+                {
+                    if (double.TryParse(pingMatch.Groups[1].Value, out var pingRate))
+                        status.LastPingRate = pingRate;
+                    if (double.TryParse(pingMatch.Groups[2].Value, out var latency))
+                        status.LastLatencyMs = latency;
+                    status.LastPingAdjustment = timestamp;
+                }
+            }
+
+            // If we have all the data we need, stop
+            if (status.LastSpeedtestMeasured != null && status.LastPingAdjustment != null)
+                break;
+        }
+    }
+
+    /// <summary>
     /// Generate TC Monitor script content
     /// </summary>
     private string GenerateTcMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
@@ -676,6 +822,23 @@ echo 'udm-boot installed successfully'
 
         return sb.ToString();
     }
+}
+
+/// <summary>
+/// Per-WAN SQM status from gateway logs
+/// </summary>
+public class SqmWanStatus
+{
+    public string Name { get; set; } = "";
+    public string Interface { get; set; } = "";
+    public double CurrentRateMbps { get; set; }
+    public DateTime? LastSpeedtest { get; set; }
+    public double? LastSpeedtestMeasured { get; set; }
+    public double? LastSpeedtestAdjusted { get; set; }
+    public DateTime? LastPingAdjustment { get; set; }
+    public double? LastLatencyMs { get; set; }
+    public double? LastPingRate { get; set; }
+    public bool HasRecentActivity => LastSpeedtest.HasValue || LastPingAdjustment.HasValue;
 }
 
 /// <summary>
