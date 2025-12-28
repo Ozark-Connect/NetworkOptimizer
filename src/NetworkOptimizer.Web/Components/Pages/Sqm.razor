@@ -989,15 +989,19 @@
     {
         isDeploying = true;
         statusMessage = null;
+        deploymentSteps.Clear();
+        deploymentSteps.Add("Removing SQM and TC Monitor...");
         StateHasChanged();
 
         try
         {
-            var success = await DeploymentService.RemoveAsync();
+            var (success, steps) = await DeploymentService.RemoveAsync(includeTcMonitor: true);
+            deploymentSteps.AddRange(steps);
+            StateHasChanged();
 
             if (success)
             {
-                statusMessage = "SQM scripts removed";
+                statusMessage = "SQM and TC Monitor removed successfully";
                 statusSuccess = true;
                 InvalidateCache();
                 await RefreshStatus();
@@ -1012,6 +1016,7 @@
         {
             statusMessage = $"Error: {ex.Message}";
             statusSuccess = false;
+            deploymentSteps.Add($"Error: {ex.Message}");
         }
         finally
         {
