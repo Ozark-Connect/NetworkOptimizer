@@ -1199,15 +1199,24 @@
 
             if (gatewayConnected)
             {
-                // Check deployment status
+                // Check deployment status first (fast SSH check)
                 deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
 
-                // Load SQM Monitor data (includes TC rates, speedtest, ping data)
-                var gatewayHost = await GetGatewayHostAsync();
-                if (!string.IsNullOrEmpty(gatewayHost))
+                // Only poll TC Monitor if scripts are deployed (avoids 15s timeout when not deployed)
+                if (deploymentStatus?.IsDeployed == true)
                 {
-                    sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
-                    tcInterfaces = sqmMonitorData?.GetAllInterfaces();
+                    var gatewayHost = await GetGatewayHostAsync();
+                    if (!string.IsNullOrEmpty(gatewayHost))
+                    {
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                        tcInterfaces = sqmMonitorData?.GetAllInterfaces();
+                    }
+                }
+                else
+                {
+                    // Not deployed - clear monitor data
+                    sqmMonitorData = null;
+                    tcInterfaces = null;
                 }
 
                 // Get WAN interfaces from controller
