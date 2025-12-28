@@ -80,6 +80,12 @@ builder.Services.AddSingleton<SystemSettingsService>();
 // Register Admin Auth service (scoped - depends on ISettingsRepository)
 builder.Services.AddScoped<AdminAuthService>();
 
+// Register JWT service (singleton - caches secret key)
+builder.Services.AddSingleton<JwtService>();
+
+// Add HttpContextAccessor for accessing cookies in Blazor
+builder.Services.AddHttpContextAccessor();
+
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
@@ -172,7 +178,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
     app.UseHsts();
 }
 
-// Admin auth middleware - supports database password (priority) or APP_PASSWORD env var
+// JWT Auth middleware - supports database password (priority) or APP_PASSWORD env var
 // Log startup configuration
 using (var startupScope = app.Services.CreateScope())
 {
@@ -180,18 +186,32 @@ using (var startupScope = app.Services.CreateScope())
     await adminAuthService.LogStartupConfigurationAsync();
 }
 
+// Pre-initialize JWT service to generate secret key if needed
+var jwtService = app.Services.GetRequiredService<JwtService>();
+await jwtService.GetTokenValidationParametersAsync();
+
 app.Use(async (context, next) =>
 {
-    // Skip auth for health endpoint and static files
-    if (context.Request.Path.StartsWithSegments("/api/health") ||
-        context.Request.Path.StartsWithSegments("/downloads"))
+    var path = context.Request.Path.Value?.ToLower() ?? "";
+
+    // Skip auth for public endpoints
+    var publicPaths = new[] { "/login", "/api/auth", "/api/health", "/downloads", "/_blazor", "/_framework", "/css", "/js", "/images", "/_content" };
+    if (publicPaths.Any(p => path.StartsWith(p)))
     {
         await next();
         return;
     }
 
-    // Get AdminAuthService from request scope
+    // Skip for static files
+    if (path.Contains('.') && !path.EndsWith(".razor"))
+    {
+        await next();
+        return;
+    }
+
+    // Get services
     var adminAuth = context.RequestServices.GetRequiredService<AdminAuthService>();
+    var jwt = context.RequestServices.GetRequiredService<JwtService>();
 
     // Check if authentication is required
     var isAuthRequired = await adminAuth.IsAuthenticationRequiredAsync();
@@ -201,45 +221,21 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var effectivePassword = await adminAuth.GetEffectivePasswordAsync();
-    if (string.IsNullOrEmpty(effectivePassword))
+    // Check for JWT token in cookie
+    if (context.Request.Cookies.TryGetValue("auth_token", out var token))
     {
-        await next();
-        return;
-    }
-
-    // Check for basic auth header
-    var authHeader = context.Request.Headers.Authorization.ToString();
-    if (authHeader.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
-    {
-        var encoded = authHeader["Basic ".Length..].Trim();
-        var credentials = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-        var parts = credentials.Split(':', 2);
-        if (parts.Length == 2 && await adminAuth.ValidatePasswordAsync(parts[1]))
+        var principal = await jwt.ValidateTokenAsync(token);
+        if (principal != null)
         {
+            context.User = principal;
             await next();
             return;
         }
     }
 
-    // Check for session cookie (set after successful auth)
-    if (context.Request.Cookies.TryGetValue("auth", out var cookie) && cookie == ComputeHash(effectivePassword))
-    {
-        await next();
-        return;
-    }
-
-    // Return 401 with basic auth challenge
-    context.Response.StatusCode = 401;
-    context.Response.Headers.WWWAuthenticate = "Basic realm=\"Network Optimizer\"";
-    await context.Response.WriteAsync("Unauthorized");
+    // Not authenticated - redirect to login page
+    context.Response.Redirect("/login");
 });
-
-static string ComputeHash(string input)
-{
-    var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
-    return Convert.ToBase64String(bytes)[..16];
-}
 
 // Configure static files with custom MIME types for package downloads
 var contentTypeProvider = new FileExtensionContentTypeProvider();
@@ -306,6 +302,45 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 {
     var results = await service.GetResultsForDeviceAsync(deviceHost, count);
     return Results.Ok(results);
+});
+
+// Auth API endpoints
+app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string returnUrl = "/") =>
+{
+    // Set HttpOnly cookie with the JWT token
+    context.Response.Cookies.Append("auth_token", token, new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = !context.Request.Host.Host.Contains("localhost"),
+        SameSite = SameSiteMode.Strict,
+        Expires = DateTimeOffset.UtcNow.AddDays(1),
+        Path = "/"
+    });
+
+    return Results.Redirect(returnUrl);
+});
+
+app.MapGet("/api/auth/logout", (HttpContext context) =>
+{
+    context.Response.Cookies.Delete("auth_token", new CookieOptions
+    {
+        Path = "/"
+    });
+
+    return Results.Redirect("/login");
+});
+
+app.MapGet("/api/auth/check", async (HttpContext context, JwtService jwt) =>
+{
+    if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+    {
+        var principal = await jwt.ValidateTokenAsync(token);
+        if (principal != null)
+        {
+            return Results.Ok(new { authenticated = true, user = principal.Identity?.Name });
+        }
+    }
+    return Results.Unauthorized();
 });
 
 app.Run();
