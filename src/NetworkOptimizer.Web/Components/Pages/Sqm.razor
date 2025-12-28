@@ -171,6 +171,10 @@
                                     <span class="detail-label">Rate</span>
                                     <span class="detail-value">@sqmMonitorData.Wan1.LastPing.RateMbps.ToString("F0") Mbps</span>
                                 </div>
+                                @if (!string.IsNullOrEmpty(sqmMonitorData.Wan1.LastPing.Timestamp))
+                                {
+                                    <div class="detail-time">@sqmMonitorData.Wan1.LastPing.Timestamp</div>
+                                }
                             </div>
                         }
                         @if (sqmMonitorData.Wan1.BaselineMbps > 0)
@@ -228,6 +232,10 @@
                                     <span class="detail-label">Rate</span>
                                     <span class="detail-value">@sqmMonitorData.Wan2.LastPing.RateMbps.ToString("F0") Mbps</span>
                                 </div>
+                                @if (!string.IsNullOrEmpty(sqmMonitorData.Wan2.LastPing.Timestamp))
+                                {
+                                    <div class="detail-time">@sqmMonitorData.Wan2.LastPing.Timestamp</div>
+                                }
                             </div>
                         }
                         @if (sqmMonitorData.Wan2.BaselineMbps > 0)
