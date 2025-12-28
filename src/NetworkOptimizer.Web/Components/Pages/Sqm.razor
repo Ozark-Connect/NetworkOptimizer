@@ -1238,19 +1238,19 @@
             deploymentSteps.Add("WAN configurations saved");
             StateHasChanged();
 
-            // Deploy WAN 1 (initial speedtest at 60 seconds)
+            // Deploy WAN 1 (initial speedtest immediately)
             if (wan1Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
                 StateHasChanged();
 
                 var config = CreateSqmConfiguration(wan1Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 60);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 5);
 
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully (initial test in 60s)");
+                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully (speedtest in 5s)");
                 }
                 else
                 {
@@ -1258,19 +1258,19 @@
                 }
             }
 
-            // Deploy WAN 2 (initial speedtest at 180 seconds to stagger with WAN1)
+            // Deploy WAN 2 (initial speedtest 45 seconds after WAN1)
             if (wan2Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
                 StateHasChanged();
 
                 var config = CreateSqmConfiguration(wan2Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 180);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 50);
 
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully (initial test in 180s)");
+                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully (speedtest in 50s)");
                 }
                 else
                 {
