@@ -132,13 +132,16 @@ public class ScriptGenerator
         sb.AppendLine("# ============================================");
         sb.AppendLine();
 
+        // Cron environment setup (PATH for tc, HOME for speedtest)
+        const string cronEnv = "export PATH=\\\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\\\"; export HOME=/root;";
+
         // Speedtest cron jobs
         sb.AppendLine("# Add speedtest cron jobs if not already present");
         sb.AppendLine("if ! crontab -l 2>/dev/null | grep -Fq \"$SPEEDTEST_SCRIPT\"; then");
         sb.Append("    (crontab -l 2>/dev/null");
         foreach (var schedule in _config.SpeedtestSchedule)
         {
-            sb.Append($"; echo \"{schedule} $SPEEDTEST_SCRIPT >> $LOG_FILE 2>&1\"");
+            sb.Append($"; echo \"{schedule} {cronEnv} $SPEEDTEST_SCRIPT >> $LOG_FILE 2>&1\"");
         }
         sb.AppendLine(") | crontab -");
         sb.AppendLine("    echo \"[$(date)] Speedtest cron jobs configured\" >> $LOG_FILE");
@@ -168,7 +171,7 @@ public class ScriptGenerator
         }
         exclusionCheck.Append(" ]; then $PING_SCRIPT >> $LOG_FILE 2>&1; fi");
 
-        sb.AppendLine($"    (crontab -l 2>/dev/null; echo \"*/{_config.PingAdjustmentInterval} * * * * {exclusionCheck}\") | crontab -");
+        sb.AppendLine($"    (crontab -l 2>/dev/null; echo \"*/{_config.PingAdjustmentInterval} * * * * {cronEnv} {exclusionCheck}\") | crontab -");
         sb.AppendLine("    echo \"[$(date)] Ping adjustment cron job configured\" >> $LOG_FILE");
         sb.AppendLine("fi");
         sb.AppendLine();
