@@ -11,10 +11,12 @@ public class ScriptGenerator
 {
     private readonly SqmConfiguration _config;
     private readonly string _name; // Normalized name for files (e.g., "wan1", "wan2")
+    private readonly int _initialDelaySeconds; // Delay before first speedtest (for staggering multiple WANs)
 
-    public ScriptGenerator(SqmConfiguration config)
+    public ScriptGenerator(SqmConfiguration config, int initialDelaySeconds = 60)
     {
         _config = config;
+        _initialDelaySeconds = initialDelaySeconds;
         // Normalize connection name for use in filenames (lowercase, no spaces)
         _name = string.IsNullOrWhiteSpace(config.ConnectionName)
             ? config.Interface.ToLowerInvariant()
@@ -181,9 +183,9 @@ public class ScriptGenerator
         sb.AppendLine("# Section 6: Schedule Initial Calibration");
         sb.AppendLine("# ============================================");
         sb.AppendLine();
-        sb.AppendLine("# Schedule speedtest calibration 60 seconds after boot");
-        sb.AppendLine("echo \"[$(date)] Scheduling initial SQM calibration in 60 seconds...\" >> $LOG_FILE");
-        sb.AppendLine("systemd-run --on-active=60sec --timer-property=AccuracySec=1s \\");
+        sb.AppendLine($"# Schedule speedtest calibration {_initialDelaySeconds} seconds after boot");
+        sb.AppendLine($"echo \"[$(date)] Scheduling initial SQM calibration in {_initialDelaySeconds} seconds...\" >> $LOG_FILE");
+        sb.AppendLine($"systemd-run --on-active={_initialDelaySeconds}sec --timer-property=AccuracySec=1s \\");
         sb.AppendLine("  --setenv=PATH=\"$PATH\" \\");
         sb.AppendLine("  --setenv=HOME=/root \\");
         sb.AppendLine("  \"$SPEEDTEST_SCRIPT\"");

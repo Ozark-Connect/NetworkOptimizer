@@ -122,6 +122,74 @@
         </div>
     </div>
 
+    <!-- SQM Dashboard (shows when deployed) -->
+    @if (sqmWanStatuses.Any())
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">SQM Dashboard</h2>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshSqmStatus" disabled="@isRefreshingSqmStatus">
+                    @if (isRefreshingSqmStatus)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="sqm-dashboard">
+                    @foreach (var wan in sqmWanStatuses)
+                    {
+                        <div class="sqm-wan-card">
+                            <div class="wan-header">
+                                <span class="wan-name">@wan.Name</span>
+                                <span class="wan-rate">@wan.CurrentRateMbps Mbps</span>
+                            </div>
+                            <div class="wan-stats">
+                                @if (wan.LastSpeedtest.HasValue)
+                                {
+                                    <div class="stat-row">
+                                        <span class="stat-label">Last Speedtest:</span>
+                                        <span class="stat-value">@wan.LastSpeedtest.Value.ToString("MMM dd HH:mm")</span>
+                                    </div>
+                                    <div class="stat-row">
+                                        <span class="stat-label">Measured:</span>
+                                        <span class="stat-value">@wan.LastSpeedtestMeasured Mbps</span>
+                                    </div>
+                                    <div class="stat-row">
+                                        <span class="stat-label">Adjusted:</span>
+                                        <span class="stat-value">@wan.LastSpeedtestAdjusted Mbps</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="stat-row">
+                                        <span class="stat-label">Last Speedtest:</span>
+                                        <span class="stat-value text-muted">No data</span>
+                                    </div>
+                                }
+                                @if (wan.LastPingAdjustment.HasValue)
+                                {
+                                    <div class="stat-row">
+                                        <span class="stat-label">Last Ping:</span>
+                                        <span class="stat-value">@wan.LastPingAdjustment.Value.ToString("HH:mm")</span>
+                                    </div>
+                                    <div class="stat-row">
+                                        <span class="stat-label">Latency:</span>
+                                        <span class="stat-value">@wan.LastLatencyMs?.ToString("F1") ms</span>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
     <!-- WAN 1 Configuration -->
     <div class="card">
         <div class="card-header">
@@ -610,6 +678,65 @@
         padding: 2rem;
         color: var(--text-secondary);
     }
+
+    /* SQM Dashboard styles */
+    .sqm-dashboard {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1rem;
+    }
+
+    .sqm-wan-card {
+        background: var(--surface-secondary);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+
+    .wan-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .wan-name {
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+
+    .wan-rate {
+        font-family: var(--font-mono);
+        font-size: 1.25rem;
+        color: var(--primary);
+        font-weight: 600;
+    }
+
+    .wan-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .stat-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.9rem;
+    }
+
+    .stat-label {
+        color: var(--text-secondary);
+    }
+
+    .stat-value {
+        font-family: var(--font-mono);
+    }
+
+    .text-muted {
+        color: var(--text-secondary);
+        font-style: italic;
+    }
 </style>
 
 @code {
@@ -663,6 +790,10 @@
 
     // Speedtest history
     private List<Services.SpeedtestResult> speedtestHistory = new();
+
+    // SQM Dashboard state
+    private List<SqmWanStatus> sqmWanStatuses = new();
+    private bool isRefreshingSqmStatus = false;
 
     protected override void OnInitialized()
     {
@@ -862,6 +993,12 @@
                 // Get TC interface stats
                 tcInterfaces = await SqmService.GetTcInterfaceStatsAsync();
 
+                // Load SQM dashboard status if deployed
+                if (deploymentStatus?.IsDeployed == true)
+                {
+                    sqmWanStatuses = await DeploymentService.GetSqmWanStatusAsync();
+                }
+
                 // Get WAN interfaces from controller
                 try
                 {
@@ -957,19 +1094,19 @@
             deploymentSteps.Add("WAN configurations saved");
             StateHasChanged();
 
-            // Deploy WAN 1
+            // Deploy WAN 1 (initial speedtest at 60 seconds)
             if (wan1Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
                 StateHasChanged();
 
                 var config = CreateSqmConfiguration(wan1Config);
-                var result = await DeploymentService.DeployAsync(config);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 60);
 
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully");
+                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully (initial test in 60s)");
                 }
                 else
                 {
@@ -977,19 +1114,19 @@
                 }
             }
 
-            // Deploy WAN 2
+            // Deploy WAN 2 (initial speedtest at 180 seconds to stagger with WAN1)
             if (wan2Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
                 StateHasChanged();
 
                 var config = CreateSqmConfiguration(wan2Config);
-                var result = await DeploymentService.DeployAsync(config);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 180);
 
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully");
+                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully (initial test in 180s)");
                 }
                 else
                 {
@@ -1173,6 +1310,29 @@
     {
         statusMessage = message;
         statusSuccess = success;
+    }
+
+    private async Task RefreshSqmStatus()
+    {
+        if (isRefreshingSqmStatus) return;
+
+        isRefreshingSqmStatus = true;
+        StateHasChanged();
+
+        try
+        {
+            sqmWanStatuses = await DeploymentService.GetSqmWanStatusAsync();
+        }
+        catch
+        {
+            // Silently fail - dashboard just won't show
+            sqmWanStatuses = new();
+        }
+        finally
+        {
+            isRefreshingSqmStatus = false;
+            StateHasChanged();
+        }
     }
 
     // Model for WAN configuration form
