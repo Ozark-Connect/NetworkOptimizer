@@ -107,8 +107,8 @@
         </div>
     </div>
 
-    <!-- SQM Live Status Dashboard (only show if deployed) -->
-    @if (deploymentStatus?.IsDeployed == true && sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true))
+    <!-- SQM Live Status Dashboard (show if monitor responds with active WANs) -->
+    @if (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true))
     {
         <div class="card sqm-dashboard-card">
             <div class="card-header">
@@ -250,8 +250,11 @@
         </div>
             </div>
         </div>
+    }
 
-        <!-- Manual SQM Adjustment -->
+    <!-- Manual SQM Adjustment (show if deployed OR monitor has active WANs) -->
+    @if (deploymentStatus?.IsDeployed == true || (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true)))
+    {
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Run SQM Adjustment</h2>
