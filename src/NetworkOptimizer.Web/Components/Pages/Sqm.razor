@@ -147,11 +147,11 @@
                                 <div class="detail-header">Last Speedtest</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Measured</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.MeasuredMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.MeasuredMbps.ToString("F0") Mbps</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Adjusted</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.AdjustedMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastSpeedtest.AdjustedMbps.ToString("F0") Mbps</span>
                                 </div>
                                 @if (!string.IsNullOrEmpty(sqmMonitorData.Wan1.LastSpeedtest.Timestamp))
                                 {
@@ -169,14 +169,14 @@
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan1.LastPing.RateMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan1.LastPing.RateMbps.ToString("F0") Mbps</span>
                                 </div>
                             </div>
                         }
                         @if (sqmMonitorData.Wan1.BaselineMbps > 0)
                         {
                             <div class="baseline-info">
-                                Baseline: @sqmMonitorData.Wan1.BaselineMbps Mbps
+                                Baseline: @sqmMonitorData.Wan1.BaselineMbps.ToString("F0") Mbps
                             </div>
                         }
                     </div>
@@ -204,11 +204,11 @@
                                 <div class="detail-header">Last Speedtest</div>
                                 <div class="detail-row">
                                     <span class="detail-label">Measured</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.MeasuredMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.MeasuredMbps.ToString("F0") Mbps</span>
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Adjusted</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.AdjustedMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastSpeedtest.AdjustedMbps.ToString("F0") Mbps</span>
                                 </div>
                                 @if (!string.IsNullOrEmpty(sqmMonitorData.Wan2.LastSpeedtest.Timestamp))
                                 {
@@ -226,14 +226,14 @@
                                 </div>
                                 <div class="detail-row">
                                     <span class="detail-label">Rate</span>
-                                    <span class="detail-value">@sqmMonitorData.Wan2.LastPing.RateMbps Mbps</span>
+                                    <span class="detail-value">@sqmMonitorData.Wan2.LastPing.RateMbps.ToString("F0") Mbps</span>
                                 </div>
                             </div>
                         }
                         @if (sqmMonitorData.Wan2.BaselineMbps > 0)
                         {
                             <div class="baseline-info">
-                                Baseline: @sqmMonitorData.Wan2.BaselineMbps Mbps
+                                Baseline: @sqmMonitorData.Wan2.BaselineMbps.ToString("F0") Mbps
                             </div>
                         }
                     </div>
@@ -938,31 +938,32 @@
     {
         if (firstRender)
         {
-            // Load saved WAN configs from database first
+            // Start loading SQM Monitor data immediately (don't wait for deployment status)
+            var dashboardTask = LoadSqmMonitorDataAsync();
+
+            // Load saved WAN configs from database
             await LoadSavedConfigsAsync();
 
-            // Check if we have valid cached data
+            // Check if we have valid cached data for deployment status
             if (IsCacheValid())
             {
                 // Use cached data for deployment status
                 gatewayConnected = _cachedGatewayConnected;
                 deploymentStatus = _cachedDeploymentStatus;
                 wanInterfaces = _cachedWanInterfaces ?? new();
-                // Only apply detected interfaces if we don't have saved configs
                 if (!hasSavedConfigs)
                     ApplyDetectedWanInterfaces();
-
-                // Always fetch fresh SQM Monitor data for the dashboard
-                await LoadSqmMonitorDataAsync();
-
                 isLoading = false;
-                StateHasChanged();
             }
             else
             {
-                // Load fresh status
-                await RefreshStatus(forceRefresh: false);
+                // Load fresh deployment status (in parallel with dashboard)
+                _ = RefreshStatus(forceRefresh: false);
             }
+
+            // Wait for dashboard data and update UI
+            await dashboardTask;
+            StateHasChanged();
         }
     }
 
