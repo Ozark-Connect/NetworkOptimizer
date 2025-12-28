@@ -23,11 +23,20 @@ Complete Docker infrastructure for the Ozark Connect Network Optimizer for UniFi
    docker-compose up -d
    ```
 
-4. **Access the services:**
-   - Network Optimizer Web UI: http://localhost:8080
+4. **Get the auto-generated admin password:**
+   ```bash
+   docker logs network-optimizer 2>&1 | grep "Password:"
+   ```
+   On first run, a secure password is generated and displayed in the logs.
+
+5. **Access the services:**
+   - Network Optimizer Web UI: http://localhost:8080 (use password from logs)
    - Grafana Dashboards: http://localhost:3000 (admin / your_grafana_password)
    - InfluxDB: http://localhost:8086 (admin / your_influxdb_password)
    - Metrics API: http://localhost:8081
+
+6. **Set a permanent password:**
+   After logging in, go to Settings → Admin Password to set your own password.
 
 ## Architecture
 
@@ -93,6 +102,34 @@ Pre-configured dashboards for visualization:
 - `grafana-data` - Dashboard storage
 - `./grafana/provisioning` - Auto-provisioning configs
 - `./grafana/dashboards` - Dashboard JSON files
+
+## Admin Authentication
+
+The web UI requires authentication. Password sources (in priority order):
+
+1. **Database password** - Set via Settings → Admin Password (recommended)
+2. **Environment variable** - Set `APP_PASSWORD` in `.env`
+3. **Auto-generated** - On first run, a secure password is generated and shown in logs
+
+### First Run
+```bash
+# View the auto-generated password (shown only once)
+docker logs network-optimizer 2>&1 | grep "Password:"
+```
+
+### Setting a Permanent Password
+1. Log in with the auto-generated password
+2. Go to Settings → Admin Password
+3. Enter and confirm your new password
+4. Click Save
+
+### Using Environment Variable
+Alternatively, set `APP_PASSWORD` in `.env`:
+```env
+APP_PASSWORD=your_secure_password
+```
+
+**Note:** Database passwords override the environment variable. Clear the database password in Settings to use `APP_PASSWORD`.
 
 ## Configuration
 
