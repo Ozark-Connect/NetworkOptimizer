@@ -1188,6 +1188,20 @@
 
     private async Task RefreshStatus(bool forceRefresh = true)
     {
+        // If not forcing refresh and cache is valid, use cached data
+        if (!forceRefresh && IsCacheValid())
+        {
+            gatewayConnected = _cachedGatewayConnected;
+            deploymentStatus = _cachedDeploymentStatus;
+            tcInterfaces = _cachedTcInterfaces;
+            wanInterfaces = _cachedWanInterfaces ?? new();
+            if (!hasSavedConfigs)
+                ApplyDetectedWanInterfaces();
+            isLoading = false;
+            StateHasChanged();
+            return;
+        }
+
         isLoading = true;
         StateHasChanged();
 

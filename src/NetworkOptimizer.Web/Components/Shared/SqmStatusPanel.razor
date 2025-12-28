@@ -90,6 +90,7 @@
     private SqmStatusData? statusData;
     private bool isLoading = true;
     private bool isRefreshing = false;
+    private bool _forceRefresh = false;
     private string statusLabel = "";
     private string statusClass = "";
     private string? errorMessage;
@@ -125,7 +126,8 @@
             }
 
             // Try to get live TC stats (fast - just HTTP to TC Monitor)
-            statusData = await SqmService.GetSqmStatusAsync();
+            // Uses cache if available (5 min)
+            statusData = await SqmService.GetSqmStatusAsync(forceRefresh: _forceRefresh);
 
             // Determine status based on TC monitor response
             if (statusData?.TcInterfaces?.Any() == true)
@@ -161,6 +163,7 @@
     private async Task RefreshStats()
     {
         isRefreshing = true;
+        _forceRefresh = true;  // Bypass cache on manual refresh
         StateHasChanged();
 
         try
@@ -170,6 +173,7 @@
         finally
         {
             isRefreshing = false;
+            _forceRefresh = false;
             StateHasChanged();
         }
     }

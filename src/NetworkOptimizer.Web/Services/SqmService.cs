@@ -26,6 +26,11 @@ public class SqmService
     private string? _tcMonitorHost;
     private int _tcMonitorPort = TcMonitorClient.DefaultPort;
 
+    // Cache for SQM status (avoids repeated HTTP calls)
+    private static readonly TimeSpan StatusCacheDuration = TimeSpan.FromMinutes(2);
+    private static SqmStatusData? _cachedStatusData;
+    private static DateTime _lastStatusCheck = DateTime.MinValue;
+
     public SqmService(
         ILogger<SqmService> logger,
         UniFiConnectionService connectionService,
@@ -49,20 +54,33 @@ public class SqmService
     }
 
     /// <summary>
-    /// Get current SQM status including live TC rates if available
+    /// Get current SQM status including live TC rates if available.
+    /// Results are cached for 5 minutes to avoid repeated HTTP calls.
     /// </summary>
-    public async Task<SqmStatusData> GetSqmStatusAsync()
+    public async Task<SqmStatusData> GetSqmStatusAsync(bool forceRefresh = false)
     {
-        _logger.LogDebug("Loading SQM status data");
+        // Check cache first (unless force refresh requested)
+        if (!forceRefresh && _cachedStatusData != null &&
+            DateTime.UtcNow - _lastStatusCheck < StatusCacheDuration)
+        {
+            _logger.LogDebug("Returning cached SQM status");
+            return _cachedStatusData;
+        }
+
+        _logger.LogDebug("Loading SQM status data (cache miss or force refresh)");
+
+        SqmStatusData result;
 
         // Check if controller is connected
         if (!_connectionService.IsConnected)
         {
-            return new SqmStatusData
+            result = new SqmStatusData
             {
                 Status = "Unavailable",
                 StatusMessage = "Connect to UniFi controller first"
             };
+            CacheStatusResult(result);
+            return result;
         }
 
         // Get gateway host for TC Monitor
@@ -71,11 +89,13 @@ public class SqmService
         // Check if gateway is configured
         if (string.IsNullOrEmpty(gatewayHost))
         {
-            return new SqmStatusData
+            result = new SqmStatusData
             {
                 Status = "Not Configured",
                 StatusMessage = "Gateway SSH not configured. Go to Settings to configure your gateway connection."
             };
+            CacheStatusResult(result);
+            return result;
         }
 
         // Try to get TC stats from the gateway
@@ -89,18 +109,20 @@ public class SqmService
 
         if (tcStats == null)
         {
-            return new SqmStatusData
+            result = new SqmStatusData
             {
                 Status = "Offline",
                 StatusMessage = "TC Monitor not running"
             };
+            CacheStatusResult(result);
+            return result;
         }
 
         // Build response from live TC data (handles both legacy wan1/wan2 and new interfaces format)
         var interfaces = tcStats.GetAllInterfaces();
         var primaryWan = interfaces.FirstOrDefault(i => i.Status == "active");
 
-        return new SqmStatusData
+        result = new SqmStatusData
         {
             Status = "Active",
             CurrentRate = primaryWan?.RateMbps ?? 0,
@@ -113,6 +135,23 @@ public class SqmService
             TcInterfaces = interfaces,
             TcMonitorTimestamp = tcStats.Timestamp
         };
+        CacheStatusResult(result);
+        return result;
+    }
+
+    private static void CacheStatusResult(SqmStatusData result)
+    {
+        _cachedStatusData = result;
+        _lastStatusCheck = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Invalidate the SQM status cache (call after deploy/remove)
+    /// </summary>
+    public static void InvalidateStatusCache()
+    {
+        _cachedStatusData = null;
+        _lastStatusCheck = DateTime.MinValue;
     }
 
     /// <summary>

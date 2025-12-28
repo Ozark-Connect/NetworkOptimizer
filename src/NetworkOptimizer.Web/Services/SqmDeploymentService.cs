@@ -314,6 +314,9 @@ echo 'udm-boot installed successfully'
             result.Message = $"SQM deployed for {config.ConnectionName} ({config.Interface})";
             _logger.LogInformation("SQM deployment completed for {Name} ({Interface})",
                 config.ConnectionName, config.Interface);
+
+            // Invalidate SQM status cache so the new status gets fetched
+            SqmService.InvalidateStatusCache();
         }
         catch (Exception ex)
         {
@@ -472,6 +475,10 @@ echo 'udm-boot installed successfully'
 
             steps.Add("SQM removal complete");
             _logger.LogInformation("SQM scripts removed (TC Monitor: {TcMonitor})", includeTcMonitor);
+
+            // Invalidate SQM status cache so the "Offline" status gets cached
+            SqmService.InvalidateStatusCache();
+
             return (true, steps);
         }
         catch (Exception ex)
