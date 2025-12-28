@@ -1193,6 +1193,7 @@
     private async Task RefreshStatus(bool forceRefresh = true)
     {
         isLoading = true;
+        statusMessage = null;  // Clear any previous status messages
         StateHasChanged();
 
         try
