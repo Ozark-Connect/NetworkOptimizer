@@ -56,6 +56,16 @@ public class DeviceTypeDetectionService
             return obviousNameResult;
         }
 
+        // Priority 0.5: Check OUI for vendors that default to SmartPlug (Cync/Wyze/GE)
+        // These vendors have camera fingerprints but most devices are actually plugs/bulbs
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname);
+        if (vendorOverrideResult != null)
+        {
+            _logger?.LogInformation("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
+                displayName, vendorOverrideResult.Category);
+            return vendorOverrideResult;
+        }
+
         // Priority 1: UniFi Fingerprint (if client has fingerprint data)
         if (client != null && (client.DevCat.HasValue || client.DevIdOverride.HasValue))
         {
@@ -245,10 +255,9 @@ public class DeviceTypeDetectionService
         if (name.Contains("samsung") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
         if (name.Contains("lg") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
 
-        // Security cameras
+        // Security cameras (note: Wyze/Cync handled earlier in CheckVendorDefaultOverride)
         if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
         if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
-        if (name.Contains("wyze")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
         if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
         if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
         if (name.Contains("hikvision") || name.Contains("dahua") || name.Contains("amcrest")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
@@ -377,6 +386,48 @@ public class DeviceTypeDetectionService
                nameLower.Contains("security") ||
                nameLower.Contains("nvr") ||
                nameLower.Contains("ptz");
+    }
+
+    /// <summary>
+    /// Check if vendor OUI indicates a device that defaults to SmartPlug.
+    /// Cync, Wyze, and GE devices have camera fingerprints but are usually plugs/bulbs.
+    /// Only classify as camera if the name explicitly indicates camera.
+    /// </summary>
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname)
+    {
+        if (string.IsNullOrEmpty(oui))
+            return null;
+
+        var ouiLower = oui.ToLowerInvariant();
+        var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
+
+        // Check for vendors that default to SmartPlug
+        var isPlugVendor = ouiLower.Contains("cync") ||
+                           ouiLower.Contains("wyze") ||
+                           ouiLower.Contains("savant") ||  // Cync parent company
+                           (ouiLower.Contains("ge") && ouiLower.Contains("lighting"));
+
+        if (!isPlugVendor)
+            return null;
+
+        // If name indicates camera, let fingerprint handle it
+        if (IsCameraName(nameLower))
+            return null;
+
+        // Default these vendors to SmartPlug
+        return new DeviceDetectionResult
+        {
+            Category = ClientDeviceCategory.SmartPlug,
+            Source = DetectionSource.MacOui,
+            ConfidenceScore = 85,
+            VendorName = oui,
+            RecommendedNetwork = NetworkPurpose.IoT,
+            Metadata = new Dictionary<string, object>
+            {
+                ["override_reason"] = $"Vendor '{oui}' defaults to SmartPlug unless name indicates camera",
+                ["oui"] = oui
+            }
+        };
     }
 
     /// <summary>

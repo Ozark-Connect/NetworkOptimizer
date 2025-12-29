@@ -69,20 +69,23 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
-    #region WYZE Default to Plug Tests
+    #region Vendor OUI Default to Plug Tests (Cync/Wyze/GE)
 
     [Theory]
-    [InlineData("WYZE Device")]
-    [InlineData("Wyze Smart")]
-    [InlineData("Living Room Wyze")]
-    public void DetectDeviceType_WyzeWithoutCameraKeyword_ReturnsSmartPlug(string deviceName)
+    [InlineData("Cync by Savant", "Plant Lights")]
+    [InlineData("Wyze Labs", "Smart Plug 1")]
+    [InlineData("Wyze", "Living Room")]
+    [InlineData("GE Lighting", "Bedroom")]  // Generic name - defaults to SmartPlug
+    [InlineData("Savant Systems", "Kitchen Outlet")]
+    public void DetectDeviceType_PlugVendorOui_DefaultsToSmartPlug(string oui, string deviceName)
     {
-        // Arrange - WYZE devices default to SmartPlug unless camera indicated
+        // Arrange - These vendors default to SmartPlug unless name indicates camera
         var client = new UniFiClientResponse
         {
             Mac = "aa:bb:cc:dd:ee:ff",
             Name = deviceName,
-            DevCat = 4 // Camera fingerprint (should be overridden)
+            Oui = oui,
+            DevCat = 4 // Camera fingerprint (should be overridden by OUI)
         };
 
         // Act
@@ -90,28 +93,68 @@ public class DeviceTypeDetectionServiceTests
 
         // Assert
         result.Category.Should().Be(ClientDeviceCategory.SmartPlug);
-        result.VendorName.Should().Be("WYZE");
     }
 
     [Theory]
-    [InlineData("Wyze Cam")]
-    [InlineData("Wyze Camera v3")]
-    [InlineData("Wyze Doorbell")]
-    [InlineData("Wyze Video Doorbell")]
-    public void DetectDeviceType_WyzeWithCameraKeyword_ReturnsCamera(string deviceName)
+    [InlineData("GE Lighting", "Desk Lamp")]
+    [InlineData("Cync by Savant", "Kitchen Bulb")]
+    public void DetectDeviceType_PlugVendorWithLightingName_ReturnsSmartLighting(string oui, string deviceName)
     {
-        // Arrange - WYZE with camera keywords should still be detected as camera
+        // Arrange - If name indicates lighting, override vendor default to SmartPlug
         var client = new UniFiClientResponse
         {
             Mac = "aa:bb:cc:dd:ee:ff",
             Name = deviceName,
+            Oui = oui,
             DevCat = 4 // Camera fingerprint
         };
 
         // Act
         var result = _service.DetectDeviceType(client);
 
-        // Assert - Should use fingerprint since name indicates camera
+        // Assert - Lighting name overrides vendor default
+        result.Category.Should().Be(ClientDeviceCategory.SmartLighting);
+    }
+
+    [Theory]
+    [InlineData("Wyze Labs", "Front Door Cam")]
+    [InlineData("Wyze", "Garage Camera")]
+    [InlineData("Cync by Savant", "Doorbell Camera")]
+    [InlineData("Wyze", "Video Doorbell")]
+    public void DetectDeviceType_PlugVendorWithCameraName_ReturnsCamera(string oui, string deviceName)
+    {
+        // Arrange - If name indicates camera, use fingerprint detection
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 4 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Camera name overrides vendor default
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_NonPlugVendor_UsesFingerprint()
+    {
+        // Arrange - Ring is a camera vendor, should use fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door",
+            Oui = "Ring Inc",
+            DevCat = 4 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Ring should be detected as camera
         result.Category.Should().Be(ClientDeviceCategory.Camera);
     }
 
