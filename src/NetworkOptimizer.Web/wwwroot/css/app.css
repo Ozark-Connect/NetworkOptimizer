@@ -2998,6 +2998,11 @@ td .btn + .btn {
     font-weight: 500;
 }
 
+.status-neutral {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
 .row-warning {
     background-color: rgba(231, 150, 19, 0.1);
 }

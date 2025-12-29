@@ -214,7 +214,11 @@ public class ConfigAuditEngine
                 DohProviders = providerNames,
                 DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
                 DotBlocked = dnsSecurityResult.HasDotBlockRule,
-                DohBypassBlocked = dnsSecurityResult.HasDohBlockRule
+                DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
+                WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
+                WanDnsMatchesDoH = dnsSecurityResult.WanDnsMatchesDoH,
+                WanDnsProvider = dnsSecurityResult.WanDnsProvider,
+                ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider
             };
         }
 

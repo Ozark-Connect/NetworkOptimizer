@@ -274,6 +274,9 @@ public class DnsSecurityAnalyzer
             });
         }
 
+        // Validate WAN DNS against DoH provider
+        ValidateWanDnsConfiguration(result);
+
         // Issue: No DNS port 53 blocking (DNS leak prevention)
         if (!result.HasDns53BlockRule)
         {
@@ -349,6 +352,87 @@ public class DnsSecurityAnalyzer
         }
     }
 
+    private void ValidateWanDnsConfiguration(DnsSecurityResult result)
+    {
+        if (!result.DohConfigured || result.WanDnsServers.Count == 0)
+        {
+            // No DoH or no WAN DNS servers to validate
+            return;
+        }
+
+        // Find the primary DoH provider
+        var primaryServer = result.ConfiguredServers.FirstOrDefault(s => s.Enabled);
+        if (primaryServer == null)
+            return;
+
+        var expectedProvider = primaryServer.StampInfo?.ProviderInfo ?? primaryServer.Provider;
+        if (expectedProvider == null)
+        {
+            // Try to identify from server name
+            expectedProvider = DohProviderRegistry.IdentifyProviderFromName(primaryServer.ServerName);
+        }
+
+        if (expectedProvider == null)
+        {
+            _logger.LogDebug("Could not identify DoH provider for WAN DNS validation");
+            return;
+        }
+
+        result.ExpectedDnsProvider = expectedProvider.Name;
+
+        // Check each WAN DNS server
+        var matchingServers = new List<string>();
+        var mismatchedServers = new List<string>();
+
+        foreach (var wanDns in result.WanDnsServers)
+        {
+            var wanProvider = DohProviderRegistry.IdentifyProviderFromIp(wanDns);
+            if (wanProvider != null)
+            {
+                result.WanDnsProvider = wanProvider.Name;
+                if (wanProvider.Name == expectedProvider.Name)
+                {
+                    matchingServers.Add(wanDns);
+                }
+                else
+                {
+                    mismatchedServers.Add($"{wanDns} ({wanProvider.Name})");
+                }
+            }
+            else
+            {
+                // Unknown DNS - could be ISP or other provider
+                mismatchedServers.Add($"{wanDns} (Unknown)");
+            }
+        }
+
+        result.WanDnsMatchesDoH = matchingServers.Count > 0 && mismatchedServers.Count == 0;
+
+        if (matchingServers.Count > 0 && mismatchedServers.Count == 0)
+        {
+            result.HardeningNotes.Add($"WAN DNS correctly configured for {expectedProvider.Name}");
+        }
+        else if (mismatchedServers.Count > 0)
+        {
+            var expectedIps = string.Join(", ", expectedProvider.DnsIps.Take(2));
+            result.Issues.Add(new AuditIssue
+            {
+                Type = "DNS_WAN_MISMATCH",
+                Severity = AuditSeverity.Recommended,
+                Message = $"WAN DNS servers don't match DoH provider. DoH uses {expectedProvider.Name} but WAN DNS is set to: {string.Join(", ", mismatchedServers)}",
+                RecommendedAction = $"Set WAN DNS to {expectedProvider.Name} servers: {expectedIps}",
+                RuleId = "DNS-WAN-001",
+                ScoreImpact = 4,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "expected_provider", expectedProvider.Name },
+                    { "expected_ips", expectedProvider.DnsIps },
+                    { "actual_servers", result.WanDnsServers }
+                }
+            });
+        }
+    }
+
     /// <summary>
     /// Get a summary of DNS security status
     /// </summary>
@@ -367,9 +451,13 @@ public class DnsSecurityAnalyzer
             DnsLeakProtection = result.HasDns53BlockRule,
             DotBlocked = result.HasDotBlockRule,
             DohBypassBlocked = result.HasDohBlockRule,
-            FullyProtected = result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule,
+            FullyProtected = result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.WanDnsMatchesDoH,
             IssueCount = result.Issues.Count,
-            CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical)
+            CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
+            WanDnsServers = result.WanDnsServers.ToList(),
+            WanDnsMatchesDoH = result.WanDnsMatchesDoH,
+            WanDnsProvider = result.WanDnsProvider,
+            ExpectedDnsProvider = result.ExpectedDnsProvider
         };
     }
 }
@@ -387,6 +475,9 @@ public class DnsSecurityResult
     // WAN DNS Configuration
     public List<string> WanDnsServers { get; } = new();
     public bool UsingIspDns { get; set; }
+    public bool WanDnsMatchesDoH { get; set; }
+    public string? WanDnsProvider { get; set; }
+    public string? ExpectedDnsProvider { get; set; }
 
     // Firewall Rules
     public bool HasDns53BlockRule { get; set; }
@@ -428,4 +519,10 @@ public class DnsSecuritySummary
     public bool FullyProtected { get; init; }
     public int IssueCount { get; init; }
     public int CriticalIssueCount { get; init; }
+
+    // WAN DNS validation
+    public List<string> WanDnsServers { get; init; } = new();
+    public bool WanDnsMatchesDoH { get; init; }
+    public string? WanDnsProvider { get; init; }
+    public string? ExpectedDnsProvider { get; init; }
 }

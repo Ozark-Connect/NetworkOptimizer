@@ -112,9 +112,29 @@ public class DnsSecurityInfo
     public bool DohBypassBlocked { get; set; }
 
     /// <summary>
+    /// Configured WAN DNS servers
+    /// </summary>
+    public List<string> WanDnsServers { get; set; } = new();
+
+    /// <summary>
+    /// Whether WAN DNS servers match the DoH provider
+    /// </summary>
+    public bool WanDnsMatchesDoH { get; set; }
+
+    /// <summary>
+    /// Provider name identified from WAN DNS servers
+    /// </summary>
+    public string? WanDnsProvider { get; set; }
+
+    /// <summary>
+    /// Expected DNS provider based on DoH configuration
+    /// </summary>
+    public string? ExpectedDnsProvider { get; set; }
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
-    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked;
+    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH;
 }
 
 /// <summary>

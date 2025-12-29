@@ -627,7 +627,11 @@ public class AuditService
                 DnsLeakProtection = dns.DnsLeakProtection,
                 DotBlocked = dns.DotBlocked,
                 DohBypassBlocked = dns.DohBypassBlocked,
-                FullyProtected = dns.FullyProtected
+                FullyProtected = dns.FullyProtected,
+                WanDnsServers = dns.WanDnsServers.ToList(),
+                WanDnsMatchesDoH = dns.WanDnsMatchesDoH,
+                WanDnsProvider = dns.WanDnsProvider,
+                ExpectedDnsProvider = dns.ExpectedDnsProvider
             };
         }
 
@@ -802,6 +806,12 @@ public class DnsSecurityReference
     public bool DotBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
     public bool FullyProtected { get; set; }
+
+    // WAN DNS validation
+    public List<string> WanDnsServers { get; set; } = new();
+    public bool WanDnsMatchesDoH { get; set; }
+    public string? WanDnsProvider { get; set; }
+    public string? ExpectedDnsProvider { get; set; }
 }
 
 public class AuditStatistics

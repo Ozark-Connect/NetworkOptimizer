@@ -309,6 +309,13 @@
                                 </td>
                                 <td>@(lastResult.DnsSecurity.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH")</td>
                             </tr>
+                            <tr>
+                                <td>WAN DNS Configuration</td>
+                                <td class="@GetWanDnsStatusClass()">
+                                    @GetWanDnsStatus()
+                                </td>
+                                <td>@GetWanDnsDetails()</td>
+                            </tr>
                         </tbody>
                     </table>
                     <div class="dns-summary @(lastResult.DnsSecurity.FullyProtected ? "dns-protected" : "dns-partial")">
@@ -736,7 +743,11 @@
                     DnsLeakProtection = lastResult.DnsSecurity.DnsLeakProtection,
                     DotBlocked = lastResult.DnsSecurity.DotBlocked,
                     DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
-                    FullyProtected = lastResult.DnsSecurity.FullyProtected
+                    FullyProtected = lastResult.DnsSecurity.FullyProtected,
+                    WanDnsServers = lastResult.DnsSecurity.WanDnsServers.ToList(),
+                    WanDnsMatchesDoH = lastResult.DnsSecurity.WanDnsMatchesDoH,
+                    WanDnsProvider = lastResult.DnsSecurity.WanDnsProvider,
+                    ExpectedDnsProvider = lastResult.DnsSecurity.ExpectedDnsProvider
                 } : null,
 
                 // Access Points with wireless clients (grouped by AP)
@@ -880,6 +891,43 @@
         if (dns.DohState == "auto") return "Auto (may fallback)";
         if (dns.DohProviders.Any()) return string.Join(", ", dns.DohProviders);
         return "Enabled";
+    }
+
+    private string GetWanDnsStatusClass()
+    {
+        if (lastResult?.DnsSecurity == null) return "";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.WanDnsServers.Any()) return "status-neutral";
+        if (dns.WanDnsMatchesDoH) return "status-success";
+        return "status-warning";
+    }
+
+    private string GetWanDnsStatus()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.WanDnsServers.Any()) return "Not Configured";
+        if (dns.WanDnsMatchesDoH) return "Matched";
+        return "Mismatched";
+    }
+
+    private string GetWanDnsDetails()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.WanDnsServers.Any()) return "No WAN DNS servers configured";
+
+        var servers = string.Join(", ", dns.WanDnsServers);
+        if (dns.WanDnsMatchesDoH)
+        {
+            return $"{servers} ({dns.ExpectedDnsProvider ?? "matches DoH"})";
+        }
+        else if (!string.IsNullOrEmpty(dns.ExpectedDnsProvider))
+        {
+            var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
+            return $"{servers}{providerInfo} - Expected {dns.ExpectedDnsProvider}";
+        }
+        return servers;
     }
 
     private string GetLinkStatus(Services.PortReference port)

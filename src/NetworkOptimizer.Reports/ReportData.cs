@@ -32,6 +32,12 @@ public class DnsSecuritySummary
     public bool DohBypassBlocked { get; set; }
     public bool FullyProtected { get; set; }
 
+    // WAN DNS validation
+    public List<string> WanDnsServers { get; set; } = new();
+    public bool WanDnsMatchesDoH { get; set; }
+    public string? WanDnsProvider { get; set; }
+    public string? ExpectedDnsProvider { get; set; }
+
     public string GetDohStatusDisplay()
     {
         if (!DohEnabled) return "Not Configured";
@@ -47,7 +53,19 @@ public class DnsSecuritySummary
         if (DnsLeakProtection) protections.Add("DNS53");
         if (DotBlocked) protections.Add("DoT");
         if (DohBypassBlocked) protections.Add("DoH Bypass");
+        if (WanDnsMatchesDoH) protections.Add("WAN DNS");
         return protections.Any() ? string.Join(" + ", protections) : "None";
+    }
+
+    public string GetWanDnsDisplay()
+    {
+        if (!WanDnsServers.Any()) return "Not Configured";
+        var servers = string.Join(", ", WanDnsServers);
+        if (WanDnsMatchesDoH)
+            return $"{servers} ({ExpectedDnsProvider ?? "matches DoH"})";
+        if (!string.IsNullOrEmpty(ExpectedDnsProvider))
+            return $"{servers} - Expected {ExpectedDnsProvider}";
+        return servers;
     }
 }
 

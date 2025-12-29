@@ -327,6 +327,20 @@ public class PdfReportGenerator
                     .Text(bypassStatus).FontSize(9).FontColor(bypassStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(dns.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH").FontSize(9);
+
+                // WAN DNS Configuration row
+                var wanDnsStatus = !dns.WanDnsServers.Any() ? "Not Configured"
+                    : dns.WanDnsMatchesDoH ? "Matched" : "Mismatched";
+                var neutralColor = "#666666";
+                var wanDnsStatusColor = !dns.WanDnsServers.Any() ? neutralColor
+                    : dns.WanDnsMatchesDoH ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("WAN DNS Configuration").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(wanDnsStatus).FontSize(9).FontColor(wanDnsStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.GetWanDnsDisplay()).FontSize(9);
             });
 
             // Overall protection status
