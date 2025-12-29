@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.UniFi.Models;
@@ -18,6 +19,7 @@ public class ConfigAuditEngine
     private readonly VlanAnalyzer _vlanAnalyzer;
     private readonly SecurityAuditEngine _securityEngine;
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
+    private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly AuditScorer _scorer;
 
     /// <summary>
@@ -40,6 +42,7 @@ public class ConfigAuditEngine
             loggerFactory.CreateLogger<SecurityAuditEngine>(),
             detectionService);
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>());
+        _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -50,7 +53,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, string? clientName = null)
-        => RunAudit(deviceDataJson, clients: null, fingerprintDb: null, clientName);
+        => RunAudit(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
@@ -60,7 +63,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
-        => RunAudit(deviceDataJson, clients, fingerprintDb: null, clientName);
+        => RunAudit(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data and fingerprint database for enhanced detection
@@ -71,6 +74,25 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
+        => RunAudit(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, clientName);
+
+    /// <summary>
+    /// Run a comprehensive audit on UniFi device data with all available data sources
+    /// </summary>
+    /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
+    /// <param name="clients">Connected clients for device type detection (optional)</param>
+    /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
+    /// <param name="settingsData">Site settings data including DoH configuration (optional)</param>
+    /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
+    /// <param name="clientName">Optional client/site name for the report</param>
+    /// <returns>Complete audit results</returns>
+    public AuditResult RunAudit(
+        string deviceDataJson,
+        List<UniFiClientResponse>? clients,
+        UniFiFingerprintDatabase? fingerprintDb,
+        JsonElement? settingsData,
+        JsonElement? firewallPoliciesData,
+        string? clientName = null)
     {
         _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
         if (clients != null)
@@ -138,6 +160,24 @@ public class ConfigAuditEngine
             : new List<AuditIssue>();
         _logger.LogInformation("Found {IssueCount} firewall issues", firewallIssues.Count);
 
+        // Analyze DNS security (DoH configuration and firewall rules for DNS leak prevention)
+        _logger.LogInformation("Phase 5b: Analyzing DNS security");
+        DnsSecurityResult? dnsSecurityResult = null;
+        var dnsSecurityIssues = new List<AuditIssue>();
+        var dnsHardeningNotes = new List<string>();
+
+        if (settingsData.HasValue || firewallPoliciesData.HasValue)
+        {
+            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData);
+            dnsSecurityIssues = dnsSecurityResult.Issues;
+            dnsHardeningNotes = dnsSecurityResult.HardeningNotes;
+            _logger.LogInformation("Found {IssueCount} DNS security issues", dnsSecurityIssues.Count);
+        }
+        else
+        {
+            _logger.LogDebug("Skipping DNS security analysis - no settings or firewall policy data provided");
+        }
+
         // Combine all issues
         var allIssues = new List<AuditIssue>();
         allIssues.AddRange(portIssues);
@@ -146,10 +186,12 @@ public class ConfigAuditEngine
         allIssues.AddRange(gatewayIssues);
         allIssues.AddRange(mgmtDhcpIssues);
         allIssues.AddRange(firewallIssues);
+        allIssues.AddRange(dnsSecurityIssues);
 
         // Analyze hardening measures
         _logger.LogInformation("Phase 6: Analyzing hardening measures");
         var hardeningMeasures = securityEngine.AnalyzeHardening(switches, networks);
+        hardeningMeasures.AddRange(dnsHardeningNotes);
         _logger.LogInformation("Found {MeasureCount} hardening measures in place", hardeningMeasures.Count);
 
         // Calculate statistics

@@ -1,0 +1,141 @@
+namespace NetworkOptimizer.Audit.Dns;
+
+/// <summary>
+/// Registry of known DNS-over-HTTPS providers
+/// </summary>
+public static class DohProviderRegistry
+{
+    /// <summary>
+    /// Known DoH providers with their configuration details
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, DohProviderInfo> Providers = new Dictionary<string, DohProviderInfo>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["NextDNS"] = new DohProviderInfo
+        {
+            Name = "NextDNS",
+            StampPrefix = "nextdns",
+            Hostnames = new[] { "dns.nextdns.io" },
+            SupportsFiltering = true,
+            HasCustomConfig = true,
+            Description = "NextDNS - Privacy-focused DNS with filtering"
+        },
+        ["AdGuard"] = new DohProviderInfo
+        {
+            Name = "AdGuard",
+            StampPrefix = "adguard",
+            Hostnames = new[] { "dns.adguard.com", "dns-family.adguard.com", "dns-unfiltered.adguard.com" },
+            SupportsFiltering = true,
+            HasCustomConfig = true,
+            Description = "AdGuard DNS with ad blocking"
+        },
+        ["Cloudflare"] = new DohProviderInfo
+        {
+            Name = "Cloudflare",
+            StampPrefix = "cloudflare",
+            Hostnames = new[] { "cloudflare-dns.com", "1dot1dot1dot1.cloudflare-dns.com", "one.one.one.one", "dns.cloudflare.com", "mozilla.cloudflare-dns.com", "family.cloudflare-dns.com", "security.cloudflare-dns.com" },
+            SupportsFiltering = false,
+            HasCustomConfig = false,
+            Description = "Cloudflare 1.1.1.1 DNS"
+        },
+        ["Google"] = new DohProviderInfo
+        {
+            Name = "Google",
+            StampPrefix = "google",
+            Hostnames = new[] { "dns.google", "dns.google.com", "8888.google", "dns64.dns.google" },
+            SupportsFiltering = false,
+            HasCustomConfig = false,
+            Description = "Google Public DNS"
+        },
+        ["Quad9"] = new DohProviderInfo
+        {
+            Name = "Quad9",
+            StampPrefix = "quad9",
+            Hostnames = new[] { "dns.quad9.net", "dns9.quad9.net", "dns10.quad9.net", "dns11.quad9.net" },
+            SupportsFiltering = true,
+            HasCustomConfig = false,
+            Description = "Quad9 Security-focused DNS"
+        },
+        ["OpenDNS"] = new DohProviderInfo
+        {
+            Name = "OpenDNS",
+            StampPrefix = "opendns",
+            Hostnames = new[] { "doh.opendns.com", "doh.familyshield.opendns.com", "doh.sandbox.opendns.com" },
+            SupportsFiltering = true,
+            HasCustomConfig = false,
+            Description = "Cisco OpenDNS"
+        },
+        ["CleanBrowsing"] = new DohProviderInfo
+        {
+            Name = "CleanBrowsing",
+            StampPrefix = "cleanbrowsing",
+            Hostnames = new[] { "doh.cleanbrowsing.org" },
+            SupportsFiltering = true,
+            HasCustomConfig = false,
+            Description = "CleanBrowsing Family-safe DNS"
+        },
+        ["LibreDNS"] = new DohProviderInfo
+        {
+            Name = "LibreDNS",
+            StampPrefix = "libredns",
+            Hostnames = new[] { "doh.libredns.gr" },
+            SupportsFiltering = false,
+            HasCustomConfig = false,
+            Description = "LibreDNS - Privacy-focused"
+        }
+    };
+
+    /// <summary>
+    /// Identify a provider from a hostname
+    /// </summary>
+    public static DohProviderInfo? IdentifyProvider(string hostname)
+    {
+        if (string.IsNullOrEmpty(hostname))
+            return null;
+
+        var hostLower = hostname.ToLowerInvariant();
+
+        foreach (var provider in Providers.Values)
+        {
+            if (provider.Hostnames.Any(h => hostLower.Contains(h.ToLowerInvariant())))
+            {
+                return provider;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Identify a provider from a server name (e.g., "NextDNS-fcdba9")
+    /// </summary>
+    public static DohProviderInfo? IdentifyProviderFromName(string serverName)
+    {
+        if (string.IsNullOrEmpty(serverName))
+            return null;
+
+        var nameLower = serverName.ToLowerInvariant();
+
+        foreach (var kvp in Providers)
+        {
+            if (nameLower.StartsWith(kvp.Key.ToLowerInvariant()))
+            {
+                return kvp.Value;
+            }
+        }
+
+        return null;
+    }
+}
+
+/// <summary>
+/// Information about a DoH provider
+/// </summary>
+public class DohProviderInfo
+{
+    public required string Name { get; init; }
+    public required string StampPrefix { get; init; }
+    public required string[] Hostnames { get; init; }
+    public required bool SupportsFiltering { get; init; }
+    public required bool HasCustomConfig { get; init; }
+    public required string Description { get; init; }
+}
