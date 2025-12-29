@@ -128,6 +128,7 @@ builder.Services.AddAuthorization();
 
 // Register application services (scoped per request/circuit)
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<AuditService>(); // Singleton to persist dismissed alerts across refreshes
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();

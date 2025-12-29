@@ -14,6 +14,7 @@ public class AuditService
     private readonly UniFiConnectionService _connectionService;
     private readonly ConfigAuditEngine _auditEngine;
     private readonly IServiceProvider _serviceProvider;
+    private readonly FingerprintDatabaseService _fingerprintService;
 
     // Cache the last audit result
     private AuditResult? _lastAuditResult;
@@ -27,12 +28,14 @@ public class AuditService
         ILogger<AuditService> logger,
         UniFiConnectionService connectionService,
         ConfigAuditEngine auditEngine,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        FingerprintDatabaseService fingerprintService)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditEngine = auditEngine;
         _serviceProvider = serviceProvider;
+        _fingerprintService = fingerprintService;
     }
 
     /// <summary>
@@ -375,10 +378,13 @@ public class AuditService
             var clients = await _connectionService.Client.GetClientsAsync();
             _logger.LogInformation("Fetched {ClientCount} connected clients for device detection", clients?.Count ?? 0);
 
+            // Get fingerprint database for device name lookups
+            var fingerprintDb = await _fingerprintService.GetDatabaseAsync();
+
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
-            // Run the audit engine with client data for enhanced detection
-            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, "Network Audit");
+            // Run the audit engine with client data and fingerprint database for enhanced detection
+            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, fingerprintDb, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);

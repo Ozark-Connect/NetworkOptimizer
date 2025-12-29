@@ -14,6 +14,7 @@ namespace NetworkOptimizer.Audit;
 public class ConfigAuditEngine
 {
     private readonly ILogger<ConfigAuditEngine> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly VlanAnalyzer _vlanAnalyzer;
     private readonly SecurityAuditEngine _securityEngine;
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
@@ -27,7 +28,7 @@ public class ConfigAuditEngine
         ILoggerFactory loggerFactory)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        ArgumentNullException.ThrowIfNull(loggerFactory);
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
 
         _vlanAnalyzer = new VlanAnalyzer(loggerFactory.CreateLogger<VlanAnalyzer>());
 
@@ -49,7 +50,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, string? clientName = null)
-        => RunAudit(deviceDataJson, clients: null, clientName);
+        => RunAudit(deviceDataJson, clients: null, fingerprintDb: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
@@ -59,11 +60,38 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
+        => RunAudit(deviceDataJson, clients, fingerprintDb: null, clientName);
+
+    /// <summary>
+    /// Run a comprehensive audit on UniFi device data with client data and fingerprint database for enhanced detection
+    /// </summary>
+    /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
+    /// <param name="clients">Connected clients for device type detection (optional)</param>
+    /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
+    /// <param name="clientName">Optional client/site name for the report</param>
+    /// <returns>Complete audit results</returns>
+    public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
     {
         _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
         if (clients != null)
         {
             _logger.LogInformation("Client data available for enhanced detection: {ClientCount} clients", clients.Count);
+        }
+        if (fingerprintDb != null)
+        {
+            _logger.LogInformation("Fingerprint database available: {DeviceCount} devices", fingerprintDb.DevIds.Count);
+        }
+
+        // Use a security engine with fingerprint database if available
+        var securityEngine = _securityEngine;
+        if (fingerprintDb != null)
+        {
+            var detectionService = new DeviceTypeDetectionService(
+                _loggerFactory.CreateLogger<DeviceTypeDetectionService>(),
+                fingerprintDb);
+            securityEngine = new SecurityAuditEngine(
+                _loggerFactory.CreateLogger<SecurityAuditEngine>(),
+                detectionService);
         }
 
         // Parse JSON
@@ -76,13 +104,13 @@ public class ConfigAuditEngine
 
         // Extract switches and ports (with client correlation for detection)
         _logger.LogInformation("Phase 2: Extracting switch configurations");
-        var switches = _securityEngine.ExtractSwitches(deviceData, networks, clients);
+        var switches = securityEngine.ExtractSwitches(deviceData, networks, clients);
         _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
             switches.Count, switches.Sum(s => s.Ports.Count));
 
         // Run security analysis on ports
         _logger.LogInformation("Phase 3: Analyzing port security");
-        var portIssues = _securityEngine.AnalyzePorts(switches, networks);
+        var portIssues = securityEngine.AnalyzePorts(switches, networks);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
 
         // Analyze network configuration
@@ -112,11 +140,11 @@ public class ConfigAuditEngine
 
         // Analyze hardening measures
         _logger.LogInformation("Phase 6: Analyzing hardening measures");
-        var hardeningMeasures = _securityEngine.AnalyzeHardening(switches, networks);
+        var hardeningMeasures = securityEngine.AnalyzeHardening(switches, networks);
         _logger.LogInformation("Found {MeasureCount} hardening measures in place", hardeningMeasures.Count);
 
         // Calculate statistics
-        var statistics = _securityEngine.CalculateStatistics(switches);
+        var statistics = securityEngine.CalculateStatistics(switches);
 
         // Build audit result
         var auditResult = new AuditResult

@@ -54,7 +54,15 @@ public class DeviceTypeDetectionService
             {
                 results.Add(fpResult);
                 var isUserOverride = fpResult.Metadata?.ContainsKey("user_override") == true;
-                if (isUserOverride)
+                object? inferredDeviceName = null;
+                var inferredFromName = fpResult.Metadata?.TryGetValue("inferred_from_name", out inferredDeviceName) == true;
+
+                if (isUserOverride && inferredFromName)
+                {
+                    _logger?.LogDebug("[Detection] Fingerprint: {Category} (user override, inferred from '{DeviceName}')",
+                        fpResult.Category, inferredDeviceName);
+                }
+                else if (isUserOverride)
                 {
                     _logger?.LogDebug("[Detection] Fingerprint: {Category} (user override, dev_id_override={DevIdOverride})",
                         fpResult.Category, client.DevIdOverride);
