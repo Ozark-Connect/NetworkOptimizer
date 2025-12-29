@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using AuditModels = NetworkOptimizer.Audit.Models;
@@ -507,6 +508,24 @@ public class AuditService
             })
             .ToList();
 
+        // Convert wireless clients
+        var wirelessClients = engineResult.WirelessClients
+            .Select(wc => new WirelessClientReference
+            {
+                DisplayName = wc.DisplayName,
+                Mac = wc.Mac ?? "",
+                AccessPointName = wc.AccessPointName,
+                AccessPointMac = wc.AccessPointMac,
+                NetworkName = wc.Network?.Name,
+                VlanId = wc.Network?.VlanId,
+                DeviceCategory = wc.Detection.CategoryName,
+                VendorName = wc.Detection.VendorName,
+                DetectionConfidence = wc.Detection.ConfidenceScore,
+                IsIoT = wc.Detection.Category.IsIoT(),
+                IsCamera = wc.Detection.Category.IsSurveillance()
+            })
+            .ToList();
+
         return new AuditResult
         {
             Score = score,
@@ -528,7 +547,8 @@ public class AuditService
             },
             HardeningMeasures = engineResult.HardeningMeasures.ToList(),
             Networks = networks,
-            Switches = switches
+            Switches = switches,
+            WirelessClients = wirelessClients
         };
     }
 
@@ -651,6 +671,7 @@ public class AuditResult
     public List<string> HardeningMeasures { get; set; } = new();
     public List<NetworkReference> Networks { get; set; } = new();
     public List<SwitchReference> Switches { get; set; } = new();
+    public List<WirelessClientReference> WirelessClients { get; set; } = new();
 }
 
 public class AuditStatistics
@@ -734,4 +755,19 @@ public class PortReference
     public bool PoeEnabled { get; set; }
     public double PoePower { get; set; }
     public string? PoeMode { get; set; }
+}
+
+public class WirelessClientReference
+{
+    public string DisplayName { get; set; } = "";
+    public string Mac { get; set; } = "";
+    public string? AccessPointName { get; set; }
+    public string? AccessPointMac { get; set; }
+    public string? NetworkName { get; set; }
+    public int? VlanId { get; set; }
+    public string DeviceCategory { get; set; } = "";
+    public string? VendorName { get; set; }
+    public int DetectionConfidence { get; set; }
+    public bool IsIoT { get; set; }
+    public bool IsCamera { get; set; }
 }

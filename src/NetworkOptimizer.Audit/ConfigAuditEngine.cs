@@ -161,6 +161,7 @@ public class ConfigAuditEngine
             ClientName = clientName,
             Networks = networks,
             Switches = switches,
+            WirelessClients = wirelessClients,
             Issues = allIssues,
             HardeningMeasures = hardeningMeasures,
             Statistics = statistics

@@ -486,7 +486,32 @@
                     .ToList(),
 
                 // Hardening notes
-                HardeningNotes = lastResult.HardeningMeasures
+                HardeningNotes = lastResult.HardeningMeasures,
+
+                // Access Points with wireless clients (grouped by AP)
+                AccessPoints = lastResult.WirelessClients
+                    .GroupBy(wc => wc.AccessPointName ?? "Unknown AP")
+                    .Select(g => new NetworkOptimizer.Reports.AccessPointDetail
+                    {
+                        Name = g.Key,
+                        Mac = g.FirstOrDefault()?.AccessPointMac ?? "",
+                        Clients = g.Select(wc => new NetworkOptimizer.Reports.WirelessClientDetail
+                        {
+                            DisplayName = wc.DisplayName,
+                            Mac = wc.Mac,
+                            Network = wc.NetworkName,
+                            VlanId = wc.VlanId,
+                            DeviceCategory = wc.DeviceCategory,
+                            VendorName = wc.VendorName,
+                            DetectionConfidence = wc.DetectionConfidence,
+                            IsIoT = wc.IsIoT,
+                            IsCamera = wc.IsCamera,
+                            HasIssue = issues.Any(i => i.IsWireless && i.ClientMac == wc.Mac),
+                            IssueMessage = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac)?.Description
+                        }).ToList()
+                    })
+                    .OrderBy(ap => ap.Name)
+                    .ToList()
             };
 
             // Generate PDF

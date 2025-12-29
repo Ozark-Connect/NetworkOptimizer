@@ -46,6 +46,16 @@ public class DeviceTypeDetectionService
         _logger?.LogDebug("[Detection] Starting detection for '{DisplayName}' (MAC: {Mac})",
             displayName, mac);
 
+        // Priority 0: Check for obvious name keywords that should OVERRIDE fingerprint
+        // This handles cases where vendor fingerprint is wrong (e.g., Cync plugs detected as cameras)
+        var obviousNameResult = CheckObviousNameOverride(client?.Name, client?.Hostname);
+        if (obviousNameResult != null)
+        {
+            _logger?.LogInformation("[Detection] '{DisplayName}': Name override → {Category} (name clearly indicates device type)",
+                displayName, obviousNameResult.Category);
+            return obviousNameResult;
+        }
+
         // Priority 1: UniFi Fingerprint (if client has fingerprint data)
         if (client != null && (client.DevCat.HasValue || client.DevIdOverride.HasValue))
         {
@@ -266,6 +276,56 @@ public class DeviceTypeDetectionService
                 ["oui_name"] = vendor
             }
         };
+    }
+
+    /// <summary>
+    /// Check for obvious name keywords that should override fingerprint detection.
+    /// This catches cases where the vendor fingerprint is wrong (e.g., Cync plugs detected as cameras).
+    /// Only returns a result for VERY obvious cases where we're confident.
+    /// </summary>
+    private DeviceDetectionResult? CheckObviousNameOverride(string? name, string? hostname)
+    {
+        var checkName = name ?? hostname;
+        if (string.IsNullOrEmpty(checkName))
+            return null;
+
+        var nameLower = checkName.ToLowerInvariant();
+
+        // Obvious plug/outlet keywords - NOT a camera
+        if (nameLower.Contains("plug") || nameLower.Contains("outlet") || nameLower.Contains("power strip"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartPlug,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = 95,
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains 'plug/outlet' - overrides vendor fingerprint",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Obvious light/bulb keywords - NOT a camera
+        if (nameLower.Contains("bulb") || nameLower.Contains("lamp") || nameLower.Contains("light strip"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartLighting,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = 95,
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains 'bulb/lamp' - overrides vendor fingerprint",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        return null;
     }
 
     /// <summary>

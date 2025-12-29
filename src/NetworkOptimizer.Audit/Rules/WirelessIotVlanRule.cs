@@ -40,15 +40,20 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT WiFi network";
 
-        // Media/entertainment devices are less critical - users often keep them on main WiFi
-        var isMediaDevice = client.Detection.Category is
+        // Low-risk IoT devices get Warning - users often keep them on main WiFi
+        // Critical only for: SmartThermostat, SmartLock, SmartHub (security/control devices)
+        var isLowRiskDevice = client.Detection.Category is
             ClientDeviceCategory.SmartTV or
             ClientDeviceCategory.StreamingDevice or
             ClientDeviceCategory.MediaPlayer or
-            ClientDeviceCategory.GameConsole;
+            ClientDeviceCategory.GameConsole or
+            ClientDeviceCategory.SmartLighting or
+            ClientDeviceCategory.SmartPlug or
+            ClientDeviceCategory.SmartSpeaker or
+            ClientDeviceCategory.RoboticVacuum;
 
-        var severity = isMediaDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isMediaDevice ? 3 : ScoreImpact;
+        var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
+        var scoreImpact = isLowRiskDevice ? 3 : ScoreImpact;
 
         return CreateIssue(
             $"{client.Detection.CategoryName} on {network.Name} WiFi - should be isolated",
@@ -66,7 +71,7 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
                 { "detection_confidence", client.Detection.ConfidenceScore },
                 { "vendor", client.Detection.VendorName ?? "Unknown" },
                 { "current_network_purpose", network.Purpose.ToString() },
-                { "is_media_device", isMediaDevice }
+                { "is_low_risk_device", isLowRiskDevice }
             }
         );
     }

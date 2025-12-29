@@ -15,6 +15,12 @@ public class NamePatternDetector
     /// </summary>
     private static readonly List<(string[] Patterns, ClientDeviceCategory Category, int Confidence)> PatternGroups = new()
     {
+        // Smart Plugs - CHECK FIRST before cameras (Cync/GE/WYZE make both cameras and plugs)
+        (new[] { "plug", "outlet", "power strip" },
+            ClientDeviceCategory.SmartPlug, 88),
+        (new[] { "cync plug", "ge plug", "wyze plug" },
+            ClientDeviceCategory.SmartPlug, 92),
+
         // Cameras (high confidence, specific patterns)
         (new[] { "cam", "camera", "ptz", "nvr", "ipc", "protect", "surveillance", "cctv", "security cam" },
             ClientDeviceCategory.Camera, 85),

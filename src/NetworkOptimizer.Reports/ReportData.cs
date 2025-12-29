@@ -11,6 +11,7 @@ public class ReportData
     public List<NetworkInfo> Networks { get; set; } = new();
     public List<DeviceInfo> Devices { get; set; } = new();
     public List<SwitchDetail> Switches { get; set; } = new();
+    public List<AccessPointDetail> AccessPoints { get; set; } = new();
     public List<AuditIssue> CriticalIssues { get; set; } = new();
     public List<AuditIssue> RecommendedImprovements { get; set; } = new();
     public List<string> HardeningNotes { get; set; } = new();
@@ -95,6 +96,40 @@ public class DeviceInfo
     public string Firmware { get; set; } = string.Empty;
     public bool IsOnline { get; set; }
     public DateTime? LastSeen { get; set; }
+}
+
+/// <summary>
+/// Access point with connected wireless clients
+/// </summary>
+public class AccessPointDetail
+{
+    public string Name { get; set; } = string.Empty;
+    public string Mac { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public string ModelName { get; set; } = string.Empty;
+    public List<WirelessClientDetail> Clients { get; set; } = new();
+
+    public int TotalClients => Clients.Count;
+    public int IoTClients => Clients.Count(c => c.IsIoT);
+    public int CameraClients => Clients.Count(c => c.IsCamera);
+}
+
+/// <summary>
+/// Wireless client connected to an access point
+/// </summary>
+public class WirelessClientDetail
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public string Mac { get; set; } = string.Empty;
+    public string? Network { get; set; }
+    public int? VlanId { get; set; }
+    public string DeviceCategory { get; set; } = string.Empty;
+    public string? VendorName { get; set; }
+    public int DetectionConfidence { get; set; }
+    public bool IsIoT { get; set; }
+    public bool IsCamera { get; set; }
+    public bool HasIssue { get; set; }
+    public string? IssueMessage { get; set; }
 }
 
 /// <summary>

@@ -171,6 +171,13 @@ public class PdfReportGenerator
             // Switch Details
             column.Item().Element(c => ComposeSwitchDetails(c, data));
 
+            // Access Point Details (if any wireless clients)
+            if (data.AccessPoints.Any())
+            {
+                column.Item().PageBreak();
+                column.Item().Element(c => ComposeAccessPointDetails(c, data));
+            }
+
             // Port Security Summary
             column.Item().PageBreak();
             column.Item().Element(c => ComposePortSecuritySummary(c, data));
@@ -512,6 +519,138 @@ public class PdfReportGenerator
                 }
 
                 column.Item().PaddingBottom(15);
+            }
+        });
+    }
+
+    private void ComposeAccessPointDetails(IContainer container, ReportData data)
+    {
+        var primaryColor = GetColor(_branding.Colors.Primary);
+        var criticalColor = GetColor(_branding.Colors.Critical);
+        var warningColor = GetColor(_branding.Colors.Warning);
+        var lightGray = GetColor(_branding.Colors.LightGray);
+
+        container.Column(column =>
+        {
+            column.Item()
+                .PaddingBottom(10)
+                .Text("Wireless Clients by Access Point")
+                .FontSize(16)
+                .Bold()
+                .FontColor(primaryColor);
+
+            foreach (var ap in data.AccessPoints)
+            {
+                var iotCount = ap.Clients.Count(c => c.IsIoT);
+                var cameraCount = ap.Clients.Count(c => c.IsCamera);
+                var issueCount = ap.Clients.Count(c => c.HasIssue);
+
+                column.Item()
+                    .PaddingBottom(6)
+                    .Text($"{ap.Name} ({ap.Clients.Count} clients)")
+                    .FontSize(11)
+                    .Bold()
+                    .FontColor(primaryColor);
+
+                // Client table
+                column.Item().Table(table =>
+                {
+                    table.ColumnsDefinition(columns =>
+                    {
+                        columns.RelativeColumn(2.0f);  // Name
+                        columns.RelativeColumn(1.5f);  // Category
+                        columns.RelativeColumn(1.5f);  // Network
+                        columns.ConstantColumn(60);    // VLAN
+                        columns.RelativeColumn(1.5f);  // Status
+                    });
+
+                    // Header
+                    table.Header(header =>
+                    {
+                        void HeaderCell(string text)
+                        {
+                            header.Cell().Background(primaryColor).Padding(4)
+                                .Text(text).Bold().FontSize(7).FontColor(Colors.White);
+                        }
+
+                        HeaderCell("Client");
+                        HeaderCell("Type");
+                        HeaderCell("Network");
+                        HeaderCell("VLAN");
+                        HeaderCell("Status");
+                    });
+
+                    // Rows
+                    var warningBg = Color.FromRGB(255, 248, 220);   // Light yellow
+                    int rowIndex = 0;
+                    foreach (var client in ap.Clients.OrderBy(c => c.DisplayName))
+                    {
+                        var rowBg = client.HasIssue ? warningBg
+                            : rowIndex % 2 == 0 ? lightGray
+                            : Colors.White;
+
+                        var status = client.HasIssue ? "Issue" : "OK";
+
+                        void DataCell(string text)
+                        {
+                            table.Cell().Background(rowBg).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                                .AlignLeft().Text(text).FontSize(7);
+                        }
+
+                        DataCell(client.DisplayName);
+                        DataCell(client.DeviceCategory);
+                        DataCell(client.Network ?? "Unknown");
+                        DataCell(client.VlanId?.ToString() ?? "-");
+
+                        // Status cell with conditional color
+                        if (client.HasIssue)
+                        {
+                            table.Cell().Background(rowBg).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                                .AlignCenter().Text(status).FontSize(7).FontColor(warningColor);
+                        }
+                        else
+                        {
+                            table.Cell().Background(rowBg).Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(4)
+                                .AlignCenter().Text(status).FontSize(7);
+                        }
+
+                        rowIndex++;
+                    }
+                });
+
+                // Summary notes for AP
+                if (iotCount > 0 || cameraCount > 0)
+                {
+                    var summary = new List<string>();
+                    if (iotCount > 0) summary.Add($"{iotCount} IoT");
+                    if (cameraCount > 0) summary.Add($"{cameraCount} cameras");
+
+                    column.Item()
+                        .PaddingTop(2)
+                        .Text($"Detected: {string.Join(", ", summary)}")
+                        .FontSize(8)
+                        .Italic()
+                        .FontColor(Colors.Grey.Medium);
+                }
+
+                // Issue callouts for this AP
+                var apIssues = data.CriticalIssues
+                    .Concat(data.RecommendedImprovements)
+                    .Where(i => i.IsWireless && i.AccessPoint == ap.Name)
+                    .ToList();
+
+                foreach (var issue in apIssues)
+                {
+                    var issueColor = issue.Severity == IssueSeverity.Critical ? criticalColor : warningColor;
+                    column.Item()
+                        .PaddingTop(2)
+                        .Text($"> {issue.ClientName}: {issue.RecommendedAction}")
+                        .FontSize(8)
+                        .Bold()
+                        .FontColor(issueColor);
+                }
+
+                column.Item().PaddingBottom(12);
             }
         });
     }

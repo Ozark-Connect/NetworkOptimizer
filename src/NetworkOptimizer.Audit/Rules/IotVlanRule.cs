@@ -48,15 +48,20 @@ public class IotVlanRule : AuditRuleBase
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT VLAN";
 
-        // Media/entertainment devices are less critical - users often keep them on main VLAN
-        var isMediaDevice = detection.Category is
+        // Low-risk IoT devices get Warning - users often keep them on main VLAN
+        // Critical only for: SmartThermostat, SmartLock, SmartHub (security/control devices)
+        var isLowRiskDevice = detection.Category is
             ClientDeviceCategory.SmartTV or
             ClientDeviceCategory.StreamingDevice or
             ClientDeviceCategory.MediaPlayer or
-            ClientDeviceCategory.GameConsole;
+            ClientDeviceCategory.GameConsole or
+            ClientDeviceCategory.SmartLighting or
+            ClientDeviceCategory.SmartPlug or
+            ClientDeviceCategory.SmartSpeaker or
+            ClientDeviceCategory.RoboticVacuum;
 
-        var severity = isMediaDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isMediaDevice ? 3 : ScoreImpact;
+        var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
+        var scoreImpact = isLowRiskDevice ? 3 : ScoreImpact;
 
         return new AuditIssue
         {

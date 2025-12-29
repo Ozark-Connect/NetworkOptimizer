@@ -123,9 +123,9 @@ public class WirelessIotVlanRuleTests
     #region Evaluate Tests - IoT on Wrong VLAN
 
     [Fact]
-    public void Evaluate_SmartPlugOnCorporateVlan_ReturnsIssue()
+    public void Evaluate_SmartPlugOnCorporateVlan_ReturnsRecommendedIssue()
     {
-        // Arrange
+        // Arrange - SmartPlug is a low-risk IoT device, so severity is Recommended
         var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
         var client = CreateWirelessClient(ClientDeviceCategory.SmartPlug, network: corpNetwork);
         var networks = CreateNetworkList(corpNetwork);
@@ -136,8 +136,8 @@ public class WirelessIotVlanRuleTests
         // Assert
         result.Should().NotBeNull();
         result!.Type.Should().Be("WIFI-IOT-VLAN-001");
-        result.Severity.Should().Be(AuditSeverity.Critical);
-        result.ScoreImpact.Should().Be(10);
+        result.Severity.Should().Be(AuditSeverity.Recommended); // Low-risk IoT device
+        result.ScoreImpact.Should().Be(3); // Lower impact for low-risk devices
         result.IsWireless.Should().BeTrue();
     }
 
