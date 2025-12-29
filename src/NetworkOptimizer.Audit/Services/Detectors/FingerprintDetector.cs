@@ -83,6 +83,7 @@ public class FingerprintDetector
         { 238, ClientDeviceCategory.StreamingDevice }, // Media Player
         { 242, ClientDeviceCategory.StreamingDevice }, // Streaming Media Device
         { 186, ClientDeviceCategory.StreamingDevice }, // IPTV Set Top Box
+        { 4405, ClientDeviceCategory.StreamingDevice }, // Apple TV (user override)
 
         // Smart Speakers
         { 37, ClientDeviceCategory.SmartSpeaker },  // Smart Speaker
