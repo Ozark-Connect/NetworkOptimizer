@@ -433,10 +433,42 @@ public class AuditService
             // Get fingerprint database for device name lookups
             var fingerprintDb = await _fingerprintService.GetDatabaseAsync();
 
+            // Fetch settings for DNS security analysis (DoH configuration)
+            System.Text.Json.JsonElement? settingsData = null;
+            try
+            {
+                var settingsDoc = await _connectionService.Client.GetSettingsRawAsync();
+                if (settingsDoc != null)
+                {
+                    settingsData = settingsDoc.RootElement;
+                    _logger.LogInformation("Fetched site settings for DNS security analysis");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch site settings for DNS analysis");
+            }
+
+            // Fetch firewall policies for DNS leak prevention analysis
+            System.Text.Json.JsonElement? firewallPoliciesData = null;
+            try
+            {
+                var policiesDoc = await _connectionService.Client.GetFirewallPoliciesRawAsync();
+                if (policiesDoc != null)
+                {
+                    firewallPoliciesData = policiesDoc.RootElement;
+                    _logger.LogInformation("Fetched firewall policies for DNS security analysis");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch firewall policies for DNS analysis");
+            }
+
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
-            // Run the audit engine with client data and fingerprint database for enhanced detection
-            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, fingerprintDb, "Network Audit");
+            // Run the audit engine with all available data for comprehensive analysis
+            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
@@ -638,7 +670,7 @@ public class AuditService
         "FW_SHADOWED" or "FW_PERMISSIVE" or "FW_ORPHANED" or "FW_ANY_ANY" => "Firewall Rules",
         "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" or "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
         "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATE-001" or "PORT_SECURITY" => "Port Security",
-        "DNS_LEAKAGE" => "DNS Security",
+        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" => "DNS Security",
         "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Device Placement",
         _ => "General"
     };
@@ -677,6 +709,12 @@ public class AuditService
             "PORT_ISOLATION" or "PORT-ISOLATE-001" => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
             "DNS_LEAKAGE" => "DNS Leak Detected",
+            "DNS_NO_DOH" => "DoH Not Configured",
+            "DNS_DOH_AUTO" => "DoH Set to Auto Mode",
+            "DNS_NO_53_BLOCK" => "No DNS Leak Prevention",
+            "DNS_NO_DOT_BLOCK" => "DNS-over-TLS Not Blocked",
+            "DNS_NO_DOH_BLOCK" => "DoH Bypass Not Blocked",
+            "DNS_ISP" => "Using ISP DNS Servers",
             "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "IoT Device on Wrong VLAN",
             "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Camera on Wrong VLAN",
             "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
@@ -696,6 +734,12 @@ public class AuditService
         "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "Move IoT devices to a dedicated IoT VLAN.",
         "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Move cameras to a dedicated Security VLAN.",
         "DNS_LEAKAGE" => "Configure firewall to block direct DNS queries from isolated networks.",
+        "DNS_NO_DOH" => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare.",
+        "DNS_DOH_AUTO" => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption.",
+        "DNS_NO_53_BLOCK" => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs.",
+        "DNS_NO_DOT_BLOCK" => "Create firewall rule to block outbound TCP port 853 to Internet.",
+        "DNS_NO_DOH_BLOCK" => "Create firewall rule to block HTTPS to known DoH provider domains.",
+        "DNS_ISP" => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
         _ => "Review the configuration and apply security best practices."
     };
 }

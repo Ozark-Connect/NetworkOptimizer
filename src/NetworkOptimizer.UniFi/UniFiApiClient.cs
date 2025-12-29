@@ -808,6 +808,69 @@ public class UniFiApiClient : IDisposable
 
     #endregion
 
+    #region Settings APIs
+
+    /// <summary>
+    /// GET rest/setting - Get all site settings (includes DoH, DNS, etc.)
+    /// </summary>
+    public async Task<JsonDocument?> GetSettingsRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching settings from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(BuildApiPath("rest/setting"), cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved settings ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve settings: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
+    /// GET /proxy/network/v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
+    /// This endpoint provides detailed firewall policy configuration including DNS blocking rules
+    /// </summary>
+    public async Task<JsonDocument?> GetFirewallPoliciesRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching firewall policies from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            // The v2 firewall-policies endpoint doesn't use the standard BuildApiPath
+            var url = $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/firewall-policies";
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved firewall policies ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve firewall policies: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    #endregion
+
     #region Fingerprint Database APIs
 
     /// <summary>
