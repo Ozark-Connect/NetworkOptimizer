@@ -263,8 +263,12 @@ public class AuditService
                     {
                         result.WirelessClients = JsonSerializer.Deserialize<List<WirelessClientReference>>(wirelessEl.GetRawText(), options) ?? new();
                     }
-                    _logger.LogInformation("Restored report data: {Networks} networks, {Switches} switches, {Wireless} wireless clients",
-                        result.Networks.Count, result.Switches.Count, result.WirelessClients.Count);
+                    if (root.TryGetProperty("DnsSecurity", out var dnsEl) || root.TryGetProperty("dnsSecurity", out dnsEl))
+                    {
+                        result.DnsSecurity = JsonSerializer.Deserialize<DnsSecurityReference>(dnsEl.GetRawText(), options);
+                    }
+                    _logger.LogInformation("Restored report data: {Networks} networks, {Switches} switches, {Wireless} wireless clients, DNS={HasDns}",
+                        result.Networks.Count, result.Switches.Count, result.WirelessClients.Count, result.DnsSecurity != null);
                 }
                 catch (JsonException ex)
                 {
