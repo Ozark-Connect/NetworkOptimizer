@@ -56,9 +56,10 @@ public class DeviceTypeDetectionService
             return obviousNameResult;
         }
 
-        // Priority 0.5: Check OUI for vendors that default to SmartPlug (Cync/Wyze/GE)
-        // These vendors have camera fingerprints but most devices are actually plugs/bulbs
-        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname);
+        // Priority 0.5: Check OUI for vendors that need special handling
+        // - Cync/Wyze/GE have camera fingerprints but most devices are actually plugs/bulbs
+        // - Apple with SmartSensor fingerprint is likely Apple Watch
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat);
         if (vendorOverrideResult != null)
         {
             _logger?.LogInformation("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
@@ -389,17 +390,36 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
-    /// Check if vendor OUI indicates a device that defaults to SmartPlug.
-    /// Cync, Wyze, and GE devices have camera fingerprints but are usually plugs/bulbs.
-    /// Only classify as camera if the name explicitly indicates camera.
+    /// Check if vendor OUI indicates a device that needs special handling.
+    /// - Cync, Wyze, and GE devices have camera fingerprints but are usually plugs/bulbs.
+    /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
     /// </summary>
-    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname)
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat)
     {
         if (string.IsNullOrEmpty(oui))
             return null;
 
         var ouiLower = oui.ToLowerInvariant();
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
+
+        // Apple devices with SmartSensor fingerprint (DevCat=14) are likely Apple Watches
+        if (ouiLower.Contains("apple") && devCat == 14)
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Smartphone,
+                Source = DetectionSource.MacOui,
+                ConfidenceScore = 90,
+                VendorName = "Apple",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Apple device with SmartSensor fingerprint is likely Apple Watch",
+                    ["oui"] = oui,
+                    ["dev_cat"] = devCat
+                }
+            };
+        }
 
         // Check for vendors that default to SmartPlug
         var isPlugVendor = ouiLower.Contains("cync") ||

@@ -185,6 +185,29 @@ public class DeviceTypeDetectionServiceTests
         result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
     }
 
+    [Theory]
+    [InlineData("Apple Inc", "Living Room")]
+    [InlineData("Apple", "John's Watch")]
+    public void DetectDeviceType_AppleOuiWithSmartSensorFingerprint_ReturnsSmartphone(string oui, string deviceName)
+    {
+        // Arrange - Apple device with SmartSensor fingerprint (DevCat=14) is likely Apple Watch
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 14 // SmartSensor fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be detected as Smartphone (wearable)
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be("Apple");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
     #endregion
 
     #region Fingerprint Detection Tests
