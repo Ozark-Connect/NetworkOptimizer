@@ -451,7 +451,12 @@ public class AuditService
                 CurrentNetwork = issue.CurrentNetwork,
                 CurrentVlan = issue.CurrentVlan,
                 RecommendedNetwork = issue.RecommendedNetwork,
-                RecommendedVlan = issue.RecommendedVlan
+                RecommendedVlan = issue.RecommendedVlan,
+                // Wireless-specific fields
+                IsWireless = issue.IsWireless,
+                ClientName = issue.ClientName,
+                ClientMac = issue.ClientMac,
+                AccessPoint = issue.AccessPoint
             });
         }
 
@@ -674,6 +679,12 @@ public class AuditIssue
     public int? CurrentVlan { get; set; }
     public string? RecommendedNetwork { get; set; }
     public int? RecommendedVlan { get; set; }
+
+    // Wireless-specific fields
+    public bool IsWireless { get; set; }
+    public string? ClientName { get; set; }
+    public string? ClientMac { get; set; }
+    public string? AccessPoint { get; set; }
 }
 
 public class AuditSummary

@@ -245,6 +245,34 @@ public class AuditIssue
     public int? CurrentVlan { get; set; }
     public string RecommendedAction { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
+
+    // Wireless-specific fields
+    public bool IsWireless { get; set; }
+    public string? ClientName { get; set; }
+    public string? ClientMac { get; set; }
+    public string? AccessPoint { get; set; }
+
+    /// <summary>
+    /// Get display text for Device column (handles both wired and wireless)
+    /// </summary>
+    public string GetDeviceDisplay() => IsWireless
+        ? AccessPoint ?? "Wireless"
+        : SwitchName;
+
+    /// <summary>
+    /// Get display text for Port/Client column (handles both wired and wireless)
+    /// </summary>
+    public string GetPortDisplay()
+    {
+        if (IsWireless)
+        {
+            return ClientName ?? ClientMac ?? "Unknown Client";
+        }
+
+        return PortIndex.HasValue
+            ? $"{PortIndex} ({PortName})"
+            : PortName;
+    }
 }
 
 public enum IssueType

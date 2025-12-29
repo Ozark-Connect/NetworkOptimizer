@@ -455,7 +455,12 @@
                         CurrentNetwork = i.CurrentNetwork ?? "",
                         CurrentVlan = i.CurrentVlan,
                         Message = i.Description,
-                        RecommendedAction = i.Recommendation
+                        RecommendedAction = i.Recommendation,
+                        // Wireless fields
+                        IsWireless = i.IsWireless,
+                        ClientName = i.ClientName,
+                        ClientMac = i.ClientMac,
+                        AccessPoint = i.AccessPoint
                     })
                     .ToList(),
 
@@ -471,7 +476,12 @@
                         CurrentNetwork = i.CurrentNetwork ?? "",
                         CurrentVlan = i.CurrentVlan,
                         Message = i.Description,
-                        RecommendedAction = i.Recommendation
+                        RecommendedAction = i.Recommendation,
+                        // Wireless fields
+                        IsWireless = i.IsWireless,
+                        ClientName = i.ClientName,
+                        ClientMac = i.ClientMac,
+                        AccessPoint = i.AccessPoint
                     })
                     .ToList(),
 

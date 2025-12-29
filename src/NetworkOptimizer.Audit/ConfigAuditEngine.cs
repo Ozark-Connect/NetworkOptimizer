@@ -113,6 +113,13 @@ public class ConfigAuditEngine
         var portIssues = securityEngine.AnalyzePorts(switches, networks);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
 
+        // Extract and analyze wireless clients
+        _logger.LogInformation("Phase 3b: Analyzing wireless clients");
+        var wirelessClients = securityEngine.ExtractWirelessClients(clients, networks, switches);
+        var wirelessIssues = securityEngine.AnalyzeWirelessClients(wirelessClients, networks);
+        _logger.LogInformation("Found {IssueCount} wireless client issues from {ClientCount} detected devices",
+            wirelessIssues.Count, wirelessClients.Count);
+
         // Analyze network configuration
         _logger.LogInformation("Phase 4: Analyzing network configuration");
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(networks);
@@ -133,6 +140,7 @@ public class ConfigAuditEngine
         // Combine all issues
         var allIssues = new List<AuditIssue>();
         allIssues.AddRange(portIssues);
+        allIssues.AddRange(wirelessIssues);
         allIssues.AddRange(dnsIssues);
         allIssues.AddRange(gatewayIssues);
         allIssues.AddRange(mgmtDhcpIssues);

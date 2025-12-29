@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -15,6 +16,7 @@ public class SecurityAuditEngine
 {
     private readonly ILogger<SecurityAuditEngine> _logger;
     private readonly List<IAuditRule> _rules;
+    private readonly List<IWirelessAuditRule> _wirelessRules;
     private readonly DeviceTypeDetectionService? _detectionService;
 
     public SecurityAuditEngine(ILogger<SecurityAuditEngine> logger)
@@ -29,6 +31,7 @@ public class SecurityAuditEngine
         _logger = logger;
         _detectionService = detectionService;
         _rules = InitializeRules();
+        _wirelessRules = InitializeWirelessRules();
 
         // Inject detection service into rules
         if (_detectionService != null)
@@ -53,6 +56,18 @@ public class SecurityAuditEngine
             new MacRestrictionRule(),
             new UnusedPortRule(),
             new PortIsolationRule()
+        };
+    }
+
+    /// <summary>
+    /// Initialize wireless audit rules
+    /// </summary>
+    private List<IWirelessAuditRule> InitializeWirelessRules()
+    {
+        return new List<IWirelessAuditRule>
+        {
+            new WirelessIotVlanRule(),
+            new WirelessCameraVlanRule()
         };
     }
 
@@ -391,5 +406,95 @@ public class SecurityAuditEngine
         var nameLower = portName.ToLowerInvariant();
         var cameraHints = new[] { "cam", "camera", "ptz", "nvr", "protect" };
         return cameraHints.Any(hint => nameLower.Contains(hint));
+    }
+
+    /// <summary>
+    /// Extract wireless clients from client list for audit analysis
+    /// </summary>
+    /// <param name="clients">All connected clients</param>
+    /// <param name="networks">Network configuration list</param>
+    /// <param name="accessPoints">Access point devices for AP name lookup</param>
+    /// <returns>Wireless clients with detection results</returns>
+    public List<WirelessClientInfo> ExtractWirelessClients(
+        List<UniFiClientResponse>? clients,
+        List<NetworkInfo> networks,
+        List<SwitchInfo>? accessPoints = null)
+    {
+        var wirelessClients = new List<WirelessClientInfo>();
+        if (clients == null) return wirelessClients;
+
+        // Build AP lookup by MAC for name resolution
+        var apsByMac = accessPoints?
+            .Where(ap => !string.IsNullOrEmpty(ap.MacAddress))
+            .ToDictionary(ap => ap.MacAddress!.ToLowerInvariant(), ap => ap.Name)
+            ?? new Dictionary<string, string>();
+
+        foreach (var client in clients)
+        {
+            // Only process wireless clients
+            if (client.IsWired)
+                continue;
+
+            // Run device detection
+            var detection = _detectionService?.DetectDeviceType(client)
+                ?? DeviceDetectionResult.Unknown;
+
+            // Skip Unknown devices - no point auditing what we can't identify
+            if (detection.Category == ClientDeviceCategory.Unknown)
+                continue;
+
+            // Lookup network by client's NetworkId
+            var network = networks.FirstOrDefault(n => n.Id == client.NetworkId);
+
+            // Lookup AP name
+            string? apName = null;
+            if (!string.IsNullOrEmpty(client.ApMac))
+            {
+                apsByMac.TryGetValue(client.ApMac.ToLowerInvariant(), out apName);
+            }
+
+            wirelessClients.Add(new WirelessClientInfo
+            {
+                Client = client,
+                Network = network,
+                Detection = detection,
+                AccessPointName = apName,
+                AccessPointMac = client.ApMac
+            });
+
+            _logger.LogDebug("Wireless client: {Name} ({Mac}) on {Network} - detected as {Category}",
+                client.Name ?? client.Hostname ?? client.Mac,
+                client.Mac,
+                network?.Name ?? "Unknown",
+                detection.CategoryName);
+        }
+
+        _logger.LogInformation("Extracted {Count} wireless clients for audit analysis", wirelessClients.Count);
+        return wirelessClients;
+    }
+
+    /// <summary>
+    /// Analyze wireless clients for VLAN placement issues
+    /// </summary>
+    public List<AuditIssue> AnalyzeWirelessClients(List<WirelessClientInfo> wirelessClients, List<NetworkInfo> networks)
+    {
+        var issues = new List<AuditIssue>();
+
+        foreach (var client in wirelessClients)
+        {
+            foreach (var rule in _wirelessRules.Where(r => r.Enabled))
+            {
+                var issue = rule.Evaluate(client, networks);
+                if (issue != null)
+                {
+                    issues.Add(issue);
+                    _logger.LogDebug("Wireless rule {RuleId} found issue for {Client}: {Message}",
+                        rule.RuleId, client.DisplayName, issue.Message);
+                }
+            }
+        }
+
+        _logger.LogInformation("Found {IssueCount} wireless client issues", issues.Count);
+        return issues;
     }
 }

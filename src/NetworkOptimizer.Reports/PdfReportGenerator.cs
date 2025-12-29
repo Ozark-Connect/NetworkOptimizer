@@ -380,14 +380,10 @@ public class PdfReportGenerator
                     // Rows
                     foreach (var issue in data.CriticalIssues)
                     {
-                        var portText = issue.PortIndex.HasValue
-                            ? $"{issue.PortIndex} ({issue.PortName})"
-                            : issue.PortName;
-
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(issue.SwitchName).FontSize(8);
+                            .Text(issue.GetDeviceDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(portText).FontSize(8);
+                            .Text(issue.GetPortDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text(issue.Message).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
@@ -435,14 +431,10 @@ public class PdfReportGenerator
                     // Rows
                     foreach (var issue in data.RecommendedImprovements)
                     {
-                        var portText = issue.PortIndex.HasValue
-                            ? $"{issue.PortIndex} ({issue.PortName})"
-                            : issue.PortName;
-
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(issue.SwitchName).FontSize(8);
+                            .Text(issue.GetDeviceDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(portText).FontSize(8);
+                            .Text(issue.GetPortDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text(issue.Message).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
@@ -501,8 +493,10 @@ public class PdfReportGenerator
                         .FontColor(Colors.Grey.Medium);
                 }
 
-                // Critical issue callouts for this switch
-                var switchIssues = data.CriticalIssues.Where(i => i.SwitchName == switchDevice.Name).ToList();
+                // Critical issue callouts for this switch (only wired issues)
+                var switchIssues = data.CriticalIssues
+                    .Where(i => !i.IsWireless && i.SwitchName == switchDevice.Name)
+                    .ToList();
                 foreach (var issue in switchIssues)
                 {
                     var portDisplay = issue.PortIndex.HasValue

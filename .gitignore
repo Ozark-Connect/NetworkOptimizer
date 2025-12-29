@@ -34,6 +34,7 @@ nul
 
 # Internal development notes (not for public repo)
 CLAUDE.md
+.claude/
 
 # Local research work / scratch
 research/

@@ -74,4 +74,24 @@ public class AuditIssue
     /// Score impact (points deducted from security posture)
     /// </summary>
     public int ScoreImpact { get; init; }
+
+    /// <summary>
+    /// Client MAC address (for wireless issues)
+    /// </summary>
+    public string? ClientMac { get; init; }
+
+    /// <summary>
+    /// Client display name (for wireless issues)
+    /// </summary>
+    public string? ClientName { get; init; }
+
+    /// <summary>
+    /// Access point name (for wireless issues)
+    /// </summary>
+    public string? AccessPoint { get; init; }
+
+    /// <summary>
+    /// Whether this issue is for a wireless client
+    /// </summary>
+    public bool IsWireless { get; init; }
 }
