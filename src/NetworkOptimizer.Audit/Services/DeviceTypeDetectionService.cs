@@ -47,18 +47,28 @@ public class DeviceTypeDetectionService
             displayName, mac);
 
         // Priority 1: UniFi Fingerprint (if client has fingerprint data)
-        if (client != null && client.DevCat.HasValue)
+        if (client != null && (client.DevCat.HasValue || client.DevIdOverride.HasValue))
         {
             var fpResult = _fingerprintDetector.Detect(client);
             if (fpResult.Category != ClientDeviceCategory.Unknown)
             {
                 results.Add(fpResult);
-                _logger?.LogDebug("[Detection] Fingerprint: {Category} (dev_cat={DevCat}, dev_vendor={DevVendor})",
-                    fpResult.Category, client.DevCat, client.DevVendor);
+                var isUserOverride = fpResult.Metadata?.ContainsKey("user_override") == true;
+                if (isUserOverride)
+                {
+                    _logger?.LogDebug("[Detection] Fingerprint: {Category} (user override, dev_id_override={DevIdOverride})",
+                        fpResult.Category, client.DevIdOverride);
+                }
+                else
+                {
+                    _logger?.LogDebug("[Detection] Fingerprint: {Category} (dev_cat={DevCat}, dev_vendor={DevVendor})",
+                        fpResult.Category, client.DevCat, client.DevVendor);
+                }
             }
             else
             {
-                _logger?.LogDebug("[Detection] Fingerprint: No match (dev_cat={DevCat})", client.DevCat);
+                _logger?.LogDebug("[Detection] Fingerprint: No match (dev_cat={DevCat}, dev_id_override={DevIdOverride})",
+                    client.DevCat, client.DevIdOverride);
             }
         }
         else

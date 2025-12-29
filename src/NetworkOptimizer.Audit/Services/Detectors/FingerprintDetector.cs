@@ -157,11 +157,37 @@ public class FingerprintDetector
     }
 
     /// <summary>
-    /// Detect device type from UniFi client fingerprint data
+    /// Detect device type from UniFi client fingerprint data.
+    /// Checks user-selected device type (DevIdOverride) first, then auto-detected (DevCat).
     /// </summary>
     public DeviceDetectionResult Detect(UniFiClientResponse client)
     {
-        // Try dev_cat first (device category/type)
+        // Priority 1: User-selected device type override (from UniFi UI)
+        if (client.DevIdOverride.HasValue && DevTypeMapping.TryGetValue(client.DevIdOverride.Value, out var overrideCategory))
+        {
+            var vendorName = _database?.GetVendorName(client.DevVendor);
+            var typeName = _database?.GetDeviceTypeName(client.DevIdOverride);
+
+            return new DeviceDetectionResult
+            {
+                Category = overrideCategory,
+                Source = DetectionSource.UniFiFingerprint,
+                ConfidenceScore = 98, // Highest confidence - user explicitly selected this
+                VendorName = vendorName,
+                ProductName = typeName,
+                RecommendedNetwork = GetRecommendedNetwork(overrideCategory),
+                Metadata = new Dictionary<string, object>
+                {
+                    ["dev_id_override"] = client.DevIdOverride.Value,
+                    ["dev_cat"] = client.DevCat ?? 0,
+                    ["dev_family"] = client.DevFamily ?? 0,
+                    ["dev_vendor"] = client.DevVendor ?? 0,
+                    ["user_override"] = true
+                }
+            };
+        }
+
+        // Priority 2: Auto-detected device category
         if (client.DevCat.HasValue && DevTypeMapping.TryGetValue(client.DevCat.Value, out var category))
         {
             var vendorName = _database?.GetVendorName(client.DevVendor);
