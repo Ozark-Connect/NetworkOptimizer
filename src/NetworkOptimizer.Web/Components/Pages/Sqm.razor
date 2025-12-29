@@ -405,6 +405,27 @@
                 <input type="text" class="form-control" @bind="wan1Config.SpeedtestServerId" placeholder="@(wan1Config.ConnectionType == ConnectionType.Starlink ? "59762 (default)" : "Auto-select")" />
                 <small class="form-hint">Optional Ookla server ID override</small>
             </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Morning Speedtest</label>
+                    <div class="time-input">
+                        <input type="number" class="form-control time-hour" @bind="wan1Config.MorningHour" min="0" max="23" />
+                        <span class="time-separator">:</span>
+                        <input type="number" class="form-control time-minute" @bind="wan1Config.MorningMinute" min="0" max="59" step="5" />
+                    </div>
+                    <small class="form-hint">Daily speedtest time (24h format)</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Evening Speedtest</label>
+                    <div class="time-input">
+                        <input type="number" class="form-control time-hour" @bind="wan1Config.EveningHour" min="0" max="23" />
+                        <span class="time-separator">:</span>
+                        <input type="number" class="form-control time-minute" @bind="wan1Config.EveningMinute" min="0" max="59" step="5" />
+                    </div>
+                    <small class="form-hint">Daily speedtest time (24h format)</small>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -506,6 +527,27 @@
                 <input type="text" class="form-control" @bind="wan2Config.SpeedtestServerId" placeholder="@(wan2Config.ConnectionType == ConnectionType.Starlink ? "59762 (default)" : "Auto-select")" />
                 <small class="form-hint">Optional Ookla server ID override</small>
             </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Morning Speedtest</label>
+                    <div class="time-input">
+                        <input type="number" class="form-control time-hour" @bind="wan2Config.MorningHour" min="0" max="23" />
+                        <span class="time-separator">:</span>
+                        <input type="number" class="form-control time-minute" @bind="wan2Config.MorningMinute" min="0" max="59" step="5" />
+                    </div>
+                    <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Evening Speedtest</label>
+                    <div class="time-input">
+                        <input type="number" class="form-control time-hour" @bind="wan2Config.EveningHour" min="0" max="23" />
+                        <span class="time-separator">:</span>
+                        <input type="number" class="form-control time-minute" @bind="wan2Config.EveningMinute" min="0" max="59" step="5" />
+                    </div>
+                    <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -516,8 +558,8 @@
         </div>
         <div class="card-body">
             <p class="info-text">
-                Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily (6 AM/6 PM)
-                to calibrate baseline speeds, while <strong>Ping-based</strong> adjustments run every 5 minutes
+                Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily
+                at configured times, while <strong>Ping-based</strong> adjustments run every 5 minutes
                 for real-time latency optimization.
             </p>
 
@@ -943,6 +985,26 @@
         color: #ef4444;
         border: 1px solid rgba(239, 68, 68, 0.3);
     }
+
+    /* Time input styling */
+    .time-input {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .time-input .time-hour,
+    .time-input .time-minute {
+        width: 60px;
+        text-align: center;
+        font-family: var(--font-mono);
+    }
+
+    .time-input .time-separator {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
 </style>
 
 @code {
@@ -996,7 +1058,12 @@
         ConnectionType = ConnectionType.DocsisCable,
         NominalDownload = 0,
         NominalUpload = 0,
-        PingHost = "1.1.1.1"
+        PingHost = "1.1.1.1",
+        // Staggered schedule: 1 hour earlier than WAN1 to avoid simultaneous speedtests
+        MorningHour = 5,
+        MorningMinute = 0,
+        EveningHour = 18,
+        EveningMinute = 0
     };
 
     // SQM Monitor data (from HTTP endpoint)
@@ -1068,6 +1135,10 @@
                     config.NominalUpload = saved.NominalUploadMbps;
                     config.PingHost = saved.PingHost;
                     config.SpeedtestServerId = saved.SpeedtestServerId;
+                    config.MorningHour = saved.SpeedtestMorningHour;
+                    config.MorningMinute = saved.SpeedtestMorningMinute;
+                    config.EveningHour = saved.SpeedtestEveningHour;
+                    config.EveningMinute = saved.SpeedtestEveningMinute;
                     UpdateCalculatedSpeeds(config);
                 }
             }
@@ -1095,7 +1166,11 @@
                     NominalDownloadMbps = wan1Config.NominalDownload,
                     NominalUploadMbps = wan1Config.NominalUpload,
                     PingHost = wan1Config.PingHost,
-                    SpeedtestServerId = wan1Config.SpeedtestServerId
+                    SpeedtestServerId = wan1Config.SpeedtestServerId,
+                    SpeedtestMorningHour = wan1Config.MorningHour,
+                    SpeedtestMorningMinute = wan1Config.MorningMinute,
+                    SpeedtestEveningHour = wan1Config.EveningHour,
+                    SpeedtestEveningMinute = wan1Config.EveningMinute
                 };
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
 
@@ -1110,7 +1185,11 @@
                     NominalDownloadMbps = wan2Config.NominalDownload,
                     NominalUploadMbps = wan2Config.NominalUpload,
                     PingHost = wan2Config.PingHost,
-                    SpeedtestServerId = wan2Config.SpeedtestServerId
+                    SpeedtestServerId = wan2Config.SpeedtestServerId,
+                    SpeedtestMorningHour = wan2Config.MorningHour,
+                    SpeedtestMorningMinute = wan2Config.MorningMinute,
+                    SpeedtestEveningHour = wan2Config.EveningHour,
+                    SpeedtestEveningMinute = wan2Config.EveningMinute
                 };
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan2Saved);
             }
@@ -1352,7 +1431,7 @@
                 }
             }
 
-            // Deploy WAN 2 (initial speedtest 45 seconds after WAN1)
+            // Deploy WAN 2 (initial speedtest 45 seconds after WAN1, staggered cron schedule)
             if (wan2Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
@@ -1532,7 +1611,13 @@
             NominalDownloadSpeed = model.NominalDownload,
             NominalUploadSpeed = model.NominalUpload,
             PingHost = model.PingHost,
-            PreferredSpeedtestServerId = model.SpeedtestServerId
+            PreferredSpeedtestServerId = model.SpeedtestServerId,
+            // Use user-configured schedule times
+            SpeedtestSchedule = new List<string>
+            {
+                $"{model.MorningMinute} {model.MorningHour} * * *",
+                $"{model.EveningMinute} {model.EveningHour} * * *"
+            }
         };
 
         config.ApplyProfileSettings();
@@ -1605,6 +1690,12 @@
         public string PingHost { get; set; } = "1.1.1.1";
         public string? SpeedtestServerId { get; set; }
 
+        // Speedtest schedule
+        public int MorningHour { get; set; } = 6;
+        public int MorningMinute { get; set; } = 0;
+        public int EveningHour { get; set; } = 18;
+        public int EveningMinute { get; set; } = 30;
+
         // Calculated values
         public int MaxSpeed { get; set; }
         public int MinSpeed { get; set; }
@@ -1612,5 +1703,9 @@
         public double Overhead { get; set; }
         public double BaselineLatency { get; set; }
         public double LatencyThreshold { get; set; }
+
+        // Helper to format time display
+        public string MorningTimeDisplay => $"{MorningHour:D2}:{MorningMinute:D2}";
+        public string EveningTimeDisplay => $"{EveningHour:D2}:{EveningMinute:D2}";
     }
 }

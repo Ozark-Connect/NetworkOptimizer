@@ -43,6 +43,18 @@ public class SqmWanConfiguration
     [MaxLength(50)]
     public string? SpeedtestServerId { get; set; }
 
+    /// <summary>Morning speedtest hour (0-23), default 6 for WAN1, 5 for WAN2</summary>
+    public int SpeedtestMorningHour { get; set; } = 6;
+
+    /// <summary>Morning speedtest minute (0-59), default 0</summary>
+    public int SpeedtestMorningMinute { get; set; } = 0;
+
+    /// <summary>Evening speedtest hour (0-23), default 18</summary>
+    public int SpeedtestEveningHour { get; set; } = 18;
+
+    /// <summary>Evening speedtest minute (0-59), default 30 for WAN1, 0 for WAN2</summary>
+    public int SpeedtestEveningMinute { get; set; } = 30;
+
     /// <summary>When this configuration was created</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

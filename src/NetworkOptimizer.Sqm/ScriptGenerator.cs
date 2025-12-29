@@ -137,24 +137,13 @@ public class ScriptGenerator
         // Cron environment setup (PATH for tc, HOME for speedtest)
         const string cronEnv = "export PATH=\\\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\\\"; export HOME=/root;";
 
-        // Speedtest cron jobs
-        sb.AppendLine("# Add speedtest cron jobs if not already present");
-        sb.AppendLine("if ! crontab -l 2>/dev/null | grep -Fq \"$SPEEDTEST_SCRIPT\"; then");
-        sb.Append("    (crontab -l 2>/dev/null");
-        foreach (var schedule in _config.SpeedtestSchedule)
-        {
-            sb.Append($"; echo \"{schedule} {cronEnv} $SPEEDTEST_SCRIPT >> $LOG_FILE 2>&1\"");
-        }
-        sb.AppendLine(") | crontab -");
-        sb.AppendLine("    echo \"[$(date)] Speedtest cron jobs configured\" >> $LOG_FILE");
-        sb.AppendLine("fi");
+        // Remove existing cron entries for this WAN and add fresh ones
+        // This ensures schedule changes take effect on redeploy
+        sb.AppendLine("# Remove existing cron entries for this WAN (to allow schedule updates)");
+        sb.AppendLine("crontab -l 2>/dev/null | grep -v \"$SPEEDTEST_SCRIPT\" | grep -v \"$PING_SCRIPT\" | crontab -");
         sb.AppendLine();
 
-        // Ping adjustment cron job (with exclusion during speedtest times)
-        sb.AppendLine("# Add ping adjustment cron job if not already present");
-        sb.AppendLine("if ! crontab -l 2>/dev/null | grep -Fq \"$PING_SCRIPT\"; then");
-
-        // Build the time exclusion check
+        // Build the time exclusion check for ping script
         var exclusionCheck = new StringBuilder();
         exclusionCheck.Append("if [");
         for (int i = 0; i < _config.SpeedtestSchedule.Count; i++)
@@ -173,9 +162,16 @@ public class ScriptGenerator
         }
         exclusionCheck.Append(" ]; then $PING_SCRIPT >> $LOG_FILE 2>&1; fi");
 
-        sb.AppendLine($"    (crontab -l 2>/dev/null; echo \"*/{_config.PingAdjustmentInterval} * * * * {cronEnv} {exclusionCheck}\") | crontab -");
-        sb.AppendLine("    echo \"[$(date)] Ping adjustment cron job configured\" >> $LOG_FILE");
-        sb.AppendLine("fi");
+        // Add speedtest and ping cron jobs
+        sb.AppendLine("# Add speedtest and ping cron jobs");
+        sb.Append("(crontab -l 2>/dev/null");
+        foreach (var schedule in _config.SpeedtestSchedule)
+        {
+            sb.Append($"; echo \"{schedule} {cronEnv} $SPEEDTEST_SCRIPT >> $LOG_FILE 2>&1\"");
+        }
+        sb.Append($"; echo \"*/{_config.PingAdjustmentInterval} * * * * {cronEnv} {exclusionCheck}\"");
+        sb.AppendLine(") | crontab -");
+        sb.AppendLine("echo \"[$(date)] Cron jobs configured for $SQM_NAME\" >> $LOG_FILE");
         sb.AppendLine();
 
         // Section 6: Schedule initial calibration
