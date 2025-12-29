@@ -39,8 +39,11 @@ public class CameraVlanRule : AuditRuleBase
         if (network.Purpose == NetworkPurpose.Security)
             return null; // Correctly placed
 
-        // Find the security network to recommend
-        var securityNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Security);
+        // Find the security network to recommend (prefer lower VLAN number)
+        var securityNetwork = networks
+            .Where(n => n.Purpose == NetworkPurpose.Security)
+            .OrderBy(n => n.VlanId)
+            .FirstOrDefault();
         var recommendedVlan = securityNetwork != null
             ? $"{securityNetwork.Name} ({securityNetwork.VlanId})"
             : "Security VLAN";

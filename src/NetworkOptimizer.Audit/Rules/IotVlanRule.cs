@@ -39,8 +39,11 @@ public class IotVlanRule : AuditRuleBase
         if (network.Purpose == NetworkPurpose.IoT || network.Purpose == NetworkPurpose.Security)
             return null; // Correctly placed on isolated network
 
-        // Find the IoT network to recommend
-        var iotNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.IoT);
+        // Find the IoT network to recommend (prefer lower VLAN number)
+        var iotNetwork = networks
+            .Where(n => n.Purpose == NetworkPurpose.IoT)
+            .OrderBy(n => n.VlanId)
+            .FirstOrDefault();
         var recommendedVlan = iotNetwork != null
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT VLAN";
