@@ -1,4 +1,5 @@
 using FluentAssertions;
+using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi.Models;
@@ -18,7 +19,7 @@ public class DeviceTypeDetectionServiceTests
         _service = new DeviceTypeDetectionService();
     }
 
-    #region Name Override Tests - Plugs
+    #region Name Override Tests - Plugs and WYZE
 
     [Theory]
     [InlineData("Living Room Plug")]
@@ -64,6 +65,81 @@ public class DeviceTypeDetectionServiceTests
         // Assert
         result.Category.Should().Be(ClientDeviceCategory.SmartLighting);
         result.ConfidenceScore.Should().BeGreaterThanOrEqualTo(95);
+    }
+
+    #endregion
+
+    #region WYZE Default to Plug Tests
+
+    [Theory]
+    [InlineData("WYZE Device")]
+    [InlineData("Wyze Smart")]
+    [InlineData("Living Room Wyze")]
+    public void DetectDeviceType_WyzeWithoutCameraKeyword_ReturnsSmartPlug(string deviceName)
+    {
+        // Arrange - WYZE devices default to SmartPlug unless camera indicated
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 4 // Camera fingerprint (should be overridden)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartPlug);
+        result.VendorName.Should().Be("WYZE");
+    }
+
+    [Theory]
+    [InlineData("Wyze Cam")]
+    [InlineData("Wyze Camera v3")]
+    [InlineData("Wyze Doorbell")]
+    [InlineData("Wyze Video Doorbell")]
+    public void DetectDeviceType_WyzeWithCameraKeyword_ReturnsCamera(string deviceName)
+    {
+        // Arrange - WYZE with camera keywords should still be detected as camera
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 4 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should use fingerprint since name indicates camera
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
+    #region Apple Watch Tests
+
+    [Theory]
+    [InlineData("John's Apple Watch")]
+    [InlineData("Apple Watch Series 9")]
+    [InlineData("My Apple Watch Ultra")]
+    public void DetectDeviceType_AppleWatch_ReturnsSmartphone(string deviceName)
+    {
+        // Arrange - Apple Watch should be categorized as smartphone (wearable)
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 14 // SmartSensor fingerprint (should be overridden)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be("Apple");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
     }
 
     #endregion

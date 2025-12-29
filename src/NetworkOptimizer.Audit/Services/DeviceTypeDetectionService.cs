@@ -308,6 +308,25 @@ public class DeviceTypeDetectionService
             };
         }
 
+        // WYZE devices default to SmartPlug unless name indicates camera
+        // (WYZE plugs often have camera fingerprint from vendor)
+        if (nameLower.Contains("wyze") && !IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartPlug,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = 85,
+                VendorName = "WYZE",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "WYZE defaults to SmartPlug unless name indicates camera",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
         // Obvious light/bulb keywords - NOT a camera
         if (nameLower.Contains("bulb") || nameLower.Contains("lamp") || nameLower.Contains("light strip"))
         {
@@ -325,7 +344,39 @@ public class DeviceTypeDetectionService
             };
         }
 
+        // Apple Watch is a wearable/smartphone, not an IoT sensor
+        if (nameLower.Contains("apple watch") || (nameLower.Contains("watch") && nameLower.Contains("apple")))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Smartphone,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = 95,
+                VendorName = "Apple",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Apple Watch is a wearable, not IoT sensor",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
         return null;
+    }
+
+    /// <summary>
+    /// Check if a name indicates a camera device
+    /// </summary>
+    private static bool IsCameraName(string nameLower)
+    {
+        return nameLower.Contains("cam") ||
+               nameLower.Contains("camera") ||
+               nameLower.Contains("doorbell") ||
+               nameLower.Contains("video") ||
+               nameLower.Contains("security") ||
+               nameLower.Contains("nvr") ||
+               nameLower.Contains("ptz");
     }
 
     /// <summary>

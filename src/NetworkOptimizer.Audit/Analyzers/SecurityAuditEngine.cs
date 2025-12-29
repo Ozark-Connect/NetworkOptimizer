@@ -409,25 +409,51 @@ public class SecurityAuditEngine
     }
 
     /// <summary>
+    /// Extract access points from device data for AP name lookup
+    /// </summary>
+    public Dictionary<string, string> ExtractAccessPointLookup(JsonElement deviceData)
+    {
+        var apsByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var device in deviceData.UnwrapDataArray())
+        {
+            var deviceType = device.GetStringOrNull("type");
+            var isAccessPoint = device.GetBoolOrDefault("is_access_point", false);
+
+            // Include both type=uap devices and devices with is_access_point=true
+            if (deviceType == "uap" || isAccessPoint)
+            {
+                var mac = device.GetStringOrNull("mac");
+                var name = device.GetStringFromAny("name", "mac") ?? "Unknown AP";
+
+                if (!string.IsNullOrEmpty(mac) && !apsByMac.ContainsKey(mac))
+                {
+                    apsByMac[mac] = name;
+                    _logger.LogDebug("Found AP: {Name} ({Mac})", name, mac);
+                }
+            }
+        }
+
+        _logger.LogInformation("Extracted {Count} access points for lookup", apsByMac.Count);
+        return apsByMac;
+    }
+
+    /// <summary>
     /// Extract wireless clients from client list for audit analysis
     /// </summary>
     /// <param name="clients">All connected clients</param>
     /// <param name="networks">Network configuration list</param>
-    /// <param name="accessPoints">Access point devices for AP name lookup</param>
+    /// <param name="apLookup">AP MAC to name lookup dictionary</param>
     /// <returns>Wireless clients with detection results</returns>
     public List<WirelessClientInfo> ExtractWirelessClients(
         List<UniFiClientResponse>? clients,
         List<NetworkInfo> networks,
-        List<SwitchInfo>? accessPoints = null)
+        Dictionary<string, string>? apLookup = null)
     {
         var wirelessClients = new List<WirelessClientInfo>();
         if (clients == null) return wirelessClients;
 
-        // Build AP lookup by MAC for name resolution
-        var apsByMac = accessPoints?
-            .Where(ap => !string.IsNullOrEmpty(ap.MacAddress))
-            .ToDictionary(ap => ap.MacAddress!.ToLowerInvariant(), ap => ap.Name)
-            ?? new Dictionary<string, string>();
+        var apsByMac = apLookup ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var client in clients)
         {
