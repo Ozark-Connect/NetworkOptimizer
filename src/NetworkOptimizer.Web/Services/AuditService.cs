@@ -648,7 +648,7 @@ public class AuditService
         "Firewall Rules" => options.IncludeFirewallRules,
         "VLAN Security" => options.IncludeVlanSecurity,
         "Port Security" => options.IncludePortSecurity,
-        "DNS Security" => options.IncludeDnsLeakDetection,
+        "DNS Security" => options.IncludeDnsSecurity,
         _ => true
     };
 
@@ -705,7 +705,7 @@ public class AuditOptions
     public bool IncludeFirewallRules { get; set; } = true;
     public bool IncludeVlanSecurity { get; set; } = true;
     public bool IncludePortSecurity { get; set; } = true;
-    public bool IncludeDnsLeakDetection { get; set; } = true;
+    public bool IncludeDnsSecurity { get; set; } = true;
 }
 
 public class AuditResult
