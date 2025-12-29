@@ -288,25 +288,48 @@ public class AuditIssue
     public string? AccessPoint { get; set; }
 
     /// <summary>
-    /// Get display text for Device column (handles both wired and wireless)
+    /// Get display text for Device column (the actual device/client name)
     /// </summary>
-    public string GetDeviceDisplay() => IsWireless
-        ? AccessPoint ?? "Wireless"
-        : SwitchName;
+    public string GetDeviceDisplay()
+    {
+        if (IsWireless)
+        {
+            // Use the client name directly
+            return ClientName ?? ClientMac ?? "Unknown Client";
+        }
+
+        // For wired, extract client name from "ClientName on SwitchName" format
+        if (SwitchName.Contains(" on "))
+        {
+            return SwitchName.Split(" on ")[0];
+        }
+
+        // Fallback to port name or switch name
+        return !string.IsNullOrEmpty(PortName) ? PortName : SwitchName;
+    }
 
     /// <summary>
-    /// Get display text for Port/Client column (handles both wired and wireless)
+    /// Get display text for Port/Location column (where the device is connected)
     /// </summary>
     public string GetPortDisplay()
     {
         if (IsWireless)
         {
-            return ClientName ?? ClientMac ?? "Unknown Client";
+            // Show AP name
+            return $"on {AccessPoint ?? "Unknown AP"}";
         }
 
-        return PortIndex.HasValue
-            ? $"{PortIndex} ({PortName})"
-            : PortName;
+        // For wired, show port info and switch
+        var portInfo = PortIndex.HasValue ? $"{PortIndex} ({PortName})" : PortName;
+
+        // Extract switch name from "ClientName on SwitchName" format
+        if (SwitchName.Contains(" on "))
+        {
+            var switchPart = SwitchName.Split(" on ")[1];
+            return $"{portInfo}\non {switchPart}";
+        }
+
+        return portInfo;
     }
 }
 
