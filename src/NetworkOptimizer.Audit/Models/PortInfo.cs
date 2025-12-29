@@ -1,3 +1,5 @@
+using NetworkOptimizer.UniFi.Models;
+
 namespace NetworkOptimizer.Audit.Models;
 
 /// <summary>
@@ -89,4 +91,10 @@ public class PortInfo
     /// The switch this port belongs to
     /// </summary>
     public required SwitchInfo Switch { get; init; }
+
+    /// <summary>
+    /// The UniFi client connected to this port (if any).
+    /// Used for enhanced device type detection via fingerprint and MAC OUI.
+    /// </summary>
+    public UniFiClientResponse? ConnectedClient { get; set; }
 }

@@ -371,10 +371,14 @@ public class AuditService
                 throw new Exception("No device data returned from UniFi API");
             }
 
+            // Fetch connected clients for enhanced device detection (fingerprint, MAC OUI)
+            var clients = await _connectionService.Client.GetClientsAsync();
+            _logger.LogInformation("Fetched {ClientCount} connected clients for device detection", clients?.Count ?? 0);
+
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
-            // Run the audit engine
-            var auditResult = _auditEngine.RunAudit(deviceDataJson, "Network Audit");
+            // Run the audit engine with client data for enhanced detection
+            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);

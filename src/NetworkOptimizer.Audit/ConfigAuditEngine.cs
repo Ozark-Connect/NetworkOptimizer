@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit;
 
@@ -48,8 +49,22 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public AuditResult RunAudit(string deviceDataJson, string? clientName = null)
+        => RunAudit(deviceDataJson, clients: null, clientName);
+
+    /// <summary>
+    /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
+    /// </summary>
+    /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
+    /// <param name="clients">Connected clients for device type detection (optional)</param>
+    /// <param name="clientName">Optional client/site name for the report</param>
+    /// <returns>Complete audit results</returns>
+    public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
     {
         _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
+        if (clients != null)
+        {
+            _logger.LogInformation("Client data available for enhanced detection: {ClientCount} clients", clients.Count);
+        }
 
         // Parse JSON
         var deviceData = JsonDocument.Parse(deviceDataJson).RootElement;
@@ -59,9 +74,9 @@ public class ConfigAuditEngine
         var networks = _vlanAnalyzer.ExtractNetworks(deviceData);
         _logger.LogInformation("Found {NetworkCount} networks", networks.Count);
 
-        // Extract switches and ports
+        // Extract switches and ports (with client correlation for detection)
         _logger.LogInformation("Phase 2: Extracting switch configurations");
-        var switches = _securityEngine.ExtractSwitches(deviceData, networks);
+        var switches = _securityEngine.ExtractSwitches(deviceData, networks, clients);
         _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
             switches.Count, switches.Sum(s => s.Ports.Count));
 

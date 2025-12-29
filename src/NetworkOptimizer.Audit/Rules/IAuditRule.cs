@@ -76,16 +76,21 @@ public abstract class AuditRuleBase : IAuditRule
 
     /// <summary>
     /// Detect device type using all available signals.
-    /// Falls back to legacy pattern matching if detection service not configured.
+    /// Uses client data (fingerprint, MAC OUI) if available, otherwise falls back to port name patterns.
     /// </summary>
     protected DeviceDetectionResult DetectDeviceType(PortInfo port)
     {
         if (DetectionService != null)
         {
-            return DetectionService.DetectFromPortName(port.Name ?? string.Empty);
+            // Use full detection with client data if available (fingerprint, MAC OUI, UniFi OUI)
+            // Falls back to port name pattern matching if no client connected
+            return DetectionService.DetectDeviceType(
+                client: port.ConnectedClient,
+                portName: port.Name
+            );
         }
 
-        // Fallback to legacy pattern matching
+        // Fallback to legacy pattern matching when detection service not configured
         if (IsCameraDeviceName(port.Name))
         {
             return new DeviceDetectionResult

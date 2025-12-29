@@ -4,6 +4,7 @@ using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -67,8 +68,24 @@ public class SecurityAuditEngine
     /// Extract switch and port information from UniFi device JSON
     /// </summary>
     public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks)
+        => ExtractSwitches(deviceData, networks, clients: null);
+
+    /// <summary>
+    /// Extract switch and port information from UniFi device JSON with client correlation
+    /// </summary>
+    /// <param name="deviceData">UniFi device JSON data</param>
+    /// <param name="networks">Network configuration list</param>
+    /// <param name="clients">Connected clients for port correlation (optional)</param>
+    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients)
     {
         var switches = new List<SwitchInfo>();
+
+        // Build lookup for clients by switch MAC + port for O(1) correlation
+        var clientsByPort = BuildClientPortLookup(clients);
+        if (clientsByPort.Count > 0)
+        {
+            _logger.LogDebug("Built client lookup with {Count} wired clients for port correlation", clientsByPort.Count);
+        }
 
         foreach (var device in deviceData.UnwrapDataArray())
         {
@@ -76,12 +93,13 @@ public class SecurityAuditEngine
             if (portTableItems.Count == 0)
                 continue;
 
-            var switchInfo = ParseSwitch(device, networks);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort);
             if (switchInfo != null)
             {
                 switches.Add(switchInfo);
-                _logger.LogInformation("Discovered switch: {Name} with {PortCount} ports",
-                    switchInfo.Name, switchInfo.Ports.Count);
+                var clientCount = switchInfo.Ports.Count(p => p.ConnectedClient != null);
+                _logger.LogInformation("Discovered switch: {Name} with {PortCount} ports ({ClientCount} with client data)",
+                    switchInfo.Name, switchInfo.Ports.Count, clientCount);
             }
         }
 
@@ -90,9 +108,34 @@ public class SecurityAuditEngine
     }
 
     /// <summary>
+    /// Build lookup dictionary for clients by switch MAC and port index
+    /// </summary>
+    private Dictionary<(string SwitchMac, int PortIndex), UniFiClientResponse> BuildClientPortLookup(List<UniFiClientResponse>? clients)
+    {
+        var lookup = new Dictionary<(string, int), UniFiClientResponse>();
+        if (clients == null) return lookup;
+
+        foreach (var client in clients)
+        {
+            // Only wired clients have switch port info
+            if (client.IsWired && !string.IsNullOrEmpty(client.SwMac) && client.SwPort.HasValue)
+            {
+                var key = (client.SwMac.ToLowerInvariant(), client.SwPort.Value);
+                // If multiple clients on same port (shouldn't happen normally), keep first
+                if (!lookup.ContainsKey(key))
+                {
+                    lookup[key] = client;
+                }
+            }
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
     /// Parse a single switch from JSON
     /// </summary>
-    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks)
+    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
     {
         var deviceType = device.GetStringOrNull("type");
         var isGateway = UniFiDeviceTypes.IsGateway(deviceType);
@@ -119,7 +162,7 @@ public class SecurityAuditEngine
         };
 
         var ports = device.GetArrayOrEmpty("port_table")
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -162,7 +205,7 @@ public class SecurityAuditEngine
     /// <summary>
     /// Parse a single port from JSON
     /// </summary>
-    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks)
+    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -179,6 +222,14 @@ public class SecurityAuditEngine
         var poeEnable = port.GetBoolOrDefault("poe_enable");
         var portPoe = port.GetBoolOrDefault("port_poe");
         var poeMode = port.GetStringOrNull("poe_mode");
+
+        // Look up connected client for this port
+        UniFiClientResponse? connectedClient = null;
+        if (!string.IsNullOrEmpty(switchInfo.MacAddress))
+        {
+            var key = (switchInfo.MacAddress.ToLowerInvariant(), portIdx);
+            clientsByPort.TryGetValue(key, out connectedClient);
+        }
 
         return new PortInfo
         {
@@ -198,7 +249,8 @@ public class SecurityAuditEngine
             PoePower = port.GetDoubleOrDefault("poe_power"),
             PoeMode = poeMode,
             SupportsPoe = portPoe || !string.IsNullOrEmpty(poeMode),
-            Switch = switchInfo
+            Switch = switchInfo,
+            ConnectedClient = connectedClient
         };
     }
 
