@@ -719,6 +719,18 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("SpeedtestEveningHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SpeedtestEveningMinute")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SpeedtestMorningHour")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SpeedtestMorningMinute")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("SpeedtestServerId")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
