@@ -111,9 +111,9 @@
     <!-- Main Content Grid -->
     <div class="content-grid">
         <!-- Security Score Gauge -->
-        <div class="card">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
             <div class="card-header">
-                <a href="/audit" class="card-title-link"><h2 class="card-title">Security Posture</h2></a>
+                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Security Posture</h2></a>
             </div>
             <div class="card-body">
                 @if (_loading)
