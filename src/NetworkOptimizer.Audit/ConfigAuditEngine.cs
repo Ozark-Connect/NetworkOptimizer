@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 
 namespace NetworkOptimizer.Audit;
 
@@ -28,7 +29,14 @@ public class ConfigAuditEngine
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _vlanAnalyzer = new VlanAnalyzer(loggerFactory.CreateLogger<VlanAnalyzer>());
-        _securityEngine = new SecurityAuditEngine(loggerFactory.CreateLogger<SecurityAuditEngine>());
+
+        // Create detection service with logging for enhanced device type detection
+        var detectionService = new DeviceTypeDetectionService(
+            loggerFactory.CreateLogger<DeviceTypeDetectionService>());
+
+        _securityEngine = new SecurityAuditEngine(
+            loggerFactory.CreateLogger<SecurityAuditEngine>(),
+            detectionService);
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
