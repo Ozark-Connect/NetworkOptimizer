@@ -230,6 +230,245 @@
                 </div>
             </div>
         </div>
+
+        <!-- Network Reference -->
+        @if (lastResult?.Networks.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Network Reference</h2>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Network</th>
+                                <th>VLAN</th>
+                                <th>Subnet</th>
+                                <th>Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var network in lastResult.Networks.OrderBy(n => n.VlanId))
+                            {
+                                <tr>
+                                    <td>@network.Name</td>
+                                    <td>@(network.VlanId == 1 ? $"{network.VlanId} (native)" : network.VlanId.ToString())</td>
+                                    <td>@(network.Subnet ?? "N/A")</td>
+                                    <td>@network.Purpose</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- DNS Security -->
+        @if (lastResult?.DnsSecurity != null)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">DNS Security</h2>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Configuration</th>
+                                <th>Status</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>DNS-over-HTTPS (DoH)</td>
+                                <td class="@(lastResult.DnsSecurity.DohEnabled ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DohEnabled ? "Enabled" : "Disabled")
+                                </td>
+                                <td>@GetDohStatusDisplay()</td>
+                            </tr>
+                            <tr>
+                                <td>DNS Leak Prevention (Port 53)</td>
+                                <td class="@(lastResult.DnsSecurity.DnsLeakProtection ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : "Unprotected")
+                                </td>
+                                <td>@(lastResult.DnsSecurity.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS")</td>
+                            </tr>
+                            <tr>
+                                <td>DNS-over-TLS (Port 853)</td>
+                                <td class="@(lastResult.DnsSecurity.DotBlocked ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DotBlocked ? "Blocked" : "Open")
+                                </td>
+                                <td>@(lastResult.DnsSecurity.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT")</td>
+                            </tr>
+                            <tr>
+                                <td>DoH Bypass Prevention</td>
+                                <td class="@(lastResult.DnsSecurity.DohBypassBlocked ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DohBypassBlocked ? "Blocked" : "Open")
+                                </td>
+                                <td>@(lastResult.DnsSecurity.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH")</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="dns-summary @(lastResult.DnsSecurity.FullyProtected ? "dns-protected" : "dns-partial")">
+                        <strong>Overall:</strong> @(lastResult.DnsSecurity.FullyProtected ? "Full DNS Protection" : "Partial Protection")
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Hardening Measures -->
+        @if (lastResult?.HardeningMeasures.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Hardening Measures in Place</h2>
+                </div>
+                <div class="card-body">
+                    <ul class="hardening-list">
+                        @foreach (var measure in lastResult.HardeningMeasures)
+                        {
+                            <li>@measure</li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+
+        <!-- Switch/Port Details -->
+        @if (lastResult?.Switches.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Switch & Port Details</h2>
+                </div>
+                <div class="card-body">
+                    @foreach (var sw in lastResult.Switches)
+                    {
+                        <div class="switch-section">
+                            <h3 class="switch-title">@(sw.IsGateway ? "[Gateway]" : "[Switch]") @sw.Name <span class="switch-model">(@sw.ModelName)</span></h3>
+                            <table class="data-table port-table">
+                                <thead>
+                                    <tr>
+                                        <th>Port</th>
+                                        <th>Name</th>
+                                        <th>Link</th>
+                                        <th>Forward</th>
+                                        <th>Native VLAN</th>
+                                        <th>PoE</th>
+                                        <th>Port Sec</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var port in sw.Ports)
+                                    {
+                                        var (status, statusClass) = GetPortStatus(port, sw.MaxCustomMacAcls > 0);
+                                        <tr class="@statusClass">
+                                            <td>@port.PortIndex</td>
+                                            <td>@port.Name</td>
+                                            <td>@GetLinkStatus(port)</td>
+                                            <td>@(port.Forward == "customize" ? "custom" : port.Forward)</td>
+                                            <td>@(port.NativeNetwork != null ? $"{port.NativeNetwork} ({port.NativeVlan})" : (port.Forward == "disabled" ? "-" : ""))</td>
+                                            <td>@GetPoeStatus(port)</td>
+                                            <td>@GetPortSecurityStatus(port)</td>
+                                            <td>@status</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            @if (sw.MaxCustomMacAcls == 0)
+                            {
+                                <p class="switch-note">Note: @sw.ModelName doesn't support MAC ACLs</p>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Wireless Clients -->
+        @if (lastResult?.WirelessClients.Any() == true)
+        {
+            var apGroups = lastResult.WirelessClients.GroupBy(wc => wc.AccessPointName ?? "Unknown AP").OrderBy(g => g.Key);
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Wireless Clients by Access Point</h2>
+                </div>
+                <div class="card-body">
+                    @foreach (var ap in apGroups)
+                    {
+                        <div class="ap-section">
+                            <h3 class="ap-title">@ap.Key <span class="client-count">(@ap.Count() clients)</span></h3>
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Client</th>
+                                        <th>Type</th>
+                                        <th>Network</th>
+                                        <th>VLAN</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var client in ap.OrderBy(c => c.DisplayName))
+                                    {
+                                        var hasIssue = issues.Any(i => i.IsWireless && i.ClientMac == client.Mac);
+                                        <tr class="@(hasIssue ? "row-warning" : "")">
+                                            <td>@client.DisplayName</td>
+                                            <td>@client.DeviceCategory</td>
+                                            <td>@(client.NetworkName ?? "Unknown")</td>
+                                            <td>@(client.VlanId?.ToString() ?? "-")</td>
+                                            <td class="@(hasIssue ? "status-warning" : "")">@(hasIssue ? "Issue" : "OK")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Port Security Summary -->
+        @if (lastResult?.Switches.Any() == true)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Port Security Coverage Summary</h2>
+                </div>
+                <div class="card-body">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Device</th>
+                                <th>Total</th>
+                                <th>Disabled</th>
+                                <th>MAC Restricted</th>
+                                <th>Unprotected Active</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sw in lastResult.Switches)
+                            {
+                                var totalPorts = sw.Ports.Count;
+                                var disabledPorts = sw.Ports.Count(p => p.Forward == "disabled");
+                                var macRestricted = sw.Ports.Count(p => p.PortSecurityMacs.Any());
+                                var unprotectedActive = sw.Ports.Count(p => p.Forward == "native" && p.IsUp && !p.PortSecurityMacs.Any() && !p.IsUplink);
+                                <tr>
+                                    <td>@sw.Name</td>
+                                    <td>@totalPorts</td>
+                                    <td>@disabledPorts</td>
+                                    <td>@(sw.MaxCustomMacAcls > 0 ? macRestricted.ToString() : "0 (no ACL support)")</td>
+                                    <td>@unprotectedActive</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
     }
     else if (!isRunning)
     {
@@ -488,6 +727,18 @@
                 // Hardening notes
                 HardeningNotes = lastResult.HardeningMeasures,
 
+                // DNS Security
+                DnsSecurity = lastResult.DnsSecurity != null ? new NetworkOptimizer.Reports.DnsSecuritySummary
+                {
+                    DohEnabled = lastResult.DnsSecurity.DohEnabled,
+                    DohState = lastResult.DnsSecurity.DohState,
+                    DohProviders = lastResult.DnsSecurity.DohProviders.ToList(),
+                    DnsLeakProtection = lastResult.DnsSecurity.DnsLeakProtection,
+                    DotBlocked = lastResult.DnsSecurity.DotBlocked,
+                    DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
+                    FullyProtected = lastResult.DnsSecurity.FullyProtected
+                } : null,
+
                 // Access Points with wireless clients (grouped by AP)
                 AccessPoints = lastResult.WirelessClients
                     .GroupBy(wc => wc.AccessPointName ?? "Unknown AP")
@@ -619,5 +870,75 @@
         }
 
         return string.IsNullOrWhiteSpace(name) ? "Network" : name;
+    }
+
+    private string GetDohStatusDisplay()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.DohEnabled) return "Not Configured";
+        if (dns.DohState == "auto") return "Auto (may fallback)";
+        if (dns.DohProviders.Any()) return string.Join(", ", dns.DohProviders);
+        return "Enabled";
+    }
+
+    private string GetLinkStatus(Services.PortReference port)
+    {
+        if (!port.IsUp) return "Down";
+        if (port.Speed >= 1000)
+        {
+            var gbe = port.Speed / 1000.0;
+            return gbe % 1 == 0 ? $"Up {(int)gbe} GbE" : $"Up {gbe:0.#} GbE";
+        }
+        if (port.Speed > 0) return $"Up {port.Speed} MbE";
+        return "Down";
+    }
+
+    private string GetPoeStatus(Services.PortReference port)
+    {
+        if (port.PoePower > 0) return $"{port.PoePower:F1} W";
+        if (port.PoeMode == "off") return "off";
+        if (port.PoeEnabled) return "off";
+        return "N/A";
+    }
+
+    private string GetPortSecurityStatus(Services.PortReference port)
+    {
+        var macCount = port.PortSecurityMacs.Count;
+        if (macCount > 1) return $"{macCount} MAC";
+        if (macCount == 1) return "1 MAC";
+        if (port.PortSecurityEnabled) return "Yes";
+        return "-";
+    }
+
+    private (string Status, string StatusClass) GetPortStatus(Services.PortReference port, bool supportsAcls)
+    {
+        if (port.Forward == "disabled")
+            return ("Disabled", "");
+
+        if (!port.IsUp && port.Forward != "disabled")
+            return ("Off", "");
+
+        if (port.IsUplink || port.Name.ToLower().Contains("uplink"))
+            return ("Trunk", "");
+
+        if (port.Forward == "all")
+            return ("Trunk", "");
+
+        if (port.Forward == "custom" || port.Forward == "customize")
+        {
+            if (port.Name.ToLower().Contains("ap") || port.Name.ToLower().Contains("access point"))
+                return ("AP", "");
+            return ("OK", "");
+        }
+
+        if (port.Forward == "native")
+        {
+            if (port.IsUp && supportsAcls && !port.PortSecurityMacs.Any() && !port.IsUplink)
+                return ("No MAC", "row-warning");
+            return ("OK", "");
+        }
+
+        return ("OK", "");
     }
 }

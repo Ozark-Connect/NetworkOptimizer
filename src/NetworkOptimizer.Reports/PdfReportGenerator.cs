@@ -159,6 +159,12 @@ public class PdfReportGenerator
             // Network Reference
             column.Item().Element(c => ComposeNetworkReference(c, data));
 
+            // DNS Security (if available)
+            if (data.DnsSecurity != null)
+            {
+                column.Item().PaddingTop(20).Element(c => ComposeDnsSecuritySection(c, data));
+            }
+
             // Executive Summary
             column.Item().PaddingTop(20).Element(c => ComposeExecutiveSummary(c, data));
 
@@ -237,6 +243,107 @@ public class PdfReportGenerator
                     }
                 });
             }
+        });
+    }
+
+    private void ComposeDnsSecuritySection(IContainer container, ReportData data)
+    {
+        var primaryColor = GetColor(_branding.Colors.Primary);
+        var successColor = GetColor(_branding.Colors.Success);
+        var warningColor = GetColor(_branding.Colors.Warning);
+        var lightGray = GetColor(_branding.Colors.LightGray);
+
+        var dns = data.DnsSecurity!;
+
+        container.Column(column =>
+        {
+            column.Item()
+                .PaddingBottom(10)
+                .Text("DNS Security")
+                .FontSize(16)
+                .Bold()
+                .FontColor(primaryColor);
+
+            column.Item().Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.RelativeColumn(1.5f);
+                    columns.RelativeColumn(1f);
+                    columns.RelativeColumn(2.5f);
+                });
+
+                // Header
+                table.Header(header =>
+                {
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Configuration").Bold().FontSize(9);
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Status").Bold().FontSize(9);
+                    header.Cell().Background(lightGray).Padding(6)
+                        .Text("Details").Bold().FontSize(9);
+                });
+
+                // DoH Configuration row
+                var dohStatus = dns.DohEnabled ? "Enabled" : "Disabled";
+                var dohStatusColor = dns.DohEnabled ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("DNS-over-HTTPS (DoH)").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dohStatus).FontSize(9).FontColor(dohStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.GetDohStatusDisplay()).FontSize(9);
+
+                // DNS Leak Prevention row
+                var leakStatus = dns.DnsLeakProtection ? "Protected" : "Unprotected";
+                var leakStatusColor = dns.DnsLeakProtection ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("DNS Leak Prevention (Port 53)").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(leakStatus).FontSize(9).FontColor(leakStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS").FontSize(9);
+
+                // DoT Blocking row
+                var dotStatus = dns.DotBlocked ? "Blocked" : "Open";
+                var dotStatusColor = dns.DotBlocked ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("DNS-over-TLS (Port 853)").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dotStatus).FontSize(9).FontColor(dotStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT").FontSize(9);
+
+                // DoH Bypass Blocking row
+                var bypassStatus = dns.DohBypassBlocked ? "Blocked" : "Open";
+                var bypassStatusColor = dns.DohBypassBlocked ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("DoH Bypass Prevention").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(bypassStatus).FontSize(9).FontColor(bypassStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH").FontSize(9);
+            });
+
+            // Overall protection status
+            var overallStatus = dns.FullyProtected ? "Full DNS Protection" : "Partial Protection";
+            var overallColor = dns.FullyProtected ? successColor : warningColor;
+
+            column.Item()
+                .PaddingTop(8)
+                .Text(text =>
+                {
+                    text.Span("Overall: ").FontSize(9);
+                    text.Span(overallStatus).FontSize(9).Bold().FontColor(overallColor);
+                    if (!dns.FullyProtected && !string.IsNullOrEmpty(dns.GetProtectionStatusDisplay()))
+                    {
+                        text.Span($" ({dns.GetProtectionStatusDisplay()})").FontSize(9).FontColor(Colors.Grey.Medium);
+                    }
+                });
         });
     }
 

@@ -69,6 +69,52 @@ public class AuditResult
     /// Overall security posture assessment
     /// </summary>
     public SecurityPosture Posture { get; set; }
+
+    /// <summary>
+    /// DNS security configuration summary
+    /// </summary>
+    public DnsSecurityInfo? DnsSecurity { get; set; }
+}
+
+/// <summary>
+/// DNS security configuration information
+/// </summary>
+public class DnsSecurityInfo
+{
+    /// <summary>
+    /// Whether DoH is enabled
+    /// </summary>
+    public bool DohEnabled { get; set; }
+
+    /// <summary>
+    /// DoH state (disabled, auto, custom)
+    /// </summary>
+    public string DohState { get; set; } = "disabled";
+
+    /// <summary>
+    /// Configured DoH providers
+    /// </summary>
+    public List<string> DohProviders { get; set; } = new();
+
+    /// <summary>
+    /// Whether DNS leak prevention (port 53 blocking) is in place
+    /// </summary>
+    public bool DnsLeakProtection { get; set; }
+
+    /// <summary>
+    /// Whether DoT (port 853) is blocked
+    /// </summary>
+    public bool DotBlocked { get; set; }
+
+    /// <summary>
+    /// Whether DoH bypass (public DoH providers) is blocked
+    /// </summary>
+    public bool DohBypassBlocked { get; set; }
+
+    /// <summary>
+    /// Whether full DNS protection is in place
+    /// </summary>
+    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked;
 }
 
 /// <summary>

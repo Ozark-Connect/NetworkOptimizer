@@ -609,6 +609,23 @@ public class AuditService
             })
             .ToList();
 
+        // Convert DNS security info
+        DnsSecurityReference? dnsSecurity = null;
+        if (engineResult.DnsSecurity != null)
+        {
+            var dns = engineResult.DnsSecurity;
+            dnsSecurity = new DnsSecurityReference
+            {
+                DohEnabled = dns.DohEnabled,
+                DohState = dns.DohState,
+                DohProviders = dns.DohProviders.ToList(),
+                DnsLeakProtection = dns.DnsLeakProtection,
+                DotBlocked = dns.DotBlocked,
+                DohBypassBlocked = dns.DohBypassBlocked,
+                FullyProtected = dns.FullyProtected
+            };
+        }
+
         return new AuditResult
         {
             Score = score,
@@ -631,7 +648,8 @@ public class AuditService
             HardeningMeasures = engineResult.HardeningMeasures.ToList(),
             Networks = networks,
             Switches = switches,
-            WirelessClients = wirelessClients
+            WirelessClients = wirelessClients,
+            DnsSecurity = dnsSecurity
         };
     }
 
@@ -767,6 +785,18 @@ public class AuditResult
     public List<NetworkReference> Networks { get; set; } = new();
     public List<SwitchReference> Switches { get; set; } = new();
     public List<WirelessClientReference> WirelessClients { get; set; } = new();
+    public DnsSecurityReference? DnsSecurity { get; set; }
+}
+
+public class DnsSecurityReference
+{
+    public bool DohEnabled { get; set; }
+    public string DohState { get; set; } = "disabled";
+    public List<string> DohProviders { get; set; } = new();
+    public bool DnsLeakProtection { get; set; }
+    public bool DotBlocked { get; set; }
+    public bool DohBypassBlocked { get; set; }
+    public bool FullyProtected { get; set; }
 }
 
 public class AuditStatistics

@@ -16,6 +16,39 @@ public class ReportData
     public List<AuditIssue> RecommendedImprovements { get; set; } = new();
     public List<string> HardeningNotes { get; set; } = new();
     public List<string> TopologyNotes { get; set; } = new();
+    public DnsSecuritySummary? DnsSecurity { get; set; }
+}
+
+/// <summary>
+/// DNS security configuration summary
+/// </summary>
+public class DnsSecuritySummary
+{
+    public bool DohEnabled { get; set; }
+    public string DohState { get; set; } = "disabled";
+    public List<string> DohProviders { get; set; } = new();
+    public bool DnsLeakProtection { get; set; }
+    public bool DotBlocked { get; set; }
+    public bool DohBypassBlocked { get; set; }
+    public bool FullyProtected { get; set; }
+
+    public string GetDohStatusDisplay()
+    {
+        if (!DohEnabled) return "Not Configured";
+        if (DohState == "auto") return "Auto (may fallback)";
+        if (DohProviders.Any()) return string.Join(", ", DohProviders);
+        return "Enabled";
+    }
+
+    public string GetProtectionStatusDisplay()
+    {
+        if (FullyProtected) return "Full Protection";
+        var protections = new List<string>();
+        if (DnsLeakProtection) protections.Add("DNS53");
+        if (DotBlocked) protections.Add("DoT");
+        if (DohBypassBlocked) protections.Add("DoH Bypass");
+        return protections.Any() ? string.Join(" + ", protections) : "None";
+    }
 }
 
 /// <summary>

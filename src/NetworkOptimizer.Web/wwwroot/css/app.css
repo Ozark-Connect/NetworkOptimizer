@@ -2918,6 +2918,141 @@ td .btn + .btn {
 }
 
 /* ============================================
+   Audit Detail Sections
+   ============================================ */
+
+/* Switch section */
+.switch-section {
+    margin-bottom: 2rem;
+}
+
+.switch-section:last-child {
+    margin-bottom: 0;
+}
+
+.switch-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.switch-model {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.switch-note {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 0.5rem;
+}
+
+/* AP section */
+.ap-section {
+    margin-bottom: 1.5rem;
+}
+
+.ap-section:last-child {
+    margin-bottom: 0;
+}
+
+.ap-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.client-count {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+/* Port table */
+.port-table th,
+.port-table td {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.5rem;
+}
+
+/* Status classes */
+.status-success {
+    color: var(--success-color);
+    font-weight: 500;
+}
+
+.status-warning {
+    color: var(--warning-color);
+    font-weight: 500;
+}
+
+.status-danger {
+    color: var(--danger-color);
+    font-weight: 500;
+}
+
+.row-warning {
+    background-color: rgba(231, 150, 19, 0.1);
+}
+
+.row-warning td {
+    border-color: rgba(231, 150, 19, 0.2);
+}
+
+/* Hardening list */
+.hardening-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.hardening-list li {
+    padding: 0.5rem 0;
+    padding-left: 1.5rem;
+    position: relative;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.hardening-list li:last-child {
+    border-bottom: none;
+}
+
+.hardening-list li::before {
+    content: "✓";
+    position: absolute;
+    left: 0;
+    color: var(--success-color);
+    font-weight: bold;
+}
+
+/* DNS Security summary */
+.dns-summary {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+}
+
+.dns-protected {
+    background-color: rgba(36, 188, 112, 0.1);
+    border: 1px solid rgba(36, 188, 112, 0.3);
+    color: var(--success-color);
+}
+
+.dns-partial {
+    background-color: rgba(231, 150, 19, 0.1);
+    border: 1px solid rgba(231, 150, 19, 0.3);
+    color: var(--warning-color);
+}
+
+/* ============================================
    Tooltip Icon Component (using Tippy.js)
    Interactive popovers with link support
    ============================================ */

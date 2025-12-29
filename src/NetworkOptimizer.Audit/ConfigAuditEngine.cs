@@ -197,6 +197,27 @@ public class ConfigAuditEngine
         // Calculate statistics
         var statistics = securityEngine.CalculateStatistics(switches);
 
+        // Build DNS security info from analyzer result
+        DnsSecurityInfo? dnsSecurityInfo = null;
+        if (dnsSecurityResult != null)
+        {
+            var providerNames = dnsSecurityResult.ConfiguredServers
+                .Where(s => s.Enabled)
+                .Select(s => s.StampInfo?.ProviderInfo?.Name ?? s.Provider?.Name ?? s.ServerName)
+                .Distinct()
+                .ToList();
+
+            dnsSecurityInfo = new DnsSecurityInfo
+            {
+                DohEnabled = dnsSecurityResult.DohConfigured,
+                DohState = dnsSecurityResult.DohState,
+                DohProviders = providerNames,
+                DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
+                DotBlocked = dnsSecurityResult.HasDotBlockRule,
+                DohBypassBlocked = dnsSecurityResult.HasDohBlockRule
+            };
+        }
+
         // Build audit result
         var auditResult = new AuditResult
         {
@@ -207,7 +228,8 @@ public class ConfigAuditEngine
             WirelessClients = wirelessClients,
             Issues = allIssues,
             HardeningMeasures = hardeningMeasures,
-            Statistics = statistics
+            Statistics = statistics,
+            DnsSecurity = dnsSecurityInfo
         };
 
         // Calculate security score
