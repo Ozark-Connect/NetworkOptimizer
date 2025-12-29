@@ -214,10 +214,6 @@
                                     {
                                         <div class="issue-recommendation">
                                             <strong>Recommendation:</strong> @issue.Recommendation
-                                            @if (!string.IsNullOrEmpty(issue.RecommendedNetwork))
-                                            {
-                                                <span> → Move to @issue.RecommendedNetwork@(issue.RecommendedVlan.HasValue ? $" (VLAN {issue.RecommendedVlan})" : "")</span>
-                                            }
                                         </div>
                                     }
                                 </div>
