@@ -88,6 +88,13 @@ public class VlanAnalyzer
         var rawSubnet = network.GetStringOrNull("ip_subnet");
         var gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway");
 
+        // Debug: log available properties for first few networks
+        if (string.IsNullOrEmpty(gateway))
+        {
+            var props = network.EnumerateObject().Select(p => p.Name).Take(15);
+            _logger.LogDebug("Network '{Name}' has no gateway. Properties: {Props}", name, string.Join(", ", props));
+        }
+
         return new NetworkInfo
         {
             Id = networkId,
