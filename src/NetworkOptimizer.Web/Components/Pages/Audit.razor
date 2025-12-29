@@ -49,8 +49,8 @@
                         <span>Port Security</span>
                     </label>
                     <label class="checkbox-label">
-                        <input type="checkbox" @bind="includeDnsLeakDetection" />
-                        <span>DNS Leak Detection</span>
+                        <input type="checkbox" @bind="includeDnsSecurity" />
+                        <span>DNS Security</span>
                     </label>
                 </div>
             </div>
@@ -255,7 +255,7 @@
     private bool includeFirewallRules = true;
     private bool includeVlanSecurity = true;
     private bool includePortSecurity = true;
-    private bool includeDnsLeakDetection = true;
+    private bool includeDnsSecurity = true;
 
     private int securityScore = 0;
     private string scoreLabel = "";
@@ -311,7 +311,7 @@
                 IncludeFirewallRules = includeFirewallRules,
                 IncludeVlanSecurity = includeVlanSecurity,
                 IncludePortSecurity = includePortSecurity,
-                IncludeDnsLeakDetection = includeDnsLeakDetection
+                IncludeDnsSecurity = includeDnsSecurity
             });
 
             lastResult = result;
