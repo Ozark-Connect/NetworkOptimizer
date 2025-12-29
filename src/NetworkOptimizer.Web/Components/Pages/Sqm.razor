@@ -1,4 +1,5 @@
 @page "/sqm"
+@implements IDisposable
 @inject SqmService SqmService
 @inject SqmDeploymentService DeploymentService
 @inject UniFiConnectionService ConnectionService
@@ -1086,6 +1087,9 @@
     private TcMonitorResponse? sqmMonitorData;
     private bool isRefreshingDashboard = false;
 
+    // Auto-refresh timer (1 minute interval)
+    private System.Threading.Timer? _refreshTimer;
+
     protected override void OnInitialized()
     {
         UpdateCalculatedSpeeds(wan1Config);
@@ -1118,14 +1122,29 @@
                     await LoadSqmMonitorDataAsync();
                     StateHasChanged();
                 }
-                return;
+            }
+            else
+            {
+                // Cache was not valid - load everything fresh
+                var dashboardTask = LoadSqmMonitorDataAsync();
+                _ = RefreshStatus(forceRefresh: false);
+                await dashboardTask;
+                StateHasChanged();
             }
 
-            // Cache was not valid - load everything fresh
-            var dashboardTask = LoadSqmMonitorDataAsync();
-            _ = RefreshStatus(forceRefresh: false);
-            await dashboardTask;
-            StateHasChanged();
+            // Start auto-refresh timer (every 60 seconds)
+            _refreshTimer = new System.Threading.Timer(
+                async _ => await InvokeAsync(async () =>
+                {
+                    if (!isRefreshingDashboard)
+                    {
+                        await LoadSqmMonitorDataAsync();
+                        StateHasChanged();
+                    }
+                }),
+                null,
+                TimeSpan.FromSeconds(60),
+                TimeSpan.FromSeconds(60));
         }
     }
 
@@ -1733,5 +1752,10 @@
         // Helper to format time display
         public string MorningTimeDisplay => $"{MorningHour:D2}:{MorningMinute:D2}";
         public string EveningTimeDisplay => $"{EveningHour:D2}:{EveningMinute:D2}";
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }
