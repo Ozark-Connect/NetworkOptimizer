@@ -48,10 +48,20 @@ public class IotVlanRule : AuditRuleBase
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT VLAN";
 
+        // Media/entertainment devices are less critical - users often keep them on main VLAN
+        var isMediaDevice = detection.Category is
+            ClientDeviceCategory.SmartTV or
+            ClientDeviceCategory.StreamingDevice or
+            ClientDeviceCategory.MediaPlayer or
+            ClientDeviceCategory.GameConsole;
+
+        var severity = isMediaDevice ? AuditSeverity.Recommended : Severity;
+        var scoreImpact = isMediaDevice ? 3 : ScoreImpact;
+
         return new AuditIssue
         {
             Type = RuleId,
-            Severity = Severity,
+            Severity = severity,
             Message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated",
             DeviceName = port.Switch.Name,
             Port = port.PortIndex.ToString(),
@@ -71,7 +81,7 @@ public class IotVlanRule : AuditRuleBase
                 { "current_network_purpose", network.Purpose.ToString() }
             },
             RuleId = RuleId,
-            ScoreImpact = ScoreImpact
+            ScoreImpact = scoreImpact
         };
     }
 }
