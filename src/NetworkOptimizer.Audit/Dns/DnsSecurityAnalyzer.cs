@@ -68,7 +68,14 @@ public class DnsSecurityAnalyzer
     private void AnalyzeDohConfiguration(JsonElement settings, DnsSecurityResult result)
     {
         // Look for DoH configuration in settings array
-        foreach (var setting in settings.UnwrapDataArray())
+        var settingsArray = settings.UnwrapDataArray().ToList();
+        var keys = settingsArray
+            .Where(s => s.TryGetProperty("key", out _))
+            .Select(s => s.GetProperty("key").GetString())
+            .ToList();
+        _logger.LogDebug("Found {Count} settings with keys: {Keys}", keys.Count, string.Join(", ", keys.Take(20)));
+
+        foreach (var setting in settingsArray)
         {
             if (!setting.TryGetProperty("key", out var keyProp))
                 continue;
@@ -81,6 +88,7 @@ public class DnsSecurityAnalyzer
             }
             else if (key == "dns" || key == "wan_dns")
             {
+                _logger.LogDebug("Found WAN DNS settings with key '{Key}'", key);
                 ParseWanDnsSettings(setting, result);
             }
         }
@@ -459,6 +467,13 @@ public class DnsSecurityAnalyzer
         var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
             ?? networks.FirstOrDefault(n => n.IsNative);
 
+        // Log network Gateway info for debugging
+        foreach (var net in networks.Take(5))
+        {
+            _logger.LogDebug("Network '{Name}' (VLAN {Vlan}, Purpose={Purpose}): Gateway={Gateway}, Subnet={Subnet}",
+                net.Name, net.VlanId, net.Purpose, net.Gateway ?? "null", net.Subnet ?? "null");
+        }
+
         // Use the internal gateway IP from the management network, not the WAN IP
         // The Gateway property is the internal IP (e.g., 192.168.1.1), not gateway.IpAddress which is the WAN IP
         var expectedGatewayIp = managementNetwork?.Gateway
@@ -466,11 +481,14 @@ public class DnsSecurityAnalyzer
 
         if (string.IsNullOrEmpty(expectedGatewayIp))
         {
-            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
+            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation. ManagementNetwork={MgmtNet}, IsNative networks: {NativeNets}",
+                managementNetwork?.Name ?? "not found",
+                string.Join(", ", networks.Where(n => n.IsNative).Select(n => n.Name)));
             return;
         }
 
-        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
+        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation (from network: {NetworkName})",
+            expectedGatewayIp, managementNetwork?.Name ?? "fallback");
 
         // Get all non-gateway devices
         var allDevices = switches.Where(s => !s.IsGateway).ToList();
