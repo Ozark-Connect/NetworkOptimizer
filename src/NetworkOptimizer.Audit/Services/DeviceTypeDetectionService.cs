@@ -40,6 +40,11 @@ public class DeviceTypeDetectionService
         string? deviceName = null)
     {
         var results = new List<DeviceDetectionResult>();
+        var mac = client?.Mac ?? "unknown";
+        var displayName = client?.Name ?? client?.Hostname ?? portName ?? mac;
+
+        _logger?.LogDebug("[Detection] Starting detection for '{DisplayName}' (MAC: {Mac})",
+            displayName, mac);
 
         // Priority 1: UniFi Fingerprint (if client has fingerprint data)
         if (client != null && client.DevCat.HasValue)
@@ -48,25 +53,52 @@ public class DeviceTypeDetectionService
             if (fpResult.Category != ClientDeviceCategory.Unknown)
             {
                 results.Add(fpResult);
-                _logger?.LogDebug("Fingerprint detected: {Category} for {Mac}",
-                    fpResult.Category, client.Mac);
+                _logger?.LogDebug("[Detection] Fingerprint: {Category} (dev_cat={DevCat}, dev_vendor={DevVendor})",
+                    fpResult.Category, client.DevCat, client.DevVendor);
+            }
+            else
+            {
+                _logger?.LogDebug("[Detection] Fingerprint: No match (dev_cat={DevCat})", client.DevCat);
+            }
+        }
+        else
+        {
+            _logger?.LogDebug("[Detection] Fingerprint: No fingerprint data available");
+        }
+
+        // Priority 2: UniFi OUI name (manufacturer from controller)
+        if (!string.IsNullOrEmpty(client?.Oui))
+        {
+            var ouiNameResult = DetectFromUniFiOui(client.Oui);
+            if (ouiNameResult.Category != ClientDeviceCategory.Unknown)
+            {
+                results.Add(ouiNameResult);
+                _logger?.LogDebug("[Detection] UniFi OUI: {Category} from manufacturer '{Oui}'",
+                    ouiNameResult.Category, client.Oui);
+            }
+            else
+            {
+                _logger?.LogDebug("[Detection] UniFi OUI: No match for manufacturer '{Oui}'", client.Oui);
             }
         }
 
-        // Priority 2: MAC OUI lookup
-        var mac = client?.Mac;
-        if (!string.IsNullOrEmpty(mac))
+        // Priority 3: MAC OUI lookup (our hardcoded database)
+        if (!string.IsNullOrEmpty(client?.Mac))
         {
-            var ouiResult = _macOuiDetector.Detect(mac);
+            var ouiResult = _macOuiDetector.Detect(client.Mac);
             if (ouiResult.Category != ClientDeviceCategory.Unknown)
             {
                 results.Add(ouiResult);
-                _logger?.LogDebug("MAC OUI detected: {Category} ({Vendor}) for {Mac}",
-                    ouiResult.Category, ouiResult.VendorName, mac);
+                _logger?.LogDebug("[Detection] MAC OUI: {Category} ({Vendor}) for prefix {Prefix}",
+                    ouiResult.Category, ouiResult.VendorName, client.Mac[..8]);
+            }
+            else
+            {
+                _logger?.LogDebug("[Detection] MAC OUI: No match for prefix {Prefix}", client.Mac[..Math.Min(8, client.Mac.Length)]);
             }
         }
 
-        // Priority 3: Name pattern matching (device name, hostname, port name)
+        // Priority 4: Name pattern matching (device name, hostname, port name)
         var namesToCheck = new List<(string Name, bool IsPortName)>();
 
         // Client name/hostname
@@ -92,7 +124,7 @@ public class DeviceTypeDetectionService
             if (nameResult.Category != ClientDeviceCategory.Unknown)
             {
                 results.Add(nameResult);
-                _logger?.LogDebug("Name pattern detected: {Category} from '{Name}' (port={IsPort})",
+                _logger?.LogDebug("[Detection] Name pattern: {Category} from '{Name}' (isPort={IsPort})",
                     nameResult.Category, name, isPortName);
             }
         }
@@ -100,6 +132,8 @@ public class DeviceTypeDetectionService
         // Return best result
         if (results.Count == 0)
         {
+            _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): No detection → Unknown",
+                displayName, mac);
             return DeviceDetectionResult.Unknown;
         }
 
@@ -116,10 +150,10 @@ public class DeviceTypeDetectionService
             if (agreementCount > 1)
             {
                 var boostedConfidence = Math.Min(100, best.ConfidenceScore + (agreementCount - 1) * 10);
-                _logger?.LogDebug("Multiple sources ({Count}) agree on {Category}, boosting confidence to {Confidence}",
+                _logger?.LogDebug("[Detection] Multiple sources ({Count}) agree on {Category}, boosting confidence to {Confidence}%",
                     agreementCount, best.Category, boostedConfidence);
 
-                return new DeviceDetectionResult
+                var combinedResult = new DeviceDetectionResult
                 {
                     Category = best.Category,
                     Source = DetectionSource.Combined,
@@ -134,10 +168,77 @@ public class DeviceTypeDetectionService
                         ["all_sources"] = string.Join(", ", results.Select(r => r.Source.ToString()).Distinct())
                     }
                 };
+
+                _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): {Sources} → {Category} ({Confidence}%, {Source})",
+                    displayName, mac,
+                    string.Join("+", results.Select(r => r.Source.ToString()).Distinct()),
+                    combinedResult.Category, combinedResult.ConfidenceScore, combinedResult.Source);
+
+                return combinedResult;
             }
         }
 
+        _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): {Source} → {Category} ({Confidence}%)",
+            displayName, mac, best.Source, best.Category, best.ConfidenceScore);
+
         return best;
+    }
+
+    /// <summary>
+    /// Detect device type from UniFi's resolved OUI manufacturer name
+    /// </summary>
+    private DeviceDetectionResult DetectFromUniFiOui(string ouiName)
+    {
+        var name = ouiName.ToLowerInvariant();
+
+        // IoT / Smart Home manufacturers
+        if (name.Contains("ikea")) return CreateOuiResult(ClientDeviceCategory.SmartHub, ouiName, 80);
+        if (name.Contains("philips lighting") || name.Contains("signify")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, 85);
+        if (name.Contains("lutron")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, 85);
+        if (name.Contains("belkin")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, 75);
+        if (name.Contains("tp-link") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, 75);
+        if (name.Contains("ecobee")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 90);
+        if (name.Contains("nest")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 85);
+        if (name.Contains("honeywell")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 70);
+        if (name.Contains("august") || name.Contains("yale") || name.Contains("schlage")) return CreateOuiResult(ClientDeviceCategory.SmartLock, ouiName, 85);
+        if (name.Contains("sonos")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 90);
+        if (name.Contains("amazon") && !name.Contains("aws")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 70);
+        if (name.Contains("google") && !name.Contains("cloud")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 70);
+        if (name.Contains("irobot") || name.Contains("roborock") || name.Contains("ecovacs")) return CreateOuiResult(ClientDeviceCategory.RoboticVacuum, ouiName, 90);
+        if (name.Contains("samsung") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
+        if (name.Contains("lg") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
+
+        // Security cameras
+        if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
+        if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
+        if (name.Contains("wyze")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
+        if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
+        if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
+        if (name.Contains("hikvision") || name.Contains("dahua") || name.Contains("amcrest")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
+        if (name.Contains("eufy")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 80);
+
+        // Media/Entertainment
+        if (name.Contains("roku")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, 90);
+        if (name.Contains("apple") && name.Contains("tv")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, 90);
+
+        return DeviceDetectionResult.Unknown;
+    }
+
+    private static DeviceDetectionResult CreateOuiResult(ClientDeviceCategory category, string vendor, int confidence)
+    {
+        return new DeviceDetectionResult
+        {
+            Category = category,
+            Source = DetectionSource.MacOui, // Using MacOui as closest match
+            ConfidenceScore = confidence,
+            VendorName = vendor,
+            RecommendedNetwork = FingerprintDetector.GetRecommendedNetwork(category),
+            Metadata = new Dictionary<string, object>
+            {
+                ["detection_method"] = "unifi_oui_name",
+                ["oui_name"] = vendor
+            }
+        };
     }
 
     /// <summary>
