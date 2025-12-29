@@ -233,6 +233,44 @@ public class AuditService
                 CompletedAt = latestAudit.AuditDate
             };
 
+            // Parse the stored report data JSON (for PDF generation)
+            if (!string.IsNullOrEmpty(latestAudit.ReportDataJson))
+            {
+                try
+                {
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    using var doc = JsonDocument.Parse(latestAudit.ReportDataJson);
+                    var root = doc.RootElement;
+
+                    if (root.TryGetProperty("Statistics", out var statsEl) || root.TryGetProperty("statistics", out statsEl))
+                    {
+                        result.Statistics = JsonSerializer.Deserialize<AuditStatistics>(statsEl.GetRawText(), options);
+                    }
+                    if (root.TryGetProperty("HardeningMeasures", out var hardeningEl) || root.TryGetProperty("hardeningMeasures", out hardeningEl))
+                    {
+                        result.HardeningMeasures = JsonSerializer.Deserialize<List<string>>(hardeningEl.GetRawText(), options) ?? new();
+                    }
+                    if (root.TryGetProperty("Networks", out var networksEl) || root.TryGetProperty("networks", out networksEl))
+                    {
+                        result.Networks = JsonSerializer.Deserialize<List<NetworkReference>>(networksEl.GetRawText(), options) ?? new();
+                    }
+                    if (root.TryGetProperty("Switches", out var switchesEl) || root.TryGetProperty("switches", out switchesEl))
+                    {
+                        result.Switches = JsonSerializer.Deserialize<List<SwitchReference>>(switchesEl.GetRawText(), options) ?? new();
+                    }
+                    if (root.TryGetProperty("WirelessClients", out var wirelessEl) || root.TryGetProperty("wirelessClients", out wirelessEl))
+                    {
+                        result.WirelessClients = JsonSerializer.Deserialize<List<WirelessClientReference>>(wirelessEl.GetRawText(), options) ?? new();
+                    }
+                    _logger.LogInformation("Restored report data: {Networks} networks, {Switches} switches, {Wireless} wireless clients",
+                        result.Networks.Count, result.Switches.Count, result.WirelessClients.Count);
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse audit report data JSON");
+                }
+            }
+
             // Cache it
             _lastAuditResult = result;
             _lastAuditTime = latestAudit.AuditDate;
@@ -297,6 +335,17 @@ public class AuditService
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IAuditRepository>();
 
+            // Serialize the full report data for PDF generation after page reload
+            var reportData = new
+            {
+                Statistics = result.Statistics,
+                HardeningMeasures = result.HardeningMeasures,
+                Networks = result.Networks,
+                Switches = result.Switches,
+                WirelessClients = result.WirelessClients
+            };
+            var reportDataJson = JsonSerializer.Serialize(reportData);
+
             var storageResult = new StorageAuditResult
             {
                 DeviceId = "network-audit",
@@ -308,13 +357,15 @@ public class AuditService
                 WarningChecks = result.WarningCount,
                 ComplianceScore = result.Score,
                 FindingsJson = JsonSerializer.Serialize(result.Issues),
+                ReportDataJson = reportDataJson,
                 AuditVersion = "1.0",
                 CreatedAt = DateTime.UtcNow
             };
 
             await repository.SaveAuditResultAsync(storageResult);
 
-            _logger.LogInformation("Persisted audit result to database with {IssueCount} issues", result.Issues.Count);
+            _logger.LogInformation("Persisted audit result to database with {IssueCount} issues, {ReportSize} bytes report data",
+                result.Issues.Count, reportDataJson.Length);
         }
         catch (Exception ex)
         {

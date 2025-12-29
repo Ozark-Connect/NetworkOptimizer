@@ -50,6 +50,9 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<string>("FindingsJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ReportDataJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FirmwareVersion")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");

@@ -51,8 +51,8 @@ public class CameraVlanRule : AuditRuleBase
         // Use connected client name if available, otherwise port name - include switch context
         var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
         var deviceName = clientName != null && clientName != port.Name
-            ? $"{clientName} (on {port.Switch.Name})"
-            : $"{port.Name ?? $"Port {port.PortIndex}"} (on {port.Switch.Name})";
+            ? $"{clientName} on {port.Switch.Name}"
+            : $"{port.Name ?? $"Port {port.PortIndex}"} on {port.Switch.Name}";
 
         return new AuditIssue
         {

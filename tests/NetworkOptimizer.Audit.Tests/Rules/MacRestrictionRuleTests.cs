@@ -172,7 +172,7 @@ public class MacRestrictionRuleTests
 
         // Assert
         result.Should().NotBeNull();
-        result!.DeviceName.Should().Be("Office PC (on Switch-Lobby)");
+        result!.DeviceName.Should().Be("Office PC on Switch-Lobby");
         result.Port.Should().Be("5");
         result.PortName.Should().Be("Office PC");
     }
