@@ -105,7 +105,7 @@ public class PdfReportGenerator
             // Title
             column.Item()
                 .AlignCenter()
-                .Text($"{data.ClientName} Port Audit Report")
+                .Text($"{data.ClientName} Security Audit Report")
                 .FontSize(22)
                 .Bold()
                 .FontColor(primaryColor);
