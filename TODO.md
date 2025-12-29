@@ -13,6 +13,13 @@
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
+## Security Audit / PDF Report
+
+### Wireless Client Band Info
+- Show WiFi band (2.4GHz/5GHz/6GHz) in the Port column for wireless issues
+- Example: "on [AP] Tiny Home (5GHz)" instead of just "on [AP] Tiny Home"
+- Data source: UniFi client response has radio/channel info
+
 ## General
 
 - (Add future enhancements here)
