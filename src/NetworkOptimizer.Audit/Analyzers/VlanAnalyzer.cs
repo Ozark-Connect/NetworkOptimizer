@@ -16,8 +16,10 @@ public class VlanAnalyzer
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
     private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
     private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect" };
-    private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin" };
+    private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
     private static readonly string[] GuestPatterns = { "guest", "visitor" };
+    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
+    private static readonly string[] CorporatePatterns = { "corporate", "office", "work", "business", "enterprise" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
     {
@@ -78,8 +80,8 @@ public class VlanAnalyzer
         var name = network.GetStringOrDefault("name", "Unknown");
         var vlanId = network.GetIntOrDefault("vlan", network.GetIntOrDefault("vlan_id", 1));
         var purposeStr = network.GetStringOrNull("purpose");
-        var purpose = ClassifyNetwork(name, purposeStr);
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
+        var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled);
 
         _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}", name, purpose, dhcpEnabled);
 
@@ -99,7 +101,7 @@ public class VlanAnalyzer
     /// <summary>
     /// Classify a network based on its name and purpose
     /// </summary>
-    public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null)
+    public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null, int? vlanId = null, bool? dhcpEnabled = null)
     {
         var nameLower = networkName.ToLowerInvariant();
 
@@ -110,6 +112,8 @@ public class VlanAnalyzer
         }
 
         // Check name patterns - these take priority over UniFi's generic "corporate" purpose
+        // Order matters: more specific patterns first
+
         // Security first to avoid false positives with "Security Devices" matching IoT
         if (SecurityPatterns.Any(p => nameLower.Contains(p)))
             return NetworkPurpose.Security;
@@ -123,10 +127,24 @@ public class VlanAnalyzer
         if (GuestPatterns.Any(p => nameLower.Contains(p)))
             return NetworkPurpose.Guest;
 
-        // Default to corporate for named networks, unknown otherwise
-        return networkName.ToLowerInvariant() == "default" || networkName.ToLowerInvariant() == "main"
-            ? NetworkPurpose.Corporate
-            : NetworkPurpose.Unknown;
+        // Check for corporate patterns
+        if (CorporatePatterns.Any(p => nameLower.Contains(p)))
+            return NetworkPurpose.Corporate;
+
+        // Check for home/residential patterns
+        if (HomePatterns.Any(p => nameLower.Contains(p)))
+            return NetworkPurpose.Home;
+
+        // For VLAN 1 (native) with DHCP enabled and no specific keywords, assume Home
+        // This is the most common case for residential networks
+        if (vlanId == 1 && dhcpEnabled == true)
+            return NetworkPurpose.Home;
+
+        // Fallback: if name is "default" or "lan", treat as Home
+        if (nameLower == "default" || nameLower == "lan")
+            return NetworkPurpose.Home;
+
+        return NetworkPurpose.Unknown;
     }
 
     /// <summary>

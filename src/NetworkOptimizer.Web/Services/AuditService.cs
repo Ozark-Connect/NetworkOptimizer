@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit;
+using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -568,7 +569,7 @@ public class AuditService
                 Name = n.Name,
                 VlanId = n.VlanId,
                 Subnet = n.Subnet,
-                Purpose = n.Purpose.ToString().ToLowerInvariant()
+                Purpose = n.Purpose.ToDisplayString()
             })
             .ToList();
 

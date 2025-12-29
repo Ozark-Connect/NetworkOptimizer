@@ -11,6 +11,11 @@ public enum NetworkPurpose
     Corporate,
 
     /// <summary>
+    /// Home/primary residential network
+    /// </summary>
+    Home,
+
+    /// <summary>
     /// IoT devices (smart home, automation, etc.)
     /// </summary>
     IoT,
@@ -34,6 +39,27 @@ public enum NetworkPurpose
     /// Unknown or unclassified network
     /// </summary>
     Unknown
+}
+
+/// <summary>
+/// Extension methods for NetworkPurpose
+/// </summary>
+public static class NetworkPurposeExtensions
+{
+    /// <summary>
+    /// Get a human-friendly display name for the purpose
+    /// </summary>
+    public static string ToDisplayString(this NetworkPurpose purpose) => purpose switch
+    {
+        NetworkPurpose.Corporate => "Corporate",
+        NetworkPurpose.Home => "Home",
+        NetworkPurpose.IoT => "IoT",
+        NetworkPurpose.Security => "Security",
+        NetworkPurpose.Guest => "Guest",
+        NetworkPurpose.Management => "Management",
+        NetworkPurpose.Unknown => "Unclassified",
+        _ => purpose.ToString()
+    };
 }
 
 /// <summary>
