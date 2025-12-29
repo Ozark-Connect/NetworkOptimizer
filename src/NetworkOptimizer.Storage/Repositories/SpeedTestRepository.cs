@@ -198,6 +198,10 @@ public class SpeedTestRepository : ISpeedTestRepository
                 existing.NominalUploadMbps = config.NominalUploadMbps;
                 existing.PingHost = config.PingHost;
                 existing.SpeedtestServerId = config.SpeedtestServerId;
+                existing.SpeedtestMorningHour = config.SpeedtestMorningHour;
+                existing.SpeedtestMorningMinute = config.SpeedtestMorningMinute;
+                existing.SpeedtestEveningHour = config.SpeedtestEveningHour;
+                existing.SpeedtestEveningMinute = config.SpeedtestEveningMinute;
                 existing.UpdatedAt = DateTime.UtcNow;
             }
             else
