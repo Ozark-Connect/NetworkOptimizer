@@ -61,8 +61,17 @@ public class DeviceTypeDetectionService
                 }
                 else
                 {
-                    _logger?.LogDebug("[Detection] Fingerprint: {Category} (dev_cat={DevCat}, dev_vendor={DevVendor})",
-                        fpResult.Category, client.DevCat, client.DevVendor);
+                    // Check if there's an unmatched user override we need to add to our mapping
+                    if (fpResult.Metadata?.TryGetValue("dev_id_override_unmatched", out var unmatchedOverride) == true)
+                    {
+                        _logger?.LogWarning("[Detection] Fingerprint: {Category} (dev_cat={DevCat}) - UNMATCHED dev_id_override={DevIdOverride} needs mapping!",
+                            fpResult.Category, client.DevCat, unmatchedOverride);
+                    }
+                    else
+                    {
+                        _logger?.LogDebug("[Detection] Fingerprint: {Category} (dev_cat={DevCat}, dev_vendor={DevVendor})",
+                            fpResult.Category, client.DevCat, client.DevVendor);
+                    }
                 }
             }
             else
