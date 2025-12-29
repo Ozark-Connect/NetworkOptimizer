@@ -28,7 +28,7 @@ public class MacOuiDetector
         { "F4:F5:D8", ("Google/Nest", ClientDeviceCategory.SmartSpeaker, 80) },
         { "30:FD:38", ("Google/Nest", ClientDeviceCategory.SmartSpeaker, 80) },
         { "1C:F2:9A", ("Google", ClientDeviceCategory.SmartSpeaker, 80) },
-        { "54:60:09", ("Google", ClientDeviceCategory.SmartSpeaker, 80) },
+        // 54:60:09 - Google/Chromecast - defined in Streaming Devices section
 
         // Amazon Echo/Alexa/Fire
         { "84:D6:D0", ("Amazon Echo", ClientDeviceCategory.SmartSpeaker, 85) },
