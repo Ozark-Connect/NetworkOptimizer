@@ -504,7 +504,9 @@ a:hover {
 }
 
 /* Clickable stat cards */
-a.stat-card-link {
+a.stat-card-link,
+a.stat-card-link:link,
+a.stat-card-link:visited {
     text-decoration: none;
     color: inherit;
     cursor: pointer;
