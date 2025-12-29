@@ -341,6 +341,19 @@ public class PdfReportGenerator
                     .Text(wanDnsStatus).FontSize(9).FontColor(wanDnsStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(dns.GetWanDnsDisplay()).FontSize(9);
+
+                // Device DNS Configuration row
+                var deviceDnsStatus = dns.TotalDevicesChecked == 0 ? "No Devices"
+                    : dns.DeviceDnsPointsToGateway ? "Correct" : "Misconfigured";
+                var deviceDnsStatusColor = dns.TotalDevicesChecked == 0 ? neutralColor
+                    : dns.DeviceDnsPointsToGateway ? successColor : warningColor;
+
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text("Device DNS Configuration").FontSize(9);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(deviceDnsStatus).FontSize(9).FontColor(deviceDnsStatusColor);
+                table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
+                    .Text(dns.GetDeviceDnsDisplay()).FontSize(9);
             });
 
             // Overall protection status

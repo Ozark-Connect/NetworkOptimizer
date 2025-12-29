@@ -164,6 +164,15 @@ public class SecurityAuditEngine
         var ip = device.GetStringOrNull("ip");
         var capabilities = ParseSwitchCapabilities(device);
 
+        // Extract DNS configuration from config_network
+        string? dns1 = null;
+        string? dns2 = null;
+        if (device.TryGetProperty("config_network", out var configNetwork))
+        {
+            dns1 = configNetwork.GetStringOrNull("dns1");
+            dns2 = configNetwork.GetStringOrNull("dns2");
+        }
+
         var switchInfoPlaceholder = new SwitchInfo
         {
             Name = name,
@@ -172,6 +181,8 @@ public class SecurityAuditEngine
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            ConfiguredDns1 = dns1,
+            ConfiguredDns2 = dns2,
             IsGateway = isGateway,
             Capabilities = capabilities
         };
@@ -190,6 +201,8 @@ public class SecurityAuditEngine
             ModelName = modelName,
             Type = deviceType,
             IpAddress = ip,
+            ConfiguredDns1 = dns1,
+            ConfiguredDns2 = dns2,
             IsGateway = isGateway,
             Capabilities = capabilities,
             Ports = ports

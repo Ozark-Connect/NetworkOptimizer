@@ -631,7 +631,10 @@ public class AuditService
                 WanDnsServers = dns.WanDnsServers.ToList(),
                 WanDnsMatchesDoH = dns.WanDnsMatchesDoH,
                 WanDnsProvider = dns.WanDnsProvider,
-                ExpectedDnsProvider = dns.ExpectedDnsProvider
+                ExpectedDnsProvider = dns.ExpectedDnsProvider,
+                DeviceDnsPointsToGateway = dns.DeviceDnsPointsToGateway,
+                TotalDevicesChecked = dns.TotalDevicesChecked,
+                DevicesWithCorrectDns = dns.DevicesWithCorrectDns
             };
         }
 
@@ -812,6 +815,11 @@ public class DnsSecurityReference
     public bool WanDnsMatchesDoH { get; set; }
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
+
+    // Device DNS validation
+    public bool DeviceDnsPointsToGateway { get; set; } = true;
+    public int TotalDevicesChecked { get; set; }
+    public int DevicesWithCorrectDns { get; set; }
 }
 
 public class AuditStatistics

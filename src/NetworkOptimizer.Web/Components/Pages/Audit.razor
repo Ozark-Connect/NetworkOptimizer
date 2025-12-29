@@ -316,6 +316,13 @@
                                 </td>
                                 <td>@GetWanDnsDetails()</td>
                             </tr>
+                            <tr>
+                                <td>Device DNS Configuration</td>
+                                <td class="@GetDeviceDnsStatusClass()">
+                                    @GetDeviceDnsStatus()
+                                </td>
+                                <td>@GetDeviceDnsDetails()</td>
+                            </tr>
                         </tbody>
                     </table>
                     <div class="dns-summary @(lastResult.DnsSecurity.FullyProtected ? "dns-protected" : "dns-partial")">
@@ -747,7 +754,10 @@
                     WanDnsServers = lastResult.DnsSecurity.WanDnsServers.ToList(),
                     WanDnsMatchesDoH = lastResult.DnsSecurity.WanDnsMatchesDoH,
                     WanDnsProvider = lastResult.DnsSecurity.WanDnsProvider,
-                    ExpectedDnsProvider = lastResult.DnsSecurity.ExpectedDnsProvider
+                    ExpectedDnsProvider = lastResult.DnsSecurity.ExpectedDnsProvider,
+                    DeviceDnsPointsToGateway = lastResult.DnsSecurity.DeviceDnsPointsToGateway,
+                    TotalDevicesChecked = lastResult.DnsSecurity.TotalDevicesChecked,
+                    DevicesWithCorrectDns = lastResult.DnsSecurity.DevicesWithCorrectDns
                 } : null,
 
                 // Access Points with wireless clients (grouped by AP)
@@ -928,6 +938,37 @@
             return $"{servers}{providerInfo} - Expected {dns.ExpectedDnsProvider}";
         }
         return servers;
+    }
+
+    private string GetDeviceDnsStatusClass()
+    {
+        if (lastResult?.DnsSecurity == null) return "";
+        var dns = lastResult.DnsSecurity;
+        if (dns.TotalDevicesChecked == 0) return "status-neutral";
+        if (dns.DeviceDnsPointsToGateway) return "status-success";
+        return "status-warning";
+    }
+
+    private string GetDeviceDnsStatus()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (dns.TotalDevicesChecked == 0) return "No Devices";
+        if (dns.DeviceDnsPointsToGateway) return "Correct";
+        return "Misconfigured";
+    }
+
+    private string GetDeviceDnsDetails()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (dns.TotalDevicesChecked == 0) return "No infrastructure devices to check";
+        if (dns.DeviceDnsPointsToGateway)
+        {
+            return $"All {dns.TotalDevicesChecked} devices point DNS to gateway";
+        }
+        var misconfigured = dns.TotalDevicesChecked - dns.DevicesWithCorrectDns;
+        return $"{misconfigured} of {dns.TotalDevicesChecked} devices have non-gateway DNS";
     }
 
     private string GetLinkStatus(Services.PortReference port)

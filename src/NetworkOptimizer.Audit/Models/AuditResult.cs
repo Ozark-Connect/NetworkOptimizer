@@ -132,9 +132,24 @@ public class DnsSecurityInfo
     public string? ExpectedDnsProvider { get; set; }
 
     /// <summary>
+    /// Whether infrastructure devices point DNS to gateway
+    /// </summary>
+    public bool DeviceDnsPointsToGateway { get; set; } = true;
+
+    /// <summary>
+    /// Total number of infrastructure devices checked
+    /// </summary>
+    public int TotalDevicesChecked { get; set; }
+
+    /// <summary>
+    /// Number of devices with correct DNS configuration
+    /// </summary>
+    public int DevicesWithCorrectDns { get; set; }
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
-    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH;
+    public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
 }
 
 /// <summary>

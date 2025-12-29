@@ -21,6 +21,12 @@ public class DnsSecurityAnalyzer
     /// Analyze DNS security from settings and firewall policies
     /// </summary>
     public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData)
+        => Analyze(settingsData, firewallData, switches: null, networks: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, and device configuration
+    /// </summary>
+    public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
     {
         var result = new DnsSecurityResult();
 
@@ -44,11 +50,17 @@ public class DnsSecurityAnalyzer
             _logger.LogWarning("No firewall data available for DNS security analysis");
         }
 
+        // Analyze device DNS configuration
+        if (switches != null && networks != null)
+        {
+            AnalyzeDeviceDnsConfiguration(switches, networks, result);
+        }
+
         // Generate issues based on findings
         GenerateAuditIssues(result);
 
-        _logger.LogInformation("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}",
-            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule);
+        _logger.LogInformation("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}",
+            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.DeviceDnsPointsToGateway);
 
         return result;
     }
@@ -433,6 +445,86 @@ public class DnsSecurityAnalyzer
         }
     }
 
+    private void AnalyzeDeviceDnsConfiguration(List<SwitchInfo> switches, List<NetworkInfo> networks, DnsSecurityResult result)
+    {
+        // Find the gateway device to get management network gateway IP
+        var gateway = switches.FirstOrDefault(s => s.IsGateway);
+        if (gateway == null)
+        {
+            _logger.LogDebug("No gateway found for device DNS validation");
+            return;
+        }
+
+        // Find management network (usually VLAN 1 or labeled management)
+        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
+            ?? networks.FirstOrDefault(n => n.IsNative);
+
+        var expectedGatewayIp = managementNetwork?.Gateway ?? gateway.IpAddress;
+
+        if (string.IsNullOrEmpty(expectedGatewayIp))
+        {
+            _logger.LogDebug("Could not determine expected gateway IP for device DNS validation");
+            return;
+        }
+
+        // Check each non-gateway device
+        var devicesToCheck = switches.Where(s => !s.IsGateway && !string.IsNullOrEmpty(s.ConfiguredDns1)).ToList();
+        result.TotalDevicesChecked = devicesToCheck.Count;
+
+        foreach (var device in devicesToCheck)
+        {
+            var pointsToGateway = device.ConfiguredDns1 == expectedGatewayIp;
+
+            result.DeviceDnsDetails.Add(new DeviceDnsInfo
+            {
+                DeviceName = device.Name,
+                DeviceType = device.Type ?? "unknown",
+                DeviceIp = device.IpAddress,
+                ConfiguredDns = device.ConfiguredDns1,
+                ExpectedGateway = expectedGatewayIp,
+                PointsToGateway = pointsToGateway
+            });
+
+            if (pointsToGateway)
+            {
+                result.DevicesWithCorrectDns++;
+            }
+        }
+
+        result.DeviceDnsPointsToGateway = result.DevicesWithCorrectDns == result.TotalDevicesChecked;
+
+        if (result.TotalDevicesChecked > 0)
+        {
+            if (result.DeviceDnsPointsToGateway)
+            {
+                result.HardeningNotes.Add($"All {result.TotalDevicesChecked} infrastructure devices point DNS to gateway");
+            }
+            else
+            {
+                var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
+                var deviceNames = result.DeviceDnsDetails
+                    .Where(d => !d.PointsToGateway)
+                    .Select(d => d.DeviceName)
+                    .ToList();
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = "DNS_DEVICE_MISCONFIGURED",
+                    Severity = AuditSeverity.Investigate,
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                    RuleId = "DNS-DEVICE-001",
+                    ScoreImpact = 3,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "misconfigured_devices", deviceNames },
+                        { "expected_gateway", expectedGatewayIp }
+                    }
+                });
+            }
+        }
+    }
+
     /// <summary>
     /// Get a summary of DNS security status
     /// </summary>
@@ -451,13 +543,16 @@ public class DnsSecurityAnalyzer
             DnsLeakProtection = result.HasDns53BlockRule,
             DotBlocked = result.HasDotBlockRule,
             DohBypassBlocked = result.HasDohBlockRule,
-            FullyProtected = result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.WanDnsMatchesDoH,
+            FullyProtected = result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
             IssueCount = result.Issues.Count,
             CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
             WanDnsServers = result.WanDnsServers.ToList(),
             WanDnsMatchesDoH = result.WanDnsMatchesDoH,
             WanDnsProvider = result.WanDnsProvider,
-            ExpectedDnsProvider = result.ExpectedDnsProvider
+            ExpectedDnsProvider = result.ExpectedDnsProvider,
+            DeviceDnsPointsToGateway = result.DeviceDnsPointsToGateway,
+            TotalDevicesChecked = result.TotalDevicesChecked,
+            DevicesWithCorrectDns = result.DevicesWithCorrectDns
         };
     }
 }
@@ -489,9 +584,28 @@ public class DnsSecurityResult
     public List<string> DohBlockedDomains { get; } = new();
     public bool HasQuicBlockRule { get; set; }
 
+    // Device DNS Configuration
+    public bool DeviceDnsPointsToGateway { get; set; } = true;
+    public int TotalDevicesChecked { get; set; }
+    public int DevicesWithCorrectDns { get; set; }
+    public List<DeviceDnsInfo> DeviceDnsDetails { get; } = new();
+
     // Audit Issues
     public List<AuditIssue> Issues { get; } = new();
     public List<string> HardeningNotes { get; } = new();
+}
+
+/// <summary>
+/// Device DNS configuration details
+/// </summary>
+public class DeviceDnsInfo
+{
+    public required string DeviceName { get; init; }
+    public required string DeviceType { get; init; }
+    public string? DeviceIp { get; init; }
+    public string? ConfiguredDns { get; init; }
+    public string? ExpectedGateway { get; init; }
+    public bool PointsToGateway { get; init; }
 }
 
 /// <summary>
@@ -525,4 +639,9 @@ public class DnsSecuritySummary
     public bool WanDnsMatchesDoH { get; init; }
     public string? WanDnsProvider { get; init; }
     public string? ExpectedDnsProvider { get; init; }
+
+    // Device DNS validation
+    public bool DeviceDnsPointsToGateway { get; init; }
+    public int TotalDevicesChecked { get; init; }
+    public int DevicesWithCorrectDns { get; init; }
 }

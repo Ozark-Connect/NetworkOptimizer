@@ -67,6 +67,20 @@ public class DnsSecuritySummary
             return $"{servers} - Expected {ExpectedDnsProvider}";
         return servers;
     }
+
+    // Device DNS validation
+    public bool DeviceDnsPointsToGateway { get; set; } = true;
+    public int TotalDevicesChecked { get; set; }
+    public int DevicesWithCorrectDns { get; set; }
+
+    public string GetDeviceDnsDisplay()
+    {
+        if (TotalDevicesChecked == 0) return "No infrastructure devices to check";
+        if (DeviceDnsPointsToGateway)
+            return $"All {TotalDevicesChecked} devices point DNS to gateway";
+        var misconfigured = TotalDevicesChecked - DevicesWithCorrectDns;
+        return $"{misconfigured} of {TotalDevicesChecked} devices have non-gateway DNS";
+    }
 }
 
 /// <summary>

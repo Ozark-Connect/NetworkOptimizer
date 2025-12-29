@@ -168,7 +168,7 @@ public class ConfigAuditEngine
 
         if (settingsData.HasValue || firewallPoliciesData.HasValue)
         {
-            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData);
+            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData, switches, networks);
             dnsSecurityIssues = dnsSecurityResult.Issues;
             dnsHardeningNotes = dnsSecurityResult.HardeningNotes;
             _logger.LogInformation("Found {IssueCount} DNS security issues", dnsSecurityIssues.Count);
@@ -218,7 +218,10 @@ public class ConfigAuditEngine
                 WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
                 WanDnsMatchesDoH = dnsSecurityResult.WanDnsMatchesDoH,
                 WanDnsProvider = dnsSecurityResult.WanDnsProvider,
-                ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider
+                ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider,
+                DeviceDnsPointsToGateway = dnsSecurityResult.DeviceDnsPointsToGateway,
+                TotalDevicesChecked = dnsSecurityResult.TotalDevicesChecked,
+                DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns
             };
         }
 

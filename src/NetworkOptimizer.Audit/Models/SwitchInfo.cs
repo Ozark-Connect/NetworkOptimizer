@@ -36,6 +36,16 @@ public class SwitchInfo
     public string? IpAddress { get; init; }
 
     /// <summary>
+    /// Configured DNS server 1 (from config_network.dns1)
+    /// </summary>
+    public string? ConfiguredDns1 { get; init; }
+
+    /// <summary>
+    /// Configured DNS server 2 (from config_network.dns2)
+    /// </summary>
+    public string? ConfiguredDns2 { get; init; }
+
+    /// <summary>
     /// Whether this is a gateway device (UDM, UXG, etc.)
     /// </summary>
     public bool IsGateway { get; init; }
