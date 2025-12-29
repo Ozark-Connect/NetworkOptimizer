@@ -147,6 +147,11 @@ public class DnsSecurityInfo
     public int DevicesWithCorrectDns { get; set; }
 
     /// <summary>
+    /// Number of devices using DHCP-assigned DNS
+    /// </summary>
+    public int DhcpDeviceCount { get; set; }
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
     public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;

@@ -85,17 +85,62 @@ public class VlanAnalyzer
 
         _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}", name, purpose, dhcpEnabled);
 
+        var rawSubnet = network.GetStringOrNull("ip_subnet");
+        var gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway");
+
         return new NetworkInfo
         {
             Id = networkId,
             Name = name,
             VlanId = vlanId,
             Purpose = purpose,
-            Subnet = network.GetStringOrNull("ip_subnet"),
-            Gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway"),
+            Subnet = NormalizeSubnet(rawSubnet),
+            Gateway = gateway,
             DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
             DhcpEnabled = dhcpEnabled
         };
+    }
+
+    /// <summary>
+    /// Normalize subnet to use the network address instead of a host address.
+    /// Converts "192.168.1.1/24" to "192.168.1.0/24"
+    /// </summary>
+    private static string? NormalizeSubnet(string? subnet)
+    {
+        if (string.IsNullOrEmpty(subnet))
+            return null;
+
+        var parts = subnet.Split('/');
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var cidr))
+            return subnet;
+
+        var ipParts = parts[0].Split('.');
+        if (ipParts.Length != 4)
+            return subnet;
+
+        // Parse IP octets
+        if (!ipParts.All(p => byte.TryParse(p, out _)))
+            return subnet;
+
+        var octets = ipParts.Select(byte.Parse).ToArray();
+
+        // Calculate network address based on CIDR
+        // For /24 we zero the last octet, for /16 we zero last 2, etc.
+        var hostBits = 32 - cidr;
+        var mask = hostBits >= 32 ? 0u : ~((1u << hostBits) - 1);
+
+        var ip = ((uint)octets[0] << 24) | ((uint)octets[1] << 16) | ((uint)octets[2] << 8) | octets[3];
+        var network = ip & mask;
+
+        var networkOctets = new[]
+        {
+            (byte)((network >> 24) & 0xFF),
+            (byte)((network >> 16) & 0xFF),
+            (byte)((network >> 8) & 0xFF),
+            (byte)(network & 0xFF)
+        };
+
+        return $"{networkOctets[0]}.{networkOctets[1]}.{networkOctets[2]}.{networkOctets[3]}/{cidr}";
     }
 
     /// <summary>

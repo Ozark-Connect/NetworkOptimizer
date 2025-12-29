@@ -634,7 +634,8 @@ public class AuditService
                 ExpectedDnsProvider = dns.ExpectedDnsProvider,
                 DeviceDnsPointsToGateway = dns.DeviceDnsPointsToGateway,
                 TotalDevicesChecked = dns.TotalDevicesChecked,
-                DevicesWithCorrectDns = dns.DevicesWithCorrectDns
+                DevicesWithCorrectDns = dns.DevicesWithCorrectDns,
+                DhcpDeviceCount = dns.DhcpDeviceCount
             };
         }
 
@@ -820,6 +821,7 @@ public class DnsSecurityReference
     public bool DeviceDnsPointsToGateway { get; set; } = true;
     public int TotalDevicesChecked { get; set; }
     public int DevicesWithCorrectDns { get; set; }
+    public int DhcpDeviceCount { get; set; }
 }
 
 public class AuditStatistics

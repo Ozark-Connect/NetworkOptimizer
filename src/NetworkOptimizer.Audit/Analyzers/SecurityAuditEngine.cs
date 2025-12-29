@@ -167,10 +167,12 @@ public class SecurityAuditEngine
         // Extract DNS configuration from config_network
         string? dns1 = null;
         string? dns2 = null;
+        string? networkConfigType = null;
         if (device.TryGetProperty("config_network", out var configNetwork))
         {
             dns1 = configNetwork.GetStringOrNull("dns1");
             dns2 = configNetwork.GetStringOrNull("dns2");
+            networkConfigType = configNetwork.GetStringOrNull("type"); // dhcp or static
         }
 
         var switchInfoPlaceholder = new SwitchInfo
@@ -183,6 +185,7 @@ public class SecurityAuditEngine
             IpAddress = ip,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
+            NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
             Capabilities = capabilities
         };
@@ -203,6 +206,7 @@ public class SecurityAuditEngine
             IpAddress = ip,
             ConfiguredDns1 = dns1,
             ConfiguredDns2 = dns2,
+            NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
             Capabilities = capabilities,
             Ports = ports

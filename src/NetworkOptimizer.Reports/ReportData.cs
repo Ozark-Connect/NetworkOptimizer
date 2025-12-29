@@ -72,14 +72,30 @@ public class DnsSecuritySummary
     public bool DeviceDnsPointsToGateway { get; set; } = true;
     public int TotalDevicesChecked { get; set; }
     public int DevicesWithCorrectDns { get; set; }
+    public int DhcpDeviceCount { get; set; }
 
     public string GetDeviceDnsDisplay()
     {
-        if (TotalDevicesChecked == 0) return "No infrastructure devices to check";
-        if (DeviceDnsPointsToGateway)
-            return $"All {TotalDevicesChecked} devices point DNS to gateway";
-        var misconfigured = TotalDevicesChecked - DevicesWithCorrectDns;
-        return $"{misconfigured} of {TotalDevicesChecked} devices have non-gateway DNS";
+        if (TotalDevicesChecked == 0 && DhcpDeviceCount == 0)
+            return "No infrastructure devices to check";
+
+        var parts = new List<string>();
+
+        if (TotalDevicesChecked > 0)
+        {
+            if (DeviceDnsPointsToGateway)
+                parts.Add($"{TotalDevicesChecked} static device(s) point to gateway");
+            else
+            {
+                var misconfigured = TotalDevicesChecked - DevicesWithCorrectDns;
+                parts.Add($"{misconfigured} of {TotalDevicesChecked} have non-gateway DNS");
+            }
+        }
+
+        if (DhcpDeviceCount > 0)
+            parts.Add($"{DhcpDeviceCount} use DHCP");
+
+        return string.Join(", ", parts);
     }
 }
 

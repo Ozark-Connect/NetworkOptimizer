@@ -48,6 +48,30 @@ public class PdfReportGenerator
     }
 
     /// <summary>
+    /// Strip any existing device type prefix from a name.
+    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
+    /// </summary>
+    private static string StripDevicePrefix(string deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+            return deviceName;
+
+        var name = deviceName.Trim();
+
+        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
+        if (name.StartsWith("["))
+        {
+            var closeBracket = name.IndexOf(']');
+            if (closeBracket > 0 && closeBracket < name.Length - 1)
+            {
+                name = name[(closeBracket + 1)..].TrimStart();
+            }
+        }
+
+        return name;
+    }
+
+    /// <summary>
     /// Generate PDF report and save to file
     /// </summary>
     public void GenerateReport(ReportData data, string outputPath)
@@ -595,9 +619,14 @@ public class PdfReportGenerator
         {
             foreach (var switchDevice in data.Switches)
             {
+                // Format device name with consistent prefix (strip any existing prefix first)
+                var cleanName = StripDevicePrefix(switchDevice.Name);
+                var prefix = switchDevice.IsGateway ? "[Gateway]" : "[Switch]";
+                var formattedName = $"{prefix} {cleanName}";
+
                 column.Item()
                     .PaddingBottom(8)
-                    .Text($"{switchDevice.Name} ({switchDevice.ModelName})")
+                    .Text($"{formattedName} ({switchDevice.ModelName})")
                     .FontSize(12)
                     .Bold()
                     .FontColor(primaryColor);
@@ -941,8 +970,13 @@ public class PdfReportGenerator
                         ? switchDevice.MacRestrictedPorts.ToString()
                         : "0 (no ACL support)";
 
+                    // Format device name with consistent prefix
+                    var cleanName = StripDevicePrefix(switchDevice.Name);
+                    var prefix = switchDevice.IsGateway ? "[Gateway]" : "[Switch]";
+                    var formattedName = $"{prefix} {cleanName}";
+
                     table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                        .AlignLeft().Text(switchDevice.Name).FontSize(9);
+                        .AlignLeft().Text(formattedName).FontSize(9);
                     table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                         .AlignCenter().Text(switchDevice.TotalPorts.ToString()).FontSize(9);
                     table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)

@@ -46,6 +46,11 @@ public class SwitchInfo
     public string? ConfiguredDns2 { get; init; }
 
     /// <summary>
+    /// Network configuration type (dhcp, static)
+    /// </summary>
+    public string? NetworkConfigType { get; init; }
+
+    /// <summary>
     /// Whether this is a gateway device (UDM, UXG, etc.)
     /// </summary>
     public bool IsGateway { get; init; }

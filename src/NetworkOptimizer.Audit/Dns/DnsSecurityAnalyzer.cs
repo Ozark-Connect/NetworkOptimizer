@@ -447,7 +447,7 @@ public class DnsSecurityAnalyzer
 
     private void AnalyzeDeviceDnsConfiguration(List<SwitchInfo> switches, List<NetworkInfo> networks, DnsSecurityResult result)
     {
-        // Find the gateway device to get management network gateway IP
+        // Find the gateway device
         var gateway = switches.FirstOrDefault(s => s.IsGateway);
         if (gateway == null)
         {
@@ -459,19 +459,33 @@ public class DnsSecurityAnalyzer
         var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
             ?? networks.FirstOrDefault(n => n.IsNative);
 
-        var expectedGatewayIp = managementNetwork?.Gateway ?? gateway.IpAddress;
+        // Use the internal gateway IP from the management network, not the WAN IP
+        // The Gateway property is the internal IP (e.g., 192.168.1.1), not gateway.IpAddress which is the WAN IP
+        var expectedGatewayIp = managementNetwork?.Gateway
+            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
 
         if (string.IsNullOrEmpty(expectedGatewayIp))
         {
-            _logger.LogDebug("Could not determine expected gateway IP for device DNS validation");
+            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
             return;
         }
 
-        // Check each non-gateway device
-        var devicesToCheck = switches.Where(s => !s.IsGateway && !string.IsNullOrEmpty(s.ConfiguredDns1)).ToList();
-        result.TotalDevicesChecked = devicesToCheck.Count;
+        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
 
-        foreach (var device in devicesToCheck)
+        // Get all non-gateway devices
+        var allDevices = switches.Where(s => !s.IsGateway).ToList();
+
+        // Separate devices by network config type
+        var devicesWithStaticDns = allDevices.Where(s => !string.IsNullOrEmpty(s.ConfiguredDns1)).ToList();
+        var devicesWithDhcp = allDevices.Where(s =>
+            string.IsNullOrEmpty(s.ConfiguredDns1) &&
+            (s.NetworkConfigType == "dhcp" || string.IsNullOrEmpty(s.NetworkConfigType))).ToList();
+
+        result.TotalDevicesChecked = devicesWithStaticDns.Count;
+        result.DhcpDeviceCount = devicesWithDhcp.Count;
+
+        // Check devices with static DNS configuration
+        foreach (var device in devicesWithStaticDns)
         {
             var pointsToGateway = device.ConfiguredDns1 == expectedGatewayIp;
 
@@ -482,7 +496,8 @@ public class DnsSecurityAnalyzer
                 DeviceIp = device.IpAddress,
                 ConfiguredDns = device.ConfiguredDns1,
                 ExpectedGateway = expectedGatewayIp,
-                PointsToGateway = pointsToGateway
+                PointsToGateway = pointsToGateway,
+                UsesDhcp = false
             });
 
             if (pointsToGateway)
@@ -491,36 +506,67 @@ public class DnsSecurityAnalyzer
             }
         }
 
+        // Track DHCP devices (assumed to get DNS from gateway's DHCP server)
+        foreach (var device in devicesWithDhcp)
+        {
+            result.DeviceDnsDetails.Add(new DeviceDnsInfo
+            {
+                DeviceName = device.Name,
+                DeviceType = device.Type ?? "unknown",
+                DeviceIp = device.IpAddress,
+                ConfiguredDns = null,
+                ExpectedGateway = expectedGatewayIp,
+                PointsToGateway = true, // Assumed correct if using DHCP
+                UsesDhcp = true
+            });
+        }
+
         result.DeviceDnsPointsToGateway = result.DevicesWithCorrectDns == result.TotalDevicesChecked;
 
-        if (result.TotalDevicesChecked > 0)
+        // Generate summary notes and issues
+        if (result.TotalDevicesChecked > 0 || result.DhcpDeviceCount > 0)
         {
-            if (result.DeviceDnsPointsToGateway)
-            {
-                result.HardeningNotes.Add($"All {result.TotalDevicesChecked} infrastructure devices point DNS to gateway");
-            }
-            else
-            {
-                var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
-                var deviceNames = result.DeviceDnsDetails
-                    .Where(d => !d.PointsToGateway)
-                    .Select(d => d.DeviceName)
-                    .ToList();
+            var summaryParts = new List<string>();
 
-                result.Issues.Add(new AuditIssue
+            if (result.TotalDevicesChecked > 0)
+            {
+                if (result.DeviceDnsPointsToGateway)
                 {
-                    Type = "DNS_DEVICE_MISCONFIGURED",
-                    Severity = AuditSeverity.Investigate,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
-                    RuleId = "DNS-DEVICE-001",
-                    ScoreImpact = 3,
-                    Metadata = new Dictionary<string, object>
+                    summaryParts.Add($"{result.TotalDevicesChecked} static DNS device(s) point to gateway");
+                }
+                else
+                {
+                    var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
+                    var deviceNames = result.DeviceDnsDetails
+                        .Where(d => !d.PointsToGateway && !d.UsesDhcp)
+                        .Select(d => d.DeviceName)
+                        .ToList();
+
+                    result.Issues.Add(new AuditIssue
                     {
-                        { "misconfigured_devices", deviceNames },
-                        { "expected_gateway", expectedGatewayIp }
-                    }
-                });
+                        Type = "DNS_DEVICE_MISCONFIGURED",
+                        Severity = AuditSeverity.Investigate,
+                        Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                        RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                        RuleId = "DNS-DEVICE-001",
+                        ScoreImpact = 3,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "misconfigured_devices", deviceNames },
+                            { "expected_gateway", expectedGatewayIp }
+                        }
+                    });
+                }
+            }
+
+            if (result.DhcpDeviceCount > 0)
+            {
+                summaryParts.Add($"{result.DhcpDeviceCount} device(s) use DHCP-assigned DNS");
+            }
+
+            if (summaryParts.Any() && result.DeviceDnsPointsToGateway)
+            {
+                result.HardeningNotes.Add(string.Join(", ", summaryParts));
             }
         }
     }
@@ -552,7 +598,8 @@ public class DnsSecurityAnalyzer
             ExpectedDnsProvider = result.ExpectedDnsProvider,
             DeviceDnsPointsToGateway = result.DeviceDnsPointsToGateway,
             TotalDevicesChecked = result.TotalDevicesChecked,
-            DevicesWithCorrectDns = result.DevicesWithCorrectDns
+            DevicesWithCorrectDns = result.DevicesWithCorrectDns,
+            DhcpDeviceCount = result.DhcpDeviceCount
         };
     }
 }
@@ -588,6 +635,7 @@ public class DnsSecurityResult
     public bool DeviceDnsPointsToGateway { get; set; } = true;
     public int TotalDevicesChecked { get; set; }
     public int DevicesWithCorrectDns { get; set; }
+    public int DhcpDeviceCount { get; set; }
     public List<DeviceDnsInfo> DeviceDnsDetails { get; } = new();
 
     // Audit Issues
@@ -606,6 +654,7 @@ public class DeviceDnsInfo
     public string? ConfiguredDns { get; init; }
     public string? ExpectedGateway { get; init; }
     public bool PointsToGateway { get; init; }
+    public bool UsesDhcp { get; init; }
 }
 
 /// <summary>
@@ -644,4 +693,5 @@ public class DnsSecuritySummary
     public bool DeviceDnsPointsToGateway { get; init; }
     public int TotalDevicesChecked { get; init; }
     public int DevicesWithCorrectDns { get; init; }
+    public int DhcpDeviceCount { get; init; }
 }

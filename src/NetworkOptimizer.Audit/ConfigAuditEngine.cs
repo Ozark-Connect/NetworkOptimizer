@@ -221,7 +221,8 @@ public class ConfigAuditEngine
                 ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider,
                 DeviceDnsPointsToGateway = dnsSecurityResult.DeviceDnsPointsToGateway,
                 TotalDevicesChecked = dnsSecurityResult.TotalDevicesChecked,
-                DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns
+                DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns,
+                DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount
             };
         }
 
@@ -397,7 +398,8 @@ public class ConfigAuditEngine
         foreach (var sw in auditResult.Switches)
         {
             var deviceType = sw.IsGateway ? "[Gateway]" : "[Switch]";
-            report.AppendLine($"{deviceType} {sw.Name} ({sw.ModelName})");
+            var cleanName = StripDevicePrefix(sw.Name);
+            report.AppendLine($"{deviceType} {cleanName} ({sw.ModelName})");
             report.AppendLine($"  IP: {sw.IpAddress ?? "N/A"}");
             report.AppendLine($"  Ports: {sw.Ports.Count}");
             report.AppendLine($"  Active: {sw.Ports.Count(p => p.IsUp)}");
@@ -440,5 +442,29 @@ public class ConfigAuditEngine
 
         File.WriteAllText(outputPath, content);
         _logger.LogInformation("Audit results saved to {OutputPath}", outputPath);
+    }
+
+    /// <summary>
+    /// Strip any existing device type prefix from a name.
+    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
+    /// </summary>
+    private static string StripDevicePrefix(string deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+            return deviceName;
+
+        var name = deviceName.Trim();
+
+        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
+        if (name.StartsWith("["))
+        {
+            var closeBracket = name.IndexOf(']');
+            if (closeBracket > 0 && closeBracket < name.Length - 1)
+            {
+                name = name[(closeBracket + 1)..].TrimStart();
+            }
+        }
+
+        return name;
     }
 }
