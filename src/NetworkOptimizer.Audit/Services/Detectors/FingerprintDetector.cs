@@ -193,6 +193,19 @@ public class FingerprintDetector
             var vendorName = _database?.GetVendorName(client.DevVendor);
             var typeName = _database?.GetDeviceTypeName(client.DevCat);
 
+            var metadata = new Dictionary<string, object>
+            {
+                ["dev_cat"] = client.DevCat.Value,
+                ["dev_family"] = client.DevFamily ?? 0,
+                ["dev_vendor"] = client.DevVendor ?? 0
+            };
+
+            // Include unmatched dev_id_override so we can see what user selected
+            if (client.DevIdOverride.HasValue)
+            {
+                metadata["dev_id_override_unmatched"] = client.DevIdOverride.Value;
+            }
+
             return new DeviceDetectionResult
             {
                 Category = category,
@@ -201,12 +214,7 @@ public class FingerprintDetector
                 VendorName = vendorName,
                 ProductName = typeName,
                 RecommendedNetwork = GetRecommendedNetwork(category),
-                Metadata = new Dictionary<string, object>
-                {
-                    ["dev_cat"] = client.DevCat.Value,
-                    ["dev_family"] = client.DevFamily ?? 0,
-                    ["dev_vendor"] = client.DevVendor ?? 0
-                }
+                Metadata = metadata
             };
         }
 
