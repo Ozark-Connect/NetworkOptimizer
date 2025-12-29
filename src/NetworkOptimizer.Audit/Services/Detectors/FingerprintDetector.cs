@@ -67,6 +67,7 @@ public class FingerprintDetector
         { 144, ClientDeviceCategory.SmartHub },     // Smart Hub
         { 93, ClientDeviceCategory.SmartHub },      // Home Automation
         { 154, ClientDeviceCategory.SmartHub },     // Smart Bridge
+        { 4904, ClientDeviceCategory.SmartHub },    // IKEA Dirigera Gateway (user override)
 
         // Robotic Vacuums
         { 41, ClientDeviceCategory.RoboticVacuum }, // Robotic Vacuums
