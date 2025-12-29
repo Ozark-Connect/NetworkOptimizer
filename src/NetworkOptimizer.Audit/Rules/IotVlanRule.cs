@@ -63,12 +63,18 @@ public class IotVlanRule : AuditRuleBase
         var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
         var scoreImpact = isLowRiskDevice ? 3 : ScoreImpact;
 
+        // Use connected client name if available, otherwise port name - include switch context
+        var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
+        var deviceName = clientName != null && clientName != port.Name
+            ? $"{clientName} (on {port.Switch.Name})"
+            : $"{port.Name ?? $"Port {port.PortIndex}"} (on {port.Switch.Name})";
+
         return new AuditIssue
         {
             Type = RuleId,
             Severity = severity,
             Message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated",
-            DeviceName = port.Switch.Name,
+            DeviceName = deviceName,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             CurrentNetwork = network.Name,

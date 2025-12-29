@@ -178,12 +178,19 @@ public abstract class AuditRuleBase : IAuditRule
     /// </summary>
     protected AuditIssue CreateIssue(string message, PortInfo port, Dictionary<string, object>? metadata = null)
     {
+        // Use connected client name if available, otherwise port name
+        var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
+        // Include switch context: "ClientName (on SwitchName)"
+        var deviceName = clientName != null && clientName != port.Name
+            ? $"{clientName} (on {port.Switch.Name})"
+            : $"{port.Name ?? $"Port {port.PortIndex}"} (on {port.Switch.Name})";
+
         return new AuditIssue
         {
             Type = RuleId,
             Severity = Severity,
             Message = message,
-            DeviceName = port.Switch.Name,
+            DeviceName = deviceName,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             Metadata = metadata,

@@ -40,6 +40,12 @@ public class AuditResult
     public string? FindingsJson { get; set; }
 
     /// <summary>
+    /// JSON serialized full report data (networks, switches, wireless clients, statistics)
+    /// Used for PDF generation after page reload
+    /// </summary>
+    public string? ReportDataJson { get; set; }
+
+    /// <summary>
     /// Overall compliance score (0-100)
     /// </summary>
     public double ComplianceScore { get; set; }
