@@ -410,18 +410,26 @@
                 <div class="form-group">
                     <label class="form-label">Morning Speedtest</label>
                     <div class="time-input">
-                        <input type="number" class="form-control time-hour" @bind="wan1Config.MorningHour" min="0" max="23" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-hour"
+                               value="@wan1Config.MorningHour.ToString("D2")"
+                               @onchange="@(e => wan1Config.MorningHour = ParseTimeValue(e.Value?.ToString(), 0, 23))" />
                         <span class="time-separator">:</span>
-                        <input type="number" class="form-control time-minute" @bind="wan1Config.MorningMinute" min="0" max="59" step="5" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-minute"
+                               value="@wan1Config.MorningMinute.ToString("D2")"
+                               @onchange="@(e => wan1Config.MorningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Daily speedtest time (24h format)</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Evening Speedtest</label>
                     <div class="time-input">
-                        <input type="number" class="form-control time-hour" @bind="wan1Config.EveningHour" min="0" max="23" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-hour"
+                               value="@wan1Config.EveningHour.ToString("D2")"
+                               @onchange="@(e => wan1Config.EveningHour = ParseTimeValue(e.Value?.ToString(), 0, 23))" />
                         <span class="time-separator">:</span>
-                        <input type="number" class="form-control time-minute" @bind="wan1Config.EveningMinute" min="0" max="59" step="5" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-minute"
+                               value="@wan1Config.EveningMinute.ToString("D2")"
+                               @onchange="@(e => wan1Config.EveningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Daily speedtest time (24h format)</small>
                 </div>
@@ -532,18 +540,26 @@
                 <div class="form-group">
                     <label class="form-label">Morning Speedtest</label>
                     <div class="time-input">
-                        <input type="number" class="form-control time-hour" @bind="wan2Config.MorningHour" min="0" max="23" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-hour"
+                               value="@wan2Config.MorningHour.ToString("D2")"
+                               @onchange="@(e => wan2Config.MorningHour = ParseTimeValue(e.Value?.ToString(), 0, 23))" />
                         <span class="time-separator">:</span>
-                        <input type="number" class="form-control time-minute" @bind="wan2Config.MorningMinute" min="0" max="59" step="5" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-minute"
+                               value="@wan2Config.MorningMinute.ToString("D2")"
+                               @onchange="@(e => wan2Config.MorningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Evening Speedtest</label>
                     <div class="time-input">
-                        <input type="number" class="form-control time-hour" @bind="wan2Config.EveningHour" min="0" max="23" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-hour"
+                               value="@wan2Config.EveningHour.ToString("D2")"
+                               @onchange="@(e => wan2Config.EveningHour = ParseTimeValue(e.Value?.ToString(), 0, 23))" />
                         <span class="time-separator">:</span>
-                        <input type="number" class="form-control time-minute" @bind="wan2Config.EveningMinute" min="0" max="59" step="5" />
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control time-minute"
+                               value="@wan2Config.EveningMinute.ToString("D2")"
+                               @onchange="@(e => wan2Config.EveningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
                 </div>
@@ -990,14 +1006,15 @@
     .time-input {
         display: flex;
         align-items: center;
-        gap: 0.25rem;
+        gap: 0.5rem;
     }
 
     .time-input .time-hour,
     .time-input .time-minute {
-        width: 60px;
+        width: 75px;
         text-align: center;
         font-family: var(--font-mono);
+        padding-right: 0.25rem;
     }
 
     .time-input .time-separator {
@@ -1628,6 +1645,16 @@
     {
         statusMessage = message;
         statusSuccess = success;
+    }
+
+    private int ParseTimeValue(string? value, int min, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return min;
+        if (int.TryParse(value, out int result))
+        {
+            return Math.Clamp(result, min, max);
+        }
+        return min;
     }
 
     private async Task<string?> GetGatewayHostAsync()
