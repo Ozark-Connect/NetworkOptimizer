@@ -85,15 +85,12 @@ public abstract class WirelessAuditRuleBase : IWirelessAuditRule
         string? recommendedAction = null,
         Dictionary<string, object>? metadata = null)
     {
-        // For DeviceName, prefer AP name, fall back to client name
-        var deviceName = client.AccessPointName ?? client.DisplayName;
-
         return new AuditIssue
         {
             Type = RuleId,
             Severity = severityOverride ?? Severity,
             Message = message,
-            DeviceName = deviceName,
+            DeviceName = client.DisplayName,
             Port = null, // No port for wireless
             PortName = null,
             CurrentNetwork = client.Network?.Name,
