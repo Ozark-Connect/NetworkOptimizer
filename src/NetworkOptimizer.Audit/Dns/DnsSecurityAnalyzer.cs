@@ -27,6 +27,12 @@ public class DnsSecurityAnalyzer
     /// Analyze DNS security from settings, firewall policies, and device configuration
     /// </summary>
     public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
+        => Analyze(settingsData, firewallData, switches, networks, deviceData: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
+    /// </summary>
+    public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
     {
         var result = new DnsSecurityResult();
 
@@ -38,6 +44,16 @@ public class DnsSecurityAnalyzer
         else
         {
             _logger.LogWarning("No settings data available for DNS security analysis");
+        }
+
+        // Extract WAN DNS from device port_table (where network_name is "wan")
+        if (deviceData.HasValue)
+        {
+            ExtractWanDnsFromDevices(deviceData.Value, result);
+        }
+        else
+        {
+            _logger.LogDebug("No device data available for WAN DNS extraction");
         }
 
         // Analyze firewall rules
@@ -59,8 +75,8 @@ public class DnsSecurityAnalyzer
         // Generate issues based on findings
         GenerateAuditIssues(result);
 
-        _logger.LogInformation("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}",
-            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.DeviceDnsPointsToGateway);
+        _logger.LogInformation("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
+            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
 
         return result;
     }
@@ -173,6 +189,60 @@ public class DnsSecurityAnalyzer
         {
             var mode = modeProp.GetString();
             result.UsingIspDns = mode == "auto" || mode == "dhcp";
+        }
+    }
+
+    /// <summary>
+    /// Extract WAN DNS servers from device port_table.
+    /// UniFi stores WAN DNS in port_table entries where network_name is "wan".
+    /// </summary>
+    private void ExtractWanDnsFromDevices(JsonElement deviceData, DnsSecurityResult result)
+    {
+        foreach (var device in deviceData.UnwrapDataArray())
+        {
+            // Only check gateways/routers for WAN DNS
+            var deviceType = device.GetStringOrNull("type");
+            if (deviceType == null || !UniFiDeviceTypes.IsGateway(deviceType))
+                continue;
+
+            // Look in port_table for WAN ports
+            if (!device.TryGetProperty("port_table", out var portTable) || portTable.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var port in portTable.EnumerateArray())
+            {
+                var networkName = port.GetStringOrNull("network_name");
+                if (string.IsNullOrEmpty(networkName) || !networkName.Equals("wan", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Found WAN port - extract DNS servers
+                if (port.TryGetProperty("dns", out var dnsArray) && dnsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var dns in dnsArray.EnumerateArray())
+                    {
+                        var dnsIp = dns.GetString();
+                        if (!string.IsNullOrEmpty(dnsIp) && !result.WanDnsServers.Contains(dnsIp))
+                        {
+                            result.WanDnsServers.Add(dnsIp);
+                            _logger.LogDebug("Found WAN DNS server from device port_table: {DnsIp}", dnsIp);
+                        }
+                    }
+                }
+            }
+
+            // Found gateway with WAN port, no need to check other devices
+            if (result.WanDnsServers.Any())
+                break;
+        }
+
+        if (result.WanDnsServers.Any())
+        {
+            _logger.LogInformation("Extracted {Count} WAN DNS servers from device port_table: {Servers}",
+                result.WanDnsServers.Count, string.Join(", ", result.WanDnsServers));
+        }
+        else
+        {
+            _logger.LogDebug("No WAN DNS servers found in device port_table");
         }
     }
 

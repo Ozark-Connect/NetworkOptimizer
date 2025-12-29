@@ -168,7 +168,8 @@ public class ConfigAuditEngine
 
         if (settingsData.HasValue || firewallPoliciesData.HasValue)
         {
-            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData, switches, networks);
+            // Pass deviceData to extract WAN DNS from port_table
+            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData, switches, networks, deviceData);
             dnsSecurityIssues = dnsSecurityResult.Issues;
             dnsHardeningNotes = dnsSecurityResult.HardeningNotes;
             _logger.LogInformation("Found {IssueCount} DNS security issues", dnsSecurityIssues.Count);

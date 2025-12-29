@@ -86,13 +86,19 @@ public class VlanAnalyzer
         _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}", name, purpose, dhcpEnabled);
 
         var rawSubnet = network.GetStringOrNull("ip_subnet");
-        var gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway");
 
-        // Debug: log available properties for first few networks
-        if (string.IsNullOrEmpty(gateway))
+        // Gateway IP can come from explicit field or be extracted from ip_subnet
+        // UniFi stores ip_subnet as "192.168.1.1/24" where the IP is the gateway
+        var gateway = network.GetStringFromAny("gateway_ip", "dhcpd_gateway");
+        if (string.IsNullOrEmpty(gateway) && !string.IsNullOrEmpty(rawSubnet))
         {
-            var props = network.EnumerateObject().Select(p => p.Name).Take(15);
-            _logger.LogDebug("Network '{Name}' has no gateway. Properties: {Props}", name, string.Join(", ", props));
+            // Extract gateway IP from ip_subnet (the IP before the /)
+            var slashIndex = rawSubnet.IndexOf('/');
+            if (slashIndex > 0)
+            {
+                gateway = rawSubnet[..slashIndex];
+                _logger.LogDebug("Extracted gateway {Gateway} from ip_subnet for network '{Name}'", gateway, name);
+            }
         }
 
         return new NetworkInfo
