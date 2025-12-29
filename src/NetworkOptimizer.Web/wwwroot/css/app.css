@@ -326,6 +326,21 @@ a:hover {
     color: var(--accent-hover);
 }
 
+/* Clickable card title links */
+.card-title-link {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.card-title-link:hover {
+    color: var(--primary-color);
+}
+
+.card-title-link:hover .card-title {
+    color: var(--primary-color);
+}
+
 .card-body {
     padding: 16px;
 }
@@ -486,6 +501,24 @@ a:hover {
 
 .stat-card.stat-danger {
     border-left: 2px solid var(--danger-color);
+}
+
+/* Clickable stat cards */
+a.stat-card-link {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+a.stat-card-link:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary-color);
+}
+
+a.stat-card-link:active {
+    transform: translateY(0);
 }
 
 .stat-icon {
