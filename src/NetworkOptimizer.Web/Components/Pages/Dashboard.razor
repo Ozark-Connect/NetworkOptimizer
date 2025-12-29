@@ -32,7 +32,7 @@
 <div class="dashboard-grid">
     <!-- Quick Stats -->
     <div class="stats-row">
-        <div class="stat-card">
+        <a href="#device-status" class="stat-card stat-card-link">
             <div class="stat-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                     <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.4"></path>
@@ -54,9 +54,9 @@
                 </div>
                 <div class="stat-label">Total Devices</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card">
+        <a href="/audit" class="stat-card stat-card-link">
             <img src="/icons/shield-v2.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -71,9 +71,9 @@
                 </div>
                 <div class="stat-label">Security Score</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card stat-success">
+        <a href="/sqm" class="stat-card stat-card-link stat-success">
             <img src="/icons/sqm-v3.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value stat-value-text">
@@ -88,9 +88,9 @@
                 </div>
                 <div class="stat-label">SQM Status</div>
             </div>
-        </div>
+        </a>
 
-        <div class="stat-card stat-warning">
+        <a href="#recent-alerts" class="stat-card stat-card-link stat-warning">
             <img src="/icons/warning-v2.png" alt="" class="stat-icon-img stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -105,7 +105,7 @@
                 </div>
                 <div class="stat-label">Active Alerts</div>
             </div>
-        </div>
+        </a>
     </div>
 
     <!-- Main Content Grid -->
@@ -113,7 +113,7 @@
         <!-- Security Score Gauge -->
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Security Posture</h2>
+                <a href="/audit" class="card-title-link"><h2 class="card-title">Security Posture</h2></a>
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -174,7 +174,7 @@
         <!-- SQM Status Panel -->
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Adaptive SQM</h2>
+                <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
             </div>
             <div class="card-body">
                 <SqmStatusPanel @key="_sqmPanelKey" />
@@ -194,7 +194,7 @@
         <!-- LAN Speed Test Stats -->
         <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
             <div class="card-header">
-                <h2 class="card-title">LAN Speed Test</h2>
+                <a href="/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
                 <a href="/speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
@@ -231,9 +231,9 @@
         </div>
 
         <!-- Recent Alerts -->
-        <div class="card card-span-2">
+        <div class="card card-span-2" id="recent-alerts">
             <div class="card-header">
-                <h2 class="card-title">Recent Alerts</h2>
+                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Alerts</h2></a>
                 <a href="/audit" class="card-action">View All</a>
             </div>
             <div class="card-body">
@@ -242,7 +242,7 @@
         </div>
 
         <!-- Device Overview -->
-        <div class="card card-span-2">
+        <div class="card card-span-2" id="device-status">
             <div class="card-header">
                 <h2 class="card-title">Device Status</h2>
             </div>
