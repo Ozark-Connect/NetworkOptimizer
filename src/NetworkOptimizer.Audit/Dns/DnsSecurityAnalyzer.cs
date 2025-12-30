@@ -241,14 +241,28 @@ public class DnsSecurityAnalyzer
                 _logger.LogInformation("  DNS config: hasDnsProperty={HasDns}, arrayLength={Count}",
                     hasDnsProperty, dnsCount);
 
+                // Create per-interface DNS record
+                var interfaceDns = new WanInterfaceDns
+                {
+                    InterfaceName = networkName,
+                    PortName = portName,
+                    IpAddress = portIp,
+                    IsUp = portUp,
+                    DnsServers = new List<string>()
+                };
+
                 if (hasDnsProperty && dnsArray.ValueKind == JsonValueKind.Array && dnsCount > 0)
                 {
                     foreach (var dns in dnsArray.EnumerateArray())
                     {
                         var dnsIp = dns.GetString();
-                        if (!string.IsNullOrEmpty(dnsIp) && !result.WanDnsServers.Contains(dnsIp))
+                        if (!string.IsNullOrEmpty(dnsIp))
                         {
-                            result.WanDnsServers.Add(dnsIp);
+                            interfaceDns.DnsServers.Add(dnsIp);
+                            if (!result.WanDnsServers.Contains(dnsIp))
+                            {
+                                result.WanDnsServers.Add(dnsIp);
+                            }
                             _logger.LogInformation("  Found DNS server: {DnsIp}", dnsIp);
                         }
                     }
@@ -259,6 +273,8 @@ public class DnsSecurityAnalyzer
                     wanInterfacesWithoutDns.Add(networkName);
                     _logger.LogInformation("  No static DNS configured on {Interface} - may use ISP DNS or DHCP", networkName);
                 }
+
+                result.WanInterfaces.Add(interfaceDns);
             }
 
             // Found gateway, stop checking other devices
@@ -508,56 +524,91 @@ public class DnsSecurityAnalyzer
 
         result.ExpectedDnsProvider = expectedProvider.Name;
 
-        // Check each WAN DNS server
-        var matchingServers = new List<string>();
-        var mismatchedServers = new List<string>();
+        // Check each WAN interface individually
+        var interfacesWithCorrectDns = new List<string>();
+        var interfacesWithMismatch = new List<(string Interface, List<string> Servers)>();
+        var interfacesWithNoDns = new List<string>();
 
-        foreach (var wanDns in result.WanDnsServers)
+        foreach (var wanInterface in result.WanInterfaces)
         {
-            var wanProvider = DohProviderRegistry.IdentifyProviderFromIp(wanDns);
-            if (wanProvider != null)
+            if (!wanInterface.HasStaticDns)
             {
-                result.WanDnsProvider = wanProvider.Name;
-                if (wanProvider.Name == expectedProvider.Name)
+                interfacesWithNoDns.Add(wanInterface.InterfaceName);
+                continue;
+            }
+
+            var matchingServers = new List<string>();
+            var mismatchedServers = new List<string>();
+
+            foreach (var wanDns in wanInterface.DnsServers)
+            {
+                var wanProvider = DohProviderRegistry.IdentifyProviderFromIp(wanDns);
+                wanInterface.DetectedProvider = wanProvider?.Name;
+
+                if (wanProvider != null)
                 {
-                    matchingServers.Add(wanDns);
+                    result.WanDnsProvider = wanProvider.Name;
+                    if (wanProvider.Name == expectedProvider.Name)
+                    {
+                        matchingServers.Add(wanDns);
+                    }
+                    else
+                    {
+                        mismatchedServers.Add($"{wanDns} ({wanProvider.Name})");
+                    }
                 }
                 else
                 {
-                    mismatchedServers.Add($"{wanDns} ({wanProvider.Name})");
+                    mismatchedServers.Add($"{wanDns} (Unknown)");
                 }
             }
-            else
+
+            wanInterface.MatchesDoH = matchingServers.Count > 0 && mismatchedServers.Count == 0;
+
+            if (wanInterface.MatchesDoH)
             {
-                // Unknown DNS - could be ISP or other provider
-                mismatchedServers.Add($"{wanDns} (Unknown)");
+                interfacesWithCorrectDns.Add(wanInterface.InterfaceName);
+            }
+            else if (mismatchedServers.Any())
+            {
+                interfacesWithMismatch.Add((wanInterface.InterfaceName, mismatchedServers));
             }
         }
 
-        result.WanDnsMatchesDoH = matchingServers.Count > 0 && mismatchedServers.Count == 0;
+        // Also check aggregate WAN DNS servers for backwards compatibility
+        result.WanDnsMatchesDoH = interfacesWithCorrectDns.Any() && !interfacesWithMismatch.Any();
 
-        if (matchingServers.Count > 0 && mismatchedServers.Count == 0)
+        if (interfacesWithCorrectDns.Any() && !interfacesWithMismatch.Any())
         {
             result.HardeningNotes.Add($"WAN DNS correctly configured for {expectedProvider.Name}");
         }
-        else if (mismatchedServers.Count > 0)
+
+        // Generate interface-specific issues
+        foreach (var (interfaceName, mismatchedServers) in interfacesWithMismatch)
         {
             var expectedIps = string.Join(", ", expectedProvider.DnsIps.Take(2));
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_MISMATCH",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN DNS servers don't match DoH provider. DoH uses {expectedProvider.Name} but WAN DNS is set to: {string.Join(", ", mismatchedServers)}",
-                RecommendedAction = $"Set WAN DNS to {expectedProvider.Name} servers: {expectedIps}",
+                Message = $"WAN interface '{interfaceName}' DNS doesn't match DoH provider. DoH uses {expectedProvider.Name} but {interfaceName} is set to: {string.Join(", ", mismatchedServers)}",
+                RecommendedAction = $"Set {interfaceName} DNS to {expectedProvider.Name} servers: {expectedIps}",
                 RuleId = "DNS-WAN-001",
                 ScoreImpact = 4,
                 Metadata = new Dictionary<string, object>
                 {
+                    { "interface", interfaceName },
                     { "expected_provider", expectedProvider.Name },
                     { "expected_ips", expectedProvider.DnsIps },
-                    { "actual_servers", result.WanDnsServers }
+                    { "actual_servers", mismatchedServers }
                 }
             });
+        }
+
+        // Optionally note interfaces with no DNS configured
+        foreach (var interfaceName in interfacesWithNoDns)
+        {
+            _logger.LogDebug("WAN interface '{Interface}' has no static DNS - may use ISP DNS", interfaceName);
         }
     }
 
@@ -872,6 +923,7 @@ public class DnsSecurityResult
 
     // WAN DNS Configuration
     public List<string> WanDnsServers { get; } = new();
+    public List<WanInterfaceDns> WanInterfaces { get; } = new();
     public bool UsingIspDns { get; set; }
     public bool WanDnsMatchesDoH { get; set; }
     public string? WanDnsProvider { get; set; }
@@ -911,6 +963,21 @@ public class DeviceDnsInfo
     public string? ExpectedGateway { get; init; }
     public bool PointsToGateway { get; init; }
     public bool UsesDhcp { get; init; }
+}
+
+/// <summary>
+/// WAN interface DNS configuration details
+/// </summary>
+public class WanInterfaceDns
+{
+    public required string InterfaceName { get; init; }
+    public string? PortName { get; init; }
+    public string? IpAddress { get; init; }
+    public bool IsUp { get; init; }
+    public List<string> DnsServers { get; init; } = new();
+    public bool HasStaticDns => DnsServers.Any();
+    public bool MatchesDoH { get; set; }
+    public string? DetectedProvider { get; set; }
 }
 
 /// <summary>
