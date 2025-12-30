@@ -146,9 +146,9 @@ Testers and contributors welcome. If you find issues:
 
 Proprietary / All Rights Reserved
 
-Copyright (c) 2024-2025 TJ Van Cott. All rights reserved.
+Copyright (c) 2025 SeaTurtle Software LLC. All rights reserved.
 
-This software is provided for evaluation and testing purposes only. Commercial use, redistribution, or modification requires explicit written permission from the author.
+This software is provided for evaluation and testing purposes only. Commercial use, redistribution, or modification requires explicit written permission.
 
 ## Support
 
