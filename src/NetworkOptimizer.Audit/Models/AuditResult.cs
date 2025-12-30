@@ -152,6 +152,16 @@ public class DnsSecurityInfo
     public int DhcpDeviceCount { get; set; }
 
     /// <summary>
+    /// WAN interfaces without static DNS configured (using ISP DNS)
+    /// </summary>
+    public List<string> InterfacesWithoutDns { get; set; } = new();
+
+    /// <summary>
+    /// WAN interfaces with DNS that doesn't match DoH provider
+    /// </summary>
+    public List<string> InterfacesWithMismatch { get; set; } = new();
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
     public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;

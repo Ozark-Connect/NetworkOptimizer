@@ -638,7 +638,9 @@ public class AuditService
                 DeviceDnsPointsToGateway = dns.DeviceDnsPointsToGateway,
                 TotalDevicesChecked = dns.TotalDevicesChecked,
                 DevicesWithCorrectDns = dns.DevicesWithCorrectDns,
-                DhcpDeviceCount = dns.DhcpDeviceCount
+                DhcpDeviceCount = dns.DhcpDeviceCount,
+                InterfacesWithoutDns = dns.InterfacesWithoutDns.ToList(),
+                InterfacesWithMismatch = dns.InterfacesWithMismatch.ToList()
             };
         }
 
@@ -825,6 +827,8 @@ public class DnsSecurityReference
     public bool WanDnsMatchesDoH { get; set; }
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
+    public List<string> InterfacesWithoutDns { get; set; } = new();
+    public List<string> InterfacesWithMismatch { get; set; } = new();
 
     // Device DNS validation
     public bool DeviceDnsPointsToGateway { get; set; } = true;
