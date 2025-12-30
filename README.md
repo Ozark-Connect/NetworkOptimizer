@@ -1,62 +1,65 @@
 # Network Optimizer for UniFi
 
-**Expert-level network intelligence for your UniFi infrastructure.**
+You've got a UniFi network. Maybe you've spent hours configuring VLANs, firewall rules, and port security. But here's the thing: Ubiquiti gives you all this data and configuration power, but it doesn't tell you whether your setup is actually *good*. Are your firewall rules doing what you think? Is that IoT VLAN really isolated? Is your DNS leaking to your ISP despite that Pi-hole you set up?
 
-Network Optimizer analyzes your UniFi network configuration and provides actionable security audits, performance testing, adaptive bandwidth management, and monitoring—filling the gap between Ubiquiti's data and knowing whether your config is actually *good*.
+Network Optimizer fills that gap - analyzing your UniFi configuration and giving you actionable answers instead of just more data to stare at.
 
-## Features
+## What It Does
 
 ### Security & Configuration Auditing
-- **60+ audit checks** across firewall rules, VLANs, switch ports, DNS, and wireless settings
-- **Weighted scoring system** (0-100) with Critical, Warning, and Info severity levels
-- **DNS security analysis**: DoH configuration, DNS leak prevention, DoT blocking, per-interface DNS validation
-- **Port security**: MAC filtering detection, unused port identification, camera/IoT VLAN placement
-- **Firewall analysis**: Any-any rule detection, shadowed rules, inter-VLAN isolation
-- **Hardening recognition**: Credits for security measures already in place
-- **Issue management**: Dismiss false positives, restore dismissed issues
-- **PDF report export** for documentation or client delivery
+
+The audit engine runs 60+ checks across your entire UniFi setup and scores your network 0-100. Not just "you have a firewall" but actually looking at what your rules do:
+
+- DNS security analysis: DoH configuration, DNS leak prevention, DoT blocking, per-interface DNS validation (that last one catches a lot of people - your WAN DNS settings might not be what you think they are)
+- Port security: finds access ports without MAC filtering, flags unused ports that aren't explicitly disabled, checks whether your cameras and IoT devices are actually on the VLANs you intended
+- Firewall analysis: detects overly permissive any-any rules, finds shadowed rules that never fire, verifies inter-VLAN isolation
+- Hardening recognition: gives you credit for security measures you've already implemented
+
+You can dismiss false positives, export PDF reports for documentation, and track your score over time.
 
 ### Adaptive SQM (Smart Queue Management)
-- **Dual-WAN support** with independent configuration per interface
-- **Connection profiles** for DOCSIS, Fiber, Wireless, Starlink, Cellular with optimized defaults
-- **Speedtest-based adjustment**: Scheduled tests (morning/evening) adjust rates automatically
-- **Ping-based adjustment**: Real-time latency monitoring every 5 minutes
-- **One-click deployment** to UDM/UCG gateways with persistence via UDM Boot
-- **Live status dashboard** showing effective rates, last adjustments, and baselines
+
+If you've got cable, DSL, or cellular internet, you probably know the pain of bufferbloat - that frustrating lag spike when someone starts a download or video call. SQM fixes this, but setting the right bandwidth limits is a guessing game. Set them too high and SQM can't do its job; too low and you're leaving speed on the table.
+
+Network Optimizer handles this automatically:
+
+- Dual-WAN support with independent config per interface
+- Connection profiles for DOCSIS, Fiber, Wireless, Starlink, Cellular (each has different characteristics that matter)
+- Speedtest-based adjustment: scheduled tests in the morning and evening adjust your rates based on actual measured speeds
+- Ping-based adjustment: monitors latency every 5 minutes and backs off when congestion appears
+- One-click deployment to UDM/UCG gateways with persistence through reboots via UDM Boot
+
+The dashboard shows your current effective rates, last speedtest results, and ping adjustments in real-time.
 
 ### LAN Speed Testing
-- **Gateway-to-device testing** using iperf3 between your gateway and APs/switches
-- **Auto-discovery** of UniFi devices from your controller
-- **Custom device support** for non-UniFi endpoints with per-device SSH credentials
-- **Network path analysis** correlating results with hop count and infrastructure
-- **Test history** with paginated results and performance trends
+
+Ever wonder if that new switch is actually giving you gigabit speeds? Or whether the cable run to the warehouse is the bottleneck? Network Optimizer runs iperf3 tests between your gateway and network devices:
+
+- Auto-discovers UniFi devices from your controller
+- Custom device support for non-UniFi endpoints (with per-device SSH credentials)
+- Path analysis that correlates results with hop count and infrastructure
+- Test history so you can track performance over time
 
 ### Cellular Modem Monitoring
-- **5G/LTE device support** for U-LTE and U5G-Max
-- **Signal metrics**: RSSI, RSRP, RSRQ, SINR
-- **Cell tower information** and connection status
-- **Dashboard integration** with real-time signal display
 
-### Dashboard & Monitoring
-- **Real-time network health** with device counts and security score
-- **SQM status** showing active WAN configurations
-- **Alert system** with recent issues and dismissal
-- **Device grid** showing all connected infrastructure
-- **Speed test history** with recent results
+If you're running a U-LTE or U5G-Max for backup (or primary) connectivity, you can monitor signal quality right from the dashboard: RSSI, RSRP, RSRQ, SINR, cell tower info, and connection status.
 
 ### Agent Deployment
-- **UDM/UCG Gateway Agent**: SQM metrics, speedtest, latency monitoring
-- **Linux System Agent**: CPU, memory, disk, network, optional Docker metrics
-- **SNMP Poller**: Switch and AP metrics collection
-- **SSH-based deployment** with connection testing
-- **Agent health monitoring** with heartbeat tracking
+
+For more comprehensive monitoring, you can deploy lightweight agents:
+
+- UDM/UCG Gateway Agent: SQM metrics, speedtest execution, latency monitoring
+- Linux System Agent: CPU, memory, disk, network stats, optional Docker metrics
+- SNMP Poller: switch and AP metrics collection
+
+Agents deploy via SSH with connection testing built in.
 
 ## Requirements
 
-- **UniFi Controller**: UCG-Ultra, UCG-Max, UDM, UDM Pro, UDM SE, or standalone controller
-- **Docker**: Any platform supporting Docker (Linux, macOS, Windows, Synology, Unraid, etc.)
-- **Network Access**: HTTPS access to your UniFi controller API
-- **For SQM**: SSH access to your gateway
+- UniFi Controller: UCG-Ultra, UCG-Max, UDM, UDM Pro, UDM SE, or standalone controller
+- Docker: Linux, macOS, Windows, Synology, Unraid - whatever you've got
+- Network access to your UniFi controller API (HTTPS)
+- For SQM features: SSH access to your gateway
 
 ## Quick Start
 
@@ -69,14 +72,14 @@ docker compose -f docker-compose.macos.yml build
 docker compose -f docker-compose.macos.yml up -d
 ```
 
-Open http://localhost:8042 (wait ~60 seconds for startup)
+Open http://localhost:8042 (give it about 60 seconds to start up)
 
 ### Linux / Windows
 
 ```bash
 git clone https://github.com/your-org/network-optimizer.git
 cd network-optimizer/docker
-cp .env.example .env  # Optional: edit to set APP_PASSWORD
+cp .env.example .env  # Optional - edit to set APP_PASSWORD
 docker compose up -d
 ```
 
@@ -84,17 +87,17 @@ Open http://localhost:8042
 
 ### First Run
 
-1. Go to **Settings** and enter your UniFi controller URL (e.g., `https://192.168.1.1`)
-2. Use **local-only** credentials (create a local admin, not your Ubiquiti SSO account)
-3. Click **Connect** to authenticate
-4. Navigate to **Audit** to run your first security scan
+1. Go to Settings and enter your UniFi controller URL (e.g., `https://192.168.1.1`)
+2. Use local-only credentials - create a local admin account on your controller, don't use your Ubiquiti SSO login
+3. Click Connect to authenticate
+4. Navigate to Audit to run your first security scan
 
 ## Project Structure
 
 ```
 ├── src/
 │   ├── NetworkOptimizer.Web        # Blazor web UI
-│   ├── NetworkOptimizer.Audit      # Security audit engine (60+ checks)
+│   ├── NetworkOptimizer.Audit      # Security audit engine
 │   ├── NetworkOptimizer.UniFi      # UniFi API client
 │   ├── NetworkOptimizer.Storage    # SQLite database & models
 │   ├── NetworkOptimizer.Monitoring # SNMP/SSH polling
@@ -105,43 +108,43 @@ Open http://localhost:8042
 └── docs/                           # Additional documentation
 ```
 
-## Technology Stack
+## Tech Stack
 
-- **.NET 9** with Blazor Server
-- **SQLite** for local data storage
-- **Docker** for cross-platform deployment
-- **iperf3** for throughput testing
-- **SSH.NET** for gateway management
-- RESTful integration with UniFi Controller API
+- .NET 9 with Blazor Server
+- SQLite for local storage
+- Docker for deployment
+- iperf3 for throughput testing
+- SSH.NET for gateway management
+- UniFi Controller API integration
 
 ## Current Status
 
-**Alpha** - Core features working, actively seeking testers.
+Alpha - core features are working, actively looking for testers.
 
-### What Works
-- UniFi controller authentication (UniFi OS and standalone)
-- Security audit with 60+ checks, scoring, and PDF reports
+What works:
+- UniFi controller auth (UniFi OS and standalone)
+- Security audit with 60+ checks, scoring, PDF reports
 - Adaptive SQM configuration and deployment (dual-WAN)
 - LAN speed testing with path analysis
-- Cellular modem monitoring (5G/LTE)
-- Agent deployment framework
+- Cellular modem monitoring
+- Agent deployment
 - Dashboard with real-time status
 
-### In Progress
+In progress:
 - Time-series metrics with InfluxDB/Grafana
 - Multi-site support for MSPs
 
 ## Contributing
 
-We welcome testers and contributors! Please:
+Testers and contributors welcome. If you find issues:
 
-1. Report issues via GitHub Issues
+1. Report via GitHub Issues
 2. Include your UniFi device models and controller version
-3. Attach relevant logs (sanitize any credentials/IPs first)
+3. Attach relevant logs (sanitize credentials and IPs first)
 
 ## License
 
-**Proprietary / All Rights Reserved**
+Proprietary / All Rights Reserved
 
 Copyright (c) 2024-2025 TJ Van Cott. All rights reserved.
 
@@ -149,9 +152,9 @@ This software is provided for evaluation and testing purposes only. Commercial u
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/network-optimizer/issues)
-- **Documentation**: See `docs/` folder and component READMEs
+- Issues: [GitHub Issues](https://github.com/your-org/network-optimizer/issues)
+- Documentation: See `docs/` folder and component READMEs
 
 ---
 
-*Built for the UniFi community by network enthusiasts who wanted more from their gear.*
+*Built for the UniFi community by someone who wanted more from their gear.*
