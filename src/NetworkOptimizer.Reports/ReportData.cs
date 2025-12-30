@@ -54,7 +54,15 @@ public class DnsSecuritySummary
         if (DotBlocked) protections.Add("DoT");
         if (DohBypassBlocked) protections.Add("DoH Bypass");
         if (WanDnsMatchesDoH) protections.Add("WAN DNS");
-        return protections.Any() ? string.Join(" + ", protections) : "None";
+
+        if (protections.Any())
+            return string.Join(" + ", protections);
+
+        // No leak prevention but DoH is enabled
+        if (DohEnabled)
+            return "DoH Only - No Leak Prevention";
+
+        return "Not Protected";
     }
 
     public string GetWanDnsDisplay()

@@ -380,8 +380,8 @@ public class PdfReportGenerator
                     .Text(dns.GetDeviceDnsDisplay()).FontSize(9);
             });
 
-            // Overall protection status
-            var overallStatus = dns.FullyProtected ? "Full DNS Protection" : "Partial Protection";
+            // Overall protection status - use the descriptive status directly
+            var overallStatus = dns.GetProtectionStatusDisplay();
             var overallColor = dns.FullyProtected ? successColor : warningColor;
 
             column.Item()
@@ -390,10 +390,6 @@ public class PdfReportGenerator
                 {
                     text.Span("Overall: ").FontSize(9);
                     text.Span(overallStatus).FontSize(9).Bold().FontColor(overallColor);
-                    if (!dns.FullyProtected && !string.IsNullOrEmpty(dns.GetProtectionStatusDisplay()))
-                    {
-                        text.Span($" ({dns.GetProtectionStatusDisplay()})").FontSize(9).FontColor(Colors.Grey.Medium);
-                    }
                 });
         });
     }

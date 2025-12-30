@@ -15,7 +15,7 @@ public static class DohProviderRegistry
             Name = "NextDNS",
             StampPrefix = "nextdns",
             Hostnames = new[] { "dns.nextdns.io" },
-            DnsIps = new[] { "45.90.28.109", "45.90.30.109" }, // dns1.nextdns.io and dns2.nextdns.io
+            DnsIps = new[] { "45.90.28.", "45.90.30." }, // NextDNS IP ranges (profile-specific IPs)
             SupportsFiltering = true,
             HasCustomConfig = true,
             Description = "NextDNS - Privacy-focused DNS with filtering"
