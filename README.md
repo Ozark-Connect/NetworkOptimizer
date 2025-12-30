@@ -2,40 +2,61 @@
 
 **Expert-level network intelligence for your UniFi infrastructure.**
 
-Network Optimizer analyzes your UniFi network configuration and provides actionable security audits, performance insights, and monitoring—filling the gap between Ubiquiti's data and knowing whether your config is actually *good*.
+Network Optimizer analyzes your UniFi network configuration and provides actionable security audits, performance testing, adaptive bandwidth management, and monitoring—filling the gap between Ubiquiti's data and knowing whether your config is actually *good*.
 
 ## Features
 
 ### Security & Configuration Auditing
-- **60+ audit checks** across firewall rules, VLANs, switch ports, and wireless settings
-- Weighted scoring system (Critical → Info) with actionable recommendations
-- Detects misconfigurations like open management ports, missing inter-VLAN rules, legacy protocols
-- Export PDF reports for documentation or client delivery
+- **60+ audit checks** across firewall rules, VLANs, switch ports, DNS, and wireless settings
+- **Weighted scoring system** (0-100) with Critical, Warning, and Info severity levels
+- **DNS security analysis**: DoH configuration, DNS leak prevention, DoT blocking, per-interface DNS validation
+- **Port security**: MAC filtering detection, unused port identification, camera/IoT VLAN placement
+- **Firewall analysis**: Any-any rule detection, shadowed rules, inter-VLAN isolation
+- **Hardening recognition**: Credits for security measures already in place
+- **Issue management**: Dismiss false positives, restore dismissed issues
+- **PDF report export** for documentation or client delivery
 
-### Network Device Speed Testing
-- Run iperf3 tests between your gateway and network devices (APs, switches)
-- Verify actual throughput vs. link speed expectations
-- Identify bottlenecks in your wired infrastructure
+### Adaptive SQM (Smart Queue Management)
+- **Dual-WAN support** with independent configuration per interface
+- **Connection profiles** for DOCSIS, Fiber, Wireless, Starlink, Cellular with optimized defaults
+- **Speedtest-based adjustment**: Scheduled tests (morning/evening) adjust rates automatically
+- **Ping-based adjustment**: Real-time latency monitoring every 5 minutes
+- **One-click deployment** to UDM/UCG gateways with persistence via UDM Boot
+- **Live status dashboard** showing effective rates, last adjustments, and baselines
+
+### LAN Speed Testing
+- **Gateway-to-device testing** using iperf3 between your gateway and APs/switches
+- **Auto-discovery** of UniFi devices from your controller
+- **Custom device support** for non-UniFi endpoints with per-device SSH credentials
+- **Network path analysis** correlating results with hop count and infrastructure
+- **Test history** with paginated results and performance trends
 
 ### Cellular Modem Monitoring
-- Monitor UniFi LTE/5G devices (U-LTE, U5G-Max)
-- Track signal strength (RSSI, RSRP, RSRQ, SINR)
-- Cell tower information and connection status
+- **5G/LTE device support** for U-LTE and U5G-Max
+- **Signal metrics**: RSSI, RSRP, RSRQ, SINR
+- **Cell tower information** and connection status
+- **Dashboard integration** with real-time signal display
 
-### Unified Dashboard
-- Real-time network health overview
-- Device status and connectivity
-- Recent audit findings at a glance
+### Dashboard & Monitoring
+- **Real-time network health** with device counts and security score
+- **SQM status** showing active WAN configurations
+- **Alert system** with recent issues and dismissal
+- **Device grid** showing all connected infrastructure
+- **Speed test history** with recent results
 
-## Screenshots
-
-*Coming soon*
+### Agent Deployment
+- **UDM/UCG Gateway Agent**: SQM metrics, speedtest, latency monitoring
+- **Linux System Agent**: CPU, memory, disk, network, optional Docker metrics
+- **SNMP Poller**: Switch and AP metrics collection
+- **SSH-based deployment** with connection testing
+- **Agent health monitoring** with heartbeat tracking
 
 ## Requirements
 
 - **UniFi Controller**: UCG-Ultra, UCG-Max, UDM, UDM Pro, UDM SE, or standalone controller
 - **Docker**: Any platform supporting Docker (Linux, macOS, Windows, Synology, Unraid, etc.)
 - **Network Access**: HTTPS access to your UniFi controller API
+- **For SQM**: SSH access to your gateway
 
 ## Quick Start
 
@@ -50,32 +71,20 @@ docker compose -f docker-compose.macos.yml up -d
 
 Open http://localhost:8042 (wait ~60 seconds for startup)
 
-### Linux / Windows (Docker Compose)
+### Linux / Windows
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-org/network-optimizer.git
-   cd network-optimizer/docker
-   ```
+```bash
+git clone https://github.com/your-org/network-optimizer.git
+cd network-optimizer/docker
+cp .env.example .env  # Optional: edit to set APP_PASSWORD
+docker compose up -d
+```
 
-2. Create your environment file:
-   ```bash
-   cp .env.example .env
-   # Edit .env if needed
-   ```
-
-3. Start the container:
-   ```bash
-   docker compose up -d
-   ```
-
-4. Open http://localhost:8042 in your browser
-
-5. Go to **Settings** and configure your UniFi controller connection
+Open http://localhost:8042
 
 ### First Run
 
-1. Enter your UniFi controller URL (e.g., `https://192.168.1.1`)
+1. Go to **Settings** and enter your UniFi controller URL (e.g., `https://192.168.1.1`)
 2. Use **local-only** credentials (create a local admin, not your Ubiquiti SSO account)
 3. Click **Connect** to authenticate
 4. Navigate to **Audit** to run your first security scan
@@ -84,13 +93,16 @@ Open http://localhost:8042 (wait ~60 seconds for startup)
 
 ```
 ├── src/
-│   ├── NetworkOptimizer.Web      # Blazor web UI
-│   ├── NetworkOptimizer.Audit    # Security audit engine (60+ checks)
-│   ├── NetworkOptimizer.UniFi    # UniFi API client
-│   ├── NetworkOptimizer.Storage  # SQLite database & models
-│   └── NetworkOptimizer.Monitoring # SNMP/SSH polling
-├── docker/                       # Docker deployment files
-└── docs/                         # Additional documentation
+│   ├── NetworkOptimizer.Web        # Blazor web UI
+│   ├── NetworkOptimizer.Audit      # Security audit engine (60+ checks)
+│   ├── NetworkOptimizer.UniFi      # UniFi API client
+│   ├── NetworkOptimizer.Storage    # SQLite database & models
+│   ├── NetworkOptimizer.Monitoring # SNMP/SSH polling
+│   ├── NetworkOptimizer.Sqm        # Adaptive bandwidth management
+│   ├── NetworkOptimizer.Agents     # Agent deployment & health
+│   └── NetworkOptimizer.Reports    # PDF/Markdown generation
+├── docker/                         # Docker deployment files
+└── docs/                           # Additional documentation
 ```
 
 ## Technology Stack
@@ -98,6 +110,8 @@ Open http://localhost:8042 (wait ~60 seconds for startup)
 - **.NET 9** with Blazor Server
 - **SQLite** for local data storage
 - **Docker** for cross-platform deployment
+- **iperf3** for throughput testing
+- **SSH.NET** for gateway management
 - RESTful integration with UniFi Controller API
 
 ## Current Status
@@ -106,14 +120,14 @@ Open http://localhost:8042 (wait ~60 seconds for startup)
 
 ### What Works
 - UniFi controller authentication (UniFi OS and standalone)
-- Security audit with 60+ checks and scoring
-- PDF report generation
-- Device SSH connectivity testing
-- Cellular modem monitoring
-- Speed testing between gateway and devices
+- Security audit with 60+ checks, scoring, and PDF reports
+- Adaptive SQM configuration and deployment (dual-WAN)
+- LAN speed testing with path analysis
+- Cellular modem monitoring (5G/LTE)
+- Agent deployment framework
+- Dashboard with real-time status
 
-### Coming Soon
-- Dynamic SQM management (adaptive bandwidth optimization)
+### In Progress
 - Time-series metrics with InfluxDB/Grafana
 - Multi-site support for MSPs
 
