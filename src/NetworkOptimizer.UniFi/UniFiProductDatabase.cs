@@ -18,6 +18,7 @@ public static class UniFiProductDatabase
     private static readonly HashSet<string> MipsDevices = new(StringComparer.OrdinalIgnoreCase)
     {
         "USW-Flex-Mini",
+        "USW-Flex-XG",
         "USW-Pro-XG-8-PoE",
         "USW-Lite-8-PoE"
     };
