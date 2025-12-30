@@ -761,27 +761,33 @@
                     DhcpDeviceCount = lastResult.DnsSecurity.DhcpDeviceCount
                 } : null,
 
-                // Access Points with wireless clients (grouped by AP)
+                // Access Points with wireless clients (grouped by AP MAC for accurate grouping)
                 AccessPoints = lastResult.WirelessClients
-                    .GroupBy(wc => wc.AccessPointName ?? "Unknown AP")
-                    .Select(g => new NetworkOptimizer.Reports.AccessPointDetail
+                    .GroupBy(wc => wc.AccessPointMac ?? "unknown")
+                    .Select(g =>
                     {
-                        Name = g.Key,
-                        Mac = g.FirstOrDefault()?.AccessPointMac ?? "",
-                        Clients = g.Select(wc => new NetworkOptimizer.Reports.WirelessClientDetail
+                        var firstClient = g.First();
+                        return new NetworkOptimizer.Reports.AccessPointDetail
                         {
-                            DisplayName = wc.DisplayName,
-                            Mac = wc.Mac,
-                            Network = wc.NetworkName,
-                            VlanId = wc.VlanId,
-                            DeviceCategory = wc.DeviceCategory,
-                            VendorName = wc.VendorName,
-                            DetectionConfidence = wc.DetectionConfidence,
-                            IsIoT = wc.IsIoT,
-                            IsCamera = wc.IsCamera,
-                            HasIssue = issues.Any(i => i.IsWireless && i.ClientMac == wc.Mac),
-                            IssueMessage = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac)?.Description
-                        }).ToList()
+                            Name = firstClient.AccessPointName ?? "Unknown AP",
+                            Mac = g.Key,
+                            Model = firstClient.AccessPointModel,
+                            ModelName = firstClient.AccessPointModelName,
+                            Clients = g.Select(wc => new NetworkOptimizer.Reports.WirelessClientDetail
+                            {
+                                DisplayName = wc.DisplayName,
+                                Mac = wc.Mac,
+                                Network = wc.NetworkName,
+                                VlanId = wc.VlanId,
+                                DeviceCategory = wc.DeviceCategory,
+                                VendorName = wc.VendorName,
+                                DetectionConfidence = wc.DetectionConfidence,
+                                IsIoT = wc.IsIoT,
+                                IsCamera = wc.IsCamera,
+                                HasIssue = issues.Any(i => i.IsWireless && i.ClientMac == wc.Mac),
+                                IssueMessage = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac)?.Description
+                            }).ToList()
+                        };
                     })
                     .OrderBy(ap => ap.Name)
                     .ToList()

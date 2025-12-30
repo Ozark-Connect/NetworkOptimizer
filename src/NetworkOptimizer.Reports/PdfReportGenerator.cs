@@ -409,7 +409,7 @@ public class PdfReportGenerator
         {
             column.Item()
                 .PaddingBottom(10)
-                .Text("Executive Summary")
+                .Text("Summary")
                 .FontSize(16)
                 .Bold()
                 .FontColor(primaryColor);
@@ -710,10 +710,16 @@ public class PdfReportGenerator
                 var cameraCount = ap.Clients.Count(c => c.IsCamera);
                 var issueCount = ap.Clients.Count(c => c.HasIssue);
 
+                // Format AP header like switches: [AP] Name (Model)
+                var modelDisplay = !string.IsNullOrEmpty(ap.ModelName) ? ap.ModelName : ap.Model ?? "";
+                var headerText = !string.IsNullOrEmpty(modelDisplay)
+                    ? $"[AP] {ap.Name} ({modelDisplay})"
+                    : $"[AP] {ap.Name}";
+
                 column.Item()
                     .PaddingBottom(6)
-                    .Text($"{ap.Name} ({ap.Clients.Count} clients)")
-                    .FontSize(11)
+                    .Text(headerText)
+                    .FontSize(12)
                     .Bold()
                     .FontColor(primaryColor);
 

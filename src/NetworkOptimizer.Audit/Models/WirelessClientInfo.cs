@@ -33,6 +33,16 @@ public class WirelessClientInfo
     public string? AccessPointMac { get; init; }
 
     /// <summary>
+    /// Model of the access point (e.g., "U6-Pro")
+    /// </summary>
+    public string? AccessPointModel { get; init; }
+
+    /// <summary>
+    /// Friendly model name of the access point (e.g., "UniFi 6 Pro")
+    /// </summary>
+    public string? AccessPointModelName { get; init; }
+
+    /// <summary>
     /// Display name for the client (name, hostname, or MAC)
     /// </summary>
     public string DisplayName => Client.Name ?? Client.Hostname ?? Client.Mac ?? "Unknown";

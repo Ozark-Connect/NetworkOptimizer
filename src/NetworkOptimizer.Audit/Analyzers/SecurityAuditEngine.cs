@@ -426,11 +426,26 @@ public class SecurityAuditEngine
     }
 
     /// <summary>
+    /// Access point info for lookup
+    /// </summary>
+    public record ApInfo(string Name, string? Model, string? ModelName);
+
+    /// <summary>
     /// Extract access points from device data for AP name lookup
     /// </summary>
     public Dictionary<string, string> ExtractAccessPointLookup(JsonElement deviceData)
     {
-        var apsByMac = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Return simple name lookup for backwards compatibility
+        return ExtractAccessPointInfoLookup(deviceData)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extract access points with full info (name, model) from device data
+    /// </summary>
+    public Dictionary<string, ApInfo> ExtractAccessPointInfoLookup(JsonElement deviceData)
+    {
+        var apsByMac = new Dictionary<string, ApInfo>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var device in deviceData.UnwrapDataArray())
         {
@@ -442,11 +457,15 @@ public class SecurityAuditEngine
             {
                 var mac = device.GetStringOrNull("mac");
                 var name = device.GetStringFromAny("name", "mac") ?? "Unknown AP";
+                var model = device.GetStringOrNull("model");
+                var shortname = device.GetStringOrNull("shortname");
+                var modelDisplay = device.GetStringOrNull("model_display");
+                var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
 
                 if (!string.IsNullOrEmpty(mac) && !apsByMac.ContainsKey(mac))
                 {
-                    apsByMac[mac] = name;
-                    _logger.LogDebug("Found AP: {Name} ({Mac})", name, mac);
+                    apsByMac[mac] = new ApInfo(name, model, modelName);
+                    _logger.LogDebug("Found AP: {Name} ({Mac}) - {ModelName}", name, mac, modelName);
                 }
             }
         }
@@ -466,11 +485,21 @@ public class SecurityAuditEngine
         List<UniFiClientResponse>? clients,
         List<NetworkInfo> networks,
         Dictionary<string, string>? apLookup = null)
+        => ExtractWirelessClients(clients, networks,
+            apLookup?.ToDictionary(kvp => kvp.Key, kvp => new ApInfo(kvp.Value, null, null), StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Extract wireless clients from client list for audit analysis with full AP info
+    /// </summary>
+    public List<WirelessClientInfo> ExtractWirelessClients(
+        List<UniFiClientResponse>? clients,
+        List<NetworkInfo> networks,
+        Dictionary<string, ApInfo>? apInfoLookup)
     {
         var wirelessClients = new List<WirelessClientInfo>();
         if (clients == null) return wirelessClients;
 
-        var apsByMac = apLookup ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var apsByMac = apInfoLookup ?? new Dictionary<string, ApInfo>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var client in clients)
         {
@@ -489,11 +518,11 @@ public class SecurityAuditEngine
             // Lookup network by client's NetworkId
             var network = networks.FirstOrDefault(n => n.Id == client.NetworkId);
 
-            // Lookup AP name
-            string? apName = null;
+            // Lookup AP info
+            ApInfo? apInfo = null;
             if (!string.IsNullOrEmpty(client.ApMac))
             {
-                apsByMac.TryGetValue(client.ApMac.ToLowerInvariant(), out apName);
+                apsByMac.TryGetValue(client.ApMac.ToLowerInvariant(), out apInfo);
             }
 
             wirelessClients.Add(new WirelessClientInfo
@@ -501,8 +530,10 @@ public class SecurityAuditEngine
                 Client = client,
                 Network = network,
                 Detection = detection,
-                AccessPointName = apName,
-                AccessPointMac = client.ApMac
+                AccessPointName = apInfo?.Name,
+                AccessPointMac = client.ApMac,
+                AccessPointModel = apInfo?.Model,
+                AccessPointModelName = apInfo?.ModelName
             });
 
             _logger.LogDebug("Wireless client: {Name} ({Mac}) on {Network} - detected as {Category}",

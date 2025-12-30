@@ -137,7 +137,7 @@ public class ConfigAuditEngine
 
         // Extract and analyze wireless clients
         _logger.LogInformation("Phase 3b: Analyzing wireless clients");
-        var apLookup = securityEngine.ExtractAccessPointLookup(deviceData);
+        var apLookup = securityEngine.ExtractAccessPointInfoLookup(deviceData);
         var wirelessClients = securityEngine.ExtractWirelessClients(clients, networks, apLookup);
         var wirelessIssues = securityEngine.AnalyzeWirelessClients(wirelessClients, networks);
         _logger.LogInformation("Found {IssueCount} wireless client issues from {ClientCount} detected devices",

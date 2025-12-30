@@ -604,6 +604,8 @@ public class AuditService
                 Mac = wc.Mac ?? "",
                 AccessPointName = wc.AccessPointName,
                 AccessPointMac = wc.AccessPointMac,
+                AccessPointModel = wc.AccessPointModel,
+                AccessPointModelName = wc.AccessPointModelName,
                 NetworkName = wc.Network?.Name,
                 VlanId = wc.Network?.VlanId,
                 DeviceCategory = wc.Detection.CategoryName,
@@ -913,6 +915,8 @@ public class WirelessClientReference
     public string Mac { get; set; } = "";
     public string? AccessPointName { get; set; }
     public string? AccessPointMac { get; set; }
+    public string? AccessPointModel { get; set; }
+    public string? AccessPointModelName { get; set; }
     public string? NetworkName { get; set; }
     public int? VlanId { get; set; }
     public string DeviceCategory { get; set; } = "";

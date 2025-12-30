@@ -199,10 +199,13 @@ public class DnsSecurityAnalyzer
 
     /// <summary>
     /// Extract WAN DNS servers from device port_table.
-    /// UniFi stores WAN DNS in port_table entries where network_name is "wan".
+    /// UniFi stores WAN DNS in port_table entries where network_name starts with "wan" (wan, wan2, etc.).
     /// </summary>
     private void ExtractWanDnsFromDevices(JsonElement deviceData, DnsSecurityResult result)
     {
+        var wanInterfacesChecked = new List<string>();
+        var wanInterfacesWithoutDns = new List<string>();
+
         foreach (var device in deviceData.UnwrapDataArray())
         {
             // Only check gateways/routers for WAN DNS
@@ -210,18 +213,35 @@ public class DnsSecurityAnalyzer
             if (deviceType == null || !UniFiDeviceTypes.IsGateway(deviceType))
                 continue;
 
-            // Look in port_table for WAN ports
+            // Look in port_table for WAN ports (wan, wan2, etc.)
             if (!device.TryGetProperty("port_table", out var portTable) || portTable.ValueKind != JsonValueKind.Array)
                 continue;
 
             foreach (var port in portTable.EnumerateArray())
             {
                 var networkName = port.GetStringOrNull("network_name");
-                if (string.IsNullOrEmpty(networkName) || !networkName.Equals("wan", StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrEmpty(networkName) || !networkName.StartsWith("wan", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                // Found WAN port - extract DNS servers
-                if (port.TryGetProperty("dns", out var dnsArray) && dnsArray.ValueKind == JsonValueKind.Array)
+                // Get additional port info for logging
+                var portName = port.GetStringOrNull("name") ?? "unnamed";
+                var portMedia = port.GetStringOrNull("media") ?? "unknown";
+                var portUp = port.GetBoolOrDefault("up");
+                var portIp = port.GetStringOrNull("ip");
+
+                wanInterfacesChecked.Add(networkName);
+
+                _logger.LogInformation("WAN interface detected: {Interface} (name={Name}, media={Media}, up={Up}, ip={Ip})",
+                    networkName, portName, portMedia, portUp, portIp ?? "none");
+
+                // Check for DNS servers on this WAN port
+                var hasDnsProperty = port.TryGetProperty("dns", out var dnsArray);
+                var dnsCount = hasDnsProperty && dnsArray.ValueKind == JsonValueKind.Array ? dnsArray.GetArrayLength() : 0;
+
+                _logger.LogInformation("  DNS config: hasDnsProperty={HasDns}, arrayLength={Count}",
+                    hasDnsProperty, dnsCount);
+
+                if (hasDnsProperty && dnsArray.ValueKind == JsonValueKind.Array && dnsCount > 0)
                 {
                     foreach (var dns in dnsArray.EnumerateArray())
                     {
@@ -229,27 +249,38 @@ public class DnsSecurityAnalyzer
                         if (!string.IsNullOrEmpty(dnsIp) && !result.WanDnsServers.Contains(dnsIp))
                         {
                             result.WanDnsServers.Add(dnsIp);
-                            _logger.LogDebug("Found WAN DNS server from device port_table: {DnsIp}", dnsIp);
+                            _logger.LogInformation("  Found DNS server: {DnsIp}", dnsIp);
                         }
                     }
                 }
+                else
+                {
+                    // This WAN interface has no static DNS configured
+                    wanInterfacesWithoutDns.Add(networkName);
+                    _logger.LogInformation("  No static DNS configured on {Interface} - may use ISP DNS or DHCP", networkName);
+                }
             }
 
-            // Found gateway with WAN port, no need to check other devices
-            if (result.WanDnsServers.Any())
-                break;
+            // Found gateway, stop checking other devices
+            break;
         }
 
         if (result.WanDnsServers.Any())
         {
-            _logger.LogDebug("Extracted {Count} WAN DNS servers from device port_table: {Servers}",
-                result.WanDnsServers.Count, string.Join(", ", result.WanDnsServers));
+            _logger.LogDebug("Extracted {Count} WAN DNS servers from {InterfaceCount} interface(s): {Servers}",
+                result.WanDnsServers.Count, wanInterfacesChecked.Count, string.Join(", ", result.WanDnsServers));
         }
-        else
+
+        // Track interfaces without DNS for potential issue reporting
+        if (wanInterfacesWithoutDns.Any())
         {
-            // No static DNS configured - likely using ISP DNS via DHCP
             result.UsingIspDns = true;
-            _logger.LogDebug("No WAN DNS servers found in device port_table - likely using ISP DNS");
+            _logger.LogDebug("WAN interfaces without static DNS: {Interfaces}", string.Join(", ", wanInterfacesWithoutDns));
+        }
+
+        if (!wanInterfacesChecked.Any())
+        {
+            _logger.LogDebug("No WAN interfaces found in device port_table");
         }
     }
 
