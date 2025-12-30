@@ -605,10 +605,43 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Optionally note interfaces with no DNS configured
-        foreach (var interfaceName in interfacesWithNoDns)
+        // Generate issues for interfaces with no static DNS configured (using ISP DNS)
+        if (result.DohConfigured && interfacesWithNoDns.Any())
         {
-            _logger.LogDebug("WAN interface '{Interface}' has no static DNS - may use ISP DNS", interfaceName);
+            foreach (var interfaceName in interfacesWithNoDns)
+            {
+                // Get the interface details for a better message
+                var wanInterface = result.WanInterfaces.FirstOrDefault(w => w.InterfaceName == interfaceName);
+                var displayName = !string.IsNullOrEmpty(wanInterface?.PortName) && wanInterface.PortName != "unnamed"
+                    ? $"{interfaceName} ({wanInterface.PortName})"
+                    : interfaceName;
+
+                var providerName = result.ExpectedDnsProvider ?? "your DoH provider";
+                var expectedIps = result.ConfiguredServers
+                    .Where(s => s.Enabled)
+                    .SelectMany(s => (s.StampInfo?.ProviderInfo?.DnsIps ?? s.Provider?.DnsIps)?.ToList() ?? new List<string>())
+                    .Take(2)
+                    .ToList();
+                var expectedIpsStr = expectedIps.Any() ? string.Join(", ", expectedIps) : "your DoH provider's DNS servers";
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = "DNS_WAN_NO_STATIC",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"WAN interface '{displayName}' has no static DNS configured. It's using ISP-assigned DNS which bypasses your DoH configuration.",
+                    RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers: {expectedIpsStr}",
+                    RuleId = "DNS-WAN-002",
+                    ScoreImpact = 3,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "interface", interfaceName },
+                        { "port_name", wanInterface?.PortName ?? "" },
+                        { "ip_address", wanInterface?.IpAddress ?? "" }
+                    }
+                });
+
+                _logger.LogInformation("WAN interface '{Interface}' has no static DNS - using ISP DNS", displayName);
+            }
         }
     }
 
