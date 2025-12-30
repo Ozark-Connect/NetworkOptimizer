@@ -39,7 +39,18 @@ Network Optimizer analyzes your UniFi network configuration and provides actiona
 
 ## Quick Start
 
-### Docker Compose (Recommended)
+### macOS
+
+```bash
+git clone https://github.com/your-org/network-optimizer.git
+cd network-optimizer/docker
+docker compose -f docker-compose.macos.yml build
+docker compose -f docker-compose.macos.yml up -d
+```
+
+Open http://localhost:8042 (wait ~60 seconds for startup)
+
+### Linux / Windows (Docker Compose)
 
 1. Clone the repository:
    ```bash

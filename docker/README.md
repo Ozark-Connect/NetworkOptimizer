@@ -4,6 +4,22 @@ Complete Docker infrastructure for the Ozark Connect Network Optimizer for UniFi
 
 ## Quick Start
 
+### macOS
+
+macOS doesn't support `network_mode: host`, so use the macOS-specific compose file:
+
+```bash
+cd docker
+docker compose -f docker-compose.macos.yml build
+docker compose -f docker-compose.macos.yml up -d
+```
+
+Access at http://localhost:8042 (wait ~60 seconds for startup)
+
+**No `.env` file required** - defaults work out of the box. Optionally create one to set `APP_PASSWORD`.
+
+### Linux / Windows
+
 1. **Copy the environment template:**
    ```bash
    cd docker
@@ -20,7 +36,7 @@ Complete Docker infrastructure for the Ozark Connect Network Optimizer for UniFi
 
 3. **Start the stack:**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. **Get the auto-generated admin password:**
@@ -30,10 +46,9 @@ Complete Docker infrastructure for the Ozark Connect Network Optimizer for UniFi
    On first run, a secure password is generated and displayed in the logs.
 
 5. **Access the services:**
-   - Network Optimizer Web UI: http://localhost:8080 (use password from logs)
+   - Network Optimizer Web UI: http://localhost:8042 (use password from logs)
    - Grafana Dashboards: http://localhost:3000 (admin / your_grafana_password)
    - InfluxDB: http://localhost:8086 (admin / your_influxdb_password)
-   - Metrics API: http://localhost:8081
 
 6. **Set a permanent password:**
    After logging in, go to Settings → Admin Password to set your own password.
