@@ -76,8 +76,7 @@ public class DnsSecuritySummary
         if (WanDnsMatchesDoH)
         {
             var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
-            var orderNote = WanDnsOrderCorrect ? "" : " [wrong order]";
-            return $"{servers} ({provider}){orderNote}";
+            return $"{servers} ({provider})";
         }
 
         if (!string.IsNullOrEmpty(ExpectedDnsProvider))
