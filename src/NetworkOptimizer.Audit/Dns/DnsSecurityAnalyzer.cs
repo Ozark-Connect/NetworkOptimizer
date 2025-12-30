@@ -640,11 +640,11 @@ public class DnsSecurityAnalyzer
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_ORDER",
-                Severity = AuditSeverity.Investigate,
-                Message = $"WAN interface '{wanInterface.InterfaceName}' has DNS servers in wrong order: {ptrDisplay}. Primary should be dns1, secondary dns2.",
+                Severity = AuditSeverity.Recommended,
+                Message = $"WAN interface '{wanInterface.InterfaceName}' has DNS servers in wrong order. Primary should be dns1, secondary dns2.",
                 RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} so dns1 is primary",
                 RuleId = "DNS-WAN-002",
-                ScoreImpact = 2,
+                ScoreImpact = 3,
                 Metadata = new Dictionary<string, object>
                 {
                     { "interface", wanInterface.InterfaceName },
