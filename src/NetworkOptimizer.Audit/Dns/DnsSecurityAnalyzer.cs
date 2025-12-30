@@ -633,6 +633,26 @@ public class DnsSecurityAnalyzer
             });
         }
 
+        // Generate issues for interfaces with wrong DNS order (NextDNS: dns2 before dns1)
+        foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
+        {
+            var ptrDisplay = string.Join(", ", wanInterface.ReverseDnsResults.Where(p => !string.IsNullOrEmpty(p)));
+            result.Issues.Add(new AuditIssue
+            {
+                Type = "DNS_WAN_ORDER",
+                Severity = AuditSeverity.Investigate,
+                Message = $"WAN interface '{wanInterface.InterfaceName}' has DNS servers in wrong order: {ptrDisplay}. Primary should be dns1, secondary dns2.",
+                RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} so dns1 is primary",
+                RuleId = "DNS-WAN-002",
+                ScoreImpact = 2,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "interface", wanInterface.InterfaceName },
+                    { "ptr_results", wanInterface.ReverseDnsResults }
+                }
+            });
+        }
+
         // Generate issues for interfaces with no static DNS configured (using ISP DNS)
         if (result.DohConfigured && interfacesWithNoDns.Any())
         {
