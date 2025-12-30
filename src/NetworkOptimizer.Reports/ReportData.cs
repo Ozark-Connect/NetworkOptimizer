@@ -34,7 +34,9 @@ public class DnsSecuritySummary
 
     // WAN DNS validation
     public List<string> WanDnsServers { get; set; } = new();
+    public List<string?> WanDnsPtrResults { get; set; } = new();
     public bool WanDnsMatchesDoH { get; set; }
+    public bool WanDnsOrderCorrect { get; set; } = true;
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
 
@@ -68,6 +70,20 @@ public class DnsSecuritySummary
     public string GetWanDnsDisplay()
     {
         if (!WanDnsServers.Any()) return "Not Configured";
+
+        // Show PTR results if available (more meaningful than raw IPs)
+        if (WanDnsPtrResults.Any(p => !string.IsNullOrEmpty(p)))
+        {
+            var ptrDisplay = string.Join(", ", WanDnsPtrResults.Where(p => !string.IsNullOrEmpty(p)));
+            if (WanDnsMatchesDoH)
+            {
+                var orderNote = WanDnsOrderCorrect ? "" : " [wrong order]";
+                return $"{ptrDisplay}{orderNote}";
+            }
+            return $"{ptrDisplay} - Expected {ExpectedDnsProvider}";
+        }
+
+        // Fallback to IP display
         var servers = string.Join(", ", WanDnsServers);
         if (WanDnsMatchesDoH)
             return $"{servers} ({ExpectedDnsProvider ?? "matches DoH"})";

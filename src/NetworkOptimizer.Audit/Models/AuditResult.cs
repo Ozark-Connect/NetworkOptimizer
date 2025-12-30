@@ -117,9 +117,19 @@ public class DnsSecurityInfo
     public List<string> WanDnsServers { get; set; } = new();
 
     /// <summary>
+    /// PTR lookup results for WAN DNS servers (e.g., dns1.nextdns.io)
+    /// </summary>
+    public List<string?> WanDnsPtrResults { get; set; } = new();
+
+    /// <summary>
     /// Whether WAN DNS servers match the DoH provider
     /// </summary>
     public bool WanDnsMatchesDoH { get; set; }
+
+    /// <summary>
+    /// Whether WAN DNS servers are in the correct order (dns1 before dns2 for NextDNS)
+    /// </summary>
+    public bool WanDnsOrderCorrect { get; set; } = true;
 
     /// <summary>
     /// Provider name identified from WAN DNS servers

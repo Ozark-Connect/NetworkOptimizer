@@ -539,13 +539,14 @@ public class DnsSecurityAnalyzer
 
             var matchingServers = new List<string>();
             var mismatchedServers = new List<string>();
+            var ptrResults = new List<string?>();
 
             foreach (var wanDns in wanInterface.DnsServers)
             {
                 // Use PTR lookup for more accurate provider detection (sync-over-async for simplicity)
                 var (wanProvider, reverseDns) = DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns).GetAwaiter().GetResult();
+                ptrResults.Add(reverseDns);
                 wanInterface.DetectedProvider = wanProvider?.Name;
-                wanInterface.ReverseDns = reverseDns;
 
                 if (wanProvider != null)
                 {
@@ -570,7 +571,26 @@ public class DnsSecurityAnalyzer
                 }
             }
 
+            wanInterface.ReverseDnsResults = ptrResults;
             wanInterface.MatchesDoH = matchingServers.Count > 0 && mismatchedServers.Count == 0;
+
+            // For NextDNS, verify correct ordering (dns1 before dns2)
+            if (wanInterface.MatchesDoH && expectedProvider.Name == "NextDNS" && ptrResults.Count >= 2)
+            {
+                var first = ptrResults[0]?.ToLowerInvariant() ?? "";
+                var second = ptrResults[1]?.ToLowerInvariant() ?? "";
+
+                // Check if they're in the wrong order (dns2 before dns1)
+                if (first.Contains("dns2.") && second.Contains("dns1."))
+                {
+                    wanInterface.OrderCorrect = false;
+                    _logger.LogWarning("NextDNS WAN DNS servers are in reverse order: {First}, {Second}", ptrResults[0], ptrResults[1]);
+                }
+                else if (first.Contains("dns1.") && second.Contains("dns2."))
+                {
+                    _logger.LogDebug("NextDNS WAN DNS servers are correctly ordered: {First}, {Second}", ptrResults[0], ptrResults[1]);
+                }
+            }
 
             if (wanInterface.MatchesDoH)
             {
@@ -966,6 +986,8 @@ public class DnsSecurityResult
     public List<WanInterfaceDns> WanInterfaces { get; } = new();
     public bool UsingIspDns { get; set; }
     public bool WanDnsMatchesDoH { get; set; }
+    public bool WanDnsOrderCorrect => WanInterfaces.All(w => w.OrderCorrect);
+    public List<string?> WanDnsPtrResults => WanInterfaces.SelectMany(w => w.ReverseDnsResults).ToList();
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
 
@@ -1017,8 +1039,12 @@ public class WanInterfaceDns
     public List<string> DnsServers { get; init; } = new();
     public bool HasStaticDns => DnsServers.Any();
     public bool MatchesDoH { get; set; }
+    public bool OrderCorrect { get; set; } = true;
     public string? DetectedProvider { get; set; }
-    public string? ReverseDns { get; set; }
+    /// <summary>
+    /// PTR lookup results for each DNS server IP, in order
+    /// </summary>
+    public List<string?> ReverseDnsResults { get; set; } = new();
 }
 
 /// <summary>

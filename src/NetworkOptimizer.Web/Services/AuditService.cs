@@ -632,7 +632,9 @@ public class AuditService
                 DohBypassBlocked = dns.DohBypassBlocked,
                 FullyProtected = dns.FullyProtected,
                 WanDnsServers = dns.WanDnsServers.ToList(),
+                WanDnsPtrResults = dns.WanDnsPtrResults.ToList(),
                 WanDnsMatchesDoH = dns.WanDnsMatchesDoH,
+                WanDnsOrderCorrect = dns.WanDnsOrderCorrect,
                 WanDnsProvider = dns.WanDnsProvider,
                 ExpectedDnsProvider = dns.ExpectedDnsProvider,
                 DeviceDnsPointsToGateway = dns.DeviceDnsPointsToGateway,
@@ -824,7 +826,9 @@ public class DnsSecurityReference
 
     // WAN DNS validation
     public List<string> WanDnsServers { get; set; } = new();
+    public List<string?> WanDnsPtrResults { get; set; } = new();
     public bool WanDnsMatchesDoH { get; set; }
+    public bool WanDnsOrderCorrect { get; set; } = true;
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
     public List<string> InterfacesWithoutDns { get; set; } = new();
