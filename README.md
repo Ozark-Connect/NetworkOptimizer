@@ -146,7 +146,7 @@ Testers and contributors welcome. If you find issues:
 
 Proprietary / All Rights Reserved
 
-Copyright (c) 2025 SeaTurtle Software LLC. All rights reserved.
+Copyright (c) 2025 SeaTurtle. All rights reserved.
 
 This software is provided for evaluation and testing purposes only. Commercial use, redistribution, or modification requires explicit written permission.
 

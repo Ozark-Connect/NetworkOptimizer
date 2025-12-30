@@ -105,7 +105,16 @@
                 StateHasChanged();
 
                 // Set cookie and redirect to home
-                Navigation.NavigateTo($"/api/auth/set-cookie?token={Uri.EscapeDataString(token)}&returnUrl=/", forceLoad: true);
+                // Note: forceLoad navigation will throw TaskCanceledException as the circuit
+                // is destroyed during the page reload - this is expected behavior
+                try
+                {
+                    Navigation.NavigateTo($"/api/auth/set-cookie?token={Uri.EscapeDataString(token)}&returnUrl=/", forceLoad: true);
+                }
+                catch (TaskCanceledException)
+                {
+                    // Expected - circuit destroyed during forceLoad navigation
+                }
             }
             else
             {
