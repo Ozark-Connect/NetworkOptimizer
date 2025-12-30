@@ -333,7 +333,7 @@
         }
 
         <!-- Hardening Measures -->
-        @if (lastResult?.HardeningMeasures.Any() == true)
+        @if (GetFilteredHardeningMeasures().Any())
         {
             <div class="card">
                 <div class="card-header">
@@ -341,7 +341,7 @@
                 </div>
                 <div class="card-body">
                     <ul class="hardening-list">
-                        @foreach (var measure in lastResult.HardeningMeasures)
+                        @foreach (var measure in GetFilteredHardeningMeasures())
                         {
                             <li>@measure</li>
                         }
@@ -738,11 +738,11 @@
                     })
                     .ToList(),
 
-                // Hardening notes
-                HardeningNotes = lastResult.HardeningMeasures,
+                // Hardening notes (filtered based on checkbox settings)
+                HardeningNotes = GetFilteredHardeningMeasures(),
 
-                // DNS Security
-                DnsSecurity = lastResult.DnsSecurity != null ? new NetworkOptimizer.Reports.DnsSecuritySummary
+                // DNS Security (only include if checkbox enabled)
+                DnsSecurity = includeDnsSecurity && lastResult.DnsSecurity != null ? new NetworkOptimizer.Reports.DnsSecuritySummary
                 {
                     DohEnabled = lastResult.DnsSecurity.DohEnabled,
                     DohState = lastResult.DnsSecurity.DohState,
@@ -925,9 +925,77 @@
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
         if (!dns.DohEnabled) return "Not Configured";
+        // Show provider names if available (e.g., "NextDNS" or "Cloudflare, NextDNS")
+        if (dns.DohProviders.Any())
+        {
+            var providers = string.Join(", ", dns.DohProviders);
+            if (dns.DohState == "auto") return $"{providers} (auto mode)";
+            return providers;
+        }
         if (dns.DohState == "auto") return "Auto (may fallback)";
-        if (dns.DohProviders.Any()) return string.Join(", ", dns.DohProviders);
         return "Enabled";
+    }
+
+    /// <summary>
+    /// Filter hardening measures based on which audit sections are enabled.
+    /// DNS-related notes are filtered when DNS Security is disabled.
+    /// VLAN-related notes are filtered when VLAN Security is disabled.
+    /// </summary>
+    private List<string> GetFilteredHardeningMeasures()
+    {
+        if (lastResult?.HardeningMeasures == null)
+            return new List<string>();
+
+        return lastResult.HardeningMeasures
+            .Where(m => ShouldShowHardeningMeasure(m))
+            .ToList();
+    }
+
+    private bool ShouldShowHardeningMeasure(string measure)
+    {
+        var lowerMeasure = measure.ToLowerInvariant();
+
+        // DNS-related measures (filter when DNS Security is disabled)
+        if (!includeDnsSecurity)
+        {
+            if (lowerMeasure.Contains("dns") ||
+                lowerMeasure.Contains("doh") ||
+                lowerMeasure.Contains("dot") ||
+                lowerMeasure.Contains("wan dns") ||
+                lowerMeasure.Contains("nextdns") ||
+                lowerMeasure.Contains("cloudflare") ||
+                lowerMeasure.Contains("point to gateway") ||
+                lowerMeasure.Contains("leak prevention"))
+            {
+                return false;
+            }
+        }
+
+        // VLAN-related measures (filter when VLAN Security is disabled)
+        if (!includeVlanSecurity)
+        {
+            if (lowerMeasure.Contains("vlan") ||
+                lowerMeasure.Contains("isolated") ||
+                lowerMeasure.Contains("security vlan") ||
+                lowerMeasure.Contains("iot vlan") ||
+                lowerMeasure.Contains("camera"))
+            {
+                return false;
+            }
+        }
+
+        // Port security measures (filter when Port Security is disabled)
+        if (!includePortSecurity)
+        {
+            if (lowerMeasure.Contains("mac") ||
+                lowerMeasure.Contains("port") ||
+                lowerMeasure.Contains("acl"))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private string GetWanDnsStatusClass()

@@ -66,16 +66,21 @@ public class DnsSecurityAnalyzer
             _logger.LogWarning("No firewall data available for DNS security analysis");
         }
 
-        // Analyze device DNS configuration
-        if (switches != null && networks != null)
+        // Analyze device DNS configuration - using raw device data to include APs
+        if (deviceData.HasValue && networks != null)
         {
+            AnalyzeAllDeviceDnsConfiguration(deviceData.Value, networks, result);
+        }
+        else if (switches != null && networks != null)
+        {
+            // Fallback to switches-only if no raw device data
             AnalyzeDeviceDnsConfiguration(switches, networks, result);
         }
 
         // Generate issues based on findings
         GenerateAuditIssues(result);
 
-        _logger.LogInformation("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
+        _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
             result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
 
         return result;
@@ -237,12 +242,14 @@ public class DnsSecurityAnalyzer
 
         if (result.WanDnsServers.Any())
         {
-            _logger.LogInformation("Extracted {Count} WAN DNS servers from device port_table: {Servers}",
+            _logger.LogDebug("Extracted {Count} WAN DNS servers from device port_table: {Servers}",
                 result.WanDnsServers.Count, string.Join(", ", result.WanDnsServers));
         }
         else
         {
-            _logger.LogDebug("No WAN DNS servers found in device port_table");
+            // No static DNS configured - likely using ISP DNS via DHCP
+            result.UsingIspDns = true;
+            _logger.LogDebug("No WAN DNS servers found in device port_table - likely using ISP DNS");
         }
     }
 
@@ -525,7 +532,7 @@ public class DnsSecurityAnalyzer
 
     private void AnalyzeDeviceDnsConfiguration(List<SwitchInfo> switches, List<NetworkInfo> networks, DnsSecurityResult result)
     {
-        // Find the gateway device
+        // Find the gateway device from switches list
         var gateway = switches.FirstOrDefault(s => s.IsGateway);
         if (gateway == null)
         {
@@ -537,37 +544,33 @@ public class DnsSecurityAnalyzer
         var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
             ?? networks.FirstOrDefault(n => n.IsNative);
 
-        // Log network Gateway info for debugging
-        foreach (var net in networks.Take(5))
-        {
-            _logger.LogDebug("Network '{Name}' (VLAN {Vlan}, Purpose={Purpose}): Gateway={Gateway}, Subnet={Subnet}",
-                net.Name, net.VlanId, net.Purpose, net.Gateway ?? "null", net.Subnet ?? "null");
-        }
-
         // Use the internal gateway IP from the management network, not the WAN IP
-        // The Gateway property is the internal IP (e.g., 192.168.1.1), not gateway.IpAddress which is the WAN IP
         var expectedGatewayIp = managementNetwork?.Gateway
             ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
 
         if (string.IsNullOrEmpty(expectedGatewayIp))
         {
-            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation. ManagementNetwork={MgmtNet}, IsNative networks: {NativeNets}",
-                managementNetwork?.Name ?? "not found",
-                string.Join(", ", networks.Where(n => n.IsNative).Select(n => n.Name)));
+            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
             return;
         }
 
-        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation (from network: {NetworkName})",
-            expectedGatewayIp, managementNetwork?.Name ?? "fallback");
+        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
 
-        // Get all non-gateway devices
+        // Get all non-gateway devices from switches list
+        // Note: This list includes switches but may not include APs (which don't have port_table)
+        // For comprehensive DNS checking, we also need to analyze raw device data
         var allDevices = switches.Where(s => !s.IsGateway).ToList();
+
+        _logger.LogDebug("Device DNS validation: {DeviceCount} non-gateway switches/routers found", allDevices.Count);
 
         // Separate devices by network config type
         var devicesWithStaticDns = allDevices.Where(s => !string.IsNullOrEmpty(s.ConfiguredDns1)).ToList();
         var devicesWithDhcp = allDevices.Where(s =>
             string.IsNullOrEmpty(s.ConfiguredDns1) &&
             (s.NetworkConfigType == "dhcp" || string.IsNullOrEmpty(s.NetworkConfigType))).ToList();
+
+        _logger.LogDebug("Device DNS: {StaticCount} with static DNS, {DhcpCount} with DHCP",
+            devicesWithStaticDns.Count, devicesWithDhcp.Count);
 
         result.TotalDevicesChecked = devicesWithStaticDns.Count;
         result.DhcpDeviceCount = devicesWithDhcp.Count;
@@ -608,6 +611,140 @@ public class DnsSecurityAnalyzer
                 UsesDhcp = true
             });
         }
+
+        result.DeviceDnsPointsToGateway = result.DevicesWithCorrectDns == result.TotalDevicesChecked;
+
+        // Generate summary notes and issues
+        if (result.TotalDevicesChecked > 0 || result.DhcpDeviceCount > 0)
+        {
+            var summaryParts = new List<string>();
+
+            if (result.TotalDevicesChecked > 0)
+            {
+                if (result.DeviceDnsPointsToGateway)
+                {
+                    summaryParts.Add($"{result.TotalDevicesChecked} static DNS device(s) point to gateway");
+                }
+                else
+                {
+                    var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
+                    var deviceNames = result.DeviceDnsDetails
+                        .Where(d => !d.PointsToGateway && !d.UsesDhcp)
+                        .Select(d => d.DeviceName)
+                        .ToList();
+
+                    result.Issues.Add(new AuditIssue
+                    {
+                        Type = "DNS_DEVICE_MISCONFIGURED",
+                        Severity = AuditSeverity.Investigate,
+                        Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                        RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                        RuleId = "DNS-DEVICE-001",
+                        ScoreImpact = 3,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "misconfigured_devices", deviceNames },
+                            { "expected_gateway", expectedGatewayIp }
+                        }
+                    });
+                }
+            }
+
+            if (result.DhcpDeviceCount > 0)
+            {
+                summaryParts.Add($"{result.DhcpDeviceCount} device(s) use DHCP-assigned DNS");
+            }
+
+            if (summaryParts.Any() && result.DeviceDnsPointsToGateway)
+            {
+                result.HardeningNotes.Add(string.Join(", ", summaryParts));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Analyze DNS configuration for ALL devices (switches and APs) from raw device data.
+    /// This includes APs which are not in the switches list.
+    /// </summary>
+    private void AnalyzeAllDeviceDnsConfiguration(JsonElement deviceData, List<NetworkInfo> networks, DnsSecurityResult result)
+    {
+        // Find management network to get expected gateway IP
+        var managementNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Management)
+            ?? networks.FirstOrDefault(n => n.IsNative);
+
+        var expectedGatewayIp = managementNetwork?.Gateway
+            ?? networks.FirstOrDefault(n => !string.IsNullOrEmpty(n.Gateway))?.Gateway;
+
+        if (string.IsNullOrEmpty(expectedGatewayIp))
+        {
+            _logger.LogDebug("Could not determine expected internal gateway IP for device DNS validation");
+            return;
+        }
+
+        _logger.LogDebug("Using internal gateway IP {GatewayIp} for device DNS validation", expectedGatewayIp);
+
+        // Process ALL devices from raw device data
+        foreach (var device in deviceData.UnwrapDataArray())
+        {
+            var deviceType = device.GetStringOrNull("type");
+            var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
+            var ip = device.GetStringOrNull("ip");
+
+            // Skip gateways - they're not expected to point to themselves
+            if (UniFiDeviceTypes.IsGateway(deviceType))
+                continue;
+
+            // Get DNS configuration from config_network
+            string? dns1 = null;
+            string? networkConfigType = null;
+            if (device.TryGetProperty("config_network", out var configNetwork))
+            {
+                dns1 = configNetwork.GetStringOrNull("dns1");
+                networkConfigType = configNetwork.GetStringOrNull("type"); // "dhcp" or "static"
+            }
+
+            if (!string.IsNullOrEmpty(dns1))
+            {
+                // Device has static DNS configured
+                var pointsToGateway = dns1 == expectedGatewayIp;
+                result.TotalDevicesChecked++;
+
+                result.DeviceDnsDetails.Add(new DeviceDnsInfo
+                {
+                    DeviceName = name,
+                    DeviceType = deviceType ?? "unknown",
+                    DeviceIp = ip,
+                    ConfiguredDns = dns1,
+                    ExpectedGateway = expectedGatewayIp,
+                    PointsToGateway = pointsToGateway,
+                    UsesDhcp = false
+                });
+
+                if (pointsToGateway)
+                {
+                    result.DevicesWithCorrectDns++;
+                }
+            }
+            else if (networkConfigType == "dhcp" || string.IsNullOrEmpty(networkConfigType))
+            {
+                // Device uses DHCP - DNS comes from DHCP server (gateway)
+                result.DhcpDeviceCount++;
+
+                result.DeviceDnsDetails.Add(new DeviceDnsInfo
+                {
+                    DeviceName = name,
+                    DeviceType = deviceType ?? "unknown",
+                    DeviceIp = ip,
+                    ConfiguredDns = null,
+                    ExpectedGateway = expectedGatewayIp,
+                    PointsToGateway = true, // Assumed correct via DHCP
+                    UsesDhcp = true
+                });
+            }
+        }
+
+        _logger.LogDebug("Device DNS check: {StaticCount} static, {DhcpCount} DHCP, {CorrectCount} correct",
+            result.TotalDevicesChecked, result.DhcpDeviceCount, result.DevicesWithCorrectDns);
 
         result.DeviceDnsPointsToGateway = result.DevicesWithCorrectDns == result.TotalDevicesChecked;
 

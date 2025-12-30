@@ -520,12 +520,13 @@ public class PdfReportGenerator
 
                 column.Item().Table(table =>
                 {
+                    // Uniform column widths for issue tables
                     table.ColumnsDefinition(columns =>
                     {
-                        columns.RelativeColumn(1.6f);
-                        columns.RelativeColumn(1.0f);
-                        columns.RelativeColumn(2.4f);
-                        columns.RelativeColumn(2.0f);
+                        columns.ConstantColumn(100);   // Device
+                        columns.ConstantColumn(60);    // Port
+                        columns.RelativeColumn(2.5f);  // Issue
+                        columns.RelativeColumn(2.0f);  // Action
                     });
 
                     // Header
@@ -571,12 +572,13 @@ public class PdfReportGenerator
 
                 column.Item().Table(table =>
                 {
+                    // Uniform column widths for issue tables (same as Critical)
                     table.ColumnsDefinition(columns =>
                     {
-                        columns.RelativeColumn(1.6f);
-                        columns.RelativeColumn(1.0f);
-                        columns.RelativeColumn(3.0f);
-                        columns.RelativeColumn(1.4f);
+                        columns.ConstantColumn(100);   // Device
+                        columns.ConstantColumn(60);    // Port
+                        columns.RelativeColumn(2.5f);  // Issue
+                        columns.RelativeColumn(2.0f);  // Status
                     });
 
                     // Header
