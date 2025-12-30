@@ -575,10 +575,10 @@ public class DnsSecurityAnalyzer
             }
         }
 
-        // Also check aggregate WAN DNS servers for backwards compatibility
-        result.WanDnsMatchesDoH = interfacesWithCorrectDns.Any() && !interfacesWithMismatch.Any();
+        // WAN DNS only matches if ALL interfaces have correct DNS (no mismatches AND no missing DNS)
+        result.WanDnsMatchesDoH = interfacesWithCorrectDns.Any() && !interfacesWithMismatch.Any() && !interfacesWithNoDns.Any();
 
-        if (interfacesWithCorrectDns.Any() && !interfacesWithMismatch.Any())
+        if (result.WanDnsMatchesDoH)
         {
             result.HardeningNotes.Add($"WAN DNS correctly configured for {expectedProvider.Name}");
         }
