@@ -208,6 +208,21 @@ public class ConfigAuditEngine
                 .Distinct()
                 .ToList();
 
+            // Build interface problem lists with friendly names
+            var interfacesWithoutDns = dnsSecurityResult.WanInterfaces
+                .Where(w => !w.HasStaticDns)
+                .Select(w => !string.IsNullOrEmpty(w.PortName) && w.PortName != "unnamed"
+                    ? $"{w.InterfaceName} ({w.PortName})"
+                    : w.InterfaceName)
+                .ToList();
+
+            var interfacesWithMismatch = dnsSecurityResult.WanInterfaces
+                .Where(w => w.HasStaticDns && !w.MatchesDoH)
+                .Select(w => !string.IsNullOrEmpty(w.PortName) && w.PortName != "unnamed"
+                    ? $"{w.InterfaceName} ({w.PortName})"
+                    : w.InterfaceName)
+                .ToList();
+
             dnsSecurityInfo = new DnsSecurityInfo
             {
                 DohEnabled = dnsSecurityResult.DohConfigured,
@@ -223,7 +238,9 @@ public class ConfigAuditEngine
                 DeviceDnsPointsToGateway = dnsSecurityResult.DeviceDnsPointsToGateway,
                 TotalDevicesChecked = dnsSecurityResult.TotalDevicesChecked,
                 DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns,
-                DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount
+                DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount,
+                InterfacesWithoutDns = interfacesWithoutDns,
+                InterfacesWithMismatch = interfacesWithMismatch
             };
         }
 
