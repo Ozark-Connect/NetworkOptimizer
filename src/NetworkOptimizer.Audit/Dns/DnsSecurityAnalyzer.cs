@@ -543,8 +543,9 @@ public class DnsSecurityAnalyzer
 
             foreach (var wanDns in wanInterface.DnsServers)
             {
-                // Use PTR lookup for more accurate provider detection (sync-over-async for simplicity)
-                var (wanProvider, reverseDns) = DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns).GetAwaiter().GetResult();
+                // Use PTR lookup for more accurate provider detection
+                // Task.Run avoids sync context deadlock in Blazor
+                var (wanProvider, reverseDns) = Task.Run(() => DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns)).GetAwaiter().GetResult();
                 ptrResults.Add(reverseDns);
                 wanInterface.DetectedProvider = wanProvider?.Name;
 
