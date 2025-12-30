@@ -2,12 +2,20 @@
 
 ## 🚀 Quick Start
 
+### macOS
 ```bash
 cd docker
-./start.sh
+docker compose -f docker-compose.macos.yml build
+docker compose -f docker-compose.macos.yml up -d
 ```
 
-Access at: http://localhost:8080
+### Linux / Windows
+```bash
+cd docker
+docker compose up -d
+```
+
+Access at: http://localhost:8042
 
 ## 📋 Common Commands
 
@@ -44,10 +52,9 @@ docker-compose up -d    # Apply updates
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Web UI | http://localhost:8080 | Configure on first run |
+| Web UI | http://localhost:8042 | Configure on first run |
 | Grafana | http://localhost:3000 | admin / (see .env) |
 | InfluxDB | http://localhost:8086 | admin / (see .env) |
-| API | http://localhost:8081 | Token-based (agents) |
 
 ## 📊 Grafana Dashboards
 
@@ -285,7 +292,7 @@ services:
 
 ## ✅ Health Check Endpoints
 
-- Web UI: `http://localhost:8080/health`
+- Web UI: `http://localhost:8042/api/health`
 - Grafana: `http://localhost:3000/api/health`
 - InfluxDB: `http://localhost:8086/health`
 
