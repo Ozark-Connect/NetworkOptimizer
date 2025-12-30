@@ -347,7 +347,8 @@ public class AuditService
                 HardeningMeasures = result.HardeningMeasures,
                 Networks = result.Networks,
                 Switches = result.Switches,
-                WirelessClients = result.WirelessClients
+                WirelessClients = result.WirelessClients,
+                DnsSecurity = result.DnsSecurity
             };
             var reportDataJson = JsonSerializer.Serialize(reportData);
 
@@ -703,7 +704,7 @@ public class AuditService
         "FW_SHADOWED" or "FW_PERMISSIVE" or "FW_ORPHANED" or "FW_ANY_ANY" => "Firewall Rules",
         "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" or "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
         "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATE-001" or "PORT_SECURITY" => "Port Security",
-        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" => "DNS Security",
+        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" or "DNS_WAN_MISMATCH" or "DNS_WAN_NO_STATIC" or "DNS_DEVICE_MISCONFIGURED" => "DNS Security",
         "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Device Placement",
         _ => "General"
     };
@@ -748,6 +749,9 @@ public class AuditService
             "DNS_NO_DOT_BLOCK" => "DNS-over-TLS Not Blocked",
             "DNS_NO_DOH_BLOCK" => "DoH Bypass Not Blocked",
             "DNS_ISP" => "Using ISP DNS Servers",
+            "DNS_WAN_MISMATCH" => "WAN DNS Mismatch",
+            "DNS_WAN_NO_STATIC" => "WAN DNS Not Configured",
+            "DNS_DEVICE_MISCONFIGURED" => "Device DNS Misconfigured",
             "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "IoT Device on Wrong VLAN",
             "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Camera on Wrong VLAN",
             "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
@@ -773,6 +777,9 @@ public class AuditService
         "DNS_NO_DOT_BLOCK" => "Create firewall rule to block outbound TCP port 853 to Internet.",
         "DNS_NO_DOH_BLOCK" => "Create firewall rule to block HTTPS to known DoH provider domains.",
         "DNS_ISP" => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
+        "DNS_WAN_MISMATCH" => "Set WAN DNS servers to match your DoH provider.",
+        "DNS_WAN_NO_STATIC" => "Configure static DNS on the WAN interface to use your DoH provider's servers.",
+        "DNS_DEVICE_MISCONFIGURED" => "Configure device DNS to point to the gateway.",
         _ => "Review the configuration and apply security best practices."
     };
 }
