@@ -636,19 +636,19 @@ public class DnsSecurityAnalyzer
         // Generate issues for interfaces with wrong DNS order (NextDNS: dns2 before dns1)
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
-            var ptrDisplay = string.Join(", ", wanInterface.ReverseDnsResults.Where(p => !string.IsNullOrEmpty(p)));
+            var ips = string.Join(", ", wanInterface.DnsServers);
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_ORDER",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{wanInterface.InterfaceName}' has DNS servers in wrong order. Primary should be dns1, secondary dns2.",
+                Message = $"WAN interface '{wanInterface.InterfaceName}' DNS servers ({ips}) are in wrong order. Primary should be dns1, secondary dns2.",
                 RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} so dns1 is primary",
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>
                 {
                     { "interface", wanInterface.InterfaceName },
-                    { "ptr_results", wanInterface.ReverseDnsResults }
+                    { "dns_servers", wanInterface.DnsServers }
                 }
             });
         }
