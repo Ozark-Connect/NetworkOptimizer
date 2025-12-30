@@ -360,12 +360,16 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 // Auth API endpoints
 app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string returnUrl = "/") =>
 {
+    // Only set Secure flag if actually using HTTPS
+    // (localhost/127.0.0.1 check was causing issues when accessed via IP over HTTP)
+    var isSecure = context.Request.IsHttps;
+
     // Set HttpOnly cookie with the JWT token
     context.Response.Cookies.Append("auth_token", token, new CookieOptions
     {
         HttpOnly = true,
-        Secure = !context.Request.Host.Host.Contains("localhost"),
-        SameSite = SameSiteMode.Strict,
+        Secure = isSecure,
+        SameSite = isSecure ? SameSiteMode.Strict : SameSiteMode.Lax,
         Expires = DateTimeOffset.UtcNow.AddDays(1),
         Path = "/"
     });
