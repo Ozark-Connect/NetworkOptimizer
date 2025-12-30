@@ -71,24 +71,18 @@ public class DnsSecuritySummary
     {
         if (!WanDnsServers.Any()) return "Not Configured";
 
-        // Show PTR results if available (more meaningful than raw IPs)
-        if (WanDnsPtrResults.Any(p => !string.IsNullOrEmpty(p)))
+        var servers = string.Join(", ", WanDnsServers);
+
+        if (WanDnsMatchesDoH)
         {
-            var ptrDisplay = string.Join(", ", WanDnsPtrResults.Where(p => !string.IsNullOrEmpty(p)));
-            if (WanDnsMatchesDoH)
-            {
-                var orderNote = WanDnsOrderCorrect ? "" : " [wrong order]";
-                return $"{ptrDisplay}{orderNote}";
-            }
-            return $"{ptrDisplay} - Expected {ExpectedDnsProvider}";
+            var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
+            var orderNote = WanDnsOrderCorrect ? "" : " [wrong order]";
+            return $"{servers} ({provider}){orderNote}";
         }
 
-        // Fallback to IP display
-        var servers = string.Join(", ", WanDnsServers);
-        if (WanDnsMatchesDoH)
-            return $"{servers} ({ExpectedDnsProvider ?? "matches DoH"})";
         if (!string.IsNullOrEmpty(ExpectedDnsProvider))
             return $"{servers} - Expected {ExpectedDnsProvider}";
+
         return servers;
     }
 

@@ -353,11 +353,29 @@ public class PdfReportGenerator
                     .Text(dns.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH").FontSize(9);
 
                 // WAN DNS Configuration row
-                var wanDnsStatus = !dns.WanDnsServers.Any() ? "Not Configured"
-                    : dns.WanDnsMatchesDoH ? "Matched" : "Mismatched";
                 var neutralColor = "#666666";
-                var wanDnsStatusColor = !dns.WanDnsServers.Any() ? neutralColor
-                    : dns.WanDnsMatchesDoH ? successColor : warningColor;
+                string wanDnsStatus;
+                string wanDnsStatusColor;
+                if (!dns.WanDnsServers.Any())
+                {
+                    wanDnsStatus = "Not Configured";
+                    wanDnsStatusColor = neutralColor;
+                }
+                else if (dns.WanDnsMatchesDoH && !dns.WanDnsOrderCorrect)
+                {
+                    wanDnsStatus = "Wrong Order";
+                    wanDnsStatusColor = warningColor;
+                }
+                else if (dns.WanDnsMatchesDoH)
+                {
+                    wanDnsStatus = "Matched";
+                    wanDnsStatusColor = successColor;
+                }
+                else
+                {
+                    wanDnsStatus = "Mismatched";
+                    wanDnsStatusColor = warningColor;
+                }
 
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text("WAN DNS Configuration").FontSize(9);
