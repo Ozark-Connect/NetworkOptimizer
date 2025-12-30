@@ -418,7 +418,7 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Validate WAN DNS against DoH provider
+        // Validate WAN DNS against DoH provider (uses PTR lookup)
         ValidateWanDnsConfiguration(result);
 
         // Issue: No DNS port 53 blocking (DNS leak prevention)
@@ -542,8 +542,10 @@ public class DnsSecurityAnalyzer
 
             foreach (var wanDns in wanInterface.DnsServers)
             {
-                var wanProvider = DohProviderRegistry.IdentifyProviderFromIp(wanDns);
+                // Use PTR lookup for more accurate provider detection (sync-over-async for simplicity)
+                var (wanProvider, reverseDns) = DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns).GetAwaiter().GetResult();
                 wanInterface.DetectedProvider = wanProvider?.Name;
+                wanInterface.ReverseDns = reverseDns;
 
                 if (wanProvider != null)
                 {
@@ -551,6 +553,10 @@ public class DnsSecurityAnalyzer
                     if (wanProvider.Name == expectedProvider.Name)
                     {
                         matchingServers.Add(wanDns);
+                        if (!string.IsNullOrEmpty(reverseDns))
+                        {
+                            _logger.LogDebug("WAN DNS {Ip} verified as {Provider} via PTR: {ReverseDns}", wanDns, wanProvider.Name, reverseDns);
+                        }
                     }
                     else
                     {
@@ -559,7 +565,8 @@ public class DnsSecurityAnalyzer
                 }
                 else
                 {
-                    mismatchedServers.Add($"{wanDns} (Unknown)");
+                    var unknownLabel = !string.IsNullOrEmpty(reverseDns) ? reverseDns : "Unknown";
+                    mismatchedServers.Add($"{wanDns} ({unknownLabel})");
                 }
             }
 
@@ -1011,6 +1018,7 @@ public class WanInterfaceDns
     public bool HasStaticDns => DnsServers.Any();
     public bool MatchesDoH { get; set; }
     public string? DetectedProvider { get; set; }
+    public string? ReverseDns { get; set; }
 }
 
 /// <summary>

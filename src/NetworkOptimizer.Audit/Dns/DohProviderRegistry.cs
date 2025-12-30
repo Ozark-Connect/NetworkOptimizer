@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace NetworkOptimizer.Audit.Dns;
 
 /// <summary>
@@ -135,7 +137,7 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
-    /// Identify a provider from a DNS IP address
+    /// Identify a provider from a DNS IP address (static lookup only)
     /// </summary>
     public static DohProviderInfo? IdentifyProviderFromIp(string ip)
     {
@@ -151,6 +153,60 @@ public static class DohProviderRegistry
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Identify a provider from a DNS IP address using PTR lookup for verification
+    /// </summary>
+    public static async Task<(DohProviderInfo? Provider, string? ReverseDns)> IdentifyProviderFromIpWithPtrAsync(string ip)
+    {
+        if (string.IsNullOrEmpty(ip))
+            return (null, null);
+
+        // First try static lookup
+        var staticProvider = IdentifyProviderFromIp(ip);
+
+        // For NextDNS (and other providers with dynamic IPs), verify with PTR lookup
+        string? reverseDns = null;
+        try
+        {
+            reverseDns = await ReverseDnsLookupAsync(ip);
+        }
+        catch
+        {
+            // PTR lookup failed - fall back to static match
+        }
+
+        if (!string.IsNullOrEmpty(reverseDns))
+        {
+            // Try to identify provider from the reverse DNS hostname
+            var ptrProvider = IdentifyProvider(reverseDns);
+            if (ptrProvider != null)
+            {
+                return (ptrProvider, reverseDns);
+            }
+        }
+
+        return (staticProvider, reverseDns);
+    }
+
+    /// <summary>
+    /// Perform a reverse DNS (PTR) lookup on an IP address
+    /// </summary>
+    public static async Task<string?> ReverseDnsLookupAsync(string ip)
+    {
+        if (string.IsNullOrEmpty(ip) || !IPAddress.TryParse(ip, out var ipAddress))
+            return null;
+
+        try
+        {
+            var hostEntry = await System.Net.Dns.GetHostEntryAsync(ipAddress);
+            return hostEntry.HostName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 
