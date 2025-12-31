@@ -21,7 +21,6 @@ public class SqmDeploymentService
     // Gateway paths
     private const string OnBootDir = "/data/on_boot.d";
     private const string SqmDir = "/data/sqm";
-    private const string TcMonitorDir = "/data/tc-monitor";
 
     public SqmDeploymentService(
         ILogger<SqmDeploymentService> logger,
@@ -199,14 +198,14 @@ echo 'udm-boot installed successfully'
                 status.SpeedtestScriptDeployed = status.SpeedtestScriptDeployed || sqmScriptCount > 0;
             }
 
-            // Check for SQM Monitor (check both new sqm-monitor and old tc-monitor)
+            // Check for SQM Monitor
             var sqmMonitorCheck = await _sshService.RunCommandWithDeviceAsync(device,
-                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || (test -f {OnBootDir}/20-tc-monitor.sh && echo 'exists' || echo 'missing')");
+                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
             status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
 
-            // Check if SQM Monitor is running (check both new sqm-monitor and old tc-monitor)
+            // Check if SQM Monitor is running
             var sqmMonitorRunning = await _sshService.RunCommandWithDeviceAsync(device,
-                "systemctl is-active sqm-monitor 2>/dev/null || systemctl is-active tc-monitor 2>/dev/null || echo 'inactive'");
+                "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
             status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
             // Check if watchdog timer is running
@@ -397,7 +396,7 @@ echo 'udm-boot installed successfully'
                 return false;
             }
 
-            // Run the script to set up SQM monitor (also cleans up old tc-monitor)
+            // Run the script to set up SQM monitor
             var runResult = await _sshService.RunCommandWithDeviceAsync(device,
                 $"{OnBootDir}/20-sqm-monitor.sh");
 
@@ -460,29 +459,27 @@ echo 'udm-boot installed successfully'
             await _sshService.RunCommandWithDeviceAsync(device,
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
-            // Remove SQM Monitor if requested (handles both old tc-monitor and new sqm-monitor)
+            // Remove SQM Monitor if requested
             if (includeTcMonitor)
             {
                 steps.Add("Stopping SQM Monitor service...");
-                // Stop both old and new services, plus the watchdog timer
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "systemctl stop sqm-monitor-watchdog.timer sqm-monitor tc-monitor 2>/dev/null; " +
-                    "systemctl disable sqm-monitor-watchdog.timer sqm-monitor tc-monitor 2>/dev/null");
+                    "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
+                    "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
 
                 steps.Add("Removing SQM Monitor...");
-                // Remove both old and new boot scripts and directories
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    $"rm -f {OnBootDir}/20-sqm-monitor.sh {OnBootDir}/20-tc-monitor.sh");
+                    $"rm -f {OnBootDir}/20-sqm-monitor.sh");
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    $"rm -rf /data/sqm-monitor {TcMonitorDir}");
+                    "rm -rf /data/sqm-monitor");
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "rm -f /etc/systemd/system/sqm-monitor.service /etc/systemd/system/tc-monitor.service " +
+                    "rm -f /etc/systemd/system/sqm-monitor.service " +
                     "/etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service && " +
                     "systemctl daemon-reload");
             }
 
             steps.Add("SQM removal complete");
-            _logger.LogInformation("SQM scripts removed (TC Monitor: {TcMonitor})", includeTcMonitor);
+            _logger.LogInformation("SQM scripts removed (SQM Monitor: {SqmMonitor})", includeTcMonitor);
 
             // Invalidate SQM status cache so the "Offline" status gets cached
             SqmService.InvalidateStatusCache();
@@ -1027,12 +1024,6 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("Type=oneshot");
         sb.AppendLine("ExecStart=/data/sqm-monitor/sqm-watchdog.sh");
         sb.AppendLine("WATCHDOG_SVC_EOF");
-        sb.AppendLine();
-        sb.AppendLine("# Stop old tc-monitor if running");
-        sb.AppendLine("systemctl stop tc-monitor 2>/dev/null || true");
-        sb.AppendLine("systemctl disable tc-monitor 2>/dev/null || true");
-        sb.AppendLine("rm -f /etc/systemd/system/tc-monitor.service 2>/dev/null || true");
-        sb.AppendLine("rm -rf /data/tc-monitor 2>/dev/null || true");
         sb.AppendLine();
         sb.AppendLine("systemctl daemon-reload");
         sb.AppendLine("systemctl enable \"$SERVICE_NAME\"");
