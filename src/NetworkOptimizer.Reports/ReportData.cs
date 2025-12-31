@@ -40,7 +40,9 @@ public class DnsSecuritySummary
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
     public List<string> MismatchedDnsServers { get; set; } = new();
+    public List<string> MatchedDnsServers { get; set; } = new();
     public List<string> InterfacesWithMismatch { get; set; } = new();
+    public List<string> InterfacesWithoutDns { get; set; } = new();
 
     public string GetDohStatusDisplay()
     {
@@ -71,35 +73,51 @@ public class DnsSecuritySummary
 
     public string GetWanDnsDisplay()
     {
-        if (!WanDnsServers.Any()) return "Not Configured";
+        var parts = new List<string>();
 
-        // If there's a mismatch, show only the incorrect DNS servers
+        // Show mismatched interfaces
         if (InterfacesWithMismatch.Any() && MismatchedDnsServers.Any())
         {
             var mismatchedIps = string.Join(", ", MismatchedDnsServers);
-            return $"Incorrect: {mismatchedIps} on {string.Join(", ", InterfacesWithMismatch)}";
+            parts.Add($"Incorrect: {mismatchedIps} on {string.Join(", ", InterfacesWithMismatch)}");
         }
-
-        var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
-
-        // If wrong order, show the correct order with "Should be" prefix
-        if (WanDnsMatchesDoH && !WanDnsOrderCorrect && WanDnsServers.Count >= 2)
+        // Show correct config if we have it
+        else if (WanDnsServers.Any())
         {
-            var correctOrder = GetCorrectDnsOrder();
-            return $"Should be {correctOrder} ({provider})";
+            var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
+
+            // If wrong order, show the correct order with "Should be" prefix
+            if (WanDnsMatchesDoH && !WanDnsOrderCorrect && WanDnsServers.Count >= 2)
+            {
+                var correctOrder = GetCorrectDnsOrder();
+                parts.Add($"Should be {correctOrder} ({provider})");
+            }
+            else
+            {
+                var servers = string.Join(", ", WanDnsServers);
+                parts.Add($"{servers} ({provider})");
+            }
         }
 
-        var servers = string.Join(", ", WanDnsServers);
-
-        if (WanDnsMatchesDoH)
+        // Show interfaces that need DNS configured
+        if (InterfacesWithoutDns.Any())
         {
-            return $"{servers} ({provider})";
+            var expectedIps = MatchedDnsServers.Any()
+                ? string.Join(", ", MatchedDnsServers)
+                : WanDnsServers.Any()
+                    ? string.Join(", ", WanDnsServers)
+                    : null;
+
+            if (!string.IsNullOrEmpty(expectedIps))
+                parts.Add($"Configure {expectedIps} on {string.Join(", ", InterfacesWithoutDns)}");
+            else
+                parts.Add($"Configure DNS on {string.Join(", ", InterfacesWithoutDns)}");
         }
 
-        if (!string.IsNullOrEmpty(ExpectedDnsProvider))
-            return $"{servers} - Expected {ExpectedDnsProvider}";
+        if (!parts.Any())
+            return "Not Configured";
 
-        return servers;
+        return string.Join(" | ", parts);
     }
 
     private string GetCorrectDnsOrder()
@@ -258,6 +276,7 @@ public class WirelessClientDetail
     public bool IsIoT { get; set; }
     public bool IsCamera { get; set; }
     public bool HasIssue { get; set; }
+    public string? IssueTitle { get; set; }
     public string? IssueMessage { get; set; }
 }
 

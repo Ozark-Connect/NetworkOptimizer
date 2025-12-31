@@ -368,10 +368,10 @@
                                         <th>Port</th>
                                         <th>Name</th>
                                         <th>Link</th>
-                                        <th>Forward</th>
-                                        <th>Native VLAN</th>
                                         <th>PoE</th>
                                         <th>Port Sec</th>
+                                        <th>Forward</th>
+                                        <th>Native VLAN</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
@@ -389,10 +389,10 @@
                                             <td>@port.PortIndex</td>
                                             <td>@port.Name</td>
                                             <td>@GetLinkStatus(port)</td>
-                                            <td>@(port.Forward == "customize" ? "custom" : port.Forward)</td>
-                                            <td>@(port.NativeNetwork != null ? $"{port.NativeNetwork} ({port.NativeVlan})" : (port.Forward == "disabled" ? "-" : ""))</td>
                                             <td>@GetPoeStatus(port)</td>
                                             <td>@GetPortSecurityStatus(port)</td>
+                                            <td>@(port.Forward == "customize" ? "custom" : port.Forward)</td>
+                                            <td>@(port.NativeNetwork != null ? $"{port.NativeNetwork} ({port.NativeVlan})" : (port.Forward == "disabled" ? "-" : ""))</td>
                                             <td>@finalStatus</td>
                                         </tr>
                                     }
@@ -767,7 +767,9 @@
                     WanDnsProvider = lastResult.DnsSecurity.WanDnsProvider,
                     ExpectedDnsProvider = lastResult.DnsSecurity.ExpectedDnsProvider,
                     MismatchedDnsServers = lastResult.DnsSecurity.MismatchedDnsServers.ToList(),
+                    MatchedDnsServers = lastResult.DnsSecurity.MatchedDnsServers.ToList(),
                     InterfacesWithMismatch = lastResult.DnsSecurity.InterfacesWithMismatch.ToList(),
+                    InterfacesWithoutDns = lastResult.DnsSecurity.InterfacesWithoutDns.ToList(),
                     DeviceDnsPointsToGateway = lastResult.DnsSecurity.DeviceDnsPointsToGateway,
                     TotalDevicesChecked = lastResult.DnsSecurity.TotalDevicesChecked,
                     DevicesWithCorrectDns = lastResult.DnsSecurity.DevicesWithCorrectDns,
@@ -786,19 +788,23 @@
                             Mac = g.Key,
                             Model = firstClient.AccessPointModel,
                             ModelName = firstClient.AccessPointModelName,
-                            Clients = g.Select(wc => new NetworkOptimizer.Reports.WirelessClientDetail
-                            {
-                                DisplayName = wc.DisplayName,
-                                Mac = wc.Mac,
-                                Network = wc.NetworkName,
-                                VlanId = wc.VlanId,
-                                DeviceCategory = wc.DeviceCategory,
-                                VendorName = wc.VendorName,
-                                DetectionConfidence = wc.DetectionConfidence,
-                                IsIoT = wc.IsIoT,
-                                IsCamera = wc.IsCamera,
-                                HasIssue = issues.Any(i => i.IsWireless && i.ClientMac == wc.Mac),
-                                IssueMessage = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac)?.Description
+                            Clients = g.Select(wc => {
+                                var clientIssue = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac);
+                                return new NetworkOptimizer.Reports.WirelessClientDetail
+                                {
+                                    DisplayName = wc.DisplayName,
+                                    Mac = wc.Mac,
+                                    Network = wc.NetworkName,
+                                    VlanId = wc.VlanId,
+                                    DeviceCategory = wc.DeviceCategory,
+                                    VendorName = wc.VendorName,
+                                    DetectionConfidence = wc.DetectionConfidence,
+                                    IsIoT = wc.IsIoT,
+                                    IsCamera = wc.IsCamera,
+                                    HasIssue = clientIssue != null,
+                                    IssueTitle = clientIssue?.Title,
+                                    IssueMessage = clientIssue?.Description
+                                };
                             }).ToList()
                         };
                     })
@@ -1075,10 +1081,20 @@
             }
         }
 
-        // Show interfaces with no DNS configured
+        // Show interfaces with no DNS configured - with what they should be configured to
         if (dns.InterfacesWithoutDns.Any())
         {
-            parts.Add($"No DNS: {string.Join(", ", dns.InterfacesWithoutDns)}");
+            // Use matched servers or WAN servers as the expected config
+            var expectedIps = dns.MatchedDnsServers.Any()
+                ? string.Join(", ", dns.MatchedDnsServers)
+                : dns.WanDnsServers.Any()
+                    ? string.Join(", ", dns.WanDnsServers)
+                    : null;
+
+            if (!string.IsNullOrEmpty(expectedIps))
+                parts.Add($"Configure {expectedIps} on {string.Join(", ", dns.InterfacesWithoutDns)}");
+            else
+                parts.Add($"Configure DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
         }
 
         return string.Join(" | ", parts);
