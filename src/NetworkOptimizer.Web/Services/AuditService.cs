@@ -715,22 +715,21 @@ public class AuditService
         "PERMISSIVE_RULE" or "BROAD_RULE" or "ORPHANED_RULE" or "MISSING_ISOLATION" => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
-        // VLAN security issues
+        // VLAN security issues (includes device placement - putting devices on correct VLAN)
         "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" => "VLAN Security",
         "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
         "SECURITY_NETWORK_NOT_ISOLATED" or "MGMT_NETWORK_NOT_ISOLATED" or "IOT_NETWORK_NOT_ISOLATED" => "VLAN Security",
         "SECURITY_NETWORK_HAS_INTERNET" or "MGMT_NETWORK_HAS_INTERNET" => "VLAN Security",
         "MGMT_MISSING_UNIFI_ACCESS" or "MGMT_MISSING_AFC_ACCESS" or "MGMT_MISSING_NTP_ACCESS" or "MGMT_MISSING_5G_ACCESS" => "VLAN Security",
+        // Device placement (wrong VLAN) - controlled by VLAN Security checkbox
+        "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "WIFI-IOT-VLAN-001" => "VLAN Security",
+        "CAMERA_WRONG_VLAN" or "CAMERA-VLAN-001" or "WIFI-CAMERA-VLAN-001" => "VLAN Security",
 
         // Port security issues
-        "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATE-001" or "PORT_SECURITY" => "Port Security",
+        "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATION-001" or "PORT_SECURITY" => "Port Security",
 
         // DNS security issues
-        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" or "DNS_WAN_MISMATCH" or "DNS_WAN_NO_STATIC" or "DNS_DEVICE_MISCONFIGURED" => "DNS Security",
-
-        // Device placement issues
-        "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Device Placement",
-        "WIFI-IOT-VLAN-001" or "WIFI-CAM-VLAN-001" => "Device Placement",
+        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" or "DNS_WAN_MISMATCH" or "DNS_WAN_ORDER" or "DNS_WAN_NO_STATIC" or "DNS_DEVICE_MISCONFIGURED" => "DNS Security",
 
         _ => "General"
     };
@@ -766,7 +765,7 @@ public class AuditService
             "ROUTING_ENABLED" => "Routing on Isolated VLAN",
             "MAC_RESTRICTION" or "MAC-RESTRICT-001" => "Missing MAC Restriction",
             "UNUSED_PORT" or "UNUSED-PORT-001" => "Unused Port Enabled",
-            "PORT_ISOLATION" or "PORT-ISOLATE-001" => "Missing Port Isolation",
+            "PORT_ISOLATION" or "PORT-ISOLATION-001" => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
             "DNS_LEAKAGE" => "DNS Leak Detected",
             "DNS_NO_DOH" => "DoH Not Configured",
@@ -780,7 +779,7 @@ public class AuditService
             "DNS_WAN_NO_STATIC" => "WAN DNS Not Configured",
             "DNS_DEVICE_MISCONFIGURED" => "Device DNS Misconfigured",
             "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "WIFI-IOT-VLAN-001" => "IoT Device on Wrong VLAN",
-            "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" or "WIFI-CAM-VLAN-001" => "Camera on Wrong VLAN",
+            "CAMERA_WRONG_VLAN" or "CAMERA-VLAN-001" or "WIFI-CAMERA-VLAN-001" => "Camera on Wrong VLAN",
             "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
             _ => message.Split('.').FirstOrDefault() ?? type
         };
