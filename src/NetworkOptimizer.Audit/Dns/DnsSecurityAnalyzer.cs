@@ -389,6 +389,20 @@ public class DnsSecurityAnalyzer
         }
     }
 
+    private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
+    {
+        // Pair IPs with their PTR results and sort by dns1 first, dns2 second
+        var paired = servers.Zip(ptrResults, (ip, ptr) => (Ip: ip, Ptr: ptr ?? "")).ToList();
+
+        // Sort: dns1 should come before dns2
+        var sorted = paired
+            .OrderBy(p => p.Ptr.Contains("dns2", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .Select(p => p.Ip)
+            .ToList();
+
+        return string.Join(", ", sorted);
+    }
+
     private void GenerateAuditIssues(DnsSecurityResult result)
     {
         // Issue: DoH not configured
@@ -637,10 +651,8 @@ public class DnsSecurityAnalyzer
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
             var ips = string.Join(", ", wanInterface.DnsServers);
-            // Show the correct order (reversed from current)
-            var correctOrder = wanInterface.DnsServers.Count >= 2
-                ? $"{wanInterface.DnsServers[1]}, {wanInterface.DnsServers[0]}"
-                : string.Join(", ", wanInterface.DnsServers.AsEnumerable().Reverse());
+            // Use PTR results to determine correct order (dns1 before dns2)
+            var correctOrder = GetCorrectDnsOrder(wanInterface.DnsServers, wanInterface.ReverseDnsResults);
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_ORDER",

@@ -76,7 +76,7 @@ public class DnsSecuritySummary
         // If wrong order, show the correct order with "Should be" prefix
         if (WanDnsMatchesDoH && !WanDnsOrderCorrect && WanDnsServers.Count >= 2)
         {
-            var correctOrder = $"{WanDnsServers[1]}, {WanDnsServers[0]}";
+            var correctOrder = GetCorrectDnsOrder();
             return $"Should be {correctOrder} ({provider})";
         }
 
@@ -91,6 +91,20 @@ public class DnsSecuritySummary
             return $"{servers} - Expected {ExpectedDnsProvider}";
 
         return servers;
+    }
+
+    private string GetCorrectDnsOrder()
+    {
+        // Pair IPs with their PTR results and sort by dns1 first, dns2 second
+        var paired = WanDnsServers.Zip(WanDnsPtrResults, (ip, ptr) => (Ip: ip, Ptr: ptr ?? "")).ToList();
+
+        // Sort: dns1 should come before dns2
+        var sorted = paired
+            .OrderBy(p => p.Ptr.Contains("dns2", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .Select(p => p.Ip)
+            .ToList();
+
+        return string.Join(", ", sorted);
     }
 
     // Device DNS validation

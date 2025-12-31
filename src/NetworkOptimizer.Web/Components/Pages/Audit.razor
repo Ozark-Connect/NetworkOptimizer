@@ -1042,7 +1042,7 @@
             // If wrong order, show the correct order with "Should be" prefix
             if (dns.WanDnsMatchesDoH && !dns.WanDnsOrderCorrect && dns.WanDnsServers.Count >= 2)
             {
-                var correctOrder = $"{dns.WanDnsServers[1]}, {dns.WanDnsServers[0]}";
+                var correctOrder = GetCorrectDnsOrder(dns.WanDnsServers, dns.WanDnsPtrResults);
                 parts.Add($"Should be {correctOrder}{providerInfo}");
             }
             else
@@ -1063,6 +1063,20 @@
         }
 
         return string.Join(" | ", parts);
+    }
+
+    private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
+    {
+        // Pair IPs with their PTR results and sort by dns1 first, dns2 second
+        var paired = servers.Zip(ptrResults, (ip, ptr) => (Ip: ip, Ptr: ptr ?? "")).ToList();
+
+        // Sort: dns1 should come before dns2
+        var sorted = paired
+            .OrderBy(p => p.Ptr.Contains("dns2", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .Select(p => p.Ip)
+            .ToList();
+
+        return string.Join(", ", sorted);
     }
 
     private string GetDeviceDnsStatusClass()
