@@ -610,14 +610,13 @@ public class FirewallRuleAnalyzer
         {
             _logger.LogDebug("Checking firewall access for isolated management network '{Name}'", mgmtNetwork.Name);
 
-            // Check for UniFi cloud access rule
+            // Check for UniFi cloud access rule (config-based only)
+            // Must have: source = management network, destination web domain = ui.com
             var hasUniFiAccess = rules.Any(r =>
                 r.Enabled &&
                 r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
-                (r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true ||
-                 r.Name?.Contains("UniFi", StringComparison.OrdinalIgnoreCase) == true) &&
-                (r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true ||
-                 r.Name?.Contains("ui.com", StringComparison.OrdinalIgnoreCase) == true));
+                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true);
 
             if (!hasUniFiAccess)
             {
@@ -641,13 +640,12 @@ public class FirewallRuleAnalyzer
             }
 
             // Check for AFC (Automated Frequency Coordination) traffic rule - needed for 6GHz WiFi
+            // Must have: source = management network, destination web domain = qcs.qualcomm.com
             var hasAfcAccess = rules.Any(r =>
                 r.Enabled &&
                 r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
-                (r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true ||
-                 r.Name?.Contains("AFC", StringComparison.OrdinalIgnoreCase) == true) &&
-                (r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true ||
-                 r.Name?.Contains("AFC", StringComparison.OrdinalIgnoreCase) == true));
+                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true);
 
             if (!hasAfcAccess)
             {
@@ -670,15 +668,19 @@ public class FirewallRuleAnalyzer
                 });
             }
 
-            // Check for 5G modem registration traffic rule (only if a 5G/LTE device is present)
+            // Check for 5G/LTE modem registration traffic rule (only if a 5G/LTE device is present)
+            // Must have: source = management network, destination web domains include carrier registration domains
+            // Known domains: trafficmanager.net, t-mobile.com, gsma.com (carrier-specific domains may vary)
             if (has5GDevice)
             {
                 var has5GModemAccess = rules.Any(r =>
                     r.Enabled &&
                     r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
-                    (r.Name?.Contains("5G", StringComparison.OrdinalIgnoreCase) == true ||
-                     r.Name?.Contains("modem", StringComparison.OrdinalIgnoreCase) == true ||
-                     r.Name?.Contains("LTE", StringComparison.OrdinalIgnoreCase) == true));
+                    r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                    r.WebDomains?.Any(d =>
+                        d.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
+                        d.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
+                        d.Contains("gsma.com", StringComparison.OrdinalIgnoreCase)) == true);
 
                 if (!has5GModemAccess)
                 {
@@ -692,11 +694,12 @@ public class FirewallRuleAnalyzer
                         Metadata = new Dictionary<string, object>
                         {
                             { "network", mgmtNetwork.Name },
-                            { "vlan", mgmtNetwork.VlanId }
+                            { "vlan", mgmtNetwork.VlanId },
+                            { "required_domains", "trafficmanager.net, t-mobile.com, gsma.com" }
                         },
                         RuleId = "FW-MGMT-003",
                         ScoreImpact = 0,
-                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic to the internet"
+                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic (trafficmanager.net, t-mobile.com, gsma.com)"
                     });
                 }
             }
