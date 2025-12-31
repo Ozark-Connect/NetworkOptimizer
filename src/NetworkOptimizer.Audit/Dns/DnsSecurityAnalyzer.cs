@@ -736,7 +736,7 @@ public class DnsSecurityAnalyzer
                 {
                     Type = "DNS_WAN_NO_STATIC",
                     Severity = AuditSeverity.Recommended,
-                    Message = $"WAN interface '{displayName}' has no static DNS configured. It's using ISP-assigned DNS which bypasses your DoH configuration.",
+                    Message = $"WAN interface '{displayName}' has no static DNS configured. If DoH fails, DNS queries will leak to your ISP's DNS servers.",
                     RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers",
                     DeviceName = result.GatewayName,
                     Port = FormatWanInterfaceName(interfaceName, null),
