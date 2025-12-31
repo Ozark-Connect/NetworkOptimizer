@@ -140,6 +140,7 @@ public class DnsSecurityAnalyzer
 
                 if (!string.IsNullOrEmpty(sdnsStamp))
                 {
+                    _logger.LogInformation("Raw SDNS stamp for {Name}: {Stamp}", serverName, sdnsStamp);
                     var decoded = DnsStampDecoder.Decode(sdnsStamp);
                     if (decoded != null)
                     {

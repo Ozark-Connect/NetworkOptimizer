@@ -166,6 +166,32 @@ public static class DnsStampDecoder
         return str;
     }
 
+    /// <summary>
+    /// Read a VLP (variable length packed) vector - multiple length-prefixed items terminated by 0
+    /// This is used for hashes which can have multiple entries
+    /// </summary>
+    private static byte[] ReadVlpVector(byte[] bytes, ref int offset)
+    {
+        var result = new List<byte>();
+
+        while (offset < bytes.Length)
+        {
+            var length = bytes[offset++];
+            if (length == 0)
+                break; // 0 length = terminator
+
+            if (offset + length > bytes.Length)
+                break;
+
+            // Add the length byte and data
+            result.Add(length);
+            for (int i = 0; i < length; i++)
+                result.Add(bytes[offset++]);
+        }
+
+        return result.ToArray();
+    }
+
     private static byte[] ReadVlpData(byte[] bytes, ref int offset)
     {
         if (offset >= bytes.Length)
