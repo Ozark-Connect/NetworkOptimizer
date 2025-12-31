@@ -564,6 +564,28 @@ public class DnsSecurityAnalyzer
             expectedProvider = DohProviderRegistry.IdentifyProviderFromName(primaryServer.ServerName);
         }
 
+        if (expectedProvider == null && primaryServer.StampInfo?.Hostname != null)
+        {
+            // Try to identify from stamp hostname (e.g., dns.nextdns.io)
+            expectedProvider = DohProviderRegistry.IdentifyProvider(primaryServer.StampInfo.Hostname);
+        }
+
+        if (expectedProvider == null && result.WanDnsServers.Any())
+        {
+            // Last resort: try to identify provider from WAN DNS IPs
+            // If WAN DNS is from a known provider, assume DoH is the same provider
+            foreach (var wanDns in result.WanDnsServers)
+            {
+                var (wanProvider, _) = Task.Run(() => DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns)).GetAwaiter().GetResult();
+                if (wanProvider != null)
+                {
+                    expectedProvider = wanProvider;
+                    _logger.LogInformation("Identified DoH provider from WAN DNS IP {Ip}: {Provider}", wanDns, wanProvider.Name);
+                    break;
+                }
+            }
+        }
+
         if (expectedProvider == null)
         {
             _logger.LogDebug("Could not identify DoH provider for WAN DNS validation");

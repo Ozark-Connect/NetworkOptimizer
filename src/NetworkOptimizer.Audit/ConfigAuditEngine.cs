@@ -207,7 +207,12 @@ public class ConfigAuditEngine
                 .Select(s => s.StampInfo?.ProviderInfo?.Name
                     ?? s.Provider?.Name
                     ?? Dns.DohProviderRegistry.IdentifyProviderFromName(s.ServerName)?.Name
-                    ?? s.ServerName)
+                    // Try identifying from stamp hostname (e.g., dns.nextdns.io)
+                    ?? (s.StampInfo?.Hostname != null ? Dns.DohProviderRegistry.IdentifyProvider(s.StampInfo.Hostname)?.Name : null)
+                    // Use hostname if available and looks like a domain
+                    ?? (s.StampInfo?.Hostname?.Contains('.') == true ? s.StampInfo.Hostname : null)
+                    // Last resort: show server name only if it looks like a name, not just an ID
+                    ?? (s.ServerName.Any(char.IsLetter) ? s.ServerName : "Custom DoH"))
                 .Distinct()
                 .ToList();
 
