@@ -167,7 +167,11 @@ public static class DisplayFormatters
         if (matchedDnsServers.Any())
         {
             var servers = string.Join(", ", matchedDnsServers);
-            parts.Add($"{servers} ({providerInfo})");
+            // Add "Correct to:" prefix only for Wrong Order case
+            if (wanDnsMatchesDoH && !wanDnsOrderCorrect)
+                parts.Add($"Correct to: {servers} ({providerInfo})");
+            else
+                parts.Add($"{servers} ({providerInfo})");
         }
 
         // Show mismatched interfaces
