@@ -15,11 +15,12 @@
 
 ## Security Audit / PDF Report
 
-### Excluded Features Still Affecting Score
-- Features unchecked in the Security Audit analysis are still factoring into scoring
-- Expected behavior: Excluding a feature should not display results AND not affect the score
-- Current behavior: Excluded features still deduct/add scoring amounts
-- Fix: Scoring calculation should skip any checks for features that are disabled
+### ~~Excluded Features Still Affecting Score~~ (FIXED)
+- ~~Features unchecked in the Security Audit analysis are still factoring into scoring~~
+- ~~Expected behavior: Excluding a feature should not display results AND not affect the score~~
+- ~~Current behavior: Excluded features still deduct/add scoring amounts~~
+- ~~Fix: Scoring calculation should skip any checks for features that are disabled~~
+- FIXED: Score now recalculated based only on enabled features in AuditService.CalculateFilteredScore()
 
 ### Wireless Client Band Info
 - Show WiFi band (2.4GHz/5GHz/6GHz) in the Port column for wireless issues

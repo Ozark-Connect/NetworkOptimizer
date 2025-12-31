@@ -1034,54 +1034,53 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
-    #region Real-World Scenario Tests
+    #region Complex Scenario Tests
 
     [Fact]
-    public void RulesOverlap_RealScenario_AllowVsRestrictWithOppositeIps_NoOverlap()
+    public void RulesOverlap_AllowWithIps_DenyWithOppositeIpsContainingAllowIps_NoOverlap()
     {
-        // Simulating: "Allow Select Access to Custom UniFi APIs" vs "Restrict CM Access"
-        // Allow: Source IPs [192.168.1.220, 192.168.1.10], opposite=false
-        // Deny: Source IPs [192.168.1.10, .220, .70, .11], opposite=TRUE (inverted!)
-        // The deny rule exempts the allow rule's source IPs, so no overlap
+        // Allow: Source IPs [.10, .20], opposite=false (matches only these IPs)
+        // Deny: Source IPs [.10, .20, .30, .40], opposite=TRUE (matches everyone EXCEPT these IPs)
+        // The allow IPs are in the deny's exception list = no overlap
         var allowRule = CreateRule(
             protocol: "tcp",
             sourceMatchingTarget: "IP",
-            sourceIps: new List<string> { "192.168.1.220", "192.168.1.10" },
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
             sourceMatchOppositeIps: false,
             destMatchingTarget: "ANY",
-            destPort: "8088-8089",
-            destZoneId: "zone-e0fb");
+            destPort: "8080-8090",
+            destZoneId: "zone-001");
 
         var denyRule = CreateRule(
             protocol: "all",
             sourceMatchingTarget: "IP",
-            sourceIps: new List<string> { "192.168.1.10", "192.168.1.220", "192.168.1.70", "192.168.1.11" },
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20", "192.168.1.30", "192.168.1.40" },
             sourceMatchOppositeIps: true,  // INVERTED - matches everyone EXCEPT these IPs
             destMatchingTarget: "IP",
             destIps: new List<string> { "192.168.100.1" },
-            destZoneId: "zone-e0fa");
+            destZoneId: "zone-002");
 
         // Different zones AND the allow IPs are in the deny's exception list
         FirewallRuleOverlapDetector.RulesOverlap(allowRule, denyRule).Should().BeFalse();
     }
 
     [Fact]
-    public void RulesOverlap_RealScenario_DifferentDestinationZones_NoOverlap()
+    public void RulesOverlap_DifferentDestinationZones_NoOverlap()
     {
-        // Simulating rules targeting different destination zones
+        // Rules targeting different destination zones cannot overlap
         var rule1 = CreateRule(
             protocol: "tcp",
             sourceMatchingTarget: "ANY",
             destMatchingTarget: "ANY",
-            destPort: "8088-8089",
-            destZoneId: "6761c0bfb8cfe0fa");
+            destPort: "8080-8090",
+            destZoneId: "zone-lan-001");
 
         var rule2 = CreateRule(
             protocol: "tcp",
             sourceMatchingTarget: "ANY",
             destMatchingTarget: "IP",
-            destIps: new List<string> { "10.110.0.0/16" },
-            destZoneId: "6761c0bfb8cfe0fb");
+            destIps: new List<string> { "10.200.0.0/16" },
+            destZoneId: "zone-wan-002");
 
         FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
     }
@@ -1189,16 +1188,16 @@ public class FirewallRuleOverlapDetectorTests
     }
 
     [Fact]
-    public void IsNarrowerScope_RealScenario_PhoneAccessToIoT_ReturnsTrue()
+    public void IsNarrowerScope_ClientSourceToFewNetworks_VsAnySourceToManyNetworks_ReturnsTrue()
     {
-        // "Allow Phone Access to IoT" - CLIENT source (2 MACs), 2 destination networks
+        // Narrow: CLIENT source (2 MACs) to 2 destination networks
         var allowRule = CreateRule(
             sourceMatchingTarget: "CLIENT",
-            sourceClientMacs: new List<string> { "10:a2:d3:1f:ec:32", "5c:3e:1b:cb:f4:9d" },
+            sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02" },
             destMatchingTarget: "NETWORK",
             destNetworkIds: new List<string> { "net1", "net2" });
 
-        // "[CRITICAL] Block Access to Isolated VLANs" - ANY source, 4 destination networks
+        // Broad: ANY source to 4 destination networks
         var denyRule = CreateRule(
             sourceMatchingTarget: "ANY",
             destMatchingTarget: "NETWORK",
@@ -1208,20 +1207,20 @@ public class FirewallRuleOverlapDetectorTests
     }
 
     [Fact]
-    public void IsNarrowerScope_RealScenario_TjAccessToFnVpn_ReturnsTrue()
+    public void IsNarrowerScope_SpecificIpsToVpnCidr_VsAnyToSameCidr_ReturnsTrue()
     {
-        // "Allow TJ Access to FN VPN" - IP source (specific IPs), IP destination
+        // Narrow: IP source (specific IPs) to VPN CIDR destination
         var allowRule = CreateRule(
             sourceMatchingTarget: "IP",
             sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
             destMatchingTarget: "IP",
-            destIps: new List<string> { "10.110.0.0/16" });
+            destIps: new List<string> { "10.200.0.0/16" });
 
-        // "Block Access to FN VPN" - ANY source, same destination
+        // Broad: ANY source to same VPN CIDR destination
         var denyRule = CreateRule(
             sourceMatchingTarget: "ANY",
             destMatchingTarget: "IP",
-            destIps: new List<string> { "10.110.0.0/16" });
+            destIps: new List<string> { "10.200.0.0/16" });
 
         FirewallRuleOverlapDetector.IsNarrowerScope(allowRule, denyRule).Should().BeTrue();
     }

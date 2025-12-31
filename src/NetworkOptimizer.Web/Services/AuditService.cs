@@ -554,8 +554,9 @@ public class AuditService
         var warningCount = issues.Count(i => i.Severity == "Warning");
         var infoCount = issues.Count(i => i.Severity == "Info");
 
-        var score = engineResult.SecurityScore;
-        var scoreLabel = engineResult.Posture.ToString().ToUpperInvariant();
+        // Recalculate score based on FILTERED issues only (excluded features don't affect score)
+        var score = CalculateFilteredScore(engineResult, options);
+        var scoreLabel = GetScoreLabelForScore(score);
 
         var scoreClass = score switch
         {
@@ -708,11 +709,29 @@ public class AuditService
 
     private static string GetCategory(string issueType) => issueType switch
     {
+        // Firewall rule issues
         "FW_SHADOWED" or "FW_PERMISSIVE" or "FW_ORPHANED" or "FW_ANY_ANY" => "Firewall Rules",
-        "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" or "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
+        "ALLOW_SUBVERTS_DENY" or "ALLOW_EXCEPTION_PATTERN" or "DENY_SHADOWS_ALLOW" => "Firewall Rules",
+        "PERMISSIVE_RULE" or "BROAD_RULE" or "ORPHANED_RULE" or "MISSING_ISOLATION" => "Firewall Rules",
+        var t when t.StartsWith("FW-") => "Firewall Rules",
+
+        // VLAN security issues
+        "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" => "VLAN Security",
+        "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
+        "SECURITY_NETWORK_NOT_ISOLATED" or "MGMT_NETWORK_NOT_ISOLATED" or "IOT_NETWORK_NOT_ISOLATED" => "VLAN Security",
+        "SECURITY_NETWORK_HAS_INTERNET" or "MGMT_NETWORK_HAS_INTERNET" => "VLAN Security",
+        "MGMT_MISSING_UNIFI_ACCESS" or "MGMT_MISSING_AFC_ACCESS" or "MGMT_MISSING_NTP_ACCESS" or "MGMT_MISSING_5G_ACCESS" => "VLAN Security",
+
+        // Port security issues
         "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATE-001" or "PORT_SECURITY" => "Port Security",
+
+        // DNS security issues
         "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" or "DNS_WAN_MISMATCH" or "DNS_WAN_NO_STATIC" or "DNS_DEVICE_MISCONFIGURED" => "DNS Security",
+
+        // Device placement issues
         "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Device Placement",
+        "WIFI-IOT-VLAN-001" or "WIFI-CAM-VLAN-001" => "Device Placement",
+
         _ => "General"
     };
 
@@ -766,6 +785,63 @@ public class AuditService
             _ => message.Split('.').FirstOrDefault() ?? type
         };
     }
+
+    /// <summary>
+    /// Calculate security score based only on issues from enabled features.
+    /// This ensures excluded features don't affect the score.
+    /// </summary>
+    private int CalculateFilteredScore(AuditModels.AuditResult engineResult, AuditOptions options)
+    {
+        const int BaseScore = 100;
+        const int MaxCriticalDeduction = 50;
+        const int MaxRecommendedDeduction = 30;
+        const int MaxInvestigateDeduction = 10;
+
+        // Filter issues based on enabled options
+        var filteredIssues = engineResult.Issues
+            .Where(issue => ShouldInclude(GetCategory(issue.Type), options))
+            .ToList();
+
+        // Calculate deductions from filtered issues only
+        var criticalDeduction = Math.Min(
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Critical).Sum(i => i.ScoreImpact),
+            MaxCriticalDeduction);
+
+        var recommendedDeduction = Math.Min(
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Recommended).Sum(i => i.ScoreImpact),
+            MaxRecommendedDeduction);
+
+        var investigateDeduction = Math.Min(
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Investigate).Sum(i => i.ScoreImpact),
+            MaxInvestigateDeduction);
+
+        // Calculate hardening bonus (same as original - not filtered)
+        var hardeningBonus = 0;
+        if (engineResult.Statistics.HardeningPercentage >= 80) hardeningBonus = 5;
+        else if (engineResult.Statistics.HardeningPercentage >= 60) hardeningBonus = 3;
+        else if (engineResult.Statistics.HardeningPercentage >= 40) hardeningBonus = 2;
+
+        if (engineResult.HardeningMeasures.Count >= 4) hardeningBonus += 3;
+        else if (engineResult.HardeningMeasures.Count >= 2) hardeningBonus += 2;
+        else if (engineResult.HardeningMeasures.Count >= 1) hardeningBonus += 1;
+
+        var score = BaseScore - criticalDeduction - recommendedDeduction - investigateDeduction + hardeningBonus;
+
+        _logger.LogInformation(
+            "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Investigate: -{Investigate}, Bonus: +{Bonus})",
+            score, criticalDeduction, recommendedDeduction, investigateDeduction, hardeningBonus);
+
+        return Math.Max(0, Math.Min(100, score));
+    }
+
+    private static string GetScoreLabelForScore(int score) => score switch
+    {
+        >= 90 => "EXCELLENT",
+        >= 75 => "GOOD",
+        >= 60 => "FAIR",
+        >= 40 => "NEEDS ATTENTION",
+        _ => "CRITICAL"
+    };
 
     private static string GetDefaultRecommendation(string type) => type switch
     {
