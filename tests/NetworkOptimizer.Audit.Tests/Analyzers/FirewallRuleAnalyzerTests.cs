@@ -412,6 +412,458 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region DetectShadowedRules Tests
+
+    [Fact]
+    public void DetectShadowedRules_EmptyRules_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_SingleRule_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block All", action: "drop", index: 1)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_AllowBeforeDeny_ReturnsSubvertIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All", action: "allow", index: 1, sourceType: "any", destType: "any"),
+            CreateFirewallRule("Block IoT", action: "drop", index: 2, sourceType: "any", destType: "any")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("ALLOW_SUBVERTS_DENY");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_DenyBeforeAllow_ReturnsShadowedIssue()
+    {
+        // Both rules must have same protocol scope for shadow detection
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block All", action: "drop", index: 1, sourceType: "any", destType: "any", protocol: "all"),
+            CreateFirewallRule("Allow Specific", action: "allow", index: 2, sourceType: "any", destType: "any", protocol: "all")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("DENY_SHADOWS_ALLOW");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_SameAction_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow A", action: "allow", index: 1),
+            CreateFirewallRule("Allow B", action: "allow", index: 2)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_DisabledRules_Ignored()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All", action: "allow", index: 1, enabled: false, sourceType: "any", destType: "any"),
+            CreateFirewallRule("Block IoT", action: "drop", index: 2, sourceType: "any", destType: "any")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_PredefinedRules_Ignored()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All", action: "allow", index: 1, predefined: true, sourceType: "any", destType: "any"),
+            CreateFirewallRule("Block IoT", action: "drop", index: 2, sourceType: "any", destType: "any")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowAllowBeforeBroadDeny_ReturnsExceptionPattern()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow DNS", action: "allow", index: 1, destPort: "53", sourceType: "any", destType: "any"),
+            CreateFirewallRule("Block All", action: "drop", index: 2, sourceType: "any", destType: "any")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Narrow exception before broad deny should be info-level exception pattern
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Severity.Should().Be(AuditSeverity.Info);
+    }
+
+    #endregion
+
+    #region DetectPermissiveRules Tests
+
+    [Fact]
+    public void DetectPermissiveRules_EmptyRules_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnyAnyAnyAccept_ReturnsCriticalIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All", action: "accept", sourceType: "any", destType: "any", protocol: "all")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("PERMISSIVE_RULE");
+        issue.Severity.Should().Be(AuditSeverity.Critical);
+        issue.ScoreImpact.Should().Be(15);
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceAccept_ReturnsBroadRuleIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow From Any", action: "accept", sourceType: "any", destType: "network", dest: "corp-net")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("BROAD_RULE");
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnyDestAccept_ReturnsBroadRuleIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow To Any", action: "accept", sourceType: "network", source: "corp-net", destType: "any")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("BROAD_RULE");
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_DisabledRule_Ignored()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All", action: "accept", enabled: false, sourceType: "any", destType: "any", protocol: "all")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_DenyRule_NoIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Deny All", action: "drop", sourceType: "any", destType: "any", protocol: "all")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_SpecificSourceAndDest_NoIssue()
+    {
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Specific", action: "accept", sourceType: "network", source: "corp-net", destType: "network", dest: "iot-net")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region DetectOrphanedRules Tests
+
+    [Fact]
+    public void DetectOrphanedRules_EmptyRules_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo> { CreateNetwork("Corporate", NetworkPurpose.Corporate) };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectOrphanedRules_ValidNetworkReference_NoIssue()
+    {
+        var network = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-123");
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Corp", sourceType: "network", source: "corp-net-123")
+        };
+        var networks = new List<NetworkInfo> { network };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectOrphanedRules_InvalidSourceNetwork_ReturnsOrphanedIssue()
+    {
+        var network = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-123");
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Deleted", sourceType: "network", source: "deleted-net-456")
+        };
+        var networks = new List<NetworkInfo> { network };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("ORPHANED_RULE");
+        issue.Severity.Should().Be(AuditSeverity.Investigate);
+    }
+
+    [Fact]
+    public void DetectOrphanedRules_InvalidDestNetwork_ReturnsOrphanedIssue()
+    {
+        var network = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-123");
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow To Deleted", destType: "network", dest: "deleted-net-456")
+        };
+        var networks = new List<NetworkInfo> { network };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("ORPHANED_RULE");
+    }
+
+    [Fact]
+    public void DetectOrphanedRules_DisabledRule_Ignored()
+    {
+        var network = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-123");
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Deleted", enabled: false, sourceType: "network", source: "deleted-net-456")
+        };
+        var networks = new List<NetworkInfo> { network };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectOrphanedRules_AnySourceType_NotOrphaned()
+    {
+        var network = CreateNetwork("Corporate", NetworkPurpose.Corporate);
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Any", sourceType: "any")
+        };
+        var networks = new List<NetworkInfo> { network };
+
+        var issues = _analyzer.DetectOrphanedRules(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region CheckInterVlanIsolation Tests
+
+    [Fact]
+    public void CheckInterVlanIsolation_EmptyNetworks_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IsolatedNetworkEnabled_NoIssue()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, networkIsolationEnabled: true),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate)
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // IoT has isolation enabled via system, so no need for manual firewall rule
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_NonIsolatedIoT_MissingRule_ReturnsIssue()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net")
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("MISSING_ISOLATION");
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_NonIsolatedIoT_HasDropRule_NoIssue()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net")
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block IoT to Corp", action: "drop", source: "iot-net", dest: "corp-net")
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_NonIsolatedGuest_MissingRule_ReturnsIssue()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net")
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("MISSING_ISOLATION");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_DisabledDropRule_StillMissing()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net")
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block IoT to Corp", action: "drop", enabled: false, source: "iot-net", dest: "corp-net")
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().ContainSingle();
+    }
+
+    #endregion
+
+    #region AnalyzeFirewallRules Tests
+
+    [Fact]
+    public void AnalyzeFirewallRules_EmptyInput_ReturnsNoIssues()
+    {
+        var rules = new List<FirewallRule>();
+        var networks = new List<NetworkInfo>();
+
+        var issues = _analyzer.AnalyzeFirewallRules(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeFirewallRules_CombinesAllChecks()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net"),
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // This should trigger PERMISSIVE_RULE
+            CreateFirewallRule("Allow All", action: "accept", sourceType: "any", destType: "any", protocol: "all"),
+            // This should trigger ORPHANED_RULE
+            CreateFirewallRule("Allow Deleted", sourceType: "network", source: "deleted-net")
+        };
+
+        var issues = _analyzer.AnalyzeFirewallRules(rules, networks);
+
+        // Should have PERMISSIVE_RULE, ORPHANED_RULE, and MISSING_ISOLATION
+        issues.Should().Contain(i => i.Type == "PERMISSIVE_RULE");
+        issues.Should().Contain(i => i.Type == "ORPHANED_RULE");
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -442,7 +894,15 @@ public class FirewallRuleAnalyzerTests
         bool enabled = true,
         List<string>? sourceNetworkIds = null,
         List<string>? webDomains = null,
-        string? destinationPort = null)
+        string? destinationPort = null,
+        int index = 1,
+        string? sourceType = null,
+        string? destType = null,
+        string? source = null,
+        string? dest = null,
+        string? protocol = null,
+        string? destPort = null,
+        bool predefined = false)
     {
         return new FirewallRule
         {
@@ -450,10 +910,16 @@ public class FirewallRuleAnalyzerTests
             Name = name,
             Action = action,
             Enabled = enabled,
-            Index = 1,
+            Index = index,
             SourceNetworkIds = sourceNetworkIds,
             WebDomains = webDomains,
-            DestinationPort = destinationPort
+            DestinationPort = destinationPort ?? destPort,
+            SourceType = sourceType,
+            DestinationType = destType,
+            Source = source,
+            Destination = dest,
+            Protocol = protocol,
+            Predefined = predefined
         };
     }
 
