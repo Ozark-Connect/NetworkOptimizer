@@ -101,35 +101,37 @@ public class SqmDeploymentService
 
             // Create the udm-boot service file directly (works on all UDM/UCG devices)
             // This matches the upstream unifios-utilities version exactly
-            var serviceContent = "[Unit]\n" +
-                "Description=Run On Startup UDM 2.x and above\n" +
-                "Wants=network-online.target\n" +
-                "After=network-online.target\n" +
-                "StartLimitIntervalSec=500\n" +
-                "StartLimitBurst=1\n" +
-                "\n" +
-                "[Service]\n" +
-                "Type=oneshot\n" +
-                "ExecStart=bash -c 'mkdir -p /data/on_boot.d && find -L /data/on_boot.d -mindepth 1 -maxdepth 1 -type f -print0 | sort -z | xargs -0 -r -n 1 -- sh -c '\\''if test -x \"$0\"; then echo \"%n: running $0\"; \"$0\"; else case \"$0\" in *.sh) echo \"%n: sourcing $0\"; . \"$0\";; *) echo \"%n: ignoring $0\";; esac; fi'\\'\n" +
-                "RemainAfterExit=true\n" +
-                "\n" +
-                "[Install]\n" +
-                "WantedBy=multi-user.target";
+            // Note: In C# verbatim strings, "" produces a single ". The bash escape pattern '"'"'
+            // (end single quote, double-quoted single quote, resume single quote) is written as '""'""'
+            var serviceContent = @"[Unit]
+Description=Run On Startup UDM 2.x and above
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=500
+StartLimitBurst=1
 
-            // Write service file, enable and start
-            var installCmd = $@"
-cat > /etc/systemd/system/udm-boot.service << 'SERVICEEOF'
-{serviceContent}
-SERVICEEOF
-mkdir -p /data/on_boot.d && \
-systemctl daemon-reload && \
-systemctl enable udm-boot && \
-systemctl start udm-boot && \
-echo 'udm-boot installed successfully'
+[Service]
+Type=oneshot
+ExecStart=bash -c 'mkdir -p /data/on_boot.d && find -L /data/on_boot.d -mindepth 1 -maxdepth 1 -type f -print0 | sort -z | xargs -0 -r -n 1 -- sh -c '""'""'if test -x ""$0""; then echo ""%n: running $0""; ""$0""; else case ""$0"" in *.sh) echo ""%n: sourcing $0""; . ""$0"";; *) echo ""%n: ignoring $0"";; esac; fi'""'""''
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
 ";
+
+            // Use base64 encoding to avoid all shell quoting issues when transferring via SSH
+            var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(serviceContent));
+
+            // Write service file via base64 decode, enable and start
+            var installCmd = $"echo {base64Content} | base64 -d > /etc/systemd/system/udm-boot.service && " +
+                "mkdir -p /data/on_boot.d && " +
+                "systemctl daemon-reload && " +
+                "systemctl enable udm-boot && " +
+                "systemctl start udm-boot && " +
+                "echo udm-boot_installed_successfully";
             var result = await _sshService.RunCommandWithDeviceAsync(device, installCmd);
 
-            if (result.success && result.output.Contains("udm-boot installed successfully"))
+            if (result.success && result.output.Contains("udm-boot_installed_successfully"))
             {
                 _logger.LogInformation("udm-boot installed successfully on {Host}", settings.Host);
                 return (true, "udm-boot installed successfully. Scripts in /data/on_boot.d/ will now run on boot.");
