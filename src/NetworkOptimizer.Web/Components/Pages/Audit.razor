@@ -427,7 +427,6 @@
                                         <th>Client</th>
                                         <th>Type</th>
                                         <th>Network</th>
-                                        <th>VLAN</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
@@ -438,11 +437,13 @@
                                         var hasIssue = clientIssue != null;
                                         var statusClass = hasIssue ? (clientIssue!.Severity == "Critical" ? "row-critical" : "row-warning") : "";
                                         var statusText = hasIssue ? clientIssue!.Title : "OK";
+                                        var networkDisplay = client.VlanId.HasValue
+                                            ? $"{client.NetworkName ?? "Unknown"} ({client.VlanId})"
+                                            : client.NetworkName ?? "Unknown";
                                         <tr class="@statusClass">
                                             <td>@client.DisplayName</td>
                                             <td>@client.DeviceCategory</td>
-                                            <td>@(client.NetworkName ?? "Unknown")</td>
-                                            <td>@(client.VlanId?.ToString() ?? "-")</td>
+                                            <td>@networkDisplay</td>
                                             <td>@statusText</td>
                                         </tr>
                                     }

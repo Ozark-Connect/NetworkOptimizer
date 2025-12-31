@@ -753,8 +753,7 @@ public class PdfReportGenerator
                     {
                         columns.RelativeColumn(2.0f);  // Name
                         columns.RelativeColumn(1.5f);  // Category
-                        columns.RelativeColumn(1.5f);  // Network
-                        columns.ConstantColumn(60);    // VLAN
+                        columns.RelativeColumn(2.0f);  // Network (with VLAN)
                         columns.RelativeColumn(1.5f);  // Status
                     });
 
@@ -770,7 +769,6 @@ public class PdfReportGenerator
                         HeaderCell("Client");
                         HeaderCell("Type");
                         HeaderCell("Network");
-                        HeaderCell("VLAN");
                         HeaderCell("Status");
                     });
 
@@ -784,6 +782,9 @@ public class PdfReportGenerator
                             : Colors.White;
 
                         var status = client.HasIssue ? (client.IssueTitle ?? "Issue") : "OK";
+                        var networkDisplay = client.VlanId.HasValue
+                            ? $"{client.Network ?? "Unknown"} ({client.VlanId})"
+                            : client.Network ?? "Unknown";
 
                         void DataCell(string text)
                         {
@@ -793,8 +794,7 @@ public class PdfReportGenerator
 
                         DataCell(client.DisplayName);
                         DataCell(client.DeviceCategory);
-                        DataCell(client.Network ?? "Unknown");
-                        DataCell(client.VlanId?.ToString() ?? "-");
+                        DataCell(networkDisplay);
 
                         // Status cell with conditional color
                         if (client.HasIssue)
