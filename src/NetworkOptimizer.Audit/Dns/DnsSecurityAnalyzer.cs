@@ -140,7 +140,6 @@ public class DnsSecurityAnalyzer
 
                 if (!string.IsNullOrEmpty(sdnsStamp))
                 {
-                    _logger.LogInformation("Raw SDNS stamp for {Name}: {Stamp}", serverName, sdnsStamp);
                     var decoded = DnsStampDecoder.Decode(sdnsStamp);
                     if (decoded != null)
                     {
@@ -151,7 +150,7 @@ public class DnsSecurityAnalyzer
                             Enabled = enabled,
                             IsCustom = true
                         });
-                        _logger.LogInformation("DoH custom server: name={Name}, protocol={Protocol}, hostname={Hostname}, provider={Provider}",
+                        _logger.LogDebug("DoH custom server: name={Name}, protocol={Protocol}, hostname={Hostname}, provider={Provider}",
                             serverName, decoded.ProtocolName, decoded.Hostname, decoded.ProviderInfo?.Name ?? "not identified");
                     }
                     else
