@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -56,12 +57,98 @@ public class FirewallRuleAnalyzer
             }
         }
 
-        _logger.LogInformation("Extracted {RuleCount} firewall rules", rules.Count);
+        _logger.LogInformation("Extracted {RuleCount} firewall rules from device data", rules.Count);
         return rules;
     }
 
     /// <summary>
-    /// Parse a single firewall rule from JSON
+    /// Extract firewall rules from UniFi firewall policies API response
+    /// </summary>
+    public List<FirewallRule> ExtractFirewallPolicies(JsonElement? firewallPoliciesData)
+    {
+        var rules = new List<FirewallRule>();
+
+        if (!firewallPoliciesData.HasValue)
+        {
+            _logger.LogDebug("No firewall policies data provided");
+            return rules;
+        }
+
+        // Parse policies array (uses UnwrapDataArray to handle both direct array and {data: [...]} wrapper)
+        foreach (var policy in firewallPoliciesData.Value.UnwrapDataArray())
+        {
+            var parsed = ParseFirewallPolicy(policy);
+            if (parsed != null)
+                rules.Add(parsed);
+        }
+
+        _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API", rules.Count);
+        return rules;
+    }
+
+    /// <summary>
+    /// Parse a single firewall policy from the v2 API format
+    /// </summary>
+    private FirewallRule? ParseFirewallPolicy(JsonElement policy)
+    {
+        var id = policy.GetStringOrNull("_id");
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        var name = policy.GetStringOrNull("name");
+        var enabled = policy.GetBoolOrDefault("enabled", true);
+        var action = policy.GetStringOrNull("action");
+        var protocol = policy.GetStringOrNull("protocol");
+        var index = policy.GetIntOrDefault("index", 0);
+
+        // Extract source network IDs
+        List<string>? sourceNetworkIds = null;
+        if (policy.TryGetProperty("source", out var source) && source.ValueKind == JsonValueKind.Object)
+        {
+            if (source.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
+            {
+                sourceNetworkIds = netIds.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+        }
+
+        // Extract destination info including web domains
+        string? destPort = null;
+        string? destType = null;
+        List<string>? webDomains = null;
+        if (policy.TryGetProperty("destination", out var dest) && dest.ValueKind == JsonValueKind.Object)
+        {
+            destPort = dest.GetStringOrNull("port");
+            destType = dest.GetStringOrNull("matching_target");
+
+            if (dest.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
+            {
+                webDomains = domains.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+        }
+
+        return new FirewallRule
+        {
+            Id = id,
+            Name = name,
+            Enabled = enabled,
+            Index = index,
+            Action = action,
+            Protocol = protocol,
+            DestinationType = destType,
+            DestinationPort = destPort,
+            SourceNetworkIds = sourceNetworkIds,
+            WebDomains = webDomains
+        };
+    }
+
+    /// <summary>
+    /// Parse a single firewall rule from JSON (legacy format)
     /// </summary>
     private FirewallRule? ParseFirewallRule(JsonElement rule)
     {
@@ -503,7 +590,7 @@ public class FirewallRuleAnalyzer
     /// When a management network has isolation enabled but internet disabled,
     /// it needs specific firewall rules to allow UniFi cloud, AFC, and device registration traffic.
     /// </summary>
-    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks)
+    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false)
     {
         var issues = new List<AuditIssue>();
 
@@ -537,7 +624,7 @@ public class FirewallRuleAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = "MGMT_MISSING_UNIFI_ACCESS",
-                    Severity = AuditSeverity.Recommended,
+                    Severity = AuditSeverity.Info,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
@@ -548,7 +635,7 @@ public class FirewallRuleAnalyzer
                         { "required_domain", "ui.com" }
                     },
                     RuleId = "FW-MGMT-001",
-                    ScoreImpact = 5,
+                    ScoreImpact = 0,
                     RecommendedAction = "Add firewall rule allowing TCP 443 to ui.com for UniFi cloud management"
                 });
             }
@@ -567,7 +654,7 @@ public class FirewallRuleAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = "MGMT_MISSING_AFC_ACCESS",
-                    Severity = AuditSeverity.Recommended,
+                    Severity = AuditSeverity.Info,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack AFC traffic access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
@@ -578,9 +665,40 @@ public class FirewallRuleAnalyzer
                         { "required_domains", "afcapi.qcs.qualcomm.com, location.qcs.qualcomm.com, api.qcs.qualcomm.com" }
                     },
                     RuleId = "FW-MGMT-002",
-                    ScoreImpact = 5,
+                    ScoreImpact = 0,
                     RecommendedAction = "Add firewall rule allowing AFC traffic for 6GHz WiFi coordination"
                 });
+            }
+
+            // Check for 5G modem registration traffic rule (only if a 5G/LTE device is present)
+            if (has5GDevice)
+            {
+                var has5GModemAccess = rules.Any(r =>
+                    r.Enabled &&
+                    r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
+                    (r.Name?.Contains("5G", StringComparison.OrdinalIgnoreCase) == true ||
+                     r.Name?.Contains("modem", StringComparison.OrdinalIgnoreCase) == true ||
+                     r.Name?.Contains("LTE", StringComparison.OrdinalIgnoreCase) == true));
+
+                if (!has5GModemAccess)
+                {
+                    issues.Add(new AuditIssue
+                    {
+                        Type = "MGMT_MISSING_5G_ACCESS",
+                        Severity = AuditSeverity.Info,
+                        Message = $"Isolated management network '{mgmtNetwork.Name}' may lack 5G/LTE modem registration access",
+                        CurrentNetwork = mgmtNetwork.Name,
+                        CurrentVlan = mgmtNetwork.VlanId,
+                        Metadata = new Dictionary<string, object>
+                        {
+                            { "network", mgmtNetwork.Name },
+                            { "vlan", mgmtNetwork.VlanId }
+                        },
+                        RuleId = "FW-MGMT-003",
+                        ScoreImpact = 0,
+                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic to the internet"
+                    });
+                }
             }
         }
 

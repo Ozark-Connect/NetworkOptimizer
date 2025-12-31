@@ -154,15 +154,24 @@ public class ConfigAuditEngine
         _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {IsolationIssues} network isolation issues, {InternetIssues} internet access issues",
             dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, networkIsolationIssues.Count, internetAccessIssues.Count);
 
-        // Extract and analyze firewall rules
+        // Extract and analyze firewall rules (from both legacy device data and new policies API)
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
         var firewallRules = _firewallAnalyzer.ExtractFirewallRules(deviceData);
+        var policyRules = _firewallAnalyzer.ExtractFirewallPolicies(firewallPoliciesData);
+        firewallRules.AddRange(policyRules);
+
         var firewallIssues = firewallRules.Any()
             ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, networks)
             : new List<AuditIssue>();
-        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, networks);
-        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues",
-            firewallIssues.Count, mgmtFirewallIssues.Count);
+
+        // Check if there's a 5G/LTE device on the network
+        var has5GDevice = switches.Any(s =>
+            s.Model?.StartsWith("U5G", StringComparison.OrdinalIgnoreCase) == true ||
+            s.Model?.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase) == true);
+
+        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, networks, has5GDevice);
+        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues (5G device: {Has5G})",
+            firewallIssues.Count, mgmtFirewallIssues.Count, has5GDevice);
 
         // Analyze DNS security (DoH configuration and firewall rules for DNS leak prevention)
         _logger.LogInformation("Phase 5b: Analyzing DNS security");
