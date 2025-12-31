@@ -403,6 +403,29 @@ public class DnsSecurityAnalyzer
         return string.Join(", ", sorted);
     }
 
+    /// <summary>
+    /// Format WAN interface name for display: "wan" -> "WAN1", "wan2" -> "WAN2", etc.
+    /// </summary>
+    private static string FormatWanInterfaceName(string interfaceName, string? portName)
+    {
+        // Convert wan/wan2/wan3 to WAN1/WAN2/WAN3
+        var formattedName = interfaceName.ToLowerInvariant() switch
+        {
+            "wan" => "WAN1",
+            var name when name.StartsWith("wan") && name.Length > 3 && char.IsDigit(name[3])
+                => $"WAN{name[3..]}",
+            _ => interfaceName
+        };
+
+        // Add port name if available
+        if (!string.IsNullOrEmpty(portName) && portName != "unnamed")
+        {
+            return $"{formattedName} ({portName})";
+        }
+
+        return formattedName;
+    }
+
     private void GenerateAuditIssues(DnsSecurityResult result)
     {
         // Issue: DoH not configured
@@ -628,10 +651,7 @@ public class DnsSecurityAnalyzer
         // Generate interface-specific issues
         foreach (var (interfaceName, portName, mismatchedServers) in interfacesWithMismatch)
         {
-            // Create display name with port name if available
-            var displayName = !string.IsNullOrEmpty(portName) && portName != "unnamed"
-                ? $"{interfaceName} ({portName})"
-                : interfaceName;
+            var displayName = FormatWanInterfaceName(interfaceName, portName);
 
             var expectedIps = expectedProvider.DnsIps.Take(2).ToList();
             var expectedIpsStr = expectedIps.Any() ? string.Join(", ", expectedIps) : "";
@@ -661,10 +681,7 @@ public class DnsSecurityAnalyzer
         // Generate issues for interfaces with wrong DNS order (NextDNS: dns2 before dns1)
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
-            // Create display name with port name if available
-            var displayName = !string.IsNullOrEmpty(wanInterface.PortName) && wanInterface.PortName != "unnamed"
-                ? $"{wanInterface.InterfaceName} ({wanInterface.PortName})"
-                : wanInterface.InterfaceName;
+            var displayName = FormatWanInterfaceName(wanInterface.InterfaceName, wanInterface.PortName);
 
             var ips = string.Join(", ", wanInterface.DnsServers);
             // Use PTR results to determine correct order (dns1 before dns2)
@@ -693,9 +710,7 @@ public class DnsSecurityAnalyzer
             {
                 // Get the interface details for a better message
                 var wanInterface = result.WanInterfaces.FirstOrDefault(w => w.InterfaceName == interfaceName);
-                var displayName = !string.IsNullOrEmpty(wanInterface?.PortName) && wanInterface.PortName != "unnamed"
-                    ? $"{interfaceName} ({wanInterface.PortName})"
-                    : interfaceName;
+                var displayName = FormatWanInterfaceName(interfaceName, wanInterface?.PortName);
 
                 var providerName = result.ExpectedDnsProvider ?? "your DoH provider";
                 var expectedIps = result.ConfiguredServers

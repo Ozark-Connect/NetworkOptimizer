@@ -220,16 +220,12 @@ public class ConfigAuditEngine
             // Build interface problem lists with friendly names
             var interfacesWithoutDns = dnsSecurityResult.WanInterfaces
                 .Where(w => !w.HasStaticDns)
-                .Select(w => !string.IsNullOrEmpty(w.PortName) && w.PortName != "unnamed"
-                    ? $"{w.InterfaceName} ({w.PortName})"
-                    : w.InterfaceName)
+                .Select(w => FormatWanInterfaceName(w.InterfaceName, w.PortName))
                 .ToList();
 
             var interfacesWithMismatch = dnsSecurityResult.WanInterfaces
                 .Where(w => w.HasStaticDns && !w.MatchesDoH)
-                .Select(w => !string.IsNullOrEmpty(w.PortName) && w.PortName != "unnamed"
-                    ? $"{w.InterfaceName} ({w.PortName})"
-                    : w.InterfaceName)
+                .Select(w => FormatWanInterfaceName(w.InterfaceName, w.PortName))
                 .ToList();
 
             // Collect DNS servers only from mismatched interfaces
@@ -512,5 +508,28 @@ public class ConfigAuditEngine
         }
 
         return name;
+    }
+
+    /// <summary>
+    /// Format WAN interface name for display: "wan" -> "WAN1", "wan2" -> "WAN2", etc.
+    /// </summary>
+    private static string FormatWanInterfaceName(string interfaceName, string? portName)
+    {
+        // Convert wan/wan2/wan3 to WAN1/WAN2/WAN3
+        var formattedName = interfaceName.ToLowerInvariant() switch
+        {
+            "wan" => "WAN1",
+            var name when name.StartsWith("wan") && name.Length > 3 && char.IsDigit(name[3])
+                => $"WAN{name[3..]}",
+            _ => interfaceName
+        };
+
+        // Add port name if available
+        if (!string.IsNullOrEmpty(portName) && portName != "unnamed")
+        {
+            return $"{formattedName} ({portName})";
+        }
+
+        return formattedName;
     }
 }
