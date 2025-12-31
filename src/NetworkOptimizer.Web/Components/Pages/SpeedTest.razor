@@ -14,6 +14,7 @@
 @inject NetworkPathAnalyzer PathAnalyzer
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
+@inject SystemSettingsService SettingsService
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
 
@@ -22,7 +23,43 @@
     <p class="page-description">Test network bandwidth using iperf3</p>
 </div>
 
-<div class="speedtest-container">
+@if (localIperf3Status != null && !localIperf3Status.IsAvailable)
+{
+    <div class="alert alert-danger iperf3-missing-alert">
+        <div class="iperf3-missing-content">
+            <div class="iperf3-missing-icon">!</div>
+            <div class="iperf3-missing-text">
+                <strong>iperf3 Not Available on Server</strong>
+                <p>
+                    The iperf3 tool is not installed or not accessible on this server.
+                    Speed tests cannot run without it.
+                </p>
+                @if (!string.IsNullOrEmpty(localIperf3Status.Error))
+                {
+                    <p class="iperf3-error-detail"><code>@localIperf3Status.Error</code></p>
+                }
+                <p class="iperf3-install-hint">
+                    <strong>To fix:</strong> Install iperf3 on this server.
+                    If running in Docker, ensure iperf3 is included in the container image.
+                    If running natively, install via your package manager (e.g., <code>apt install iperf3</code> or <code>brew install iperf3</code>).
+                </p>
+            </div>
+            <button class="btn btn-secondary btn-sm" @onclick="RecheckLocalIperf3" disabled="@recheckingIperf3">
+                @if (recheckingIperf3)
+                {
+                    <span class="spinner"></span>
+                    <span>Checking...</span>
+                }
+                else
+                {
+                    <span>Recheck</span>
+                }
+            </button>
+        </div>
+    </div>
+}
+
+<div class="speedtest-container @(localIperf3Status != null && !localIperf3Status.IsAvailable ? "locked-out" : "")">
     <!-- Gateway Speed Test Section -->
     <div class="card">
         <div class="card-header">
@@ -758,9 +795,89 @@
         font-size: 0.8rem;
         color: var(--text-muted);
     }
+
+    /* iperf3 missing warning */
+    .iperf3-missing-alert {
+        margin-bottom: 1.5rem;
+    }
+
+    .iperf3-missing-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .iperf3-missing-icon {
+        flex-shrink: 0;
+        width: 2.5rem;
+        height: 2.5rem;
+        background: var(--danger-color);
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.5rem;
+    }
+
+    .iperf3-missing-text {
+        flex: 1;
+    }
+
+    .iperf3-missing-text p {
+        margin: 0.5rem 0;
+    }
+
+    .iperf3-error-detail {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+    }
+
+    .iperf3-error-detail code {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+    }
+
+    .iperf3-install-hint {
+        font-size: 0.875rem;
+        background: rgba(0, 0, 0, 0.05);
+        padding: 0.75rem;
+        border-radius: var(--border-radius);
+        margin-top: 0.75rem !important;
+    }
+
+    .iperf3-install-hint code {
+        background: rgba(0, 0, 0, 0.1);
+        padding: 0.125rem 0.375rem;
+        border-radius: 4px;
+    }
+
+    /* Locked out state */
+    .speedtest-container.locked-out {
+        opacity: 0.5;
+        pointer-events: none;
+        user-select: none;
+    }
+
+    .speedtest-container.locked-out::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: transparent;
+        cursor: not-allowed;
+    }
 </style>
 
 @code {
+    // Local iperf3 availability
+    private LocalIperf3Status? localIperf3Status;
+    private bool recheckingIperf3 = false;
+
     private List<DeviceSshConfiguration> devices = new();
     private DeviceSshConfiguration editingDevice = new() { DeviceType = DeviceTypes.Server, Enabled = true };
     private List<Iperf3Result> testHistory = new();
@@ -819,6 +936,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Check local iperf3 availability first (before any other operations)
+        localIperf3Status = await SettingsService.CheckLocalIperf3Async();
+
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
         await ConnectionService.WaitForConnectionAsync();
 
@@ -827,6 +947,22 @@
         await LoadDevices();
         await LoadHistory();
         await LoadDiscoveredDevices();
+    }
+
+    private async Task RecheckLocalIperf3()
+    {
+        recheckingIperf3 = true;
+        StateHasChanged();
+
+        try
+        {
+            localIperf3Status = await SettingsService.CheckLocalIperf3Async(forceRefresh: true);
+        }
+        finally
+        {
+            recheckingIperf3 = false;
+            StateHasChanged();
+        }
     }
 
     private async Task LoadGatewayConfiguration()

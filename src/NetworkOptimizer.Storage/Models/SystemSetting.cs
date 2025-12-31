@@ -31,4 +31,9 @@ public static class SystemSettingKeys
     public const string Iperf3GatewayParallelStreams = "iperf3.gateway_parallel_streams";
     public const string Iperf3UniFiParallelStreams = "iperf3.unifi_parallel_streams";
     public const string Iperf3OtherParallelStreams = "iperf3.other_parallel_streams";
+
+    // Local iperf3 availability (server-side)
+    public const string Iperf3LocalAvailable = "iperf3.local_available";
+    public const string Iperf3LocalVersion = "iperf3.local_version";
+    public const string Iperf3LocalLastChecked = "iperf3.local_last_checked";
 }

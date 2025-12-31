@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
@@ -135,6 +136,141 @@ public class SystemSettingsService
         await SetIperf3UniFiParallelStreamsAsync(settings.UniFiParallelStreams);
         await SetIperf3OtherParallelStreamsAsync(settings.OtherParallelStreams);
     }
+
+    /// <summary>
+    /// Check if local iperf3 is available on this server (runs iperf3 --version)
+    /// </summary>
+    public async Task<LocalIperf3Status> CheckLocalIperf3Async(bool forceRefresh = false)
+    {
+        // Check cache first (unless forcing refresh)
+        if (!forceRefresh)
+        {
+            var cachedStatus = await GetCachedLocalIperf3StatusAsync();
+            if (cachedStatus != null)
+            {
+                return cachedStatus;
+            }
+        }
+
+        // Run iperf3 --version to check availability
+        var status = await RunLocalIperf3VersionCheckAsync();
+
+        // Cache the result
+        await CacheLocalIperf3StatusAsync(status);
+
+        return status;
+    }
+
+    /// <summary>
+    /// Get cached local iperf3 status (returns null if cache expired or not set)
+    /// </summary>
+    public async Task<LocalIperf3Status?> GetCachedLocalIperf3StatusAsync()
+    {
+        var availableStr = await GetAsync(SystemSettingKeys.Iperf3LocalAvailable);
+        var version = await GetAsync(SystemSettingKeys.Iperf3LocalVersion);
+        var lastCheckedStr = await GetAsync(SystemSettingKeys.Iperf3LocalLastChecked);
+
+        if (string.IsNullOrEmpty(availableStr) || string.IsNullOrEmpty(lastCheckedStr))
+            return null;
+
+        if (!bool.TryParse(availableStr, out var available))
+            return null;
+
+        if (!DateTime.TryParse(lastCheckedStr, out var lastChecked))
+            return null;
+
+        // Cache expires after 1 hour
+        if (DateTime.UtcNow - lastChecked > TimeSpan.FromHours(1))
+            return null;
+
+        return new LocalIperf3Status
+        {
+            IsAvailable = available,
+            Version = version,
+            LastChecked = lastChecked
+        };
+    }
+
+    /// <summary>
+    /// Cache local iperf3 status
+    /// </summary>
+    private async Task CacheLocalIperf3StatusAsync(LocalIperf3Status status)
+    {
+        await SetAsync(SystemSettingKeys.Iperf3LocalAvailable, status.IsAvailable.ToString());
+        await SetAsync(SystemSettingKeys.Iperf3LocalVersion, status.Version);
+        await SetAsync(SystemSettingKeys.Iperf3LocalLastChecked, status.LastChecked.ToString("O"));
+    }
+
+    /// <summary>
+    /// Run iperf3 --version locally to check availability
+    /// </summary>
+    private async Task<LocalIperf3Status> RunLocalIperf3VersionCheckAsync()
+    {
+        var status = new LocalIperf3Status { LastChecked = DateTime.UtcNow };
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "iperf3",
+                Arguments = "--version",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                status.IsAvailable = false;
+                status.Error = "Failed to start iperf3 process";
+                return status;
+            }
+
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+
+            // Wait with timeout
+            var completed = process.WaitForExit(5000);
+            if (!completed)
+            {
+                try { process.Kill(); } catch { }
+                status.IsAvailable = false;
+                status.Error = "iperf3 version check timed out";
+                return status;
+            }
+
+            if (process.ExitCode == 0 || !string.IsNullOrEmpty(output))
+            {
+                status.IsAvailable = true;
+                // Parse version from output (e.g., "iperf 3.14 (cJSON 1.7.15)")
+                var versionLine = output.Split('\n').FirstOrDefault()?.Trim();
+                status.Version = versionLine ?? "iperf3";
+                _logger.LogInformation("Local iperf3 available: {Version}", status.Version);
+            }
+            else
+            {
+                status.IsAvailable = false;
+                status.Error = string.IsNullOrEmpty(error) ? "iperf3 not found" : error.Trim();
+                _logger.LogWarning("Local iperf3 not available: {Error}", status.Error);
+            }
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2) // File not found
+        {
+            status.IsAvailable = false;
+            status.Error = "iperf3 not installed or not in PATH";
+            _logger.LogWarning("Local iperf3 not found: {Message}", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            status.IsAvailable = false;
+            status.Error = ex.Message;
+            _logger.LogWarning("Error checking local iperf3: {Message}", ex.Message);
+        }
+
+        return status;
+    }
 }
 
 /// <summary>
@@ -146,4 +282,15 @@ public class Iperf3Settings
     public int GatewayParallelStreams { get; set; } = SystemSettingsService.DefaultIperf3GatewayParallelStreams;
     public int UniFiParallelStreams { get; set; } = SystemSettingsService.DefaultIperf3UniFiParallelStreams;
     public int OtherParallelStreams { get; set; } = SystemSettingsService.DefaultIperf3OtherParallelStreams;
+}
+
+/// <summary>
+/// Status of local iperf3 installation on the server
+/// </summary>
+public class LocalIperf3Status
+{
+    public bool IsAvailable { get; set; }
+    public string? Version { get; set; }
+    public string? Error { get; set; }
+    public DateTime LastChecked { get; set; }
 }
