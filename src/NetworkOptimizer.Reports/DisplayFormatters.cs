@@ -252,7 +252,7 @@ public static class DisplayFormatters
         if (totalDevicesChecked > 0)
         {
             if (deviceDnsPointsToGateway)
-                parts.Add($"{totalDevicesChecked} static device(s) point to gateway");
+                parts.Add($"{totalDevicesChecked} static IP device(s) point to gateway");
             else
             {
                 var misconfigured = totalDevicesChecked - devicesWithCorrectDns;
