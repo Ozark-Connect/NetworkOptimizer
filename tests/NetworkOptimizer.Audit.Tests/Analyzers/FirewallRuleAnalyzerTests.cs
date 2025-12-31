@@ -11,11 +11,14 @@ public class FirewallRuleAnalyzerTests
 {
     private readonly FirewallRuleAnalyzer _analyzer;
     private readonly Mock<ILogger<FirewallRuleAnalyzer>> _loggerMock;
+    private readonly Mock<ILogger<FirewallRuleParser>> _parserLoggerMock;
 
     public FirewallRuleAnalyzerTests()
     {
         _loggerMock = new Mock<ILogger<FirewallRuleAnalyzer>>();
-        _analyzer = new FirewallRuleAnalyzer(_loggerMock.Object);
+        _parserLoggerMock = new Mock<ILogger<FirewallRuleParser>>();
+        var parser = new FirewallRuleParser(_parserLoggerMock.Object);
+        _analyzer = new FirewallRuleAnalyzer(_loggerMock.Object, parser);
     }
 
     #region AnalyzeManagementNetworkFirewallAccess Tests
