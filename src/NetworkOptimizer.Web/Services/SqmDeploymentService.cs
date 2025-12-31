@@ -100,20 +100,21 @@ public class SqmDeploymentService
             _logger.LogInformation("Installing udm-boot on gateway {Host}", settings.Host);
 
             // Create the udm-boot service file directly (works on all UDM/UCG devices)
-            var serviceContent = @"[Unit]
-Description=Run On Startup UDM 2.x and above
-Wants=network-online.target
-After=network-online.target
-StartLimitIntervalSec=500
-StartLimitBurst=1
-
-[Service]
-Type=oneshot
-ExecStart=bash -c 'mkdir -p /data/on_boot.d && find -L /data/on_boot.d -mindepth 1 -maxdepth 1 -type f -name ""*.sh"" -print0 | sort -z | xargs -0 -r -n 1 -- bash'
-RemainAfterExit=true
-
-[Install]
-WantedBy=multi-user.target";
+            // This matches the upstream unifios-utilities version exactly
+            var serviceContent = "[Unit]\n" +
+                "Description=Run On Startup UDM 2.x and above\n" +
+                "Wants=network-online.target\n" +
+                "After=network-online.target\n" +
+                "StartLimitIntervalSec=500\n" +
+                "StartLimitBurst=1\n" +
+                "\n" +
+                "[Service]\n" +
+                "Type=oneshot\n" +
+                "ExecStart=bash -c 'mkdir -p /data/on_boot.d && find -L /data/on_boot.d -mindepth 1 -maxdepth 1 -type f -print0 | sort -z | xargs -0 -r -n 1 -- sh -c '\\''if test -x \"$0\"; then echo \"%n: running $0\"; \"$0\"; else case \"$0\" in *.sh) echo \"%n: sourcing $0\"; . \"$0\";; *) echo \"%n: ignoring $0\";; esac; fi'\\'\n" +
+                "RemainAfterExit=true\n" +
+                "\n" +
+                "[Install]\n" +
+                "WantedBy=multi-user.target";
 
             // Write service file, enable and start
             var installCmd = $@"
