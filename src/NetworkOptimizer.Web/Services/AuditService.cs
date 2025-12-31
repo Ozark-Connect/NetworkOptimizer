@@ -754,6 +754,7 @@ public class AuditService
             "DNS_NO_DOH_BLOCK" => "DoH Bypass Not Blocked",
             "DNS_ISP" => "Using ISP DNS Servers",
             "DNS_WAN_MISMATCH" => "WAN DNS Mismatch",
+            "DNS_WAN_ORDER" => "WAN DNS Wrong Order",
             "DNS_WAN_NO_STATIC" => "WAN DNS Not Configured",
             "DNS_DEVICE_MISCONFIGURED" => "Device DNS Misconfigured",
             "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "IoT Device on Wrong VLAN",

@@ -966,7 +966,10 @@ public class DnsSecurityAnalyzer
     {
         var providerNames = result.ConfiguredServers
             .Where(s => s.Enabled)
-            .Select(s => s.StampInfo?.ProviderInfo?.Name ?? s.Provider?.Name ?? s.ServerName)
+            .Select(s => s.StampInfo?.ProviderInfo?.Name
+                ?? s.Provider?.Name
+                ?? DohProviderRegistry.IdentifyProviderFromName(s.ServerName)?.Name
+                ?? s.ServerName)
             .Distinct()
             .ToList();
 

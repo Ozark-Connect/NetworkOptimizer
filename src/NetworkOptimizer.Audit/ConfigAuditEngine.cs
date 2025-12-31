@@ -204,7 +204,10 @@ public class ConfigAuditEngine
         {
             var providerNames = dnsSecurityResult.ConfiguredServers
                 .Where(s => s.Enabled)
-                .Select(s => s.StampInfo?.ProviderInfo?.Name ?? s.Provider?.Name ?? s.ServerName)
+                .Select(s => s.StampInfo?.ProviderInfo?.Name
+                    ?? s.Provider?.Name
+                    ?? Dns.DohProviderRegistry.IdentifyProviderFromName(s.ServerName)?.Name
+                    ?? s.ServerName)
                 .Distinct()
                 .ToList();
 
