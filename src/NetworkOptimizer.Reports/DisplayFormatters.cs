@@ -161,14 +161,22 @@ public static class DisplayFormatters
         bool wanDnsOrderCorrect)
     {
         var parts = new List<string>();
+        var hasIssues = interfacesWithMismatch.Any() || interfacesWithoutDns.Any();
+        var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
 
-        // Show correct DNS config first if we have matched servers
+        // Show matched servers - use "Correct:" prefix only if there are also issues
         if (matchedDnsServers.Any())
         {
-            // For correct/matched servers, use the expected DoH provider name
-            var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
             var servers = string.Join(", ", matchedDnsServers);
-            parts.Add($"Correct to: {servers} ({providerInfo})");
+            if (hasIssues)
+            {
+                parts.Add($"Correct: {servers} ({providerInfo})");
+            }
+            else
+            {
+                // All correct - just show the config
+                parts.Add($"{servers} ({providerInfo})");
+            }
         }
 
         // Show mismatched interfaces
@@ -184,7 +192,7 @@ public static class DisplayFormatters
             parts.Add($"Incorrect: No DNS on {string.Join(", ", interfacesWithoutDns)}");
         }
 
-        // If no issues, just show the current config
+        // If no parts yet but we have WAN DNS servers, show them
         if (!parts.Any() && wanDnsServers.Any())
         {
             var provider = wanDnsProvider ?? expectedDnsProvider ?? "matches DoH";
