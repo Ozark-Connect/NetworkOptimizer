@@ -211,6 +211,12 @@ public class ConfigAuditEngine
                 .Distinct()
                 .ToList();
 
+            var configNames = dnsSecurityResult.ConfiguredServers
+                .Where(s => s.Enabled)
+                .Select(s => s.ServerName)
+                .Distinct()
+                .ToList();
+
             // Build interface problem lists with friendly names
             var interfacesWithoutDns = dnsSecurityResult.WanInterfaces
                 .Where(w => !w.HasStaticDns)
@@ -226,11 +232,26 @@ public class ConfigAuditEngine
                     : w.InterfaceName)
                 .ToList();
 
+            // Collect DNS servers only from mismatched interfaces
+            var mismatchedDnsServers = dnsSecurityResult.WanInterfaces
+                .Where(w => w.HasStaticDns && !w.MatchesDoH)
+                .SelectMany(w => w.DnsServers)
+                .Distinct()
+                .ToList();
+
+            // Collect DNS servers only from matched interfaces (for display when there's a mix)
+            var matchedDnsServers = dnsSecurityResult.WanInterfaces
+                .Where(w => w.HasStaticDns && w.MatchesDoH)
+                .SelectMany(w => w.DnsServers)
+                .Distinct()
+                .ToList();
+
             dnsSecurityInfo = new DnsSecurityInfo
             {
                 DohEnabled = dnsSecurityResult.DohConfigured,
                 DohState = dnsSecurityResult.DohState,
                 DohProviders = providerNames,
+                DohConfigNames = configNames,
                 DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
                 DotBlocked = dnsSecurityResult.HasDotBlockRule,
                 DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
@@ -245,7 +266,9 @@ public class ConfigAuditEngine
                 DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns,
                 DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount,
                 InterfacesWithoutDns = interfacesWithoutDns,
-                InterfacesWithMismatch = interfacesWithMismatch
+                InterfacesWithMismatch = interfacesWithMismatch,
+                MismatchedDnsServers = mismatchedDnsServers,
+                MatchedDnsServers = matchedDnsServers
             };
         }
 

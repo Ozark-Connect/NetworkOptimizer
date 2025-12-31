@@ -627,6 +627,7 @@ public class AuditService
                 DohEnabled = dns.DohEnabled,
                 DohState = dns.DohState,
                 DohProviders = dns.DohProviders.ToList(),
+                DohConfigNames = dns.DohConfigNames.ToList(),
                 DnsLeakProtection = dns.DnsLeakProtection,
                 DotBlocked = dns.DotBlocked,
                 DohBypassBlocked = dns.DohBypassBlocked,
@@ -642,7 +643,9 @@ public class AuditService
                 DevicesWithCorrectDns = dns.DevicesWithCorrectDns,
                 DhcpDeviceCount = dns.DhcpDeviceCount,
                 InterfacesWithoutDns = dns.InterfacesWithoutDns.ToList(),
-                InterfacesWithMismatch = dns.InterfacesWithMismatch.ToList()
+                InterfacesWithMismatch = dns.InterfacesWithMismatch.ToList(),
+                MismatchedDnsServers = dns.MismatchedDnsServers.ToList(),
+                MatchedDnsServers = dns.MatchedDnsServers.ToList()
             };
         }
 
@@ -820,6 +823,7 @@ public class DnsSecurityReference
     public bool DohEnabled { get; set; }
     public string DohState { get; set; } = "disabled";
     public List<string> DohProviders { get; set; } = new();
+    public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool DotBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
@@ -834,6 +838,8 @@ public class DnsSecurityReference
     public string? ExpectedDnsProvider { get; set; }
     public List<string> InterfacesWithoutDns { get; set; } = new();
     public List<string> InterfacesWithMismatch { get; set; } = new();
+    public List<string> MismatchedDnsServers { get; set; } = new();
+    public List<string> MatchedDnsServers { get; set; } = new();
 
     // Device DNS validation
     public bool DeviceDnsPointsToGateway { get; set; } = true;

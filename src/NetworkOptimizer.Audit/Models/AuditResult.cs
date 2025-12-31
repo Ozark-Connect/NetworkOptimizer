@@ -97,6 +97,11 @@ public class DnsSecurityInfo
     public List<string> DohProviders { get; set; } = new();
 
     /// <summary>
+    /// Original DoH config names from UniFi (e.g., "NextDNS-fcdba9")
+    /// </summary>
+    public List<string> DohConfigNames { get; set; } = new();
+
+    /// <summary>
     /// Whether DNS leak prevention (port 53 blocking) is in place
     /// </summary>
     public bool DnsLeakProtection { get; set; }
@@ -170,6 +175,16 @@ public class DnsSecurityInfo
     /// WAN interfaces with DNS that doesn't match DoH provider
     /// </summary>
     public List<string> InterfacesWithMismatch { get; set; } = new();
+
+    /// <summary>
+    /// DNS servers from mismatched interfaces only
+    /// </summary>
+    public List<string> MismatchedDnsServers { get; set; } = new();
+
+    /// <summary>
+    /// DNS servers from matched interfaces only
+    /// </summary>
+    public List<string> MatchedDnsServers { get; set; } = new();
 
     /// <summary>
     /// Whether full DNS protection is in place
