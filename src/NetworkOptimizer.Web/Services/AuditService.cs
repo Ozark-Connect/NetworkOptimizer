@@ -760,8 +760,8 @@ public class AuditService
             "DNS_WAN_ORDER" => "WAN DNS Wrong Order",
             "DNS_WAN_NO_STATIC" => "WAN DNS Not Configured",
             "DNS_DEVICE_MISCONFIGURED" => "Device DNS Misconfigured",
-            "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "IoT Device on Wrong VLAN",
-            "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Camera on Wrong VLAN",
+            "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "WIFI-IOT-VLAN-001" => "IoT Device on Wrong VLAN",
+            "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" or "WIFI-CAM-VLAN-001" => "Camera on Wrong VLAN",
             "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
             _ => message.Split('.').FirstOrDefault() ?? type
         };
