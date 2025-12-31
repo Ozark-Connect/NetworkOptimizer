@@ -649,9 +649,11 @@ public class PdfReportGenerator
                     .FontColor(primaryColor);
 
                 // Port table - pass all issues for this switch
+                // TODO: Use SwitchMac as unique identifier instead of name matching
+                // SwitchName may contain full device context like "[TV] Device on [Switch] SwitchName"
                 var allSwitchIssues = data.CriticalIssues
                     .Concat(data.RecommendedImprovements)
-                    .Where(i => !i.IsWireless && i.SwitchName == switchDevice.Name)
+                    .Where(i => !i.IsWireless && (i.SwitchName?.Contains(switchDevice.Name) ?? false))
                     .ToList();
                 column.Item().Element(c => ComposePortTable(c, switchDevice, allSwitchIssues));
 
@@ -687,7 +689,7 @@ public class PdfReportGenerator
                 // Issue callouts for this switch (wired issues - both critical and warnings)
                 var switchIssues = data.CriticalIssues
                     .Concat(data.RecommendedImprovements)
-                    .Where(i => !i.IsWireless && i.SwitchName == switchDevice.Name)
+                    .Where(i => !i.IsWireless && (i.SwitchName?.Contains(switchDevice.Name) ?? false))
                     .ToList();
                 foreach (var issue in switchIssues)
                 {

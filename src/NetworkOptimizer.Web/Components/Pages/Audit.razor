@@ -380,6 +380,7 @@
                                     {
                                         var (status, statusClass) = GetPortStatus(port, sw.MaxCustomMacAcls > 0);
                                         // Check for any issues on this port (IoT/Camera placement, etc.)
+                                        // TODO: Use SwitchMac as unique identifier instead of name matching
                                         var portIssue = issues.FirstOrDefault(i => !i.IsWireless && i.Port == port.PortIndex.ToString() && (i.DeviceName?.Contains(sw.Name) ?? false));
                                         var hasPortIssue = portIssue != null;
                                         var finalClass = hasPortIssue ? (portIssue!.Severity == "Critical" ? "row-critical" : "row-warning") : statusClass;
@@ -433,13 +434,16 @@
                                 <tbody>
                                     @foreach (var client in ap.OrderBy(c => c.DisplayName))
                                     {
-                                        var hasIssue = issues.Any(i => i.IsWireless && i.ClientMac == client.Mac);
-                                        <tr class="@(hasIssue ? "row-warning" : "")">
+                                        var clientIssue = issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == client.Mac);
+                                        var hasIssue = clientIssue != null;
+                                        var statusClass = hasIssue ? (clientIssue!.Severity == "Critical" ? "row-critical" : "row-warning") : "";
+                                        var statusText = hasIssue ? clientIssue!.Title : "OK";
+                                        <tr class="@statusClass">
                                             <td>@client.DisplayName</td>
                                             <td>@client.DeviceCategory</td>
                                             <td>@(client.NetworkName ?? "Unknown")</td>
                                             <td>@(client.VlanId?.ToString() ?? "-")</td>
-                                            <td class="@(hasIssue ? "status-warning" : "")">@(hasIssue ? "Issue" : "OK")</td>
+                                            <td>@statusText</td>
                                         </tr>
                                     }
                                 </tbody>
