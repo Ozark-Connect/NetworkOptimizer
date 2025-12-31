@@ -150,8 +150,12 @@ public class DnsSecurityAnalyzer
                             Enabled = enabled,
                             IsCustom = true
                         });
-                        _logger.LogDebug("Found custom DoH server: {Name} ({Protocol})",
-                            serverName, decoded.ProtocolName);
+                        _logger.LogInformation("DoH custom server: name={Name}, protocol={Protocol}, hostname={Hostname}, provider={Provider}",
+                            serverName, decoded.ProtocolName, decoded.Hostname, decoded.ProviderInfo?.Name ?? "not identified");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to decode SDNS stamp for server {Name}: {Stamp}", serverName, sdnsStamp?.Substring(0, Math.Min(50, sdnsStamp?.Length ?? 0)));
                     }
                 }
             }
