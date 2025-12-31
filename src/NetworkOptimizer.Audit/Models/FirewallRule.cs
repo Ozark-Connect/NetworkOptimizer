@@ -94,4 +94,36 @@ public class FirewallRule
     /// Whether this is a predefined/system rule (not user-created)
     /// </summary>
     public bool Predefined { get; init; }
+
+    // === Extended Matching Criteria for Overlap Detection ===
+
+    /// <summary>
+    /// Source matching target type (ANY, IP, NETWORK)
+    /// </summary>
+    public string? SourceMatchingTarget { get; init; }
+
+    /// <summary>
+    /// Source IP addresses/CIDRs (when SourceMatchingTarget is IP)
+    /// </summary>
+    public List<string>? SourceIps { get; init; }
+
+    /// <summary>
+    /// Destination matching target type (ANY, IP, NETWORK, WEB)
+    /// </summary>
+    public string? DestinationMatchingTarget { get; init; }
+
+    /// <summary>
+    /// Destination IP addresses/CIDRs (when DestinationMatchingTarget is IP)
+    /// </summary>
+    public List<string>? DestinationIps { get; init; }
+
+    /// <summary>
+    /// Destination network IDs (when DestinationMatchingTarget is NETWORK)
+    /// </summary>
+    public List<string>? DestinationNetworkIds { get; init; }
+
+    /// <summary>
+    /// ICMP type name (ANY, ECHO_REQUEST, etc.) - for ICMP protocol
+    /// </summary>
+    public string? IcmpTypename { get; init; }
 }

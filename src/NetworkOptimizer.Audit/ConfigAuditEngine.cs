@@ -41,7 +41,8 @@ public class ConfigAuditEngine
         _securityEngine = new SecurityAuditEngine(
             loggerFactory.CreateLogger<SecurityAuditEngine>(),
             detectionService);
-        _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>());
+        var firewallParser = new FirewallRuleParser(loggerFactory.CreateLogger<FirewallRuleParser>());
+        _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>(), firewallParser);
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
