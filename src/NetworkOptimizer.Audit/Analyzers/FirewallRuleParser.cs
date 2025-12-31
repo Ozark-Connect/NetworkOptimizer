@@ -108,10 +108,16 @@ public class FirewallRuleParser
         List<string>? sourceNetworkIds = null;
         List<string>? sourceIps = null;
         string? sourcePort = null;
+        string? sourceZoneId = null;
+        bool sourceMatchOppositeIps = false;
+        bool sourceMatchOppositeNetworks = false;
         if (policy.TryGetProperty("source", out var source) && source.ValueKind == JsonValueKind.Object)
         {
             sourceMatchingTarget = source.GetStringOrNull("matching_target");
             sourcePort = source.GetStringOrNull("port");
+            sourceZoneId = source.GetStringOrNull("zone_id");
+            sourceMatchOppositeIps = source.GetBoolOrDefault("match_opposite_ips", false);
+            sourceMatchOppositeNetworks = source.GetBoolOrDefault("match_opposite_networks", false);
 
             if (source.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
             {
@@ -136,10 +142,18 @@ public class FirewallRuleParser
         List<string>? webDomains = null;
         List<string>? destNetworkIds = null;
         List<string>? destIps = null;
+        string? destZoneId = null;
+        bool destMatchOppositeIps = false;
+        bool destMatchOppositeNetworks = false;
+        bool destMatchOppositePorts = false;
         if (policy.TryGetProperty("destination", out var dest) && dest.ValueKind == JsonValueKind.Object)
         {
             destPort = dest.GetStringOrNull("port");
             destMatchingTarget = dest.GetStringOrNull("matching_target");
+            destZoneId = dest.GetStringOrNull("zone_id");
+            destMatchOppositeIps = dest.GetBoolOrDefault("match_opposite_ips", false);
+            destMatchOppositeNetworks = dest.GetBoolOrDefault("match_opposite_networks", false);
+            destMatchOppositePorts = dest.GetBoolOrDefault("match_opposite_ports", false);
 
             if (dest.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
             {
@@ -186,7 +200,15 @@ public class FirewallRuleParser
             DestinationMatchingTarget = destMatchingTarget,
             DestinationIps = destIps,
             DestinationNetworkIds = destNetworkIds,
-            IcmpTypename = icmpTypename
+            IcmpTypename = icmpTypename,
+            // Zone and match opposite flags
+            SourceZoneId = sourceZoneId,
+            DestinationZoneId = destZoneId,
+            SourceMatchOppositeIps = sourceMatchOppositeIps,
+            SourceMatchOppositeNetworks = sourceMatchOppositeNetworks,
+            DestinationMatchOppositeIps = destMatchOppositeIps,
+            DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
+            DestinationMatchOppositePorts = destMatchOppositePorts
         };
     }
 

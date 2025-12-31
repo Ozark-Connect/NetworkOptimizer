@@ -126,4 +126,41 @@ public class FirewallRule
     /// ICMP type name (ANY, ECHO_REQUEST, etc.) - for ICMP protocol
     /// </summary>
     public string? IcmpTypename { get; init; }
+
+    // === Zone and Match Opposite Flags for Accurate Overlap Detection ===
+
+    /// <summary>
+    /// Source zone ID - rules with different zones cannot overlap
+    /// </summary>
+    public string? SourceZoneId { get; init; }
+
+    /// <summary>
+    /// Destination zone ID - rules with different zones cannot overlap
+    /// </summary>
+    public string? DestinationZoneId { get; init; }
+
+    /// <summary>
+    /// When true, source IPs are INVERTED (means "everyone EXCEPT these IPs")
+    /// </summary>
+    public bool SourceMatchOppositeIps { get; init; }
+
+    /// <summary>
+    /// When true, source networks are INVERTED (means "all networks EXCEPT these")
+    /// </summary>
+    public bool SourceMatchOppositeNetworks { get; init; }
+
+    /// <summary>
+    /// When true, destination IPs are INVERTED (means "everyone EXCEPT these IPs")
+    /// </summary>
+    public bool DestinationMatchOppositeIps { get; init; }
+
+    /// <summary>
+    /// When true, destination networks are INVERTED (means "all networks EXCEPT these")
+    /// </summary>
+    public bool DestinationMatchOppositeNetworks { get; init; }
+
+    /// <summary>
+    /// When true, destination ports are INVERTED (means "all ports EXCEPT these")
+    /// </summary>
+    public bool DestinationMatchOppositePorts { get; init; }
 }
