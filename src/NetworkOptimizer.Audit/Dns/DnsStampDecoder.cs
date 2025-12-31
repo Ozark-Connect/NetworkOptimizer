@@ -65,11 +65,18 @@ public static class DnsStampDecoder
             {
                 case DnsProtocol.DoH:
                     // DoH stamp format: [1-byte protocol][1-byte props][VLP addr][VLP hashes][VLP hostname][VLP path]
+                    // Some stamps (like NextDNS) may have extra padding/zeros - try standard parsing first
                     ipAddress = ReadVlpString(bytes, ref offset);
-                    var hashes = ReadVlpData(bytes, ref offset); // Skip hashes for now
+                    var hashes = ReadVlpData(bytes, ref offset); // Skip hashes
                     hostname = ReadVlpString(bytes, ref offset);
                     path = ReadVlpString(bytes, ref offset);
-                    Console.WriteLine($"[DnsStamp] DoH decoded: ip={ipAddress}, hostname={hostname}, path={path}, offset={offset}, totalLen={bytes.Length}");
+
+                    // Fallback: if hostname is empty, scan for it (some stamps have extra zeros)
+                    if (string.IsNullOrEmpty(hostname))
+                    {
+                        (hostname, path) = ScanForHostnameAndPath(bytes);
+                        Console.WriteLine($"[DnsStamp] DoH fallback scan found: hostname={hostname}, path={path}");
+                    }
                     break;
 
                 case DnsProtocol.DoT:
@@ -205,6 +212,43 @@ public static class DnsStampDecoder
         Array.Copy(bytes, offset, data, 0, length);
         offset += length;
         return data;
+    }
+
+    /// <summary>
+    /// Fallback: scan bytes for hostname and path pattern when standard parsing fails.
+    /// Looks for a length byte (5-50) followed by ASCII text containing a dot.
+    /// </summary>
+    private static (string? hostname, string? path) ScanForHostnameAndPath(byte[] bytes)
+    {
+        string? hostname = null;
+        string? path = null;
+
+        for (int i = 2; i < bytes.Length - 5; i++)
+        {
+            var len = bytes[i];
+            // Look for reasonable hostname length (5-50 chars)
+            if (len >= 5 && len <= 50 && i + 1 + len <= bytes.Length)
+            {
+                var candidate = Encoding.ASCII.GetString(bytes, i + 1, len);
+                // Valid hostname should contain a dot and be printable ASCII
+                if (candidate.Contains('.') && candidate.All(c => c >= 32 && c < 127))
+                {
+                    hostname = candidate;
+                    var pathOffset = i + 1 + len;
+                    if (pathOffset < bytes.Length)
+                    {
+                        var pathLen = bytes[pathOffset];
+                        if (pathLen > 0 && pathLen < 100 && pathOffset + 1 + pathLen <= bytes.Length)
+                        {
+                            path = Encoding.ASCII.GetString(bytes, pathOffset + 1, pathLen);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        return (hostname, path);
     }
 
     private static string GetProtocolName(DnsProtocol protocol) => protocol switch
