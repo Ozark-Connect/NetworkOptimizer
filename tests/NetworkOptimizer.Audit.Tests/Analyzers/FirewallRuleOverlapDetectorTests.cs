@@ -770,6 +770,324 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
+    #region ZonesOverlap Tests
+
+    [Fact]
+    public void ZonesOverlap_BothNoZones_ReturnsTrue()
+    {
+        var rule1 = CreateRule();
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ZonesOverlap_SameSourceZone_ReturnsTrue()
+    {
+        var rule1 = CreateRule(sourceZoneId: "zone-abc");
+        var rule2 = CreateRule(sourceZoneId: "zone-abc");
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ZonesOverlap_DifferentSourceZones_ReturnsFalse()
+    {
+        var rule1 = CreateRule(sourceZoneId: "zone-abc");
+        var rule2 = CreateRule(sourceZoneId: "zone-xyz");
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ZonesOverlap_SameDestZone_ReturnsTrue()
+    {
+        var rule1 = CreateRule(destZoneId: "zone-abc");
+        var rule2 = CreateRule(destZoneId: "zone-abc");
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ZonesOverlap_DifferentDestZones_ReturnsFalse()
+    {
+        var rule1 = CreateRule(destZoneId: "zone-abc");
+        var rule2 = CreateRule(destZoneId: "zone-xyz");
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ZonesOverlap_OneHasZoneOneDoesNot_ReturnsTrue()
+    {
+        var rule1 = CreateRule(sourceZoneId: "zone-abc");
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.ZonesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void RulesOverlap_DifferentZones_ReturnsFalse()
+    {
+        var rule1 = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            destZoneId: "zone-e0fa");
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            destZoneId: "zone-e0fb");
+
+        // Even though everything else matches, different zones = no overlap
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region MatchOpposite Tests - Sources
+
+    [Fact]
+    public void SourcesOverlap_BothNormalWithIntersection_ReturnsTrue()
+    {
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" });
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.20", "192.168.1.30" });
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_BothInverted_AlwaysReturnsTrue()
+    {
+        // When both have match_opposite=true, they both match "everyone EXCEPT their list"
+        // This always overlaps (unless their lists cover everything)
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10" },
+            sourceMatchOppositeIps: true);
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.20" },
+            sourceMatchOppositeIps: true);
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_OneInvertedAllNormalIpsInException_ReturnsFalse()
+    {
+        // Rule1: Match IPs [A, B], opposite=false -> matches A, B
+        // Rule2: Match IPs [A, B, C], opposite=true -> matches everyone EXCEPT A, B, C
+        // Since A, B are in the exception list, NO overlap
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
+            sourceMatchOppositeIps: false);
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20", "192.168.1.30" },
+            sourceMatchOppositeIps: true);
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SourcesOverlap_OneInvertedSomeNormalIpsNotInException_ReturnsTrue()
+    {
+        // Rule1: Match IPs [A, B], opposite=false -> matches A, B
+        // Rule2: Match IPs [C, D], opposite=true -> matches everyone EXCEPT C, D
+        // A and B are NOT in exception list, so they overlap
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
+            sourceMatchOppositeIps: false);
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.30", "192.168.1.40" },
+            sourceMatchOppositeIps: true);
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_NetworksOneInvertedNoOverlap_ReturnsFalse()
+    {
+        // Rule1: Match networks [guest], opposite=false -> matches guest
+        // Rule2: Match networks [guest, iot], opposite=true -> matches everyone EXCEPT guest, iot
+        // guest is in the exception list, so NO overlap
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "guest" },
+            sourceMatchOppositeNetworks: false);
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "guest", "iot" },
+            sourceMatchOppositeNetworks: true);
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region MatchOpposite Tests - Destinations
+
+    [Fact]
+    public void DestinationsOverlap_BothInverted_AlwaysReturnsTrue()
+    {
+        var rule1 = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.0.0.1" },
+            destMatchOppositeIps: true);
+        var rule2 = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.0.0.2" },
+            destMatchOppositeIps: true);
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_OneInvertedNoOverlap_ReturnsFalse()
+    {
+        // Rule1: Matches 10.0.0.1 only
+        // Rule2: Matches everyone EXCEPT 10.0.0.1, 10.0.0.2
+        // 10.0.0.1 is in exception, NO overlap
+        var rule1 = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.0.0.1" },
+            destMatchOppositeIps: false);
+        var rule2 = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.0.0.1", "10.0.0.2" },
+            destMatchOppositeIps: true);
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_NetworksInvertedWithOverlap_ReturnsTrue()
+    {
+        // Rule1: Matches management network
+        // Rule2: Matches everyone EXCEPT iot (management is NOT excepted)
+        var rule1 = CreateRule(
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "management" },
+            destMatchOppositeNetworks: false);
+        var rule2 = CreateRule(
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "iot" },
+            destMatchOppositeNetworks: true);
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    #endregion
+
+    #region MatchOpposite Tests - Ports
+
+    [Fact]
+    public void PortsOverlap_BothNormalWithIntersection_ReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "tcp", destPort: "80,443");
+        var rule2 = CreateRule(protocol: "tcp", destPort: "443,8080");
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_BothInverted_AlwaysReturnsTrue()
+    {
+        var rule1 = CreateRule(protocol: "tcp", destPort: "80", destMatchOppositePorts: true);
+        var rule2 = CreateRule(protocol: "tcp", destPort: "443", destMatchOppositePorts: true);
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void PortsOverlap_OneInvertedAllPortsInException_ReturnsFalse()
+    {
+        // Rule1: Matches ports 80, 443
+        // Rule2: Matches all ports EXCEPT 80, 443, 8080
+        // 80 and 443 are in exception, NO overlap
+        var rule1 = CreateRule(protocol: "tcp", destPort: "80,443", destMatchOppositePorts: false);
+        var rule2 = CreateRule(protocol: "tcp", destPort: "80,443,8080", destMatchOppositePorts: true);
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void PortsOverlap_OneInvertedSomePortsNotInException_ReturnsTrue()
+    {
+        // Rule1: Matches ports 80, 443, 8080
+        // Rule2: Matches all ports EXCEPT 80, 443
+        // 8080 is NOT in exception, so they overlap
+        var rule1 = CreateRule(protocol: "tcp", destPort: "80,443,8080", destMatchOppositePorts: false);
+        var rule2 = CreateRule(protocol: "tcp", destPort: "80,443", destMatchOppositePorts: true);
+
+        FirewallRuleOverlapDetector.PortsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    #endregion
+
+    #region Real-World Scenario Tests
+
+    [Fact]
+    public void RulesOverlap_RealScenario_AllowVsRestrictWithOppositeIps_NoOverlap()
+    {
+        // Simulating: "Allow Select Access to Custom UniFi APIs" vs "Restrict CM Access"
+        // Allow: Source IPs [192.168.1.220, 192.168.1.10], opposite=false
+        // Deny: Source IPs [192.168.1.10, .220, .70, .11], opposite=TRUE (inverted!)
+        // The deny rule exempts the allow rule's source IPs, so no overlap
+        var allowRule = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220", "192.168.1.10" },
+            sourceMatchOppositeIps: false,
+            destMatchingTarget: "ANY",
+            destPort: "8088-8089",
+            destZoneId: "zone-e0fb");
+
+        var denyRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.220", "192.168.1.70", "192.168.1.11" },
+            sourceMatchOppositeIps: true,  // INVERTED - matches everyone EXCEPT these IPs
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "192.168.100.1" },
+            destZoneId: "zone-e0fa");
+
+        // Different zones AND the allow IPs are in the deny's exception list
+        FirewallRuleOverlapDetector.RulesOverlap(allowRule, denyRule).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_RealScenario_DifferentDestinationZones_NoOverlap()
+    {
+        // Simulating rules targeting different destination zones
+        var rule1 = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            destPort: "8088-8089",
+            destZoneId: "6761c0bfb8cfe0fa");
+
+        var rule2 = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.110.0.0/16" },
+            destZoneId: "6761c0bfb8cfe0fb");
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static FirewallRule CreateRule(
@@ -777,12 +1095,19 @@ public class FirewallRuleOverlapDetectorTests
         string? sourceMatchingTarget = null,
         List<string>? sourceNetworkIds = null,
         List<string>? sourceIps = null,
+        bool sourceMatchOppositeIps = false,
+        bool sourceMatchOppositeNetworks = false,
         string? destMatchingTarget = null,
         List<string>? destNetworkIds = null,
         List<string>? destIps = null,
+        bool destMatchOppositeIps = false,
+        bool destMatchOppositeNetworks = false,
         List<string>? webDomains = null,
         string? destPort = null,
-        string? icmpTypename = null)
+        bool destMatchOppositePorts = false,
+        string? icmpTypename = null,
+        string? sourceZoneId = null,
+        string? destZoneId = null)
     {
         return new FirewallRule
         {
@@ -793,12 +1118,19 @@ public class FirewallRuleOverlapDetectorTests
             SourceMatchingTarget = sourceMatchingTarget,
             SourceNetworkIds = sourceNetworkIds,
             SourceIps = sourceIps,
+            SourceMatchOppositeIps = sourceMatchOppositeIps,
+            SourceMatchOppositeNetworks = sourceMatchOppositeNetworks,
             DestinationMatchingTarget = destMatchingTarget,
             DestinationNetworkIds = destNetworkIds,
             DestinationIps = destIps,
+            DestinationMatchOppositeIps = destMatchOppositeIps,
+            DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
             WebDomains = webDomains,
             DestinationPort = destPort,
-            IcmpTypename = icmpTypename
+            DestinationMatchOppositePorts = destMatchOppositePorts,
+            IcmpTypename = icmpTypename,
+            SourceZoneId = sourceZoneId,
+            DestinationZoneId = destZoneId
         };
     }
 

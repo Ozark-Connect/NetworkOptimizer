@@ -14,11 +14,35 @@ public static class FirewallRuleOverlapDetector
     /// </summary>
     public static bool RulesOverlap(FirewallRule rule1, FirewallRule rule2)
     {
+        // First check zones - if zones differ, rules cannot overlap
+        if (!ZonesOverlap(rule1, rule2))
+            return false;
+
         return ProtocolsOverlap(rule1, rule2) &&
                SourcesOverlap(rule1, rule2) &&
                DestinationsOverlap(rule1, rule2) &&
                PortsOverlap(rule1, rule2) &&
                IcmpTypesOverlap(rule1, rule2);
+    }
+
+    /// <summary>
+    /// Check if zones overlap. If both rules have different zone IDs, they cannot overlap.
+    /// </summary>
+    public static bool ZonesOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        // Check source zones
+        var srcZone1 = rule1.SourceZoneId;
+        var srcZone2 = rule2.SourceZoneId;
+        if (!string.IsNullOrEmpty(srcZone1) && !string.IsNullOrEmpty(srcZone2) && srcZone1 != srcZone2)
+            return false;
+
+        // Check destination zones
+        var dstZone1 = rule1.DestinationZoneId;
+        var dstZone2 = rule2.DestinationZoneId;
+        if (!string.IsNullOrEmpty(dstZone1) && !string.IsNullOrEmpty(dstZone2) && dstZone1 != dstZone2)
+            return false;
+
+        return true;
     }
 
     /// <summary>
@@ -47,7 +71,8 @@ public static class FirewallRuleOverlapDetector
     }
 
     /// <summary>
-    /// Check if sources overlap (either is ANY, or networks/IPs intersect)
+    /// Check if sources overlap (either is ANY, or networks/IPs intersect).
+    /// Handles match_opposite_* flags which invert the matching.
     /// </summary>
     public static bool SourcesOverlap(FirewallRule rule1, FirewallRule rule2)
     {
@@ -67,7 +92,10 @@ public static class FirewallRuleOverlapDetector
         {
             var nets1 = rule1.SourceNetworkIds ?? new List<string>();
             var nets2 = rule2.SourceNetworkIds ?? new List<string>();
-            return nets1.Intersect(nets2).Any();
+            var opposite1 = rule1.SourceMatchOppositeNetworks;
+            var opposite2 = rule2.SourceMatchOppositeNetworks;
+
+            return ListsOverlapWithOpposite(nets1, opposite1, nets2, opposite2, StringListsIntersect);
         }
 
         // Both are IP - check for overlapping IPs/CIDRs
@@ -75,14 +103,85 @@ public static class FirewallRuleOverlapDetector
         {
             var ips1 = rule1.SourceIps ?? new List<string>();
             var ips2 = rule2.SourceIps ?? new List<string>();
-            return IpRangesOverlap(ips1, ips2);
+            var opposite1 = rule1.SourceMatchOppositeIps;
+            var opposite2 = rule2.SourceMatchOppositeIps;
+
+            return ListsOverlapWithOpposite(ips1, opposite1, ips2, opposite2, IpRangesOverlap);
         }
 
         return false;
     }
 
     /// <summary>
-    /// Check if destinations overlap (either is ANY, or networks/IPs/domains intersect)
+    /// Helper to check if two lists overlap considering match_opposite flags.
+    /// When opposite=true, the list is INVERTED (matches "everyone EXCEPT these").
+    /// </summary>
+    private static bool ListsOverlapWithOpposite<T>(
+        List<T> list1, bool opposite1,
+        List<T> list2, bool opposite2,
+        Func<List<T>, List<T>, bool> intersectFunc)
+    {
+        // Both normal (no inversion) - check for intersection
+        if (!opposite1 && !opposite2)
+        {
+            return intersectFunc(list1, list2);
+        }
+
+        // Both inverted - they always overlap (both match "the rest of the world")
+        if (opposite1 && opposite2)
+        {
+            return true;
+        }
+
+        // One inverted, one normal:
+        // Rule with opposite=true matches "everyone EXCEPT list"
+        // Rule with opposite=false matches "only list"
+        // They overlap IF the normal list contains items NOT in the exception list
+        var normalList = opposite1 ? list2 : list1;
+        var exceptionList = opposite1 ? list1 : list2;
+
+        // If all items in the normal list are in the exception list, no overlap
+        // Otherwise, there's some overlap
+        return !AllItemsInExceptionList(normalList, exceptionList);
+    }
+
+    /// <summary>
+    /// Check if all items in normalList are contained in exceptionList
+    /// </summary>
+    private static bool AllItemsInExceptionList<T>(List<T> normalList, List<T> exceptionList)
+    {
+        if (typeof(T) == typeof(string))
+        {
+            var normal = normalList.Cast<string>().ToList();
+            var exception = exceptionList.Cast<string>().ToList();
+
+            // For IPs, need to check CIDR containment
+            foreach (var item in normal)
+            {
+                bool found = exception.Any(e =>
+                    e.Equals(item, StringComparison.OrdinalIgnoreCase) ||
+                    IpMatchesCidr(item, e) ||
+                    IpMatchesCidr(e, item));
+                if (!found)
+                    return false;
+            }
+            return true;
+        }
+
+        return normalList.All(exceptionList.Contains);
+    }
+
+    /// <summary>
+    /// Check if two string lists have any intersection
+    /// </summary>
+    private static bool StringListsIntersect(List<string> list1, List<string> list2)
+    {
+        return list1.Intersect(list2, StringComparer.OrdinalIgnoreCase).Any();
+    }
+
+    /// <summary>
+    /// Check if destinations overlap (either is ANY, or networks/IPs/domains intersect).
+    /// Handles match_opposite_* flags which invert the matching.
     /// </summary>
     public static bool DestinationsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
@@ -102,7 +201,10 @@ public static class FirewallRuleOverlapDetector
         {
             var nets1 = rule1.DestinationNetworkIds ?? new List<string>();
             var nets2 = rule2.DestinationNetworkIds ?? new List<string>();
-            return nets1.Intersect(nets2).Any();
+            var opposite1 = rule1.DestinationMatchOppositeNetworks;
+            var opposite2 = rule2.DestinationMatchOppositeNetworks;
+
+            return ListsOverlapWithOpposite(nets1, opposite1, nets2, opposite2, StringListsIntersect);
         }
 
         // Both are IP - check for overlapping IPs/CIDRs
@@ -110,7 +212,10 @@ public static class FirewallRuleOverlapDetector
         {
             var ips1 = rule1.DestinationIps ?? new List<string>();
             var ips2 = rule2.DestinationIps ?? new List<string>();
-            return IpRangesOverlap(ips1, ips2);
+            var opposite1 = rule1.DestinationMatchOppositeIps;
+            var opposite2 = rule2.DestinationMatchOppositeIps;
+
+            return ListsOverlapWithOpposite(ips1, opposite1, ips2, opposite2, IpRangesOverlap);
         }
 
         // Both are WEB - check for common domains
@@ -125,7 +230,8 @@ public static class FirewallRuleOverlapDetector
     }
 
     /// <summary>
-    /// Check if ports overlap (either is ANY/empty, or ports intersect)
+    /// Check if ports overlap (either is ANY/empty, or ports intersect).
+    /// Handles match_opposite_ports flag which inverts the matching.
     /// </summary>
     public static bool PortsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
@@ -147,13 +253,52 @@ public static class FirewallRuleOverlapDetector
 
         var port1 = rule1.DestinationPort;
         var port2 = rule2.DestinationPort;
+        var opposite1 = rule1.DestinationMatchOppositePorts;
+        var opposite2 = rule2.DestinationMatchOppositePorts;
 
-        // Empty/null port means ANY
-        if (string.IsNullOrEmpty(port1) || string.IsNullOrEmpty(port2))
+        // Empty/null port means ANY (unless opposite is set, which would mean "no ports")
+        if (string.IsNullOrEmpty(port1))
+        {
+            // If opposite1 is true with empty list, it matches ALL ports
+            // If opposite1 is false with empty list, it also matches ALL ports
             return true;
+        }
+        if (string.IsNullOrEmpty(port2))
+        {
+            return true;
+        }
 
-        // Parse and compare ports
-        return PortStringsOverlap(port1, port2);
+        // Parse ports
+        var ports1 = ParsePortString(port1);
+        var ports2 = ParsePortString(port2);
+
+        // Handle match_opposite logic
+        return PortSetsOverlapWithOpposite(ports1, opposite1, ports2, opposite2);
+    }
+
+    /// <summary>
+    /// Check if two port sets overlap considering match_opposite flags.
+    /// </summary>
+    private static bool PortSetsOverlapWithOpposite(HashSet<int> ports1, bool opposite1, HashSet<int> ports2, bool opposite2)
+    {
+        // Both normal - check for intersection
+        if (!opposite1 && !opposite2)
+        {
+            return ports1.Intersect(ports2).Any();
+        }
+
+        // Both inverted - they always overlap (both match "other ports")
+        if (opposite1 && opposite2)
+        {
+            return true;
+        }
+
+        // One inverted, one normal
+        var normalPorts = opposite1 ? ports2 : ports1;
+        var exceptionPorts = opposite1 ? ports1 : ports2;
+
+        // They overlap if the normal set contains ports NOT in the exception set
+        return normalPorts.Any(p => !exceptionPorts.Contains(p));
     }
 
     /// <summary>
