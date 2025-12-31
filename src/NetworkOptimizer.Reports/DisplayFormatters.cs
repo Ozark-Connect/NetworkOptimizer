@@ -168,7 +168,7 @@ public static class DisplayFormatters
             // For correct/matched servers, use the expected DoH provider name
             var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
             var servers = string.Join(", ", matchedDnsServers);
-            parts.Add($"Correct: {servers} ({providerInfo})");
+            parts.Add($"Correct to: {servers} ({providerInfo})");
         }
 
         // Show mismatched interfaces
