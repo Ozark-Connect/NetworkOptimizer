@@ -1041,18 +1041,11 @@
 
         var parts = new List<string>();
 
-        // If there's a mismatch, show only matched servers (if any) with provider info
+        // If there's a mismatch, show only the incorrect DNS servers
         if (dns.InterfacesWithMismatch.Any())
         {
-            if (dns.MatchedDnsServers.Any())
-            {
-                var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
-                var servers = string.Join(", ", dns.MatchedDnsServers);
-                parts.Add($"{servers}{providerInfo}");
-            }
-            // Show mismatched interfaces with their DNS
             var mismatchedIps = string.Join(", ", dns.MismatchedDnsServers);
-            parts.Add($"Mismatch: {mismatchedIps} on {string.Join(", ", dns.InterfacesWithMismatch)}");
+            parts.Add($"Incorrect: {mismatchedIps} on {string.Join(", ", dns.InterfacesWithMismatch)}");
         }
         else if (dns.WanDnsServers.Any())
         {
