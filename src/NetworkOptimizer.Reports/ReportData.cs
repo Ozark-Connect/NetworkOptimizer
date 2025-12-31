@@ -102,16 +102,24 @@ public class DnsSecuritySummary
         // Show interfaces that need DNS configured
         if (InterfacesWithoutDns.Any())
         {
-            var expectedIps = MatchedDnsServers.Any()
-                ? string.Join(", ", MatchedDnsServers)
-                : WanDnsServers.Any()
-                    ? string.Join(", ", WanDnsServers)
-                    : null;
-
-            if (!string.IsNullOrEmpty(expectedIps))
-                parts.Add($"Configure {expectedIps} on {string.Join(", ", InterfacesWithoutDns)}");
+            // If we already showed correct IPs above, just say "Configure on X"
+            if (parts.Any())
+            {
+                parts.Add($"Configure on {string.Join(", ", InterfacesWithoutDns)}");
+            }
             else
-                parts.Add($"Configure DNS on {string.Join(", ", InterfacesWithoutDns)}");
+            {
+                var expectedIps = MatchedDnsServers.Any()
+                    ? string.Join(", ", MatchedDnsServers)
+                    : WanDnsServers.Any()
+                        ? string.Join(", ", WanDnsServers)
+                        : null;
+
+                if (!string.IsNullOrEmpty(expectedIps))
+                    parts.Add($"Configure {expectedIps} on {string.Join(", ", InterfacesWithoutDns)}");
+                else
+                    parts.Add($"Configure DNS on {string.Join(", ", InterfacesWithoutDns)}");
+            }
         }
 
         if (!parts.Any())

@@ -1082,20 +1082,28 @@
             }
         }
 
-        // Show interfaces with no DNS configured - with what they should be configured to
+        // Show interfaces with no DNS configured
         if (dns.InterfacesWithoutDns.Any())
         {
-            // Use matched servers or WAN servers as the expected config
-            var expectedIps = dns.MatchedDnsServers.Any()
-                ? string.Join(", ", dns.MatchedDnsServers)
-                : dns.WanDnsServers.Any()
-                    ? string.Join(", ", dns.WanDnsServers)
-                    : null;
-
-            if (!string.IsNullOrEmpty(expectedIps))
-                parts.Add($"Configure {expectedIps} on {string.Join(", ", dns.InterfacesWithoutDns)}");
+            // If we already showed correct IPs above, just say "Configure on X"
+            // Otherwise show full "Configure IPs on X"
+            if (parts.Any())
+            {
+                parts.Add($"Configure on {string.Join(", ", dns.InterfacesWithoutDns)}");
+            }
             else
-                parts.Add($"Configure DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
+            {
+                var expectedIps = dns.MatchedDnsServers.Any()
+                    ? string.Join(", ", dns.MatchedDnsServers)
+                    : dns.WanDnsServers.Any()
+                        ? string.Join(", ", dns.WanDnsServers)
+                        : null;
+
+                if (!string.IsNullOrEmpty(expectedIps))
+                    parts.Add($"Configure {expectedIps} on {string.Join(", ", dns.InterfacesWithoutDns)}");
+                else
+                    parts.Add($"Configure DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
+            }
         }
 
         return string.Join(" | ", parts);
