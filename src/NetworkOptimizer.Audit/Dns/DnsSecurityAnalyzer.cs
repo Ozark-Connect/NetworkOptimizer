@@ -77,6 +77,12 @@ public class DnsSecurityAnalyzer
             AnalyzeDeviceDnsConfiguration(switches, networks, result);
         }
 
+        // Set gateway name for issue reporting
+        if (switches != null)
+        {
+            result.GatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name;
+        }
+
         // Generate issues based on findings
         GenerateAuditIssues(result);
 
@@ -665,6 +671,9 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 Message = $"{displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
                 RecommendedAction = recommendation,
+                DeviceName = result.GatewayName,
+                Port = interfaceName,
+                PortName = portName ?? displayName,
                 RuleId = "DNS-WAN-001",
                 ScoreImpact = 4,
                 Metadata = new Dictionary<string, object>
@@ -692,6 +701,9 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 Message = $"{displayName} DNS in wrong order: {ips}. Should be {correctOrder}",
                 RecommendedAction = $"Swap DNS order to {correctOrder}",
+                DeviceName = result.GatewayName,
+                Port = wanInterface.InterfaceName,
+                PortName = wanInterface.PortName ?? displayName,
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>
@@ -726,6 +738,9 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Recommended,
                     Message = $"WAN interface '{displayName}' has no static DNS configured. It's using ISP-assigned DNS which bypasses your DoH configuration.",
                     RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers",
+                    DeviceName = result.GatewayName,
+                    Port = interfaceName,
+                    PortName = wanInterface?.PortName ?? displayName,
                     RuleId = "DNS-WAN-002",
                     ScoreImpact = 3,
                     Metadata = new Dictionary<string, object>
@@ -1052,6 +1067,9 @@ public class DnsSecurityResult
     public string DohState { get; set; } = "disabled";
     public bool DohConfigured { get; set; }
     public List<DnsServerConfig> ConfiguredServers { get; } = new();
+
+    // Gateway Info
+    public string? GatewayName { get; set; }
 
     // WAN DNS Configuration
     public List<string> WanDnsServers { get; } = new();
