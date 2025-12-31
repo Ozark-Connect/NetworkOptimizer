@@ -170,7 +170,7 @@ public static class DisplayFormatters
             var servers = string.Join(", ", matchedDnsServers);
             if (hasIssues)
             {
-                parts.Add($"Correct: {servers} ({providerInfo})");
+                parts.Add($"Correct to: {servers} ({providerInfo})");
             }
             else
             {
