@@ -46,8 +46,8 @@
 
     private string GetDashArray()
     {
-        // Total circumference of half circle (π * r)
-        double totalLength = Math.PI * 160;
+        // Arc length of half circle = π * r (radius = 80)
+        double totalLength = Math.PI * 80;
         double scoreLength = (Score / 100.0) * totalLength;
         double remainingLength = totalLength - scoreLength;
         return $"{scoreLength} {remainingLength}";

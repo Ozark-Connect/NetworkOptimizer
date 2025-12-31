@@ -54,7 +54,9 @@ public class DashboardService
                     IpAddress = d.Ip ?? "",
                     Model = d.FriendlyModelName, // Uses shortname if available
                     Uptime = FormatUptime(d.Uptime)
-                }).ToList();
+                })
+                .OrderBy(d => ParseIpForSorting(d.IpAddress))
+                .ToList();
 
                 // Count by type
                 data.GatewayCount = devices.Count(d => UniFiDeviceTypes.IsGateway(d.Type));
@@ -159,6 +161,28 @@ public class DashboardService
             return $"{(int)ts.TotalHours} hours";
 
         return $"{(int)ts.TotalMinutes} minutes";
+    }
+
+    /// <summary>
+    /// Parse IP address into a sortable long value for proper numeric sorting
+    /// </summary>
+    private static long ParseIpForSorting(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip))
+            return long.MaxValue; // Empty IPs sort last
+
+        var parts = ip.Split('.');
+        if (parts.Length != 4)
+            return long.MaxValue;
+
+        long result = 0;
+        foreach (var part in parts)
+        {
+            if (!int.TryParse(part, out var octet))
+                return long.MaxValue;
+            result = (result << 8) | (uint)(octet & 0xFF);
+        }
+        return result;
     }
 }
 
