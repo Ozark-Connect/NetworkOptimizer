@@ -1060,12 +1060,29 @@
         var parts = new List<string>();
 
         // If there's a mismatch, show only the incorrect DNS servers
+        // Show correct DNS config first if we have matched servers
+        if (dns.MatchedDnsServers.Any())
+        {
+            var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
+            var servers = string.Join(", ", dns.MatchedDnsServers);
+            parts.Add($"Correct: {servers}{providerInfo}");
+        }
+
+        // Show mismatched interfaces
         if (dns.InterfacesWithMismatch.Any())
         {
             var mismatchedIps = string.Join(", ", dns.MismatchedDnsServers);
             parts.Add($"Incorrect: {mismatchedIps} on {string.Join(", ", dns.InterfacesWithMismatch)}");
         }
-        else if (dns.WanDnsServers.Any())
+
+        // Show interfaces with no DNS configured
+        if (dns.InterfacesWithoutDns.Any())
+        {
+            parts.Add($"Incorrect: No DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
+        }
+
+        // If no issues, just show the current config
+        if (!parts.Any() && dns.WanDnsServers.Any())
         {
             var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
 
@@ -1079,30 +1096,6 @@
             {
                 var servers = string.Join(", ", dns.WanDnsServers);
                 parts.Add($"{servers}{providerInfo}");
-            }
-        }
-
-        // Show interfaces with no DNS configured
-        if (dns.InterfacesWithoutDns.Any())
-        {
-            // If we already showed correct IPs above, just say "Configure on X"
-            // Otherwise show full "Configure IPs on X"
-            if (parts.Any())
-            {
-                parts.Add($"Configure on {string.Join(", ", dns.InterfacesWithoutDns)}");
-            }
-            else
-            {
-                var expectedIps = dns.MatchedDnsServers.Any()
-                    ? string.Join(", ", dns.MatchedDnsServers)
-                    : dns.WanDnsServers.Any()
-                        ? string.Join(", ", dns.WanDnsServers)
-                        : null;
-
-                if (!string.IsNullOrEmpty(expectedIps))
-                    parts.Add($"Configure {expectedIps} on {string.Join(", ", dns.InterfacesWithoutDns)}");
-                else
-                    parts.Add($"Configure DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
             }
         }
 
