@@ -123,11 +123,12 @@ WantedBy=multi-user.target
             var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(serviceContent));
 
             // Write service file via base64 decode, enable and start
+            // Use --no-block so we don't wait for boot scripts to finish (they can take a while)
             var installCmd = $"echo {base64Content} | base64 -d > /etc/systemd/system/udm-boot.service && " +
                 "mkdir -p /data/on_boot.d && " +
                 "systemctl daemon-reload && " +
                 "systemctl enable udm-boot && " +
-                "systemctl start udm-boot && " +
+                "systemctl start --no-block udm-boot && " +
                 "echo udm-boot_installed_successfully";
             var result = await _sshService.RunCommandWithDeviceAsync(device, installCmd);
 
