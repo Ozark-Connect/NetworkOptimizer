@@ -4,6 +4,7 @@ using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit;
@@ -210,6 +211,45 @@ public class ConfigAuditEngine
         _logger.LogInformation("Phase 6: Analyzing hardening measures");
         var hardeningMeasures = securityEngine.AnalyzeHardening(switches, networks);
         hardeningMeasures.AddRange(dnsHardeningNotes);
+
+        // Add firewall rule consistency hardening measure
+        var firewallCriticalOrWarnings = firewallIssues.Count(i =>
+            i.Severity == Models.AuditSeverity.Critical || i.Severity == Models.AuditSeverity.Recommended);
+        if (firewallRules.Any() && firewallCriticalOrWarnings == 0)
+        {
+            hardeningMeasures.Add($"All {firewallRules.Count} firewall rules are consistent with no conflicts");
+        }
+
+        // Add IoT VLAN segmentation hardening measure (>90% threshold)
+        var iotNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.IoT);
+        if (iotNetwork != null)
+        {
+            // Count wired IoT devices (ports with IoT-like names on IoT VLAN)
+            var wiredIotOnCorrectVlan = switches.SelectMany(s => s.Ports)
+                .Count(p => p.IsUp && !p.IsUplink && !p.IsWan &&
+                    IsIotDeviceName(p.Name) && p.NativeNetworkId == iotNetwork.Id);
+            var wiredIotTotal = switches.SelectMany(s => s.Ports)
+                .Count(p => p.IsUp && !p.IsUplink && !p.IsWan && IsIotDeviceName(p.Name));
+
+            // Count wireless IoT devices
+            var wirelessIotOnCorrectVlan = wirelessClients
+                .Count(c => c.Detection.Category.IsIoT() && c.Network?.Id == iotNetwork.Id);
+            var wirelessIotTotal = wirelessClients
+                .Count(c => c.Detection.Category.IsIoT());
+
+            var totalIot = wiredIotTotal + wirelessIotTotal;
+            var totalIotCorrect = wiredIotOnCorrectVlan + wirelessIotOnCorrectVlan;
+
+            if (totalIot > 0)
+            {
+                var percentage = (double)totalIotCorrect / totalIot * 100;
+                if (percentage >= 90)
+                {
+                    hardeningMeasures.Add($"{totalIotCorrect} of {totalIot} IoT devices properly segmented on IoT VLAN ({percentage:F0}%)");
+                }
+            }
+        }
+
         _logger.LogInformation("Found {MeasureCount} hardening measures in place", hardeningMeasures.Count);
 
         // Calculate statistics
@@ -553,5 +593,18 @@ public class ConfigAuditEngine
         }
 
         return formattedName;
+    }
+
+    /// <summary>
+    /// Check if port name indicates an IoT device
+    /// </summary>
+    private static bool IsIotDeviceName(string? portName)
+    {
+        if (string.IsNullOrEmpty(portName))
+            return false;
+
+        var nameLower = portName.ToLowerInvariant();
+        var iotHints = new[] { "ikea", "hue", "smart", "iot", "alexa", "echo", "nest", "ring", "sonos", "philips" };
+        return iotHints.Any(hint => nameLower.Contains(hint));
     }
 }
