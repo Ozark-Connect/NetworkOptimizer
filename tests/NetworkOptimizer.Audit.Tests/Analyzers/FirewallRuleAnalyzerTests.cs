@@ -131,23 +131,51 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_RuleByNamePattern_MatchesUniFi()
+    public void AnalyzeManagementNetworkFirewallAccess_SeparateRules_MatchesUniFiAndAfc()
     {
-        // Arrange - Rule detected by name containing "UniFi" even without specific network ID match
+        // Arrange - Separate rules for UniFi and AFC
+        var mgmtNetworkId = "mgmt-network-123";
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Management", NetworkPurpose.Management, networkIsolationEnabled: true, internetAccessEnabled: false)
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
         };
         var rules = new List<FirewallRule>
         {
-            CreateFirewallRule("Allow Mgmt Network to Access UniFi", action: "allow"),
-            CreateFirewallRule("Allow Wi-Fi AFC Traffic", action: "allow")
+            CreateFirewallRule("My Custom Rule Name", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("Another Rule", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" })
         };
 
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_CombinedRule_MatchesBothUniFiAndAfc()
+    {
+        // Arrange - Single rule combining UniFi, AFC, and NTP domains (common pattern)
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow Wi-Fi AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com", "location.qcs.qualcomm.com", "api.qcs.qualcomm.com", "ui.com", "ntp.org" })
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - Single rule satisfies both UniFi and AFC checks
         issues.Should().BeEmpty();
     }
 
@@ -218,6 +246,100 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_No5GDevice_No5GIssue()
+    {
+        // Arrange - Without a 5G device, no 5G rule check should happen
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>();
+
+        // Act - has5GDevice = false (default)
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: false);
+
+        // Assert - Should only have UniFi and AFC issues, not 5G
+        issues.Should().HaveCount(2);
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GDevice_Returns5GIssue()
+    {
+        // Arrange - With a 5G device present, should check for 5G rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>();
+
+        // Act - has5GDevice = true
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - Should have UniFi, AFC, and 5G issues
+        issues.Should().HaveCount(3);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GRuleByConfig_No5GIssue()
+    {
+        // Arrange - 5G rule detected by config (source network + carrier domains)
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("UniFi Cloud", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("Modem Registration", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" })
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - All rules satisfied
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GRuleWithPartialDomains_No5GIssue()
+    {
+        // Arrange - 5G rule with just one of the carrier domains still satisfies the check
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("UniFi", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "qcs.qualcomm.com" }),
+            CreateFirewallRule("TMobile Only", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "t-mobile.com" })
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - All rules satisfied (t-mobile.com alone is enough for 5G check)
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_SeverityAndScoreImpact_Correct()
     {
         // Arrange
@@ -230,11 +352,11 @@ public class FirewallRuleAnalyzerTests
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert
+        // Assert - These are informational issues with no score impact (too strict for most users)
         foreach (var issue in issues)
         {
-            issue.Severity.Should().Be(AuditSeverity.Recommended);
-            issue.ScoreImpact.Should().Be(5);
+            issue.Severity.Should().Be(AuditSeverity.Info);
+            issue.ScoreImpact.Should().Be(0);
         }
     }
 
