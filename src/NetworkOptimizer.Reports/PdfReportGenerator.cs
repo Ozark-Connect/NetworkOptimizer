@@ -47,29 +47,6 @@ public class PdfReportGenerator
         }
     }
 
-    /// <summary>
-    /// Strip any existing device type prefix from a name.
-    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
-    /// </summary>
-    private static string StripDevicePrefix(string deviceName)
-    {
-        if (string.IsNullOrWhiteSpace(deviceName))
-            return deviceName;
-
-        var name = deviceName.Trim();
-
-        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
-        if (name.StartsWith("["))
-        {
-            var closeBracket = name.IndexOf(']');
-            if (closeBracket > 0 && closeBracket < name.Length - 1)
-            {
-                name = name[(closeBracket + 1)..].TrimStart();
-            }
-        }
-
-        return name;
-    }
 
     /// <summary>
     /// Generate PDF report and save to file
@@ -636,10 +613,8 @@ public class PdfReportGenerator
         {
             foreach (var switchDevice in data.Switches)
             {
-                // Format device name with consistent prefix (strip any existing prefix first)
-                var cleanName = StripDevicePrefix(switchDevice.Name);
-                var prefix = switchDevice.IsGateway ? "[Gateway]" : "[Switch]";
-                var formattedName = $"{prefix} {cleanName}";
+                // Format device name with consistent prefix
+                var formattedName = DisplayFormatters.FormatDeviceName(switchDevice.Name, switchDevice.IsGateway);
 
                 column.Item()
                     .PaddingBottom(8)
@@ -782,9 +757,7 @@ public class PdfReportGenerator
                             : Colors.White;
 
                         var status = client.HasIssue ? (client.IssueTitle ?? "Issue") : "OK";
-                        var networkDisplay = client.VlanId.HasValue
-                            ? $"{client.Network ?? "Unknown"} ({client.VlanId})"
-                            : client.Network ?? "Unknown";
+                        var networkDisplay = DisplayFormatters.FormatNetworkWithVlan(client.Network, client.VlanId);
 
                         void DataCell(string text)
                         {
@@ -1018,9 +991,7 @@ public class PdfReportGenerator
                         : "0 (no ACL support)";
 
                     // Format device name with consistent prefix
-                    var cleanName = StripDevicePrefix(switchDevice.Name);
-                    var prefix = switchDevice.IsGateway ? "[Gateway]" : "[Switch]";
-                    var formattedName = $"{prefix} {cleanName}";
+                    var formattedName = DisplayFormatters.FormatDeviceName(switchDevice.Name, switchDevice.IsGateway);
 
                     table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                         .AlignLeft().Text(formattedName).FontSize(9);

@@ -1,4 +1,5 @@
 @page "/audit"
+@using NetworkOptimizer.Reports
 @inject AuditService AuditService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Audit> Logger
@@ -437,9 +438,7 @@
                                         var hasIssue = clientIssue != null;
                                         var statusClass = hasIssue ? (clientIssue!.Severity == "Critical" ? "row-critical" : "row-warning") : "";
                                         var statusText = hasIssue ? clientIssue!.Title : "OK";
-                                        var networkDisplay = client.VlanId.HasValue
-                                            ? $"{client.NetworkName ?? "Unknown"} ({client.VlanId})"
-                                            : client.NetworkName ?? "Unknown";
+                                        var networkDisplay = DisplayFormatters.FormatNetworkWithVlan(client.NetworkName, client.VlanId);
                                         <tr class="@statusClass">
                                             <td>@client.DisplayName</td>
                                             <td>@client.DeviceCategory</td>
@@ -888,85 +887,15 @@
         StateHasChanged();
     }
 
-    /// <summary>
-    /// Extract a clean network name from a device name for report titles.
-    /// Strips prefixes like [Gateway], [Switch] and parenthetical suffixes like (UCG-Fiber).
-    /// Example: "[Gateway] SeaTurtle Home" → "SeaTurtle Home"
-    /// </summary>
-    private static string ExtractNetworkName(string deviceName)
-    {
-        if (string.IsNullOrWhiteSpace(deviceName))
-            return "Network";
-
-        var name = StripDevicePrefix(deviceName);
-
-        // Strip parenthetical suffix like (UCG-Fiber), (UDM Pro), etc.
-        var openParen = name.LastIndexOf('(');
-        if (openParen > 0 && name.EndsWith(")"))
-        {
-            name = name.Substring(0, openParen).TrimEnd();
-        }
-
-        return string.IsNullOrWhiteSpace(name) ? "Network" : name;
-    }
-
-    /// <summary>
-    /// Strip any existing device type prefix from a name.
-    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
-    /// Example: "[Switch] Office" → "Office"
-    /// </summary>
-    private static string StripDevicePrefix(string deviceName)
-    {
-        if (string.IsNullOrWhiteSpace(deviceName))
-            return deviceName;
-
-        var name = deviceName.Trim();
-
-        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
-        if (name.StartsWith("["))
-        {
-            var closeBracket = name.IndexOf(']');
-            if (closeBracket > 0 && closeBracket < name.Length - 1)
-            {
-                name = name.Substring(closeBracket + 1).TrimStart();
-            }
-        }
-
-        return name;
-    }
-
-    /// <summary>
-    /// Get a formatted device name with consistent prefix.
-    /// Strips any existing prefix and adds the correct one.
-    /// </summary>
-    private static string FormatDeviceName(string deviceName, bool isGateway)
-    {
-        var cleanName = StripDevicePrefix(deviceName);
-        var prefix = isGateway ? "[Gateway]" : "[Switch]";
-        return $"{prefix} {cleanName}";
-    }
+    // Device name formatting uses shared DisplayFormatters class
+    private static string ExtractNetworkName(string deviceName) => DisplayFormatters.ExtractNetworkName(deviceName);
+    private static string FormatDeviceName(string deviceName, bool isGateway) => DisplayFormatters.FormatDeviceName(deviceName, isGateway);
 
     private string GetDohStatusDisplay()
     {
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
-        if (!dns.DohEnabled) return "Not Configured";
-        // Show provider names with config names (e.g., "NextDNS (NextDNS-fcdba9)")
-        if (dns.DohProviders.Any())
-        {
-            var providers = string.Join(", ", dns.DohProviders);
-            var configNames = dns.DohConfigNames.Any() ? string.Join(", ", dns.DohConfigNames) : null;
-
-            // Only show config name if it differs from provider name
-            var display = configNames != null && configNames != providers
-                ? $"{providers} ({configNames})"
-                : providers;
-
-            if (dns.DohState == "auto") return $"{display} (auto mode)";
-            return display;
-        }
-        if (dns.DohState == "auto") return "Auto (may fallback)";
-        return "Enabled";
+        return DisplayFormatters.GetDohStatusDisplay(dns.DohEnabled, dns.DohState, dns.DohProviders.ToList(), dns.DohConfigNames.ToList());
     }
 
     /// <summary>
@@ -1057,63 +986,11 @@
         var dns = lastResult.DnsSecurity;
         if (!dns.WanDnsServers.Any() && !dns.InterfacesWithoutDns.Any()) return "No WAN DNS servers configured";
 
-        var parts = new List<string>();
-
-        // If there's a mismatch, show only the incorrect DNS servers
-        // Show correct DNS config first if we have matched servers
-        if (dns.MatchedDnsServers.Any())
-        {
-            var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
-            var servers = string.Join(", ", dns.MatchedDnsServers);
-            parts.Add($"Correct: {servers}{providerInfo}");
-        }
-
-        // Show mismatched interfaces
-        if (dns.InterfacesWithMismatch.Any())
-        {
-            var mismatchedIps = string.Join(", ", dns.MismatchedDnsServers);
-            parts.Add($"Incorrect: {mismatchedIps} on {string.Join(", ", dns.InterfacesWithMismatch)}");
-        }
-
-        // Show interfaces with no DNS configured
-        if (dns.InterfacesWithoutDns.Any())
-        {
-            parts.Add($"Incorrect: No DNS on {string.Join(", ", dns.InterfacesWithoutDns)}");
-        }
-
-        // If no issues, just show the current config
-        if (!parts.Any() && dns.WanDnsServers.Any())
-        {
-            var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
-
-            // If wrong order, show the correct order with "Should be" prefix
-            if (dns.WanDnsMatchesDoH && !dns.WanDnsOrderCorrect && dns.WanDnsServers.Count >= 2)
-            {
-                var correctOrder = GetCorrectDnsOrder(dns.WanDnsServers, dns.WanDnsPtrResults);
-                parts.Add($"Should be {correctOrder}{providerInfo}");
-            }
-            else
-            {
-                var servers = string.Join(", ", dns.WanDnsServers);
-                parts.Add($"{servers}{providerInfo}");
-            }
-        }
-
-        return string.Join(" | ", parts);
-    }
-
-    private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
-    {
-        // Pair IPs with their PTR results and sort by dns1 first, dns2 second
-        var paired = servers.Zip(ptrResults, (ip, ptr) => (Ip: ip, Ptr: ptr ?? "")).ToList();
-
-        // Sort: dns1 should come before dns2
-        var sorted = paired
-            .OrderBy(p => p.Ptr.Contains("dns2", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-            .Select(p => p.Ip)
-            .ToList();
-
-        return string.Join(", ", sorted);
+        return DisplayFormatters.GetWanDnsDisplay(
+            dns.WanDnsServers.ToList(), dns.WanDnsPtrResults.ToList(),
+            dns.MatchedDnsServers.ToList(), dns.MismatchedDnsServers.ToList(),
+            dns.InterfacesWithMismatch.ToList(), dns.InterfacesWithoutDns.ToList(),
+            dns.WanDnsProvider, dns.ExpectedDnsProvider, dns.WanDnsMatchesDoH, dns.WanDnsOrderCorrect);
     }
 
     private string GetDeviceDnsStatusClass()
@@ -1138,56 +1015,18 @@
     {
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
-        if (dns.TotalDevicesChecked == 0 && dns.DhcpDeviceCount == 0)
-            return "No infrastructure devices to check";
-
-        var parts = new List<string>();
-
-        if (dns.TotalDevicesChecked > 0)
-        {
-            if (dns.DeviceDnsPointsToGateway)
-                parts.Add($"{dns.TotalDevicesChecked} static device(s) point to gateway");
-            else
-            {
-                var misconfigured = dns.TotalDevicesChecked - dns.DevicesWithCorrectDns;
-                parts.Add($"{misconfigured} of {dns.TotalDevicesChecked} have non-gateway DNS");
-            }
-        }
-
-        if (dns.DhcpDeviceCount > 0)
-            parts.Add($"{dns.DhcpDeviceCount} use DHCP");
-
-        return string.Join(", ", parts);
+        return DisplayFormatters.GetDeviceDnsDisplay(
+            dns.TotalDevicesChecked, dns.DevicesWithCorrectDns, dns.DhcpDeviceCount, dns.DeviceDnsPointsToGateway);
     }
 
-    private string GetLinkStatus(Services.PortReference port)
-    {
-        if (!port.IsUp) return "Down";
-        if (port.Speed >= 1000)
-        {
-            var gbe = port.Speed / 1000.0;
-            return gbe % 1 == 0 ? $"Up {(int)gbe} GbE" : $"Up {gbe:0.#} GbE";
-        }
-        if (port.Speed > 0) return $"Up {port.Speed} MbE";
-        return "Down";
-    }
+    private string GetLinkStatus(Services.PortReference port) =>
+        DisplayFormatters.GetLinkStatus(port.IsUp, port.Speed);
 
-    private string GetPoeStatus(Services.PortReference port)
-    {
-        if (port.PoePower > 0) return $"{port.PoePower:F1} W";
-        if (port.PoeMode == "off") return "off";
-        if (port.PoeEnabled) return "off";
-        return "N/A";
-    }
+    private string GetPoeStatus(Services.PortReference port) =>
+        DisplayFormatters.GetPoeStatus(port.PoePower, port.PoeMode, port.PoeEnabled);
 
-    private string GetPortSecurityStatus(Services.PortReference port)
-    {
-        var macCount = port.PortSecurityMacs.Count;
-        if (macCount > 1) return $"{macCount} MAC";
-        if (macCount == 1) return "1 MAC";
-        if (port.PortSecurityEnabled) return "Yes";
-        return "-";
-    }
+    private string GetPortSecurityStatus(Services.PortReference port) =>
+        DisplayFormatters.GetPortSecurityStatus(port.PortSecurityMacs.Count, port.PortSecurityEnabled);
 
     private (string Status, string StatusClass) GetPortStatus(Services.PortReference port, bool supportsAcls)
     {

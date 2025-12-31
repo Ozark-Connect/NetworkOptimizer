@@ -46,92 +46,21 @@ public class DnsSecuritySummary
 
     public string GetDohStatusDisplay()
     {
-        if (!DohEnabled) return "Not Configured";
-        if (DohState == "auto") return "Auto (may fallback)";
-        if (DohProviders.Any()) return string.Join(", ", DohProviders);
-        return "Enabled";
+        return DisplayFormatters.GetDohStatusDisplay(DohEnabled, DohState, DohProviders);
     }
 
     public string GetProtectionStatusDisplay()
     {
-        if (FullyProtected) return "Full Protection";
-        var protections = new List<string>();
-        if (DnsLeakProtection) protections.Add("DNS53");
-        if (DotBlocked) protections.Add("DoT");
-        if (DohBypassBlocked) protections.Add("DoH Bypass");
-        if (WanDnsMatchesDoH) protections.Add("WAN DNS");
-
-        if (protections.Any())
-            return string.Join(" + ", protections);
-
-        // No leak prevention but DoH is enabled
-        if (DohEnabled)
-            return "DoH Only - No Leak Prevention";
-
-        return "Not Protected";
+        return DisplayFormatters.GetProtectionStatusDisplay(
+            FullyProtected, DnsLeakProtection, DotBlocked, DohBypassBlocked, WanDnsMatchesDoH, DohEnabled);
     }
 
     public string GetWanDnsDisplay()
     {
-        var parts = new List<string>();
-
-        // Show correct DNS config first if we have matched servers
-        if (MatchedDnsServers.Any())
-        {
-            var providerInfo = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
-            var servers = string.Join(", ", MatchedDnsServers);
-            parts.Add($"Correct: {servers} ({providerInfo})");
-        }
-
-        // Show mismatched interfaces
-        if (InterfacesWithMismatch.Any() && MismatchedDnsServers.Any())
-        {
-            var mismatchedIps = string.Join(", ", MismatchedDnsServers);
-            parts.Add($"Incorrect: {mismatchedIps} on {string.Join(", ", InterfacesWithMismatch)}");
-        }
-
-        // Show interfaces with no DNS configured
-        if (InterfacesWithoutDns.Any())
-        {
-            parts.Add($"Incorrect: No DNS on {string.Join(", ", InterfacesWithoutDns)}");
-        }
-
-        // If no issues, just show the current config
-        if (!parts.Any() && WanDnsServers.Any())
-        {
-            var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
-
-            // If wrong order, show the correct order with "Should be" prefix
-            if (WanDnsMatchesDoH && !WanDnsOrderCorrect && WanDnsServers.Count >= 2)
-            {
-                var correctOrder = GetCorrectDnsOrder();
-                parts.Add($"Should be {correctOrder} ({provider})");
-            }
-            else
-            {
-                var servers = string.Join(", ", WanDnsServers);
-                parts.Add($"{servers} ({provider})");
-            }
-        }
-
-        if (!parts.Any())
-            return "Not Configured";
-
-        return string.Join(" | ", parts);
-    }
-
-    private string GetCorrectDnsOrder()
-    {
-        // Pair IPs with their PTR results and sort by dns1 first, dns2 second
-        var paired = WanDnsServers.Zip(WanDnsPtrResults, (ip, ptr) => (Ip: ip, Ptr: ptr ?? "")).ToList();
-
-        // Sort: dns1 should come before dns2
-        var sorted = paired
-            .OrderBy(p => p.Ptr.Contains("dns2", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-            .Select(p => p.Ip)
-            .ToList();
-
-        return string.Join(", ", sorted);
+        return DisplayFormatters.GetWanDnsDisplay(
+            WanDnsServers, WanDnsPtrResults, MatchedDnsServers, MismatchedDnsServers,
+            InterfacesWithMismatch, InterfacesWithoutDns,
+            WanDnsProvider, ExpectedDnsProvider, WanDnsMatchesDoH, WanDnsOrderCorrect);
     }
 
     // Device DNS validation
@@ -142,26 +71,8 @@ public class DnsSecuritySummary
 
     public string GetDeviceDnsDisplay()
     {
-        if (TotalDevicesChecked == 0 && DhcpDeviceCount == 0)
-            return "No infrastructure devices to check";
-
-        var parts = new List<string>();
-
-        if (TotalDevicesChecked > 0)
-        {
-            if (DeviceDnsPointsToGateway)
-                parts.Add($"{TotalDevicesChecked} static device(s) point to gateway");
-            else
-            {
-                var misconfigured = TotalDevicesChecked - DevicesWithCorrectDns;
-                parts.Add($"{misconfigured} of {TotalDevicesChecked} have non-gateway DNS");
-            }
-        }
-
-        if (DhcpDeviceCount > 0)
-            parts.Add($"{DhcpDeviceCount} use DHCP");
-
-        return string.Join(", ", parts);
+        return DisplayFormatters.GetDeviceDnsDisplay(
+            TotalDevicesChecked, DevicesWithCorrectDns, DhcpDeviceCount, DeviceDnsPointsToGateway);
     }
 }
 
@@ -329,36 +240,13 @@ public class PortDetail
 
     public int MacRestrictionCount => PortSecurityMacs.Count;
 
-    public string GetLinkStatus()
-    {
-        if (!IsUp) return "Down";
-        if (Speed >= 1000)
-        {
-            var gbe = Speed / 1000.0;
-            // Show decimal only if needed (e.g., 2.5 GbE, but 1 GbE not 1.0 GbE)
-            return gbe % 1 == 0 ? $"Up {(int)gbe} GbE" : $"Up {gbe:0.#} GbE";
-        }
-        if (Speed > 0) return $"Up {Speed} MbE";
-        return "Down";
-    }
+    public string GetLinkStatus() => DisplayFormatters.GetLinkStatus(IsUp, Speed);
 
-    public string GetPoeStatus()
-    {
-        if (PoePower > 0) return $"{PoePower:F1} W";
-        if (PoeMode == "off") return "off";
-        if (PoeEnabled) return "off";
-        return "N/A";
-    }
+    public string GetPoeStatus() => DisplayFormatters.GetPoeStatus(PoePower, PoeMode, PoeEnabled);
 
-    public string GetPortSecurityStatus()
-    {
-        if (MacRestrictionCount > 1) return $"{MacRestrictionCount} MAC";
-        if (MacRestrictionCount == 1) return "1 MAC";
-        if (PortSecurityEnabled) return "Yes";
-        return "-";
-    }
+    public string GetPortSecurityStatus() => DisplayFormatters.GetPortSecurityStatus(MacRestrictionCount, PortSecurityEnabled);
 
-    public string GetIsolationStatus() => Isolation ? "Yes" : "-";
+    public string GetIsolationStatus() => DisplayFormatters.GetIsolationStatus(Isolation);
 
     public (string Status, PortStatusType StatusType) GetStatus(bool supportsAcls = true)
     {
