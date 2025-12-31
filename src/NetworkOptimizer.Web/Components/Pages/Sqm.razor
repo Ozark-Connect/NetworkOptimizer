@@ -88,7 +88,7 @@
                     @if (gatewayConnected && deploymentStatus?.UdmBootInstalled != true)
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
-                            <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not run on reboot without udm-boot installed.
+                            <strong>UDM Boot Required:</strong> Boot scripts in <code>/data/on_boot.d/</code> will not persist after firmware upgrades or run on boot without udm-boot installed.
                             <button class="btn btn-sm btn-primary" style="margin-left: 0.5rem;" @onclick="InstallUdmBoot" disabled="@isInstallingUdmBoot">
                                 @if (isInstallingUdmBoot)
                                 {

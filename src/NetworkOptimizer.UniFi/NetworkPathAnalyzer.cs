@@ -481,6 +481,13 @@ public class NetworkPathAnalyzer
     {
         var ips = new List<string>();
 
+        // Check for HOST_IP environment variable override (useful for Docker port mapping mode)
+        var hostIp = Environment.GetEnvironmentVariable("HOST_IP");
+        if (!string.IsNullOrWhiteSpace(hostIp))
+        {
+            return new List<string> { hostIp.Trim() };
+        }
+
         try
         {
             foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
