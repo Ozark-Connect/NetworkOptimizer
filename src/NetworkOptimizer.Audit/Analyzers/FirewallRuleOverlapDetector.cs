@@ -518,12 +518,13 @@ public static class FirewallRuleOverlapDetector
     /// NETWORK (few networks) = 4
     /// NETWORK (many networks) = 5
     /// ANY = 10
+    /// Port specificity reduces the score (specific port = narrower)
     /// </summary>
     private static int GetDestinationScopeScore(FirewallRule rule)
     {
         var target = rule.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
 
-        return target switch
+        var baseScore = target switch
         {
             "WEB" => 1 + GetListSizeBonus(rule.WebDomains?.Count ?? 0),
             "IP" => 2 + GetListSizeBonus(rule.DestinationIps?.Count ?? 0) + GetCidrBonus(rule.DestinationIps),
@@ -531,6 +532,29 @@ public static class FirewallRuleOverlapDetector
             "ANY" => 10,
             _ => 10
         };
+
+        // Reduce score if destination has specific ports (makes it narrower)
+        var portPenalty = GetPortSpecificityPenalty(rule.DestinationPort);
+        return Math.Max(1, baseScore - portPenalty);
+    }
+
+    /// <summary>
+    /// Calculate penalty for specific ports (reduces scope score = narrower)
+    /// </summary>
+    private static int GetPortSpecificityPenalty(string? portString)
+    {
+        if (string.IsNullOrEmpty(portString))
+            return 0; // No port specified = ANY ports = no penalty
+
+        var ports = ParsePortString(portString);
+        if (ports.Count == 0)
+            return 0;
+
+        // Few specific ports = big penalty (makes rule very narrow)
+        if (ports.Count <= 3) return 4;
+        if (ports.Count <= 10) return 3;
+        if (ports.Count <= 100) return 2;
+        return 1; // Large port range = small penalty
     }
 
     /// <summary>

@@ -122,23 +122,45 @@ public class FirewallRuleAnalyzer
                     }
                     else if (!earlierIsAllow && laterIsAllow)
                     {
-                        // Earlier DENY makes later ALLOW ineffective - informational
-                        issues.Add(new AuditIssue
+                        // Earlier DENY before later ALLOW
+                        // Check if the deny is narrower than the allow in ANY dimension
+                        // If deny has more specific criteria, it's a partial restriction, not full shadow
+                        var isDenyNarrower = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule);
+                        var denyHasSpecificPort = !string.IsNullOrEmpty(earlierRule.DestinationPort) &&
+                                                  string.IsNullOrEmpty(laterRule.DestinationPort);
+                        var denyHasSpecificProtocol = earlierRule.Protocol != "all" &&
+                                                      (laterRule.Protocol == "all" || string.IsNullOrEmpty(laterRule.Protocol));
+
+                        if (isDenyNarrower || denyHasSpecificPort || denyHasSpecificProtocol)
                         {
-                            Type = "DENY_SHADOWS_ALLOW",
-                            Severity = AuditSeverity.Info,
-                            Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
-                            Metadata = new Dictionary<string, object>
+                            // Deny is more specific in some dimension = partial restriction
+                            // Example: Block UDP port 53 before Allow all traffic - only DNS is blocked
+                            // This is usually intentional and not worth flagging
+                            _logger.LogDebug(
+                                "Skipping partial restriction: deny '{Deny}' is more specific than allow '{Allow}' " +
+                                "(narrower={Narrower}, specificPort={Port}, specificProtocol={Protocol})",
+                                earlierRule.Name, laterRule.Name, isDenyNarrower, denyHasSpecificPort, denyHasSpecificProtocol);
+                        }
+                        else
+                        {
+                            // Broad deny before allow = the allow may truly be ineffective
+                            issues.Add(new AuditIssue
                             {
-                                { "allow_rule", laterRule.Name ?? laterRule.Id },
-                                { "allow_index", laterRule.Index },
-                                { "deny_rule", earlierRule.Name ?? earlierRule.Id },
-                                { "deny_index", earlierRule.Index }
-                            },
-                            RuleId = "FW-SHADOW-001",
-                            ScoreImpact = 0,
-                            RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
-                        });
+                                Type = "DENY_SHADOWS_ALLOW",
+                                Severity = AuditSeverity.Info,
+                                Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
+                                Metadata = new Dictionary<string, object>
+                                {
+                                    { "allow_rule", laterRule.Name ?? laterRule.Id },
+                                    { "allow_index", laterRule.Index },
+                                    { "deny_rule", earlierRule.Name ?? earlierRule.Id },
+                                    { "deny_index", earlierRule.Index }
+                                },
+                                RuleId = "FW-SHADOW-001",
+                                ScoreImpact = 0,
+                                RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
+                            });
+                        }
                         break;
                     }
                 }
