@@ -164,20 +164,11 @@ public static class DisplayFormatters
         var hasMismatch = interfacesWithMismatch.Any() && mismatchedDnsServers.Any();
         var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
 
-        // Show matched servers
-        if (matchedDnsServers.Any())
+        // Show matched servers only when there are no mismatches
+        if (matchedDnsServers.Any() && !hasMismatch)
         {
             var servers = string.Join(", ", matchedDnsServers);
-            if (hasMismatch)
-            {
-                // There are wrong DNS servers - show what they should be changed to
-                parts.Add($"Correct to: {servers} ({providerInfo})");
-            }
-            else
-            {
-                // No mismatched servers - just show the config
-                parts.Add($"{servers} ({providerInfo})");
-            }
+            parts.Add($"{servers} ({providerInfo})");
         }
 
         // Show mismatched interfaces
