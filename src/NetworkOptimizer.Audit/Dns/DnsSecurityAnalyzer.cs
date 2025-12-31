@@ -685,7 +685,8 @@ public class DnsSecurityAnalyzer
         {
             var displayName = FormatWanInterfaceName(interfaceName, portName);
 
-            var expectedIps = expectedProvider.DnsIps.Take(2).ToList();
+            // Only show complete IPs (not prefix patterns like "45.90.")
+            var expectedIps = expectedProvider.DnsIps.Where(ip => !ip.EndsWith('.')).Take(2).ToList();
             var expectedIpsStr = expectedIps.Any() ? string.Join(", ", expectedIps) : "";
             var recommendation = expectedIps.Any()
                 ? $"Set DNS to {expectedProvider.Name} servers: {expectedIpsStr}"

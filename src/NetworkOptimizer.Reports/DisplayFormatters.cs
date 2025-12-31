@@ -161,11 +161,10 @@ public static class DisplayFormatters
         bool wanDnsOrderCorrect)
     {
         var parts = new List<string>();
-        var hasMismatch = interfacesWithMismatch.Any() && mismatchedDnsServers.Any();
         var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
 
-        // Show matched servers only when there are no mismatches
-        if (matchedDnsServers.Any() && !hasMismatch)
+        // Always show matched servers first (if any)
+        if (matchedDnsServers.Any())
         {
             var servers = string.Join(", ", matchedDnsServers);
             parts.Add($"{servers} ({providerInfo})");
