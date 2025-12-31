@@ -39,6 +39,8 @@ public class DnsSecuritySummary
     public bool WanDnsOrderCorrect { get; set; } = true;
     public string? WanDnsProvider { get; set; }
     public string? ExpectedDnsProvider { get; set; }
+    public List<string> MismatchedDnsServers { get; set; } = new();
+    public List<string> InterfacesWithMismatch { get; set; } = new();
 
     public string GetDohStatusDisplay()
     {
@@ -70,6 +72,13 @@ public class DnsSecuritySummary
     public string GetWanDnsDisplay()
     {
         if (!WanDnsServers.Any()) return "Not Configured";
+
+        // If there's a mismatch, show only the incorrect DNS servers
+        if (InterfacesWithMismatch.Any() && MismatchedDnsServers.Any())
+        {
+            var mismatchedIps = string.Join(", ", MismatchedDnsServers);
+            return $"Incorrect: {mismatchedIps} on {string.Join(", ", InterfacesWithMismatch)}";
+        }
 
         var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
 
