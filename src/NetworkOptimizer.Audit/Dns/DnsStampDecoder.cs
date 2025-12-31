@@ -45,6 +45,7 @@ public static class DnsStampDecoder
                 return null;
 
             var offset = 0;
+            Console.WriteLine($"[DnsStamp] Raw bytes ({bytes.Length}): {BitConverter.ToString(bytes.Take(Math.Min(50, bytes.Length)).ToArray())}");
 
             // First byte is protocol type
             var protocol = (DnsProtocol)bytes[offset++];
@@ -68,6 +69,7 @@ public static class DnsStampDecoder
                     var hashes = ReadVlpData(bytes, ref offset); // Skip hashes for now
                     hostname = ReadVlpString(bytes, ref offset);
                     path = ReadVlpString(bytes, ref offset);
+                    Console.WriteLine($"[DnsStamp] DoH decoded: ip={ipAddress}, hostname={hostname}, path={path}, offset={offset}, totalLen={bytes.Length}");
                     break;
 
                 case DnsProtocol.DoT:
