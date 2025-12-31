@@ -27,6 +27,18 @@
 - Example: "on [AP] Tiny Home (5GHz)" instead of just "on [AP] Tiny Home"
 - Data source: UniFi client response has radio/channel info
 
+## SQM (Smart Queue Management)
+
+### Multi-WAN Support
+- Support for 3rd, 4th, and N number of WAN connections
+- Currently limited to two WAN connections
+- Should dynamically detect and configure all available WAN interfaces
+
+### GRE Tunnel Support
+- Support for GRE tunnel connections (e.g., UniFi 5G modem)
+- Currently specifically excluded from SQM configuration
+- These tunnels should be treated as valid WAN interfaces for SQM purposes
+
 ## General
 
 - (Add future enhancements here)

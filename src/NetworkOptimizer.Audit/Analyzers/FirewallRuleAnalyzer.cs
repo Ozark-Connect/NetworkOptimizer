@@ -516,7 +516,9 @@ public class FirewallRuleAnalyzer
 
             // Check for 5G/LTE modem registration traffic rule (only if a 5G/LTE device is present)
             // Must have: source = management network, destination web domains include carrier registration domains
-            // Known domains: trafficmanager.net, t-mobile.com, gsma.com (carrier-specific domains may vary)
+            // Known carrier domains - add more as we discover them for different carriers:
+            // - T-Mobile: trafficmanager.net, t-mobile.com
+            // - Generic: gsma.com (used by multiple carriers)
             if (has5GDevice)
             {
                 var has5GModemAccess = rules.Any(r =>
