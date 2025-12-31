@@ -45,13 +45,17 @@ public static class DnsStampDecoder
                 return null;
 
             var offset = 0;
-            Console.WriteLine($"[DnsStamp] Raw bytes ({bytes.Length}): {BitConverter.ToString(bytes.Take(Math.Min(50, bytes.Length)).ToArray())}");
 
             // First byte is protocol type
             var protocol = (DnsProtocol)bytes[offset++];
 
-            // Second byte is properties (for DoH/DoT/DoQ)
-            var props = bytes[offset++];
+            // Props is 64-bit little-endian (8 bytes) for DoH/DoT/DoQ
+            ulong props = 0;
+            if (offset + 8 <= bytes.Length)
+            {
+                props = BitConverter.ToUInt64(bytes, offset);
+                offset += 8;
+            }
             var dnssecEnabled = (props & 0x01) != 0;
             var noLog = (props & 0x02) != 0;
             var noFilter = (props & 0x04) != 0;
@@ -71,12 +75,6 @@ public static class DnsStampDecoder
                     hostname = ReadVlpString(bytes, ref offset);
                     path = ReadVlpString(bytes, ref offset);
 
-                    // Fallback: if hostname is empty, scan for it (some stamps have extra zeros)
-                    if (string.IsNullOrEmpty(hostname))
-                    {
-                        (hostname, path) = ScanForHostnameAndPath(bytes);
-                        Console.WriteLine($"[DnsStamp] DoH fallback scan found: hostname={hostname}, path={path}");
-                    }
                     break;
 
                 case DnsProtocol.DoT:
