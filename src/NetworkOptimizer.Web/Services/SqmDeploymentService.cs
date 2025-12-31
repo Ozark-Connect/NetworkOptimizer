@@ -209,6 +209,11 @@ echo 'udm-boot installed successfully'
                 "systemctl is-active sqm-monitor 2>/dev/null || systemctl is-active tc-monitor 2>/dev/null || echo 'inactive'");
             status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
+            // Check if watchdog timer is running
+            var watchdogRunning = await _sshService.RunCommandWithDeviceAsync(device,
+                "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
+            status.WatchdogTimerRunning = watchdogRunning.success && watchdogRunning.output.Trim() == "active";
+
             // Check for cron jobs
             var cronCheck = await _sshService.RunCommandWithDeviceAsync(device,
                 "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
@@ -459,9 +464,10 @@ echo 'udm-boot installed successfully'
             if (includeTcMonitor)
             {
                 steps.Add("Stopping SQM Monitor service...");
-                // Stop both old and new services
+                // Stop both old and new services, plus the watchdog timer
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "systemctl stop sqm-monitor tc-monitor 2>/dev/null; systemctl disable sqm-monitor tc-monitor 2>/dev/null");
+                    "systemctl stop sqm-monitor-watchdog.timer sqm-monitor tc-monitor 2>/dev/null; " +
+                    "systemctl disable sqm-monitor-watchdog.timer sqm-monitor tc-monitor 2>/dev/null");
 
                 steps.Add("Removing SQM Monitor...");
                 // Remove both old and new boot scripts and directories
@@ -470,7 +476,9 @@ echo 'udm-boot installed successfully'
                 await _sshService.RunCommandWithDeviceAsync(device,
                     $"rm -rf /data/sqm-monitor {TcMonitorDir}");
                 await _sshService.RunCommandWithDeviceAsync(device,
-                    "rm -f /etc/systemd/system/sqm-monitor.service /etc/systemd/system/tc-monitor.service && systemctl daemon-reload");
+                    "rm -f /etc/systemd/system/sqm-monitor.service /etc/systemd/system/tc-monitor.service " +
+                    "/etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service && " +
+                    "systemctl daemon-reload");
             }
 
             steps.Add("SQM removal complete");
@@ -951,11 +959,12 @@ echo 'udm-boot installed successfully'
         sb.AppendLine();
         sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-server.sh\"");
         sb.AppendLine();
-        sb.AppendLine("# Create systemd service");
+        sb.AppendLine("# Create systemd service with security hardening");
         sb.AppendLine("cat > \"$SERVICE_FILE\" << 'SERVICE_EOF'");
         sb.AppendLine("[Unit]");
         sb.AppendLine("Description=SQM Monitor HTTP Server");
         sb.AppendLine("After=network.target");
+        sb.AppendLine("Documentation=man:nc(1)");
         sb.AppendLine();
         sb.AppendLine("[Service]");
         sb.AppendLine("Type=simple");
@@ -967,9 +976,57 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("StandardError=append:/var/log/sqm-monitor.log");
         sb.AppendLine("User=root");
         sb.AppendLine();
+        sb.AppendLine("# Security hardening");
+        sb.AppendLine("ProtectSystem=strict");
+        sb.AppendLine("ReadWritePaths=/var/log /data/sqm-monitor /data/sqm");
+        sb.AppendLine("PrivateTmp=true");
+        sb.AppendLine();
         sb.AppendLine("[Install]");
         sb.AppendLine("WantedBy=multi-user.target");
         sb.AppendLine("SERVICE_EOF");
+        sb.AppendLine();
+        sb.AppendLine("# Create watchdog health check script");
+        sb.AppendLine("cat > \"$SQM_MONITOR_DIR/sqm-watchdog.sh\" << 'WATCHDOG_EOF'");
+        sb.AppendLine("#!/bin/sh");
+        sb.AppendLine("# Health check for SQM Monitor - restarts service if not responding");
+        sb.AppendLine($"PORT=\"{port}\"");
+        sb.AppendLine("LOG_FILE=\"/var/log/sqm-monitor.log\"");
+        sb.AppendLine();
+        sb.AppendLine("# Try to connect with 5 second timeout");
+        sb.AppendLine("if curl -s --connect-timeout 5 --max-time 10 \"http://127.0.0.1:$PORT\" > /dev/null 2>&1; then");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Health check failed - restart the service");
+        sb.AppendLine("echo \"$(date): Watchdog detected unresponsive SQM Monitor on port $PORT, restarting...\" >> \"$LOG_FILE\"");
+        sb.AppendLine("systemctl restart sqm-monitor");
+        sb.AppendLine("WATCHDOG_EOF");
+        sb.AppendLine();
+        sb.AppendLine("chmod +x \"$SQM_MONITOR_DIR/sqm-watchdog.sh\"");
+        sb.AppendLine();
+        sb.AppendLine("# Create systemd timer for watchdog (runs every minute)");
+        sb.AppendLine("cat > /etc/systemd/system/sqm-monitor-watchdog.timer << 'TIMER_EOF'");
+        sb.AppendLine("[Unit]");
+        sb.AppendLine("Description=SQM Monitor Watchdog Timer");
+        sb.AppendLine();
+        sb.AppendLine("[Timer]");
+        sb.AppendLine("OnBootSec=2min");
+        sb.AppendLine("OnUnitActiveSec=1min");
+        sb.AppendLine("AccuracySec=30s");
+        sb.AppendLine();
+        sb.AppendLine("[Install]");
+        sb.AppendLine("WantedBy=timers.target");
+        sb.AppendLine("TIMER_EOF");
+        sb.AppendLine();
+        sb.AppendLine("# Create systemd service for watchdog");
+        sb.AppendLine("cat > /etc/systemd/system/sqm-monitor-watchdog.service << 'WATCHDOG_SVC_EOF'");
+        sb.AppendLine("[Unit]");
+        sb.AppendLine("Description=SQM Monitor Watchdog Health Check");
+        sb.AppendLine();
+        sb.AppendLine("[Service]");
+        sb.AppendLine("Type=oneshot");
+        sb.AppendLine("ExecStart=/data/sqm-monitor/sqm-watchdog.sh");
+        sb.AppendLine("WATCHDOG_SVC_EOF");
         sb.AppendLine();
         sb.AppendLine("# Stop old tc-monitor if running");
         sb.AppendLine("systemctl stop tc-monitor 2>/dev/null || true");
@@ -981,8 +1038,12 @@ echo 'udm-boot installed successfully'
         sb.AppendLine("systemctl enable \"$SERVICE_NAME\"");
         sb.AppendLine("systemctl restart \"$SERVICE_NAME\"");
         sb.AppendLine();
+        sb.AppendLine("# Enable and start the watchdog timer");
+        sb.AppendLine("systemctl enable sqm-monitor-watchdog.timer");
+        sb.AppendLine("systemctl start sqm-monitor-watchdog.timer");
+        sb.AppendLine();
         sb.AppendLine("if systemctl is-active --quiet \"$SERVICE_NAME\"; then");
-        sb.AppendLine("    echo \"$(date): SQM Monitor started on port $PORT\" >> \"$LOG_FILE\"");
+        sb.AppendLine("    echo \"$(date): SQM Monitor started on port $PORT with watchdog\" >> \"$LOG_FILE\"");
         sb.AppendLine("else");
         sb.AppendLine("    echo \"$(date): SQM Monitor failed to start\" >> \"$LOG_FILE\"");
         sb.AppendLine("    exit 1");
@@ -1021,6 +1082,7 @@ public class SqmDeploymentStatus
     public bool PingScriptDeployed { get; set; }
     public bool TcMonitorDeployed { get; set; }
     public bool TcMonitorRunning { get; set; }
+    public bool WatchdogTimerRunning { get; set; }
     public int CronJobsConfigured { get; set; }
     public bool SpeedtestCliInstalled { get; set; }
     public bool BcInstalled { get; set; }
