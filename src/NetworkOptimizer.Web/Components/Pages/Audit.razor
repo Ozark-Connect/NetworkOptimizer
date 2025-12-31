@@ -1037,9 +1037,19 @@
         // Show configured servers
         if (dns.WanDnsServers.Any())
         {
-            var servers = string.Join(", ", dns.WanDnsServers);
             var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
-            parts.Add($"{servers}{providerInfo}");
+
+            // If wrong order, show the correct order with "Should be" prefix
+            if (dns.WanDnsMatchesDoH && !dns.WanDnsOrderCorrect && dns.WanDnsServers.Count >= 2)
+            {
+                var correctOrder = $"{dns.WanDnsServers[1]}, {dns.WanDnsServers[0]}";
+                parts.Add($"Should be {correctOrder}{providerInfo}");
+            }
+            else
+            {
+                var servers = string.Join(", ", dns.WanDnsServers);
+                parts.Add($"{servers}{providerInfo}");
+            }
         }
 
         // Show interfaces with issues
