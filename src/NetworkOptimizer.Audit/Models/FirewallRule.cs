@@ -89,4 +89,9 @@ public class FirewallRule
     /// Destination web domains (for web filtering rules)
     /// </summary>
     public List<string>? WebDomains { get; init; }
+
+    /// <summary>
+    /// Whether this is a predefined/system rule (not user-created)
+    /// </summary>
+    public bool Predefined { get; init; }
 }

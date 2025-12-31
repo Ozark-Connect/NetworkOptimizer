@@ -100,6 +100,7 @@ public class FirewallRuleAnalyzer
         var action = policy.GetStringOrNull("action");
         var protocol = policy.GetStringOrNull("protocol");
         var index = policy.GetIntOrDefault("index", 0);
+        var predefined = policy.GetBoolOrDefault("predefined", false);
 
         // Extract source network IDs
         List<string>? sourceNetworkIds = null;
@@ -143,7 +144,8 @@ public class FirewallRuleAnalyzer
             DestinationType = destType,
             DestinationPort = destPort,
             SourceNetworkIds = sourceNetworkIds,
-            WebDomains = webDomains
+            WebDomains = webDomains,
+            Predefined = predefined
         };
     }
 
@@ -274,14 +276,20 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Detect shadowed rules (rules that will never be hit due to earlier rules)
+    /// Detect conflicting user-created firewall rules where order causes unexpected behavior.
+    /// Only checks user-created rules (not predefined/system rules).
+    /// - Info: DENY before ALLOW makes the ALLOW ineffective
+    /// - Warning: ALLOW before DENY subverts a security rule
     /// </summary>
     public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules)
     {
         var issues = new List<AuditIssue>();
 
+        // Only check user-created rules (skip predefined/system rules)
+        var userRules = rules.Where(r => !r.Predefined && r.Enabled).ToList();
+
         // Group by ruleset
-        var rulesets = rules.GroupBy(r => r.Ruleset ?? "default");
+        var rulesets = userRules.GroupBy(r => r.Ruleset ?? "default");
 
         foreach (var ruleset in rulesets)
         {
@@ -289,40 +297,66 @@ public class FirewallRuleAnalyzer
 
             for (int i = 0; i < orderedRules.Count; i++)
             {
-                var currentRule = orderedRules[i];
+                var laterRule = orderedRules[i];
 
-                // Skip disabled rules
-                if (!currentRule.Enabled)
-                    continue;
-
-                // Check if any earlier rule shadows this one
+                // Check if any earlier rule conflicts with this one
                 for (int j = 0; j < i; j++)
                 {
                     var earlierRule = orderedRules[j];
 
-                    if (!earlierRule.Enabled)
+                    // Only care about conflicting actions (ALLOW vs DENY/BLOCK/DROP)
+                    var earlierIsAllow = IsAllowAction(earlierRule.Action);
+                    var laterIsAllow = IsAllowAction(laterRule.Action);
+
+                    // Skip if same action type (both allow or both deny)
+                    if (earlierIsAllow == laterIsAllow)
                         continue;
 
-                    // Check if earlier rule is more permissive and shadows current
-                    if (IsShadowedBy(currentRule, earlierRule))
+                    // Check if rules could overlap (same source/dest/protocol patterns)
+                    if (!RulesCouldOverlap(earlierRule, laterRule))
+                        continue;
+
+                    if (earlierIsAllow && !laterIsAllow)
                     {
+                        // Earlier ALLOW subverts later DENY - this is a potential security issue
                         issues.Add(new AuditIssue
                         {
-                            Type = "SHADOWED_RULE",
-                            Severity = AuditSeverity.Investigate,
-                            Message = $"Rule '{currentRule.Name}' (index {currentRule.Index}) is shadowed by earlier rule '{earlierRule.Name}' (index {earlierRule.Index})",
+                            Type = "ALLOW_SUBVERTS_DENY",
+                            Severity = AuditSeverity.Recommended,
+                            Message = $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
                             Metadata = new Dictionary<string, object>
                             {
-                                { "shadowed_rule", currentRule.Name ?? currentRule.Id },
-                                { "shadowed_index", currentRule.Index },
-                                { "shadowing_rule", earlierRule.Name ?? earlierRule.Id },
-                                { "shadowing_index", earlierRule.Index },
-                                { "ruleset", currentRule.Ruleset ?? "default" }
+                                { "allow_rule", earlierRule.Name ?? earlierRule.Id },
+                                { "allow_index", earlierRule.Index },
+                                { "deny_rule", laterRule.Name ?? laterRule.Id },
+                                { "deny_index", laterRule.Index }
+                            },
+                            RuleId = "FW-SUBVERT-001",
+                            ScoreImpact = 5,
+                            RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
+                        });
+                        break;
+                    }
+                    else if (!earlierIsAllow && laterIsAllow)
+                    {
+                        // Earlier DENY makes later ALLOW ineffective - informational
+                        issues.Add(new AuditIssue
+                        {
+                            Type = "DENY_SHADOWS_ALLOW",
+                            Severity = AuditSeverity.Info,
+                            Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
+                            Metadata = new Dictionary<string, object>
+                            {
+                                { "allow_rule", laterRule.Name ?? laterRule.Id },
+                                { "allow_index", laterRule.Index },
+                                { "deny_rule", earlierRule.Name ?? earlierRule.Id },
+                                { "deny_index", earlierRule.Index }
                             },
                             RuleId = "FW-SHADOW-001",
-                            ScoreImpact = 2
+                            ScoreImpact = 0,
+                            RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
                         });
-                        break; // Only report the first shadowing rule
+                        break;
                     }
                 }
             }
@@ -332,37 +366,51 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Check if a rule is shadowed by another rule
+    /// Check if an action is an allow/accept action
     /// </summary>
-    private bool IsShadowedBy(FirewallRule current, FirewallRule earlier)
+    private static bool IsAllowAction(string? action)
     {
-        // Simple heuristic: if earlier rule is "any/any" or matches same criteria
-        // This is a simplified version - full implementation would need more sophisticated matching
-
-        // Check if earlier rule has same action
-        if (earlier.Action != current.Action)
+        if (string.IsNullOrEmpty(action))
             return false;
+        return action.Equals("allow", StringComparison.OrdinalIgnoreCase) ||
+               action.Equals("accept", StringComparison.OrdinalIgnoreCase);
+    }
 
-        // Check if earlier rule is more permissive
-        var earlierIsAnySource = earlier.SourceType == "any" || string.IsNullOrEmpty(earlier.Source);
-        var earlierIsAnyDest = earlier.DestinationType == "any" || string.IsNullOrEmpty(earlier.Destination);
+    /// <summary>
+    /// Check if two rules could potentially overlap (match same traffic)
+    /// </summary>
+    private static bool RulesCouldOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        // If either rule is any->any for source/dest, they could overlap
+        var rule1AnySource = string.IsNullOrEmpty(rule1.Source) && (rule1.SourceNetworkIds == null || !rule1.SourceNetworkIds.Any());
+        var rule1AnyDest = string.IsNullOrEmpty(rule1.Destination) && (rule1.WebDomains == null || !rule1.WebDomains.Any());
+        var rule2AnySource = string.IsNullOrEmpty(rule2.Source) && (rule2.SourceNetworkIds == null || !rule2.SourceNetworkIds.Any());
+        var rule2AnyDest = string.IsNullOrEmpty(rule2.Destination) && (rule2.WebDomains == null || !rule2.WebDomains.Any());
 
-        var currentIsAnySource = current.SourceType == "any" || string.IsNullOrEmpty(current.Source);
-        var currentIsAnyDest = current.DestinationType == "any" || string.IsNullOrEmpty(current.Destination);
-
-        // If earlier rule is any->any and protocols match
-        if (earlierIsAnySource && earlierIsAnyDest &&
-            (earlier.Protocol == current.Protocol || earlier.Protocol == "all"))
-        {
+        // If first rule is very broad (any source or any dest), it could shadow more specific rules
+        if (rule1AnySource || rule1AnyDest)
             return true;
+
+        // Check for matching source networks
+        if (rule1.SourceNetworkIds != null && rule2.SourceNetworkIds != null)
+        {
+            if (rule1.SourceNetworkIds.Intersect(rule2.SourceNetworkIds).Any())
+                return true;
         }
 
-        // If sources and destinations match exactly
-        if (earlier.Source == current.Source &&
-            earlier.Destination == current.Destination &&
-            earlier.Protocol == current.Protocol)
-        {
+        // Check for matching sources
+        if (!string.IsNullOrEmpty(rule1.Source) && rule1.Source == rule2.Source)
             return true;
+
+        // Check for matching destinations
+        if (!string.IsNullOrEmpty(rule1.Destination) && rule1.Destination == rule2.Destination)
+            return true;
+
+        // Check for matching web domains
+        if (rule1.WebDomains != null && rule2.WebDomains != null)
+        {
+            if (rule1.WebDomains.Intersect(rule2.WebDomains, StringComparer.OrdinalIgnoreCase).Any())
+                return true;
         }
 
         return false;
@@ -490,18 +538,20 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Check for missing inter-VLAN isolation rules
+    /// Check for missing inter-VLAN isolation rules.
+    /// Networks with NetworkIsolationEnabled are already isolated by the system "Isolated Networks" rule.
     /// </summary>
     public List<AuditIssue> CheckInterVlanIsolation(List<FirewallRule> rules, List<NetworkInfo> networks)
     {
         var issues = new List<AuditIssue>();
 
-        // Find networks that should be isolated
-        var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
-        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest).ToList();
+        // Find networks that should be isolated but DON'T have network_isolation_enabled
+        // (networks with isolation enabled are handled by UniFi's built-in "Isolated Networks" rule)
+        var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
+        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled).ToList();
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
 
-        // Check if there are explicit deny rules between IoT and Corporate
+        // Check if there are explicit deny rules between non-isolated IoT and Corporate
         foreach (var iot in iotNetworks)
         {
             foreach (var corporate in corporateNetworks)
@@ -523,7 +573,7 @@ public class FirewallRuleAnalyzer
                         {
                             { "network1", iot.Name },
                             { "network2", corporate.Name },
-                            { "recommendation", "Add firewall rule to block inter-VLAN traffic" }
+                            { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
                         },
                         RuleId = "FW-ISOLATION-001",
                         ScoreImpact = 7
@@ -532,7 +582,7 @@ public class FirewallRuleAnalyzer
             }
         }
 
-        // Similar check for Guest networks
+        // Similar check for non-isolated Guest networks
         foreach (var guest in guestNetworks)
         {
             foreach (var corporate in corporateNetworks)
@@ -554,7 +604,7 @@ public class FirewallRuleAnalyzer
                         {
                             { "network1", guest.Name },
                             { "network2", corporate.Name },
-                            { "recommendation", "Add firewall rule to block inter-VLAN traffic" }
+                            { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
                         },
                         RuleId = "FW-ISOLATION-002",
                         ScoreImpact = 7
@@ -665,6 +715,37 @@ public class FirewallRuleAnalyzer
                     RuleId = "FW-MGMT-002",
                     ScoreImpact = 0,
                     RecommendedAction = "Add firewall rule allowing AFC traffic for 6GHz WiFi coordination"
+                });
+            }
+
+            // Check for NTP access rule - needed for time sync (required for AFC)
+            // Can be satisfied by: web domain containing ntp.org OR destination port 123
+            var hasNtpAccess = rules.Any(r =>
+                r.Enabled &&
+                r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
+                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                (r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true ||
+                 r.DestinationPort == "123" ||
+                 r.DestinationPort?.Contains("123") == true));
+
+            if (!hasNtpAccess)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_MISSING_NTP_ACCESS",
+                    Severity = AuditSeverity.Info,
+                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack NTP time sync access",
+                    CurrentNetwork = mgmtNetwork.Name,
+                    CurrentVlan = mgmtNetwork.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", mgmtNetwork.Name },
+                        { "vlan", mgmtNetwork.VlanId },
+                        { "required_access", "ntp.org domain or UDP port 123" }
+                    },
+                    RuleId = "FW-MGMT-004",
+                    ScoreImpact = 0,
+                    RecommendedAction = "Add firewall rule allowing NTP traffic (UDP port 123 or ntp.org domain)"
                 });
             }
 

@@ -38,7 +38,7 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_IsolatedMgmtWithNoRules_ReturnsBothIssues()
+    public void AnalyzeManagementNetworkFirewallAccess_IsolatedMgmtWithNoRules_ReturnsAllIssues()
     {
         // Arrange - Isolated management network with no internet and no firewall rules
         var networks = new List<NetworkInfo>
@@ -51,13 +51,14 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(2);
+        issues.Should().HaveCount(3);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_HasUniFiAccessRule_ReturnsOnlyAfcIssue()
+    public void AnalyzeManagementNetworkFirewallAccess_HasUniFiAccessRule_ReturnsMissingAfcAndNtp()
     {
         // Arrange
         var mgmtNetworkId = "mgmt-network-123";
@@ -76,12 +77,13 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(1);
-        issues[0].Type.Should().Be("MGMT_MISSING_AFC_ACCESS");
+        issues.Should().HaveCount(2);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_HasAfcAccessRule_ReturnsOnlyUniFiIssue()
+    public void AnalyzeManagementNetworkFirewallAccess_HasAfcAccessRule_ReturnsMissingUniFiAndNtp()
     {
         // Arrange
         var mgmtNetworkId = "mgmt-network-123";
@@ -100,12 +102,13 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
         // Assert
-        issues.Should().HaveCount(1);
-        issues[0].Type.Should().Be("MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().HaveCount(2);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_HasBothRules_ReturnsNoIssues()
+    public void AnalyzeManagementNetworkFirewallAccess_HasAllThreeRules_ReturnsNoIssues()
     {
         // Arrange
         var mgmtNetworkId = "mgmt-network-123";
@@ -120,7 +123,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ui.com" }),
             CreateFirewallRule("Allow AFC Traffic", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" })
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ntp.org" })
         };
 
         // Act
@@ -131,9 +137,38 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeManagementNetworkFirewallAccess_SeparateRules_MatchesUniFiAndAfc()
+    public void AnalyzeManagementNetworkFirewallAccess_NtpByPort123_ReturnsNoNtpIssue()
     {
-        // Arrange - Separate rules for UniFi and AFC
+        // Arrange - NTP via port 123 instead of domain
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow UniFi Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("Allow AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP Port", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_SeparateRules_MatchesAll()
+    {
+        // Arrange - Separate rules for UniFi, AFC, and NTP
         var mgmtNetworkId = "mgmt-network-123";
         var networks = new List<NetworkInfo>
         {
@@ -146,7 +181,10 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ui.com" }),
             CreateFirewallRule("Another Rule", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" })
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP Rule", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123")
         };
 
         // Act
@@ -195,14 +233,17 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "ui.com" }),
             CreateFirewallRule("Allow AFC Traffic", action: "allow", enabled: false,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" })
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow", enabled: false,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123")
         };
 
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert
-        issues.Should().HaveCount(2);
+        // Assert - All 3 disabled rules don't count
+        issues.Should().HaveCount(3);
     }
 
     [Fact]
@@ -224,8 +265,8 @@ public class FirewallRuleAnalyzerTests
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert
-        issues.Should().HaveCount(2);
+        // Assert - Block rule doesn't satisfy, so all 3 issues present
+        issues.Should().HaveCount(3);
     }
 
     [Fact]
@@ -258,8 +299,8 @@ public class FirewallRuleAnalyzerTests
         // Act - has5GDevice = false (default)
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: false);
 
-        // Assert - Should only have UniFi and AFC issues, not 5G
-        issues.Should().HaveCount(2);
+        // Assert - Should have UniFi, AFC, and NTP issues, but not 5G
+        issues.Should().HaveCount(3);
         issues.Should().NotContain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
@@ -276,8 +317,8 @@ public class FirewallRuleAnalyzerTests
         // Act - has5GDevice = true
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
 
-        // Assert - Should have UniFi, AFC, and 5G issues
-        issues.Should().HaveCount(3);
+        // Assert - Should have UniFi, AFC, NTP, and 5G issues
+        issues.Should().HaveCount(4);
         issues.Should().Contain(i => i.Type == "MGMT_MISSING_5G_ACCESS");
     }
 
@@ -298,6 +339,9 @@ public class FirewallRuleAnalyzerTests
             CreateFirewallRule("AFC Traffic", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123"),
             CreateFirewallRule("Modem Registration", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" })
@@ -327,6 +371,9 @@ public class FirewallRuleAnalyzerTests
             CreateFirewallRule("AFC", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ntp.org" }),
             CreateFirewallRule("TMobile Only", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "t-mobile.com" })
@@ -391,7 +438,8 @@ public class FirewallRuleAnalyzerTests
         string action = "allow",
         bool enabled = true,
         List<string>? sourceNetworkIds = null,
-        List<string>? webDomains = null)
+        List<string>? webDomains = null,
+        string? destinationPort = null)
     {
         return new FirewallRule
         {
@@ -401,7 +449,8 @@ public class FirewallRuleAnalyzerTests
             Enabled = enabled,
             Index = 1,
             SourceNetworkIds = sourceNetworkIds,
-            WebDomains = webDomains
+            WebDomains = webDomains,
+            DestinationPort = destinationPort
         };
     }
 
