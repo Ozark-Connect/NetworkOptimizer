@@ -133,6 +133,37 @@ public class FirewallRuleAnalyzer
             ? rulesetProp.GetString()
             : null;
 
+        // Extract source network IDs (supports both nested and flat formats)
+        List<string>? sourceNetworkIds = null;
+        if (rule.TryGetProperty("source", out var sourceObj) && sourceObj.ValueKind == JsonValueKind.Object)
+        {
+            if (sourceObj.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
+            {
+                sourceNetworkIds = netIds.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+        }
+        // Fallback to flat format
+        if (sourceNetworkIds == null && !string.IsNullOrEmpty(source))
+        {
+            sourceNetworkIds = new List<string> { source };
+        }
+
+        // Extract web domains (from nested destination object)
+        List<string>? webDomains = null;
+        if (rule.TryGetProperty("destination", out var destObj) && destObj.ValueKind == JsonValueKind.Object)
+        {
+            if (destObj.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
+            {
+                webDomains = domains.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+        }
+
         return new FirewallRule
         {
             Id = id,
@@ -149,7 +180,9 @@ public class FirewallRuleAnalyzer
             DestinationPort = destinationPort,
             HasBeenHit = hitCount > 0,
             HitCount = hitCount,
-            Ruleset = ruleset
+            Ruleset = ruleset,
+            SourceNetworkIds = sourceNetworkIds,
+            WebDomains = webDomains
         };
     }
 
@@ -461,6 +494,95 @@ public class FirewallRuleAnalyzer
         issues.AddRange(CheckInterVlanIsolation(rules, networks));
 
         _logger.LogInformation("Found {IssueCount} firewall issues", issues.Count);
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Analyze firewall rules for isolated management networks.
+    /// When a management network has isolation enabled but internet disabled,
+    /// it needs specific firewall rules to allow UniFi cloud, AFC, and device registration traffic.
+    /// </summary>
+    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks)
+    {
+        var issues = new List<AuditIssue>();
+
+        // Find management networks that are isolated and don't have internet access
+        var isolatedMgmtNetworks = networks.Where(n =>
+            n.Purpose == NetworkPurpose.Management &&
+            n.NetworkIsolationEnabled &&
+            !n.InternetAccessEnabled).ToList();
+
+        if (!isolatedMgmtNetworks.Any())
+        {
+            _logger.LogDebug("No isolated management networks without internet access found");
+            return issues;
+        }
+
+        foreach (var mgmtNetwork in isolatedMgmtNetworks)
+        {
+            _logger.LogDebug("Checking firewall access for isolated management network '{Name}'", mgmtNetwork.Name);
+
+            // Check for UniFi cloud access rule
+            var hasUniFiAccess = rules.Any(r =>
+                r.Enabled &&
+                r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
+                (r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true ||
+                 r.Name?.Contains("UniFi", StringComparison.OrdinalIgnoreCase) == true) &&
+                (r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true ||
+                 r.Name?.Contains("ui.com", StringComparison.OrdinalIgnoreCase) == true));
+
+            if (!hasUniFiAccess)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_MISSING_UNIFI_ACCESS",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
+                    CurrentNetwork = mgmtNetwork.Name,
+                    CurrentVlan = mgmtNetwork.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", mgmtNetwork.Name },
+                        { "vlan", mgmtNetwork.VlanId },
+                        { "required_domain", "ui.com" }
+                    },
+                    RuleId = "FW-MGMT-001",
+                    ScoreImpact = 5,
+                    RecommendedAction = "Add firewall rule allowing TCP 443 to ui.com for UniFi cloud management"
+                });
+            }
+
+            // Check for AFC (Automated Frequency Coordination) traffic rule - needed for 6GHz WiFi
+            var hasAfcAccess = rules.Any(r =>
+                r.Enabled &&
+                r.Action?.Equals("allow", StringComparison.OrdinalIgnoreCase) == true &&
+                (r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true ||
+                 r.Name?.Contains("AFC", StringComparison.OrdinalIgnoreCase) == true) &&
+                (r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true ||
+                 r.Name?.Contains("AFC", StringComparison.OrdinalIgnoreCase) == true));
+
+            if (!hasAfcAccess)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_MISSING_AFC_ACCESS",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"Isolated management network '{mgmtNetwork.Name}' may lack AFC traffic access",
+                    CurrentNetwork = mgmtNetwork.Name,
+                    CurrentVlan = mgmtNetwork.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", mgmtNetwork.Name },
+                        { "vlan", mgmtNetwork.VlanId },
+                        { "required_domains", "afcapi.qcs.qualcomm.com, location.qcs.qualcomm.com, api.qcs.qualcomm.com" }
+                    },
+                    RuleId = "FW-MGMT-002",
+                    ScoreImpact = 5,
+                    RecommendedAction = "Add firewall rule allowing AFC traffic for 6GHz WiFi coordination"
+                });
+            }
+        }
 
         return issues;
     }

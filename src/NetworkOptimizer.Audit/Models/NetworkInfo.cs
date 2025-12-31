@@ -116,4 +116,14 @@ public class NetworkInfo
     /// Whether DHCP server is enabled on this network
     /// </summary>
     public bool DhcpEnabled { get; init; }
+
+    /// <summary>
+    /// Whether network isolation is enabled (blocks inter-VLAN traffic by default)
+    /// </summary>
+    public bool NetworkIsolationEnabled { get; init; }
+
+    /// <summary>
+    /// Whether internet access is enabled for this network
+    /// </summary>
+    public bool InternetAccessEnabled { get; init; }
 }

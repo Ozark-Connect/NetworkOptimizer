@@ -149,8 +149,10 @@ public class ConfigAuditEngine
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(networks);
         var gatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(networks, gatewayName);
-        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues",
-            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count);
+        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(networks, gatewayName);
+        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(networks, gatewayName);
+        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {IsolationIssues} network isolation issues, {InternetIssues} internet access issues",
+            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, networkIsolationIssues.Count, internetAccessIssues.Count);
 
         // Extract and analyze firewall rules
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
@@ -158,7 +160,9 @@ public class ConfigAuditEngine
         var firewallIssues = firewallRules.Any()
             ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, networks)
             : new List<AuditIssue>();
-        _logger.LogInformation("Found {IssueCount} firewall issues", firewallIssues.Count);
+        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, networks);
+        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues",
+            firewallIssues.Count, mgmtFirewallIssues.Count);
 
         // Analyze DNS security (DoH configuration and firewall rules for DNS leak prevention)
         _logger.LogInformation("Phase 5b: Analyzing DNS security");
@@ -186,7 +190,10 @@ public class ConfigAuditEngine
         allIssues.AddRange(dnsIssues);
         allIssues.AddRange(gatewayIssues);
         allIssues.AddRange(mgmtDhcpIssues);
+        allIssues.AddRange(networkIsolationIssues);
+        allIssues.AddRange(internetAccessIssues);
         allIssues.AddRange(firewallIssues);
+        allIssues.AddRange(mgmtFirewallIssues);
         allIssues.AddRange(dnsSecurityIssues);
 
         // Analyze hardening measures

@@ -79,4 +79,14 @@ public class FirewallRule
     /// Ruleset (LAN_IN, WAN_OUT, etc.)
     /// </summary>
     public string? Ruleset { get; init; }
+
+    /// <summary>
+    /// Source network IDs (for network-based rules)
+    /// </summary>
+    public List<string>? SourceNetworkIds { get; init; }
+
+    /// <summary>
+    /// Destination web domains (for web filtering rules)
+    /// </summary>
+    public List<string>? WebDomains { get; init; }
 }

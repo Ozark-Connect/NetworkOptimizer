@@ -81,9 +81,12 @@ public class VlanAnalyzer
         var vlanId = network.GetIntOrDefault("vlan", network.GetIntOrDefault("vlan_id", 1));
         var purposeStr = network.GetStringOrNull("purpose");
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
+        var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
+        var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
         var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled);
 
-        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}", name, purpose, dhcpEnabled);
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}",
+            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
 
         var rawSubnet = network.GetStringOrNull("ip_subnet");
 
@@ -110,7 +113,9 @@ public class VlanAnalyzer
             Subnet = NormalizeSubnet(rawSubnet),
             Gateway = gateway,
             DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
-            DhcpEnabled = dhcpEnabled
+            DhcpEnabled = dhcpEnabled,
+            NetworkIsolationEnabled = networkIsolationEnabled,
+            InternetAccessEnabled = internetAccessEnabled
         };
     }
 
@@ -379,6 +384,157 @@ public class VlanAnalyzer
                     RuleId = "MGMT-DHCP-001",
                     ScoreImpact = 3,
                     RecommendedAction = "Disable DHCP and configure static IPs for management devices"
+                });
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Analyze network isolation configuration.
+    /// Security, Management, and IoT networks should have network isolation enabled.
+    /// </summary>
+    public List<AuditIssue> AnalyzeNetworkIsolation(List<NetworkInfo> networks, string gatewayName = "Gateway")
+    {
+        var issues = new List<AuditIssue>();
+
+        foreach (var network in networks)
+        {
+            // Skip native VLAN - it's the default network and usually doesn't need isolation
+            if (network.IsNative)
+                continue;
+
+            // Check Security/Camera networks
+            if (network.Purpose == NetworkPurpose.Security && !network.NetworkIsolationEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "SECURITY_NETWORK_NOT_ISOLATED",
+                    Severity = AuditSeverity.Critical,
+                    Message = $"Security/Camera VLAN '{network.Name}' is not isolated",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "network_isolation_enabled", network.NetworkIsolationEnabled }
+                    },
+                    RuleId = "NET-ISO-001",
+                    ScoreImpact = 15,
+                    RecommendedAction = "Enable network isolation to prevent cameras from accessing other network segments"
+                });
+            }
+
+            // Check Management networks
+            if (network.Purpose == NetworkPurpose.Management && !network.NetworkIsolationEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_NETWORK_NOT_ISOLATED",
+                    Severity = AuditSeverity.Critical,
+                    Message = $"Management VLAN '{network.Name}' is not isolated",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "network_isolation_enabled", network.NetworkIsolationEnabled }
+                    },
+                    RuleId = "NET-ISO-002",
+                    ScoreImpact = 15,
+                    RecommendedAction = "Enable network isolation to protect management infrastructure"
+                });
+            }
+
+            // Check IoT networks
+            if (network.Purpose == NetworkPurpose.IoT && !network.NetworkIsolationEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "IOT_NETWORK_NOT_ISOLATED",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"IoT VLAN '{network.Name}' is not isolated",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "network_isolation_enabled", network.NetworkIsolationEnabled }
+                    },
+                    RuleId = "NET-ISO-003",
+                    ScoreImpact = 10,
+                    RecommendedAction = "Enable network isolation to contain potentially insecure IoT devices"
+                });
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Analyze internet access configuration.
+    /// Security/Camera and Management networks should not have internet access enabled.
+    /// </summary>
+    public List<AuditIssue> AnalyzeInternetAccess(List<NetworkInfo> networks, string gatewayName = "Gateway")
+    {
+        var issues = new List<AuditIssue>();
+
+        foreach (var network in networks)
+        {
+            // Skip native VLAN
+            if (network.IsNative)
+                continue;
+
+            // Check Security/Camera networks - should NOT have internet access
+            if (network.Purpose == NetworkPurpose.Security && network.InternetAccessEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "SECURITY_NETWORK_HAS_INTERNET",
+                    Severity = AuditSeverity.Critical,
+                    Message = $"Security/Camera VLAN '{network.Name}' has internet access enabled",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "internet_access_enabled", network.InternetAccessEnabled }
+                    },
+                    RuleId = "NET-INT-001",
+                    ScoreImpact = 15,
+                    RecommendedAction = "Disable internet access to prevent cameras from phoning home to unknown servers"
+                });
+            }
+
+            // Check Management networks - should NOT have internet access (with exceptions for UniFi cloud)
+            if (network.Purpose == NetworkPurpose.Management && network.InternetAccessEnabled)
+            {
+                issues.Add(new AuditIssue
+                {
+                    Type = "MGMT_NETWORK_HAS_INTERNET",
+                    Severity = AuditSeverity.Recommended,
+                    Message = $"Management VLAN '{network.Name}' has internet access enabled",
+                    DeviceName = gatewayName,
+                    CurrentNetwork = network.Name,
+                    CurrentVlan = network.VlanId,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "network", network.Name },
+                        { "vlan", network.VlanId },
+                        { "internet_access_enabled", network.InternetAccessEnabled }
+                    },
+                    RuleId = "NET-INT-002",
+                    ScoreImpact = 5,
+                    RecommendedAction = "Consider disabling internet access and using firewall rules to allow specific traffic (UniFi cloud, AFC, etc.)"
                 });
             }
         }
