@@ -668,7 +668,8 @@
                         Name = n.Name,
                         VlanId = n.VlanId,
                         Subnet = n.Subnet ?? "N/A",
-                        Purpose = n.Purpose
+                        Purpose = n.Purpose,
+                        Type = NetworkOptimizer.Reports.NetworkInfo.ParsePurpose(n.Purpose)
                     })
                     .ToList(),
 

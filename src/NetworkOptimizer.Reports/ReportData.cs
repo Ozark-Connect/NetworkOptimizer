@@ -128,11 +128,26 @@ public class NetworkInfo
     public string GetDisplayName() => VlanId == 1
         ? $"{Name} ({VlanId} - native)"
         : $"{Name} ({VlanId})";
+
+    /// <summary>
+    /// Convert purpose string to NetworkType enum
+    /// </summary>
+    public static NetworkType ParsePurpose(string? purpose) => purpose?.ToLowerInvariant() switch
+    {
+        "home" => NetworkType.Home,
+        "iot" => NetworkType.IoT,
+        "security" => NetworkType.Security,
+        "management" => NetworkType.Management,
+        "guest" => NetworkType.Guest,
+        "corporate" => NetworkType.Corporate,
+        _ => NetworkType.Other
+    };
 }
 
 public enum NetworkType
 {
     Corporate,
+    Home,
     IoT,
     Security,
     Management,

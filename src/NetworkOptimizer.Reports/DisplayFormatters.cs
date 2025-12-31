@@ -165,7 +165,8 @@ public static class DisplayFormatters
         // Show correct DNS config first if we have matched servers
         if (matchedDnsServers.Any())
         {
-            var providerInfo = wanDnsProvider ?? expectedDnsProvider ?? "matches DoH";
+            // For correct/matched servers, use the expected DoH provider name
+            var providerInfo = expectedDnsProvider ?? wanDnsProvider ?? "matches DoH";
             var servers = string.Join(", ", matchedDnsServers);
             parts.Add($"Correct: {servers} ({providerInfo})");
         }
