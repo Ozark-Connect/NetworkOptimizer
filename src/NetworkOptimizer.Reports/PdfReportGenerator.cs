@@ -648,8 +648,12 @@ public class PdfReportGenerator
                     .Bold()
                     .FontColor(primaryColor);
 
-                // Port table
-                column.Item().Element(c => ComposePortTable(c, switchDevice));
+                // Port table - pass all issues for this switch
+                var allSwitchIssues = data.CriticalIssues
+                    .Concat(data.RecommendedImprovements)
+                    .Where(i => !i.IsWireless && i.SwitchName == switchDevice.Name)
+                    .ToList();
+                column.Item().Element(c => ComposePortTable(c, switchDevice, allSwitchIssues));
 
                 // Notes
                 var notes = new List<string>();
@@ -843,7 +847,7 @@ public class PdfReportGenerator
         });
     }
 
-    private void ComposePortTable(IContainer container, SwitchDetail switchDevice)
+    private void ComposePortTable(IContainer container, SwitchDetail switchDevice, List<AuditIssue> portIssues)
     {
         var primaryColor = GetColor(_branding.Colors.Primary);
         var lightGray = GetColor(_branding.Colors.LightGray);
@@ -909,7 +913,23 @@ public class PdfReportGenerator
             int rowIndex = 0;
             foreach (var port in switchDevice.Ports)
             {
-                var (status, statusType) = port.GetStatus(switchDevice.MaxCustomMacAcls > 0);
+                // Check if there's an issue for this port from the audit engine
+                var portIssue = portIssues.FirstOrDefault(i => i.PortIndex == port.PortIndex);
+
+                string status;
+                PortStatusType statusType;
+                if (portIssue != null)
+                {
+                    // Use issue from audit engine (more accurate detection)
+                    status = portIssue.Severity == IssueSeverity.Critical ? "Wrong VLAN" : "Wrong VLAN";
+                    statusType = portIssue.Severity == IssueSeverity.Critical ? PortStatusType.Critical : PortStatusType.Warning;
+                }
+                else
+                {
+                    // Fall back to port's built-in status check
+                    (status, statusType) = port.GetStatus(switchDevice.MaxCustomMacAcls > 0);
+                }
+
                 var rowBg = statusType == PortStatusType.Critical ? criticalBg
                     : statusType == PortStatusType.Warning ? warningBg
                     : rowIndex % 2 == 0 ? lightGray
