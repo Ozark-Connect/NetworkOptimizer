@@ -757,6 +757,8 @@
                     WanDnsOrderCorrect = lastResult.DnsSecurity.WanDnsOrderCorrect,
                     WanDnsProvider = lastResult.DnsSecurity.WanDnsProvider,
                     ExpectedDnsProvider = lastResult.DnsSecurity.ExpectedDnsProvider,
+                    MismatchedDnsServers = lastResult.DnsSecurity.MismatchedDnsServers.ToList(),
+                    InterfacesWithMismatch = lastResult.DnsSecurity.InterfacesWithMismatch.ToList(),
                     DeviceDnsPointsToGateway = lastResult.DnsSecurity.DeviceDnsPointsToGateway,
                     TotalDevicesChecked = lastResult.DnsSecurity.TotalDevicesChecked,
                     DevicesWithCorrectDns = lastResult.DnsSecurity.DevicesWithCorrectDns,
