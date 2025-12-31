@@ -3011,6 +3011,14 @@ td .btn + .btn {
     border-color: rgba(231, 150, 19, 0.2);
 }
 
+.row-critical {
+    background-color: rgba(218, 68, 68, 0.1);
+}
+
+.row-critical td {
+    border-color: rgba(218, 68, 68, 0.2);
+}
+
 /* Hardening list */
 .hardening-list {
     list-style: none;

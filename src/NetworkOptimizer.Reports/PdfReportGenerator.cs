@@ -630,6 +630,7 @@ public class PdfReportGenerator
     {
         var primaryColor = GetColor(_branding.Colors.Primary);
         var criticalColor = GetColor(_branding.Colors.Critical);
+        var warningColor = GetColor(_branding.Colors.Warning);
 
         container.Column(column =>
         {
@@ -679,8 +680,9 @@ public class PdfReportGenerator
                         .FontColor(Colors.Grey.Medium);
                 }
 
-                // Critical issue callouts for this switch (only wired issues)
+                // Issue callouts for this switch (wired issues - both critical and warnings)
                 var switchIssues = data.CriticalIssues
+                    .Concat(data.RecommendedImprovements)
                     .Where(i => !i.IsWireless && i.SwitchName == switchDevice.Name)
                     .ToList();
                 foreach (var issue in switchIssues)
@@ -688,13 +690,14 @@ public class PdfReportGenerator
                     var portDisplay = issue.PortIndex.HasValue
                         ? $"Port {issue.PortIndex} ({issue.PortName})"
                         : issue.PortName;
+                    var issueColor = issue.Severity == IssueSeverity.Critical ? criticalColor : warningColor;
 
                     column.Item()
                         .PaddingTop(2)
                         .Text($"> {portDisplay}: {issue.RecommendedAction}")
                         .FontSize(8)
                         .Bold()
-                        .FontColor(criticalColor);
+                        .FontColor(issueColor);
                 }
 
                 column.Item().PaddingBottom(15);

@@ -656,14 +656,14 @@ public class DnsSecurityAnalyzer
             var expectedIps = expectedProvider.DnsIps.Take(2).ToList();
             var expectedIpsStr = expectedIps.Any() ? string.Join(", ", expectedIps) : "";
             var recommendation = expectedIps.Any()
-                ? $"Set {displayName} DNS to {expectedProvider.Name} servers: {expectedIpsStr}"
-                : $"Set {displayName} DNS to {expectedProvider.Name} servers";
+                ? $"Set DNS to {expectedProvider.Name} servers: {expectedIpsStr}"
+                : $"Set DNS to {expectedProvider.Name} servers";
 
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_MISMATCH",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{displayName}' DNS doesn't match DoH provider. DoH uses {expectedProvider.Name} but {displayName} is set to: {string.Join(", ", mismatchedServers)}",
+                Message = $"{displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
                 RecommendedAction = recommendation,
                 RuleId = "DNS-WAN-001",
                 ScoreImpact = 4,
@@ -690,8 +690,8 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_WAN_ORDER",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{displayName}' DNS servers ({ips}) are in wrong order. Should be {correctOrder}.",
-                RecommendedAction = $"Swap DNS server order on {displayName} to {correctOrder}",
+                Message = $"{displayName} DNS in wrong order: {ips}. Should be {correctOrder}",
+                RecommendedAction = $"Swap DNS order to {correctOrder}",
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>

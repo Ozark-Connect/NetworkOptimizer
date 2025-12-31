@@ -379,7 +379,12 @@
                                     @foreach (var port in sw.Ports)
                                     {
                                         var (status, statusClass) = GetPortStatus(port, sw.MaxCustomMacAcls > 0);
-                                        <tr class="@statusClass">
+                                        // Check for any issues on this port (IoT/Camera placement, etc.)
+                                        var portIssue = issues.FirstOrDefault(i => !i.IsWireless && i.Port == port.PortIndex.ToString() && (i.DeviceName?.Contains(sw.Name) ?? false));
+                                        var hasPortIssue = portIssue != null;
+                                        var finalClass = hasPortIssue ? (portIssue!.Severity == "Critical" ? "row-critical" : "row-warning") : statusClass;
+                                        var finalStatus = hasPortIssue ? portIssue!.Title : status;
+                                        <tr class="@finalClass">
                                             <td>@port.PortIndex</td>
                                             <td>@port.Name</td>
                                             <td>@GetLinkStatus(port)</td>
@@ -387,7 +392,7 @@
                                             <td>@(port.NativeNetwork != null ? $"{port.NativeNetwork} ({port.NativeVlan})" : (port.Forward == "disabled" ? "-" : ""))</td>
                                             <td>@GetPoeStatus(port)</td>
                                             <td>@GetPortSecurityStatus(port)</td>
-                                            <td>@status</td>
+                                            <td>@finalStatus</td>
                                         </tr>
                                     }
                                 </tbody>
