@@ -933,12 +933,19 @@
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
         if (!dns.DohEnabled) return "Not Configured";
-        // Show provider names if available (e.g., "NextDNS" or "Cloudflare, NextDNS")
+        // Show provider names with config names (e.g., "NextDNS (NextDNS-fcdba9)")
         if (dns.DohProviders.Any())
         {
             var providers = string.Join(", ", dns.DohProviders);
-            if (dns.DohState == "auto") return $"{providers} (auto mode)";
-            return providers;
+            var configNames = dns.DohConfigNames.Any() ? string.Join(", ", dns.DohConfigNames) : null;
+
+            // Only show config name if it differs from provider name
+            var display = configNames != null && configNames != providers
+                ? $"{providers} ({configNames})"
+                : providers;
+
+            if (dns.DohState == "auto") return $"{display} (auto mode)";
+            return display;
         }
         if (dns.DohState == "auto") return "Auto (may fallback)";
         return "Enabled";
@@ -1034,8 +1041,20 @@
 
         var parts = new List<string>();
 
-        // Show configured servers
-        if (dns.WanDnsServers.Any())
+        // If there's a mismatch, show only matched servers (if any) with provider info
+        if (dns.InterfacesWithMismatch.Any())
+        {
+            if (dns.MatchedDnsServers.Any())
+            {
+                var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
+                var servers = string.Join(", ", dns.MatchedDnsServers);
+                parts.Add($"{servers}{providerInfo}");
+            }
+            // Show mismatched interfaces with their DNS
+            var mismatchedIps = string.Join(", ", dns.MismatchedDnsServers);
+            parts.Add($"Mismatch: {mismatchedIps} on {string.Join(", ", dns.InterfacesWithMismatch)}");
+        }
+        else if (dns.WanDnsServers.Any())
         {
             var providerInfo = dns.WanDnsProvider != null ? $" ({dns.WanDnsProvider})" : "";
 
@@ -1052,14 +1071,10 @@
             }
         }
 
-        // Show interfaces with issues
+        // Show interfaces with no DNS configured
         if (dns.InterfacesWithoutDns.Any())
         {
             parts.Add($"No DNS: {string.Join(", ", dns.InterfacesWithoutDns)}");
-        }
-        if (dns.InterfacesWithMismatch.Any())
-        {
-            parts.Add($"Mismatch: {string.Join(", ", dns.InterfacesWithMismatch)}");
         }
 
         return string.Join(" | ", parts);
