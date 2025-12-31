@@ -878,45 +878,28 @@ public class DnsSecurityAnalyzer
         {
             var summaryParts = new List<string>();
 
-            if (result.TotalDevicesChecked > 0)
+            if (result.TotalDevicesChecked > 0 && !result.DeviceDnsPointsToGateway)
             {
-                if (result.DeviceDnsPointsToGateway)
-                {
-                    summaryParts.Add($"{result.TotalDevicesChecked} static DNS device(s) point to gateway");
-                }
-                else
-                {
-                    var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
-                    var deviceNames = result.DeviceDnsDetails
-                        .Where(d => !d.PointsToGateway && !d.UsesDhcp)
-                        .Select(d => d.DeviceName)
-                        .ToList();
+                var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
+                var deviceNames = result.DeviceDnsDetails
+                    .Where(d => !d.PointsToGateway && !d.UsesDhcp)
+                    .Select(d => d.DeviceName)
+                    .ToList();
 
-                    result.Issues.Add(new AuditIssue
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = "DNS_DEVICE_MISCONFIGURED",
+                    Severity = AuditSeverity.Investigate,
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                    RuleId = "DNS-DEVICE-001",
+                    ScoreImpact = 3,
+                    Metadata = new Dictionary<string, object>
                     {
-                        Type = "DNS_DEVICE_MISCONFIGURED",
-                        Severity = AuditSeverity.Investigate,
-                        Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                        RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
-                        RuleId = "DNS-DEVICE-001",
-                        ScoreImpact = 3,
-                        Metadata = new Dictionary<string, object>
-                        {
-                            { "misconfigured_devices", deviceNames },
-                            { "expected_gateway", expectedGatewayIp }
-                        }
-                    });
-                }
-            }
-
-            if (result.DhcpDeviceCount > 0)
-            {
-                summaryParts.Add($"{result.DhcpDeviceCount} device(s) use DHCP-assigned DNS");
-            }
-
-            if (summaryParts.Any() && result.DeviceDnsPointsToGateway)
-            {
-                result.HardeningNotes.Add(string.Join(", ", summaryParts));
+                        { "misconfigured_devices", deviceNames },
+                        { "expected_gateway", expectedGatewayIp }
+                    }
+                });
             }
         }
     }
@@ -1012,45 +995,28 @@ public class DnsSecurityAnalyzer
         {
             var summaryParts = new List<string>();
 
-            if (result.TotalDevicesChecked > 0)
+            if (result.TotalDevicesChecked > 0 && !result.DeviceDnsPointsToGateway)
             {
-                if (result.DeviceDnsPointsToGateway)
-                {
-                    summaryParts.Add($"{result.TotalDevicesChecked} static DNS device(s) point to gateway");
-                }
-                else
-                {
-                    var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
-                    var deviceNames = result.DeviceDnsDetails
-                        .Where(d => !d.PointsToGateway && !d.UsesDhcp)
-                        .Select(d => d.DeviceName)
-                        .ToList();
+                var misconfigured = result.TotalDevicesChecked - result.DevicesWithCorrectDns;
+                var deviceNames = result.DeviceDnsDetails
+                    .Where(d => !d.PointsToGateway && !d.UsesDhcp)
+                    .Select(d => d.DeviceName)
+                    .ToList();
 
-                    result.Issues.Add(new AuditIssue
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = "DNS_DEVICE_MISCONFIGURED",
+                    Severity = AuditSeverity.Investigate,
+                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                    RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
+                    RuleId = "DNS-DEVICE-001",
+                    ScoreImpact = 3,
+                    Metadata = new Dictionary<string, object>
                     {
-                        Type = "DNS_DEVICE_MISCONFIGURED",
-                        Severity = AuditSeverity.Investigate,
-                        Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
-                        RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
-                        RuleId = "DNS-DEVICE-001",
-                        ScoreImpact = 3,
-                        Metadata = new Dictionary<string, object>
-                        {
-                            { "misconfigured_devices", deviceNames },
-                            { "expected_gateway", expectedGatewayIp }
-                        }
-                    });
-                }
-            }
-
-            if (result.DhcpDeviceCount > 0)
-            {
-                summaryParts.Add($"{result.DhcpDeviceCount} device(s) use DHCP-assigned DNS");
-            }
-
-            if (summaryParts.Any() && result.DeviceDnsPointsToGateway)
-            {
-                result.HardeningNotes.Add(string.Join(", ", summaryParts));
+                        { "misconfigured_devices", deviceNames },
+                        { "expected_gateway", expectedGatewayIp }
+                    }
+                });
             }
         }
     }
