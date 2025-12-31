@@ -71,11 +71,19 @@ public class DnsSecuritySummary
     {
         if (!WanDnsServers.Any()) return "Not Configured";
 
+        var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
+
+        // If wrong order, show the correct order with "Should be" prefix
+        if (WanDnsMatchesDoH && !WanDnsOrderCorrect && WanDnsServers.Count >= 2)
+        {
+            var correctOrder = $"{WanDnsServers[1]}, {WanDnsServers[0]}";
+            return $"Should be {correctOrder} ({provider})";
+        }
+
         var servers = string.Join(", ", WanDnsServers);
 
         if (WanDnsMatchesDoH)
         {
-            var provider = WanDnsProvider ?? ExpectedDnsProvider ?? "matches DoH";
             return $"{servers} ({provider})";
         }
 

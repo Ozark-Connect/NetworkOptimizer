@@ -637,12 +637,16 @@ public class DnsSecurityAnalyzer
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
             var ips = string.Join(", ", wanInterface.DnsServers);
+            // Show the correct order (reversed from current)
+            var correctOrder = wanInterface.DnsServers.Count >= 2
+                ? $"{wanInterface.DnsServers[1]}, {wanInterface.DnsServers[0]}"
+                : string.Join(", ", wanInterface.DnsServers.AsEnumerable().Reverse());
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_ORDER",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{wanInterface.InterfaceName}' DNS servers ({ips}) are in wrong order. Primary should be dns1, secondary dns2.",
-                RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} so dns1 is primary",
+                Message = $"WAN interface '{wanInterface.InterfaceName}' DNS servers ({ips}) are in wrong order. Should be {correctOrder}.",
+                RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} to {correctOrder}",
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>
