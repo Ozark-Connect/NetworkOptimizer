@@ -69,6 +69,7 @@
 </style>
 
 @using NetworkOptimizer.Web.Services
+@inject IWebHostEnvironment Environment
 
 @code {
     [Parameter]
@@ -79,22 +80,14 @@
         if (string.IsNullOrEmpty(model))
             return null;
 
-        // Map friendly model names to image filenames
-        var imageFile = model switch
-        {
-            "UCG-Fiber" => "ucg-fiber.png",
-            "U5G-Max" => "u5g-max.png",
-            "USW-Pro-XG-8-PoE" => "usw-pro-xg-8-poe.png",
-            "USW-Lite-8-PoE" => "usw-lite-8-poe.png",
-            "USW-Flex-Mini" => "usw-flex-mini.png",
-            "U7-Pro-Wall" => "u7-pro-wall.png",
-            "U7-Pro-XGS-B" => "u7-pro-xgs-b.png",
-            "U7-Pro-Outdoor" => "u7-pro-outdoor.png",
-            "U7-Outdoor" => "u7-outdoor.png",
-            _ => null
-        };
+        // Convention: model name lowercase + .png (e.g., "UCG-Fiber" → "ucg-fiber.png")
+        var imageFile = $"{model.ToLowerInvariant()}.png";
+        var imagePath = Path.Combine(Environment.WebRootPath, "images", "devices", imageFile);
 
-        return imageFile != null ? $"/images/devices/{imageFile}" : null;
+        if (File.Exists(imagePath))
+            return $"/images/devices/{imageFile}";
+
+        return null;
     }
 
     private string GetDeviceIcon(string deviceType)
