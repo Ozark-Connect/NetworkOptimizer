@@ -21,6 +21,12 @@
 <div class="page-header">
     <h1>LAN Speed Test</h1>
     <p class="page-description">Test network bandwidth using iperf3</p>
+    @if (localIperf3Status != null && localIperf3Status.IsAvailable)
+    {
+        <div class="iperf3-version-badge">
+            <span class="status-badge status-connected">@localIperf3Status.Version</span>
+        </div>
+    }
 </div>
 
 @if (localIperf3Status != null && !localIperf3Status.IsAvailable)
@@ -794,6 +800,16 @@
     .analyze-hint {
         font-size: 0.8rem;
         color: var(--text-muted);
+    }
+
+    /* iperf3 version badge */
+    .iperf3-version-badge {
+        margin-top: 0.5rem;
+    }
+
+    .iperf3-version-badge .status-badge {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
     }
 
     /* iperf3 missing warning */
