@@ -156,17 +156,16 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
-    /// Identify a provider from a DNS IP address using PTR lookup for verification
+    /// Identify a provider from a DNS IP address using PTR lookup (authoritative) with static IP fallback.
+    /// PTR lookup is tried first and takes priority when successful.
+    /// Static IP matching (e.g., "45.90." prefix for NextDNS) is only used as fallback when PTR fails.
     /// </summary>
     public static async Task<(DohProviderInfo? Provider, string? ReverseDns)> IdentifyProviderFromIpWithPtrAsync(string ip)
     {
         if (string.IsNullOrEmpty(ip))
             return (null, null);
 
-        // First try static lookup
-        var staticProvider = IdentifyProviderFromIp(ip);
-
-        // For NextDNS (and other providers with dynamic IPs), verify with PTR lookup
+        // Try PTR lookup first - this is the authoritative method
         string? reverseDns = null;
         try
         {
@@ -174,12 +173,12 @@ public static class DohProviderRegistry
         }
         catch
         {
-            // PTR lookup failed - fall back to static match
+            // PTR lookup failed - will fall back to static IP match
         }
 
+        // If PTR succeeded, try to identify provider from the hostname (authoritative)
         if (!string.IsNullOrEmpty(reverseDns))
         {
-            // Try to identify provider from the reverse DNS hostname
             var ptrProvider = IdentifyProvider(reverseDns);
             if (ptrProvider != null)
             {
@@ -187,6 +186,8 @@ public static class DohProviderRegistry
             }
         }
 
+        // Fallback to static IP matching only when PTR didn't identify a provider
+        var staticProvider = IdentifyProviderFromIp(ip);
         return (staticProvider, reverseDns);
     }
 
