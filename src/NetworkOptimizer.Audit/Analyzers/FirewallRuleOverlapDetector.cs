@@ -456,4 +456,116 @@ public static class FirewallRuleOverlapDetector
 
         return ports;
     }
+
+    /// <summary>
+    /// Compare the scope of two rules. Returns true if rule1 is significantly narrower than rule2.
+    /// Used to detect "narrow exception before broad deny" patterns.
+    /// </summary>
+    public static bool IsNarrowerScope(FirewallRule rule1, FirewallRule rule2)
+    {
+        var sourceScore1 = GetSourceScopeScore(rule1);
+        var sourceScore2 = GetSourceScopeScore(rule2);
+        var destScore1 = GetDestinationScopeScore(rule1);
+        var destScore2 = GetDestinationScopeScore(rule2);
+
+        // Rule1 is narrower if it has a lower total scope score
+        // A significantly narrower rule has at least 2 points difference, OR
+        // one dimension is narrower and the other is not broader
+        var totalScore1 = sourceScore1 + destScore1;
+        var totalScore2 = sourceScore2 + destScore2;
+
+        // If rule1's total is at least 2 points less, it's significantly narrower
+        if (totalScore1 <= totalScore2 - 2)
+            return true;
+
+        // If source is narrower and destination is not broader (or vice versa)
+        if (sourceScore1 < sourceScore2 && destScore1 <= destScore2)
+            return true;
+        if (destScore1 < destScore2 && sourceScore1 <= sourceScore2)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Calculate source scope score (lower = narrower, higher = broader)
+    /// CLIENT (specific MACs) = 1
+    /// IP (specific IPs, few) = 2
+    /// IP (many IPs or CIDRs) = 3
+    /// NETWORK (few networks) = 4
+    /// NETWORK (many networks) = 5
+    /// ANY = 10
+    /// </summary>
+    private static int GetSourceScopeScore(FirewallRule rule)
+    {
+        var target = rule.SourceMatchingTarget?.ToUpperInvariant() ?? "ANY";
+
+        return target switch
+        {
+            "CLIENT" => 1 + GetListSizeBonus(rule.SourceClientMacs?.Count ?? 0),
+            "IP" => 2 + GetListSizeBonus(rule.SourceIps?.Count ?? 0) + GetCidrBonus(rule.SourceIps),
+            "NETWORK" => 4 + GetListSizeBonus(rule.SourceNetworkIds?.Count ?? 0),
+            "ANY" => 10,
+            _ => 10
+        };
+    }
+
+    /// <summary>
+    /// Calculate destination scope score (lower = narrower, higher = broader)
+    /// WEB (few domains) = 1
+    /// IP (specific IPs, few) = 2
+    /// IP (many IPs or CIDRs) = 3
+    /// NETWORK (few networks) = 4
+    /// NETWORK (many networks) = 5
+    /// ANY = 10
+    /// </summary>
+    private static int GetDestinationScopeScore(FirewallRule rule)
+    {
+        var target = rule.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
+
+        return target switch
+        {
+            "WEB" => 1 + GetListSizeBonus(rule.WebDomains?.Count ?? 0),
+            "IP" => 2 + GetListSizeBonus(rule.DestinationIps?.Count ?? 0) + GetCidrBonus(rule.DestinationIps),
+            "NETWORK" => 4 + GetListSizeBonus(rule.DestinationNetworkIds?.Count ?? 0),
+            "ANY" => 10,
+            _ => 10
+        };
+    }
+
+    /// <summary>
+    /// Add a small bonus for larger lists (but cap it)
+    /// </summary>
+    private static int GetListSizeBonus(int count)
+    {
+        if (count <= 2) return 0;
+        if (count <= 5) return 1;
+        return 2;
+    }
+
+    /// <summary>
+    /// Add bonus for CIDR ranges (they cover more IPs than single addresses)
+    /// </summary>
+    private static int GetCidrBonus(List<string>? ips)
+    {
+        if (ips == null || ips.Count == 0)
+            return 0;
+
+        // Check if any entry has a CIDR with a small prefix (large range)
+        foreach (var ip in ips)
+        {
+            if (ip.Contains('/'))
+            {
+                var parts = ip.Split('/');
+                if (parts.Length == 2 && int.TryParse(parts[1], out var prefix))
+                {
+                    // /24 or smaller (larger range) adds more points
+                    if (prefix <= 16) return 3;
+                    if (prefix <= 24) return 2;
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
 }

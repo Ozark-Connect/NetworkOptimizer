@@ -108,6 +108,11 @@ public class FirewallRule
     public List<string>? SourceIps { get; init; }
 
     /// <summary>
+    /// Source client MAC addresses (when SourceMatchingTarget is CLIENT)
+    /// </summary>
+    public List<string>? SourceClientMacs { get; init; }
+
+    /// <summary>
     /// Destination matching target type (ANY, IP, NETWORK, WEB)
     /// </summary>
     public string? DestinationMatchingTarget { get; init; }

@@ -107,6 +107,7 @@ public class FirewallRuleParser
         string? sourceMatchingTarget = null;
         List<string>? sourceNetworkIds = null;
         List<string>? sourceIps = null;
+        List<string>? sourceClientMacs = null;
         string? sourcePort = null;
         string? sourceZoneId = null;
         bool sourceMatchOppositeIps = false;
@@ -130,6 +131,14 @@ public class FirewallRuleParser
             if (source.TryGetProperty("ips", out var ips) && ips.ValueKind == JsonValueKind.Array)
             {
                 sourceIps = ips.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .ToList();
+            }
+
+            if (source.TryGetProperty("client_macs", out var macs) && macs.ValueKind == JsonValueKind.Array)
+            {
+                sourceClientMacs = macs.EnumerateArray()
                     .Where(e => e.ValueKind == JsonValueKind.String)
                     .Select(e => e.GetString()!)
                     .ToList();
@@ -197,6 +206,7 @@ public class FirewallRuleParser
             // Extended matching criteria
             SourceMatchingTarget = sourceMatchingTarget,
             SourceIps = sourceIps,
+            SourceClientMacs = sourceClientMacs,
             DestinationMatchingTarget = destMatchingTarget,
             DestinationIps = destIps,
             DestinationNetworkIds = destNetworkIds,

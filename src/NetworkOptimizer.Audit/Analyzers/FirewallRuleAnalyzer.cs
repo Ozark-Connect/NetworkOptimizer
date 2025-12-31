@@ -73,23 +73,51 @@ public class FirewallRuleAnalyzer
 
                     if (earlierIsAllow && !laterIsAllow)
                     {
-                        // Earlier ALLOW subverts later DENY - this is a potential security issue
-                        issues.Add(new AuditIssue
+                        // Earlier ALLOW subverts later DENY
+                        // Check if this is a "narrow exception before broad deny" pattern
+                        var isNarrowException = FirewallRuleOverlapDetector.IsNarrowerScope(earlierRule, laterRule);
+
+                        if (isNarrowException)
                         {
-                            Type = "ALLOW_SUBVERTS_DENY",
-                            Severity = AuditSeverity.Recommended,
-                            Message = $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
-                            Metadata = new Dictionary<string, object>
+                            // Narrow allow before broad deny = intentional exception pattern (Info only)
+                            issues.Add(new AuditIssue
                             {
-                                { "allow_rule", earlierRule.Name ?? earlierRule.Id },
-                                { "allow_index", earlierRule.Index },
-                                { "deny_rule", laterRule.Name ?? laterRule.Id },
-                                { "deny_index", laterRule.Index }
-                            },
-                            RuleId = "FW-SUBVERT-001",
-                            ScoreImpact = 5,
-                            RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
-                        });
+                                Type = "ALLOW_EXCEPTION_PATTERN",
+                                Severity = AuditSeverity.Info,
+                                Message = $"Allow rule '{earlierRule.Name}' creates an intentional exception to deny rule '{laterRule.Name}'",
+                                Metadata = new Dictionary<string, object>
+                                {
+                                    { "allow_rule", earlierRule.Name ?? earlierRule.Id },
+                                    { "allow_index", earlierRule.Index },
+                                    { "deny_rule", laterRule.Name ?? laterRule.Id },
+                                    { "deny_index", laterRule.Index },
+                                    { "pattern", "narrow_exception" }
+                                },
+                                RuleId = "FW-EXCEPTION-001",
+                                ScoreImpact = 0,
+                                RecommendedAction = "This appears to be a deliberate exception pattern - no action required"
+                            });
+                        }
+                        else
+                        {
+                            // Broad or similar scope allow before deny = potential security issue
+                            issues.Add(new AuditIssue
+                            {
+                                Type = "ALLOW_SUBVERTS_DENY",
+                                Severity = AuditSeverity.Recommended,
+                                Message = $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
+                                Metadata = new Dictionary<string, object>
+                                {
+                                    { "allow_rule", earlierRule.Name ?? earlierRule.Id },
+                                    { "allow_index", earlierRule.Index },
+                                    { "deny_rule", laterRule.Name ?? laterRule.Id },
+                                    { "deny_index", laterRule.Index }
+                                },
+                                RuleId = "FW-SUBVERT-001",
+                                ScoreImpact = 5,
+                                RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
+                            });
+                        }
                         break;
                     }
                     else if (!earlierIsAllow && laterIsAllow)

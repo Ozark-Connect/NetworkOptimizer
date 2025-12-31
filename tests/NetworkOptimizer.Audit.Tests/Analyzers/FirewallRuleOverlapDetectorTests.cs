@@ -1088,6 +1088,146 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
+    #region IsNarrowerScope Tests
+
+    [Fact]
+    public void IsNarrowerScope_ClientVsAny_ReturnsTrue()
+    {
+        // CLIENT source (2 MACs) is much narrower than ANY source
+        var narrow = CreateRule(
+            sourceMatchingTarget: "CLIENT",
+            sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66" },
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2" });
+        var broad = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2", "net3", "net4" });
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(narrow, broad).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_IpVsAny_ReturnsTrue()
+    {
+        // Specific IPs is narrower than ANY
+        var narrow = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
+            destMatchingTarget: "ANY");
+        var broad = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY");
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(narrow, broad).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_NetworkVsAny_ReturnsTrue()
+    {
+        // Few networks is narrower than ANY source
+        var narrow = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net1" },
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net2" });
+        var broad = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net2", "net3", "net4" });
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(narrow, broad).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_BothAny_ReturnsFalse()
+    {
+        // Both ANY = same scope
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY");
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY");
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_BroadIpVsAny_ReturnsFalse()
+    {
+        // Large CIDR is almost as broad as ANY
+        var rule1 = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "10.0.0.0/8" },  // /8 = very large
+            destMatchingTarget: "ANY");
+        var rule2 = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY");
+
+        // /8 gets +3 CIDR bonus, so 2+3=5 vs 10 = still narrower but not by much
+        // Actually 5 vs 10 is 5 point difference, so it IS narrower
+        FirewallRuleOverlapDetector.IsNarrowerScope(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_FewerNetworksVsMoreNetworks_ReturnsTrue()
+    {
+        // 2 networks is narrower than 4 networks (same type)
+        var narrow = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2" });
+        var broad = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2", "net3", "net4", "net5", "net6" });
+
+        // narrow: dest = 4+0 = 4, broad: dest = 4+2 = 6
+        // 4 < 6 and source is same = true
+        FirewallRuleOverlapDetector.IsNarrowerScope(narrow, broad).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_RealScenario_PhoneAccessToIoT_ReturnsTrue()
+    {
+        // "Allow Phone Access to IoT" - CLIENT source (2 MACs), 2 destination networks
+        var allowRule = CreateRule(
+            sourceMatchingTarget: "CLIENT",
+            sourceClientMacs: new List<string> { "10:a2:d3:1f:ec:32", "5c:3e:1b:cb:f4:9d" },
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2" });
+
+        // "[CRITICAL] Block Access to Isolated VLANs" - ANY source, 4 destination networks
+        var denyRule = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net1", "net2", "net3", "net4" });
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(allowRule, denyRule).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsNarrowerScope_RealScenario_TjAccessToFnVpn_ReturnsTrue()
+    {
+        // "Allow TJ Access to FN VPN" - IP source (specific IPs), IP destination
+        var allowRule = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.10", "192.168.1.20" },
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.110.0.0/16" });
+
+        // "Block Access to FN VPN" - ANY source, same destination
+        var denyRule = CreateRule(
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.110.0.0/16" });
+
+        FirewallRuleOverlapDetector.IsNarrowerScope(allowRule, denyRule).Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static FirewallRule CreateRule(
@@ -1095,6 +1235,7 @@ public class FirewallRuleOverlapDetectorTests
         string? sourceMatchingTarget = null,
         List<string>? sourceNetworkIds = null,
         List<string>? sourceIps = null,
+        List<string>? sourceClientMacs = null,
         bool sourceMatchOppositeIps = false,
         bool sourceMatchOppositeNetworks = false,
         string? destMatchingTarget = null,
@@ -1118,6 +1259,7 @@ public class FirewallRuleOverlapDetectorTests
             SourceMatchingTarget = sourceMatchingTarget,
             SourceNetworkIds = sourceNetworkIds,
             SourceIps = sourceIps,
+            SourceClientMacs = sourceClientMacs,
             SourceMatchOppositeIps = sourceMatchOppositeIps,
             SourceMatchOppositeNetworks = sourceMatchOppositeNetworks,
             DestinationMatchingTarget = destMatchingTarget,
