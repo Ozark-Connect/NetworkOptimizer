@@ -540,7 +540,7 @@ public class DnsSecurityAnalyzer
 
         // Check each WAN interface individually
         var interfacesWithCorrectDns = new List<string>();
-        var interfacesWithMismatch = new List<(string Interface, List<string> Servers)>();
+        var interfacesWithMismatch = new List<(string Interface, string? PortName, List<string> Servers)>();
         var interfacesWithNoDns = new List<string>();
 
         foreach (var wanInterface in result.WanInterfaces)
@@ -613,7 +613,7 @@ public class DnsSecurityAnalyzer
             }
             else if (mismatchedServers.Any())
             {
-                interfacesWithMismatch.Add((wanInterface.InterfaceName, mismatchedServers));
+                interfacesWithMismatch.Add((wanInterface.InterfaceName, wanInterface.PortName, mismatchedServers));
             }
         }
 
@@ -626,20 +626,31 @@ public class DnsSecurityAnalyzer
         }
 
         // Generate interface-specific issues
-        foreach (var (interfaceName, mismatchedServers) in interfacesWithMismatch)
+        foreach (var (interfaceName, portName, mismatchedServers) in interfacesWithMismatch)
         {
-            var expectedIps = string.Join(", ", expectedProvider.DnsIps.Take(2));
+            // Create display name with port name if available
+            var displayName = !string.IsNullOrEmpty(portName) && portName != "unnamed"
+                ? $"{interfaceName} ({portName})"
+                : interfaceName;
+
+            var expectedIps = expectedProvider.DnsIps.Take(2).ToList();
+            var expectedIpsStr = expectedIps.Any() ? string.Join(", ", expectedIps) : "";
+            var recommendation = expectedIps.Any()
+                ? $"Set {displayName} DNS to {expectedProvider.Name} servers: {expectedIpsStr}"
+                : $"Set {displayName} DNS to {expectedProvider.Name} servers";
+
             result.Issues.Add(new AuditIssue
             {
                 Type = "DNS_WAN_MISMATCH",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{interfaceName}' DNS doesn't match DoH provider. DoH uses {expectedProvider.Name} but {interfaceName} is set to: {string.Join(", ", mismatchedServers)}",
-                RecommendedAction = $"Set {interfaceName} DNS to {expectedProvider.Name} servers: {expectedIps}",
+                Message = $"WAN interface '{displayName}' DNS doesn't match DoH provider. DoH uses {expectedProvider.Name} but {displayName} is set to: {string.Join(", ", mismatchedServers)}",
+                RecommendedAction = recommendation,
                 RuleId = "DNS-WAN-001",
                 ScoreImpact = 4,
                 Metadata = new Dictionary<string, object>
                 {
                     { "interface", interfaceName },
+                    { "port_name", portName ?? "" },
                     { "expected_provider", expectedProvider.Name },
                     { "expected_ips", expectedProvider.DnsIps },
                     { "actual_servers", mismatchedServers }
@@ -650,6 +661,11 @@ public class DnsSecurityAnalyzer
         // Generate issues for interfaces with wrong DNS order (NextDNS: dns2 before dns1)
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
+            // Create display name with port name if available
+            var displayName = !string.IsNullOrEmpty(wanInterface.PortName) && wanInterface.PortName != "unnamed"
+                ? $"{wanInterface.InterfaceName} ({wanInterface.PortName})"
+                : wanInterface.InterfaceName;
+
             var ips = string.Join(", ", wanInterface.DnsServers);
             // Use PTR results to determine correct order (dns1 before dns2)
             var correctOrder = GetCorrectDnsOrder(wanInterface.DnsServers, wanInterface.ReverseDnsResults);
@@ -657,13 +673,14 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_WAN_ORDER",
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{wanInterface.InterfaceName}' DNS servers ({ips}) are in wrong order. Should be {correctOrder}.",
-                RecommendedAction = $"Swap DNS server order on {wanInterface.InterfaceName} to {correctOrder}",
+                Message = $"WAN interface '{displayName}' DNS servers ({ips}) are in wrong order. Should be {correctOrder}.",
+                RecommendedAction = $"Swap DNS server order on {displayName} to {correctOrder}",
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
                 Metadata = new Dictionary<string, object>
                 {
                     { "interface", wanInterface.InterfaceName },
+                    { "port_name", wanInterface.PortName ?? "" },
                     { "dns_servers", wanInterface.DnsServers }
                 }
             });
