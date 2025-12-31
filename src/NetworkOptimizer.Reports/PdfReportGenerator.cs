@@ -783,7 +783,7 @@ public class PdfReportGenerator
                             : rowIndex % 2 == 0 ? lightGray
                             : Colors.White;
 
-                        var status = client.HasIssue ? "Issue" : "OK";
+                        var status = client.HasIssue ? (client.IssueTitle ?? "Issue") : "OK";
 
                         void DataCell(string text)
                         {
@@ -867,10 +867,10 @@ public class PdfReportGenerator
                     columns.ConstantColumn(30);  // Port
                     columns.RelativeColumn(1.2f);  // Name
                     columns.ConstantColumn(50);  // Link
-                    columns.ConstantColumn(45);  // Forward
-                    columns.RelativeColumn(2.0f);  // Native VLAN (wider)
                     columns.ConstantColumn(40);  // PoE
                     columns.ConstantColumn(50);  // Port Sec
+                    columns.ConstantColumn(45);  // Forward
+                    columns.RelativeColumn(2.0f);  // Native VLAN (wider)
                     columns.ConstantColumn(45);  // Isolation
                     columns.ConstantColumn(85);  // Status (wider for "Possible Wrong VLAN")
                 });
@@ -882,10 +882,10 @@ public class PdfReportGenerator
                     columns.ConstantColumn(30);  // Port
                     columns.RelativeColumn(1.3f);  // Name
                     columns.ConstantColumn(55);  // Link
-                    columns.ConstantColumn(50);  // Forward
-                    columns.RelativeColumn(2.2f);  // Native VLAN (wider)
                     columns.ConstantColumn(45);  // PoE
                     columns.ConstantColumn(55);  // Port Sec
+                    columns.ConstantColumn(50);  // Forward
+                    columns.RelativeColumn(2.2f);  // Native VLAN (wider)
                     columns.ConstantColumn(85);  // Status (wider for "Possible Wrong VLAN")
                 });
             }
@@ -902,10 +902,10 @@ public class PdfReportGenerator
                 HeaderCell("Port");
                 HeaderCell("Name");
                 HeaderCell("Link");
-                HeaderCell("Forward");
-                HeaderCell("Native VLAN");
                 HeaderCell("PoE");
                 HeaderCell("Port Sec");
+                HeaderCell("Forward");
+                HeaderCell("Native VLAN");
                 if (hasIsolation)
                     HeaderCell("Isolation");
                 HeaderCell("Status");
@@ -957,10 +957,10 @@ public class PdfReportGenerator
                 DataCell(port.PortIndex.ToString());
                 DataCellLeft(port.Name);
                 DataCell(port.GetLinkStatus());
-                DataCell(port.Forward == "customize" ? "custom" : port.Forward);
-                DataCellLeft(nativeVlan);
                 DataCell(port.GetPoeStatus());
                 DataCell(port.GetPortSecurityStatus());
+                DataCell(port.Forward == "customize" ? "custom" : port.Forward);
+                DataCellLeft(nativeVlan);
                 if (hasIsolation)
                     DataCell(port.GetIsolationStatus());
                 DataCell(status);

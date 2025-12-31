@@ -147,6 +147,11 @@ public class DnsSecurityInfo
     public string? ExpectedDnsProvider { get; set; }
 
     /// <summary>
+    /// Expected DNS server IPs based on DoH provider
+    /// </summary>
+    public List<string> ExpectedDnsIps { get; set; } = new();
+
+    /// <summary>
     /// Whether infrastructure devices point DNS to gateway
     /// </summary>
     public bool DeviceDnsPointsToGateway { get; set; } = true;
