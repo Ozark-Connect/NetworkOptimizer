@@ -445,6 +445,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_NO_DOH",
                 Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
                 Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
                 RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
                 RuleId = "DNS-DOH-001",
@@ -458,6 +459,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_DOH_AUTO",
                 Severity = AuditSeverity.Investigate,
+                DeviceName = result.GatewayName,
                 Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
                 RecommendedAction = "Configure DoH with explicit custom servers for guaranteed encryption",
                 RuleId = "DNS-DOH-002",
@@ -475,6 +477,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_NO_53_BLOCK",
                 Severity = AuditSeverity.Critical,
+                DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
                 RecommendedAction = "Create firewall rule: Block outbound UDP/TCP port 53 to Internet for all VLANs (except gateway)",
                 RuleId = "DNS-LEAK-001",
@@ -489,6 +492,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_NO_DOT_BLOCK",
                 Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks DNS-over-TLS (port 853). Devices can use encrypted DNS that bypasses your DoH configuration.",
                 RecommendedAction = "Create firewall rule: Block outbound TCP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-002",
@@ -503,6 +507,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_NO_DOH_BLOCK",
                 Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks public DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
                 RecommendedAction = "Create firewall rule: Block HTTPS (port 443) to known DoH provider domains",
                 RuleId = "DNS-LEAK-003",
@@ -521,6 +526,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = "DNS_ISP",
                 Severity = AuditSeverity.Investigate,
+                DeviceName = result.GatewayName,
                 Message = "Network is using ISP-provided DNS servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
                 RecommendedAction = "Configure custom DNS servers or enable DoH with a privacy-focused provider",
                 RuleId = "DNS-ISP-001",
