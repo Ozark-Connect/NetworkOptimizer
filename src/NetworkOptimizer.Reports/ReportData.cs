@@ -311,6 +311,7 @@ public class AuditIssue
     public IssueSeverity Severity { get; set; }
     public string SwitchName { get; set; } = string.Empty;
     public int? PortIndex { get; set; }
+    public string? PortId { get; set; }  // Non-integer port identifier (e.g., "WAN1")
     public string PortName { get; set; } = string.Empty;
     public string CurrentNetwork { get; set; } = string.Empty;
     public int? CurrentVlan { get; set; }
@@ -340,6 +341,12 @@ public class AuditIssue
             return SwitchName.Split(" on ")[0];
         }
 
+        // If we have a valid SwitchName (gateway/switch name), use it
+        if (!string.IsNullOrEmpty(SwitchName) && SwitchName != "Unknown")
+        {
+            return SwitchName;
+        }
+
         // Fallback to port name or switch name
         return !string.IsNullOrEmpty(PortName) ? PortName : SwitchName;
     }
@@ -353,6 +360,12 @@ public class AuditIssue
         {
             // Show AP name
             return $"on {AccessPoint ?? "Unknown AP"}";
+        }
+
+        // For non-integer port IDs (e.g., "WAN1"), show PortId with PortName
+        if (!string.IsNullOrEmpty(PortId))
+        {
+            return !string.IsNullOrEmpty(PortName) ? $"{PortId} ({PortName})" : PortId;
         }
 
         // For wired, show port info and switch
