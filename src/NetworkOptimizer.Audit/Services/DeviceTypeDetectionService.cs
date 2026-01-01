@@ -12,6 +12,22 @@ namespace NetworkOptimizer.Audit.Services;
 /// </summary>
 public class DeviceTypeDetectionService
 {
+    // Confidence score constants for detection results
+    private const int MaxConfidence = 100;
+    private const int MultiSourceAgreementBoost = 10;
+
+    // Name override confidence (highest - explicit name match)
+    private const int NameOverrideConfidence = 95;
+    private const int VendorDefaultConfidence = 85;
+    private const int AppleWatchConfidence = 90;
+
+    // OUI-based confidence levels
+    private const int OuiHighConfidence = 90;      // Dedicated IoT vendors (ecobee, sonos, arlo)
+    private const int OuiMediumConfidence = 85;    // Strong signal vendors (philips, ring)
+    private const int OuiStandardConfidence = 80;  // General IoT vendors
+    private const int OuiLowerConfidence = 75;     // Multi-purpose vendors (belkin, tp-link)
+    private const int OuiLowestConfidence = 70;    // Broad vendors (amazon, google, honeywell)
+
     private readonly ILogger<DeviceTypeDetectionService>? _logger;
     private readonly FingerprintDetector _fingerprintDetector;
     private readonly MacOuiDetector _macOuiDetector;
@@ -197,7 +213,7 @@ public class DeviceTypeDetectionService
             var agreementCount = results.Count(r => r.Category == best.Category);
             if (agreementCount > 1)
             {
-                var boostedConfidence = Math.Min(100, best.ConfidenceScore + (agreementCount - 1) * 10);
+                var boostedConfidence = Math.Min(MaxConfidence, best.ConfidenceScore + (agreementCount - 1) * MultiSourceAgreementBoost);
                 _logger?.LogDebug("[Detection] Multiple sources ({Count}) agree on {Category}, boosting confidence to {Confidence}%",
                     agreementCount, best.Category, boostedConfidence);
 
@@ -240,33 +256,33 @@ public class DeviceTypeDetectionService
         var name = ouiName.ToLowerInvariant();
 
         // IoT / Smart Home manufacturers
-        if (name.Contains("ikea")) return CreateOuiResult(ClientDeviceCategory.SmartHub, ouiName, 80);
-        if (name.Contains("philips lighting") || name.Contains("signify")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, 85);
-        if (name.Contains("lutron")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, 85);
-        if (name.Contains("belkin")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, 75);
-        if (name.Contains("tp-link") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, 75);
-        if (name.Contains("ecobee")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 90);
-        if (name.Contains("nest")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 85);
-        if (name.Contains("honeywell")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, 70);
-        if (name.Contains("august") || name.Contains("yale") || name.Contains("schlage")) return CreateOuiResult(ClientDeviceCategory.SmartLock, ouiName, 85);
-        if (name.Contains("sonos")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 90);
-        if (name.Contains("amazon") && !name.Contains("aws")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 70);
-        if (name.Contains("google") && !name.Contains("cloud")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, 70);
-        if (name.Contains("irobot") || name.Contains("roborock") || name.Contains("ecovacs")) return CreateOuiResult(ClientDeviceCategory.RoboticVacuum, ouiName, 90);
-        if (name.Contains("samsung") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
-        if (name.Contains("lg") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, 70);
+        if (name.Contains("ikea")) return CreateOuiResult(ClientDeviceCategory.SmartHub, ouiName, OuiStandardConfidence);
+        if (name.Contains("philips lighting") || name.Contains("signify")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, OuiMediumConfidence);
+        if (name.Contains("lutron")) return CreateOuiResult(ClientDeviceCategory.SmartLighting, ouiName, OuiMediumConfidence);
+        if (name.Contains("belkin")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, OuiLowerConfidence);
+        if (name.Contains("tp-link") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, OuiLowerConfidence);
+        if (name.Contains("ecobee")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiHighConfidence);
+        if (name.Contains("nest")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiMediumConfidence);
+        if (name.Contains("honeywell")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiLowestConfidence);
+        if (name.Contains("august") || name.Contains("yale") || name.Contains("schlage")) return CreateOuiResult(ClientDeviceCategory.SmartLock, ouiName, OuiMediumConfidence);
+        if (name.Contains("sonos")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiHighConfidence);
+        if (name.Contains("amazon") && !name.Contains("aws")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
+        if (name.Contains("google") && !name.Contains("cloud")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
+        if (name.Contains("irobot") || name.Contains("roborock") || name.Contains("ecovacs")) return CreateOuiResult(ClientDeviceCategory.RoboticVacuum, ouiName, OuiHighConfidence);
+        if (name.Contains("samsung") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, OuiLowestConfidence);
+        if (name.Contains("lg") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, OuiLowestConfidence);
 
         // Security cameras (note: Wyze/Cync handled earlier in CheckVendorDefaultOverride)
-        if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
-        if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
-        if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 85);
-        if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
-        if (name.Contains("hikvision") || name.Contains("dahua") || name.Contains("amcrest")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 90);
-        if (name.Contains("eufy")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, 80);
+        if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiMediumConfidence);
+        if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiHighConfidence);
+        if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiMediumConfidence);
+        if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiHighConfidence);
+        if (name.Contains("hikvision") || name.Contains("dahua") || name.Contains("amcrest")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiHighConfidence);
+        if (name.Contains("eufy")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiStandardConfidence);
 
         // Media/Entertainment
-        if (name.Contains("roku")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, 90);
-        if (name.Contains("apple") && name.Contains("tv")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, 90);
+        if (name.Contains("roku")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, OuiHighConfidence);
+        if (name.Contains("apple") && name.Contains("tv")) return CreateOuiResult(ClientDeviceCategory.StreamingDevice, ouiName, OuiHighConfidence);
 
         return DeviceDetectionResult.Unknown;
     }
@@ -308,7 +324,7 @@ public class DeviceTypeDetectionService
             {
                 Category = ClientDeviceCategory.SmartPlug,
                 Source = DetectionSource.DeviceName,
-                ConfidenceScore = 95,
+                ConfidenceScore = NameOverrideConfidence,
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
@@ -326,7 +342,7 @@ public class DeviceTypeDetectionService
             {
                 Category = ClientDeviceCategory.SmartPlug,
                 Source = DetectionSource.DeviceName,
-                ConfidenceScore = 85,
+                ConfidenceScore = VendorDefaultConfidence,
                 VendorName = "WYZE",
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
@@ -344,7 +360,7 @@ public class DeviceTypeDetectionService
             {
                 Category = ClientDeviceCategory.SmartLighting,
                 Source = DetectionSource.DeviceName,
-                ConfidenceScore = 95,
+                ConfidenceScore = NameOverrideConfidence,
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
@@ -361,7 +377,7 @@ public class DeviceTypeDetectionService
             {
                 Category = ClientDeviceCategory.Smartphone,
                 Source = DetectionSource.DeviceName,
-                ConfidenceScore = 95,
+                ConfidenceScore = NameOverrideConfidence,
                 VendorName = "Apple",
                 RecommendedNetwork = NetworkPurpose.Corporate,
                 Metadata = new Dictionary<string, object>
@@ -409,7 +425,7 @@ public class DeviceTypeDetectionService
             {
                 Category = ClientDeviceCategory.Smartphone,
                 Source = DetectionSource.MacOui,
-                ConfidenceScore = 90,
+                ConfidenceScore = AppleWatchConfidence,
                 VendorName = "Apple",
                 RecommendedNetwork = NetworkPurpose.Corporate,
                 Metadata = new Dictionary<string, object>
@@ -439,7 +455,7 @@ public class DeviceTypeDetectionService
         {
             Category = ClientDeviceCategory.SmartPlug,
             Source = DetectionSource.MacOui,
-            ConfidenceScore = 85,
+            ConfidenceScore = VendorDefaultConfidence,
             VendorName = oui,
             RecommendedNetwork = NetworkPurpose.IoT,
             Metadata = new Dictionary<string, object>

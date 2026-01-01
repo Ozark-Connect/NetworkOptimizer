@@ -176,7 +176,9 @@ public class DnsSecurityAnalyzer
                     }
                     else
                     {
-                        _logger.LogWarning("Failed to decode SDNS stamp for server {Name}: {Stamp}", serverName, sdnsStamp?.Substring(0, Math.Min(50, sdnsStamp?.Length ?? 0)));
+                        // sdnsStamp is known non-null here due to the enclosing if check
+                        var truncatedStamp = sdnsStamp.Length > 50 ? sdnsStamp[..50] + "..." : sdnsStamp;
+                        _logger.LogWarning("Failed to decode SDNS stamp for server {Name}: {Stamp}", serverName, truncatedStamp);
                     }
                 }
             }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit;
@@ -12,6 +13,11 @@ namespace NetworkOptimizer.Web.Services;
 
 public class AuditService
 {
+    // Severity level constants for consistent string comparisons
+    private const string SeverityCritical = "Critical";
+    private const string SeverityWarning = "Warning";
+    private const string SeverityInfo = "Info";
+
     private readonly ILogger<AuditService> _logger;
     private readonly UniFiConnectionService _connectionService;
     private readonly ConfigAuditEngine _auditEngine;
@@ -23,7 +29,8 @@ public class AuditService
     private DateTime? _lastAuditTime;
 
     // Track dismissed issues (by unique key: Title + DeviceName + Port)
-    private readonly HashSet<string> _dismissedIssues = new();
+    // Using ConcurrentDictionary for thread-safe access from multiple requests
+    private readonly ConcurrentDictionary<string, byte> _dismissedIssues = new();
     private bool _dismissedIssuesLoaded = false;
 
     public AuditService(
@@ -55,7 +62,7 @@ public class AuditService
             var dismissed = await repository.GetDismissedIssuesAsync();
             foreach (var issue in dismissed)
             {
-                _dismissedIssues.Add(issue.IssueKey);
+                _dismissedIssues.TryAdd(issue.IssueKey, 0);
             }
             _dismissedIssuesLoaded = true;
             _logger.LogInformation("Loaded {Count} dismissed issues from database", dismissed.Count);
@@ -82,7 +89,7 @@ public class AuditService
     public async Task DismissIssueAsync(AuditIssue issue)
     {
         var key = GetIssueKey(issue);
-        if (_dismissedIssues.Add(key))
+        if (_dismissedIssues.TryAdd(key, 0))
         {
             try
             {
@@ -107,7 +114,7 @@ public class AuditService
     /// Check if an issue has been dismissed
     /// </summary>
     public bool IsIssueDismissed(AuditIssue issue) =>
-        _dismissedIssues.Contains(GetIssueKey(issue));
+        _dismissedIssues.ContainsKey(GetIssueKey(issue));
 
     /// <summary>
     /// Get active (non-dismissed) issues (synchronous - may not include dismissed filter if not yet loaded)
@@ -144,7 +151,7 @@ public class AuditService
     public async Task RestoreIssueAsync(AuditIssue issue)
     {
         var key = GetIssueKey(issue);
-        if (_dismissedIssues.Remove(key))
+        if (_dismissedIssues.TryRemove(key, out _))
         {
             try
             {
@@ -165,13 +172,13 @@ public class AuditService
     /// Get count of active critical issues
     /// </summary>
     public int ActiveCriticalCount =>
-        GetActiveIssues().Count(i => i.Severity == "Critical");
+        GetActiveIssues().Count(i => i.Severity == SeverityCritical);
 
     /// <summary>
     /// Get count of active warning issues
     /// </summary>
     public int ActiveWarningCount =>
-        GetActiveIssues().Count(i => i.Severity == "Warning");
+        GetActiveIssues().Count(i => i.Severity == SeverityWarning);
 
     /// <summary>
     /// Clear all dismissed issues (removes from database too)
@@ -301,8 +308,8 @@ public class AuditService
             return new AuditSummary
             {
                 Score = _lastAuditResult.Score,
-                CriticalCount = activeIssues.Count(i => i.Severity == "Critical"),
-                WarningCount = activeIssues.Count(i => i.Severity == "Warning"),
+                CriticalCount = activeIssues.Count(i => i.Severity == SeverityCritical),
+                WarningCount = activeIssues.Count(i => i.Severity == SeverityWarning),
                 LastAuditTime = _lastAuditTime.Value,
                 RecentIssues = activeIssues.Take(5).ToList()
             };
@@ -411,7 +418,7 @@ public class AuditService
                 {
                     new AuditIssue
                     {
-                        Severity = "Critical",
+                        Severity = SeverityCritical,
                         Category = "Connection",
                         Title = "Controller Not Connected",
                         Description = "Cannot run security audit without an active connection to the UniFi controller.",
@@ -504,7 +511,7 @@ public class AuditService
                 {
                     new AuditIssue
                     {
-                        Severity = "Critical",
+                        Severity = SeverityCritical,
                         Category = "System",
                         Title = "Audit Failed",
                         Description = $"An error occurred while running the security audit: {ex.Message}",
@@ -550,9 +557,12 @@ public class AuditService
             });
         }
 
-        var criticalCount = issues.Count(i => i.Severity == "Critical");
-        var warningCount = issues.Count(i => i.Severity == "Warning");
-        var infoCount = issues.Count(i => i.Severity == "Info");
+        // Group by severity in single pass to avoid multiple iterations
+        var severityCounts = issues.GroupBy(i => i.Severity)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var criticalCount = severityCounts.GetValueOrDefault(SeverityCritical, 0);
+        var warningCount = severityCounts.GetValueOrDefault(SeverityWarning, 0);
+        var infoCount = severityCounts.GetValueOrDefault(SeverityInfo, 0);
 
         // Recalculate score based on FILTERED issues only (excluded features don't affect score)
         var score = CalculateFilteredScore(engineResult, options);

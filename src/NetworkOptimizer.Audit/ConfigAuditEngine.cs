@@ -172,10 +172,12 @@ public class ConfigAuditEngine
         }
 
         // Parse JSON with error handling
+        // Clone the RootElement to detach it from the JsonDocument, allowing proper disposal
         JsonElement deviceData;
         try
         {
-            deviceData = JsonDocument.Parse(deviceDataJson).RootElement;
+            using var doc = JsonDocument.Parse(deviceDataJson);
+            deviceData = doc.RootElement.Clone();
         }
         catch (JsonException ex)
         {
