@@ -6,7 +6,7 @@ WORKDIR /src
 # Copy solution file, build props, and all project files first for layer caching
 COPY ["NetworkOptimizer.sln", "./"]
 COPY ["Directory.Build.props", "./"]
-COPY ["NetworkOptimizer.Core/NetworkOptimizer.Core.csproj", "NetworkOptimizer.Core/"]
+COPY ["src/NetworkOptimizer.Core/NetworkOptimizer.Core.csproj", "src/NetworkOptimizer.Core/"]
 COPY ["src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj", "src/NetworkOptimizer.Web/"]
 COPY ["src/NetworkOptimizer.UniFi/NetworkOptimizer.UniFi.csproj", "src/NetworkOptimizer.UniFi/"]
 COPY ["src/NetworkOptimizer.Audit/NetworkOptimizer.Audit.csproj", "src/NetworkOptimizer.Audit/"]
@@ -20,7 +20,6 @@ COPY ["src/NetworkOptimizer.Reports/NetworkOptimizer.Reports.csproj", "src/Netwo
 RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj"
 
 # Copy all source files
-COPY NetworkOptimizer.Core/ NetworkOptimizer.Core/
 COPY src/ src/
 
 # Build and publish Web UI (includes all dependent projects)
