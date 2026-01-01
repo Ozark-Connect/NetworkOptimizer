@@ -22,9 +22,9 @@ public static class ScoreConstants
     public const int MaxRecommendedDeduction = 30;
 
     /// <summary>
-    /// Maximum deduction for investigate/informational issues
+    /// Maximum deduction for informational issues
     /// </summary>
-    public const int MaxInvestigateDeduction = 10;
+    public const int MaxInformationalDeduction = 10;
 
     /// <summary>
     /// Default score impact for critical severity issues
@@ -37,9 +37,9 @@ public static class ScoreConstants
     public const int RecommendedImpact = 5;
 
     /// <summary>
-    /// Default score impact for investigate/informational severity issues
+    /// Default score impact for informational severity issues
     /// </summary>
-    public const int InvestigateImpact = 2;
+    public const int InformationalImpact = 2;
 
     /// <summary>
     /// Score impact for high-risk IoT devices (smart locks, thermostats, hubs)

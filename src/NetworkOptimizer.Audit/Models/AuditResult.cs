@@ -46,9 +46,9 @@ public class AuditResult
     public List<AuditIssue> RecommendedIssues => Issues.Where(i => i.Severity == AuditSeverity.Recommended).ToList();
 
     /// <summary>
-    /// Items to investigate
+    /// Informational findings - worth knowing but no immediate action required
     /// </summary>
-    public List<AuditIssue> InvestigateIssues => Issues.Where(i => i.Severity == AuditSeverity.Investigate).ToList();
+    public List<AuditIssue> InformationalIssues => Issues.Where(i => i.Severity == AuditSeverity.Informational).ToList();
 
     /// <summary>
     /// Security posture score (0-100)

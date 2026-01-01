@@ -458,7 +458,7 @@ public class DnsSecurityAnalyzer
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDohAuto,
-                Severity = AuditSeverity.Investigate,
+                Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
                 Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
                 RecommendedAction = "Configure DoH with explicit custom servers for guaranteed encryption",
@@ -525,7 +525,7 @@ public class DnsSecurityAnalyzer
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsIsp,
-                Severity = AuditSeverity.Investigate,
+                Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
                 Message = "Network is using ISP-provided DNS servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
                 RecommendedAction = "Configure custom DNS servers or enable DoH with a privacy-focused provider",
@@ -889,7 +889,7 @@ public class DnsSecurityAnalyzer
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
-                    Severity = AuditSeverity.Investigate,
+                    Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
                     RuleId = "DNS-DEVICE-001",
@@ -1006,7 +1006,7 @@ public class DnsSecurityAnalyzer
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
-                    Severity = AuditSeverity.Investigate,
+                    Severity = AuditSeverity.Informational,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
                     RuleId = "DNS-DEVICE-001",

@@ -301,7 +301,7 @@ public class VlanAnalyzer
                     issues.Add(new AuditIssue
                     {
                         Type = IssueTypes.DnsLeakage,
-                        Severity = AuditSeverity.Investigate,
+                        Severity = AuditSeverity.Informational,
                         Message = $"Network '{isolated.Name}' shares DNS servers with corporate network",
                         Metadata = new Dictionary<string, object>
                         {
@@ -337,7 +337,7 @@ public class VlanAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.RoutingEnabled,
-                    Severity = AuditSeverity.Investigate,
+                    Severity = AuditSeverity.Informational,
                     Message = $"Isolated network '{network.Name}' has routing enabled - may allow cross-VLAN access",
                     Metadata = new Dictionary<string, object>
                     {

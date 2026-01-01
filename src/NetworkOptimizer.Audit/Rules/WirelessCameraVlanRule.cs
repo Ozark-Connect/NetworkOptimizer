@@ -27,34 +27,19 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
         if (network == null)
             return null;
 
-        // Check if it's on a security network
-        if (network.Purpose == NetworkPurpose.Security)
-            return null; // Correctly placed
+        // Check placement using shared logic
+        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact);
 
-        // Find the security network to recommend (prefer lower VLAN number)
-        var securityNetwork = networks
-            .Where(n => n.Purpose == NetworkPurpose.Security)
-            .OrderBy(n => n.VlanId)
-            .FirstOrDefault();
-        var recommendedVlanStr = securityNetwork != null
-            ? $"{securityNetwork.Name} ({securityNetwork.VlanId})"
-            : "Security WiFi network";
+        if (placement.IsCorrectlyPlaced)
+            return null;
 
         return CreateIssue(
             $"{client.Detection.CategoryName} on {network.Name} WiFi - should be on security network",
             client,
-            recommendedNetwork: securityNetwork?.Name,
-            recommendedVlan: securityNetwork?.VlanId,
-            recommendedAction: $"Connect to {recommendedVlanStr}",
-            metadata: new Dictionary<string, object>
-            {
-                { "device_type", client.Detection.CategoryName },
-                { "device_category", client.Detection.Category.ToString() },
-                { "detection_source", client.Detection.Source.ToString() },
-                { "detection_confidence", client.Detection.ConfidenceScore },
-                { "vendor", client.Detection.VendorName ?? "Unknown" },
-                { "current_network_purpose", network.Purpose.ToString() }
-            }
+            recommendedNetwork: placement.RecommendedNetwork?.Name,
+            recommendedVlan: placement.RecommendedNetwork?.VlanId,
+            recommendedAction: $"Connect to {placement.RecommendedNetworkLabel}",
+            metadata: VlanPlacementChecker.BuildMetadata(client.Detection, network)
         );
     }
 }

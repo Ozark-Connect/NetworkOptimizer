@@ -10,22 +10,23 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Audit.Analyzers;
 
 /// <summary>
-/// Main security audit engine for port and switch configuration analysis
+/// Analyzes port and switch configuration for security issues.
+/// Evaluates VLAN placement, MAC restrictions, port isolation, and unused ports.
 /// </summary>
-public class SecurityAuditEngine
+public class PortSecurityAnalyzer
 {
-    private readonly ILogger<SecurityAuditEngine> _logger;
+    private readonly ILogger<PortSecurityAnalyzer> _logger;
     private readonly List<IAuditRule> _rules;
     private readonly List<IWirelessAuditRule> _wirelessRules;
     private readonly DeviceTypeDetectionService? _detectionService;
 
-    public SecurityAuditEngine(ILogger<SecurityAuditEngine> logger)
+    public PortSecurityAnalyzer(ILogger<PortSecurityAnalyzer> logger)
         : this(logger, null)
     {
     }
 
-    public SecurityAuditEngine(
-        ILogger<SecurityAuditEngine> logger,
+    public PortSecurityAnalyzer(
+        ILogger<PortSecurityAnalyzer> logger,
         DeviceTypeDetectionService? detectionService)
     {
         _logger = logger;

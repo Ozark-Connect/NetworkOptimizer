@@ -82,13 +82,13 @@ public class AuditScorerTests
     }
 
     [Fact]
-    public void CalculateScore_InvestigateDeductionsCappedAt10()
+    public void CalculateScore_InformationalDeductionsCappedAt10()
     {
         // Arrange - Many investigate issues exceeding cap
-        var investigateIssues = Enumerable.Range(0, 10)
-            .Select(_ => CreateIssue(AuditSeverity.Investigate, scoreImpact: 5))
+        var informationalIssues = Enumerable.Range(0, 10)
+            .Select(_ => CreateIssue(AuditSeverity.Informational, scoreImpact: 5))
             .ToArray();
-        var result = CreateAuditResult(investigateIssues: investigateIssues);
+        var result = CreateAuditResult(informationalIssues: informationalIssues);
 
         // Act
         var score = _scorer.CalculateScore(result);
@@ -107,14 +107,14 @@ public class AuditScorerTests
         var recommendedIssues = Enumerable.Range(0, 10)
             .Select(_ => CreateIssue(AuditSeverity.Recommended, scoreImpact: 10))
             .ToArray();
-        var investigateIssues = Enumerable.Range(0, 10)
-            .Select(_ => CreateIssue(AuditSeverity.Investigate, scoreImpact: 5))
+        var informationalIssues = Enumerable.Range(0, 10)
+            .Select(_ => CreateIssue(AuditSeverity.Informational, scoreImpact: 5))
             .ToArray();
 
         var result = CreateAuditResult(
             criticalIssues: criticalIssues,
             recommendedIssues: recommendedIssues,
-            investigateIssues: investigateIssues);
+            informationalIssues: informationalIssues);
 
         // Act
         var score = _scorer.CalculateScore(result);
@@ -422,14 +422,14 @@ public class AuditScorerTests
     private static AuditResult CreateAuditResult(
         AuditIssue[]? criticalIssues = null,
         AuditIssue[]? recommendedIssues = null,
-        AuditIssue[]? investigateIssues = null,
+        AuditIssue[]? informationalIssues = null,
         double hardeningPercentage = 0,
         int hardeningMeasureCount = 0)
     {
         var allIssues = new List<AuditIssue>();
         if (criticalIssues != null) allIssues.AddRange(criticalIssues);
         if (recommendedIssues != null) allIssues.AddRange(recommendedIssues);
-        if (investigateIssues != null) allIssues.AddRange(investigateIssues);
+        if (informationalIssues != null) allIssues.AddRange(informationalIssues);
 
         // Calculate port stats to achieve desired hardening percentage
         var totalPorts = 100;

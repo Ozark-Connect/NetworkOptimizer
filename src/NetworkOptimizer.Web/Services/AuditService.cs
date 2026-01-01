@@ -749,7 +749,7 @@ public class AuditService
     {
         AuditModels.AuditSeverity.Critical => "Critical",
         AuditModels.AuditSeverity.Recommended => "Warning",
-        AuditModels.AuditSeverity.Investigate => "Info",
+        AuditModels.AuditSeverity.Informational => "Info",
         _ => "Info"
     };
 
@@ -806,9 +806,9 @@ public class AuditService
             filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Recommended).Sum(i => i.ScoreImpact),
             Audit.Scoring.ScoreConstants.MaxRecommendedDeduction);
 
-        var investigateDeduction = Math.Min(
-            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Investigate).Sum(i => i.ScoreImpact),
-            Audit.Scoring.ScoreConstants.MaxInvestigateDeduction);
+        var informationalDeduction = Math.Min(
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Informational).Sum(i => i.ScoreImpact),
+            Audit.Scoring.ScoreConstants.MaxInformationalDeduction);
 
         // Calculate hardening bonus (same as original - not filtered)
         var hardeningBonus = 0;
@@ -826,11 +826,11 @@ public class AuditService
         else if (engineResult.HardeningMeasures.Count >= 1)
             hardeningBonus += 1;
 
-        var score = Audit.Scoring.ScoreConstants.BaseScore - criticalDeduction - recommendedDeduction - investigateDeduction + hardeningBonus;
+        var score = Audit.Scoring.ScoreConstants.BaseScore - criticalDeduction - recommendedDeduction - informationalDeduction + hardeningBonus;
 
         _logger.LogInformation(
-            "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Investigate: -{Investigate}, Bonus: +{Bonus})",
-            score, criticalDeduction, recommendedDeduction, investigateDeduction, hardeningBonus);
+            "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Informational: -{Informational}, Bonus: +{Bonus})",
+            score, criticalDeduction, recommendedDeduction, informationalDeduction, hardeningBonus);
 
         return Math.Max(0, Math.Min(100, score));
     }

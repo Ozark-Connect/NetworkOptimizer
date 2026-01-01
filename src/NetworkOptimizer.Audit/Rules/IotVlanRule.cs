@@ -1,5 +1,4 @@
 using NetworkOptimizer.Audit.Models;
-using NetworkOptimizer.Audit.Scoring;
 using NetworkOptimizer.Core.Enums;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -36,25 +35,12 @@ public class IotVlanRule : AuditRuleBase
         if (network == null)
             return null;
 
-        // Check if it's on an isolated network (IoT or Security are both acceptable)
-        if (network.Purpose == NetworkPurpose.IoT || network.Purpose == NetworkPurpose.Security)
-            return null; // Correctly placed on isolated network
+        // Check placement using shared logic
+        var placement = VlanPlacementChecker.CheckIoTPlacement(
+            detection.Category, network, networks, ScoreImpact);
 
-        // Find the IoT network to recommend (prefer lower VLAN number)
-        var iotNetwork = networks
-            .Where(n => n.Purpose == NetworkPurpose.IoT)
-            .OrderBy(n => n.VlanId)
-            .FirstOrDefault();
-        var recommendedVlan = iotNetwork != null
-            ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
-            : "IoT VLAN";
-
-        // Low-risk IoT devices get Recommended severity - users often keep them on main VLAN
-        // Critical only for high-risk devices: SmartThermostat, SmartLock, SmartHub (security/control devices)
-        var isLowRiskDevice = detection.Category.IsLowRiskIoT();
-
-        var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isLowRiskDevice ? ScoreConstants.LowRiskIoTImpact : ScoreImpact;
+        if (placement.IsCorrectlyPlaced)
+            return null;
 
         // Use connected client name if available, otherwise port name - include switch context
         var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
@@ -65,27 +51,19 @@ public class IotVlanRule : AuditRuleBase
         return new AuditIssue
         {
             Type = RuleId,
-            Severity = severity,
+            Severity = placement.Severity,
             Message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated",
             DeviceName = deviceName,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             CurrentNetwork = network.Name,
             CurrentVlan = network.VlanId,
-            RecommendedNetwork = iotNetwork?.Name,
-            RecommendedVlan = iotNetwork?.VlanId,
-            RecommendedAction = $"Move to {recommendedVlan}",
-            Metadata = new Dictionary<string, object>
-            {
-                { "device_type", detection.CategoryName },
-                { "device_category", detection.Category.ToString() },
-                { "detection_source", detection.Source.ToString() },
-                { "detection_confidence", detection.ConfidenceScore },
-                { "vendor", detection.VendorName ?? "Unknown" },
-                { "current_network_purpose", network.Purpose.ToString() }
-            },
+            RecommendedNetwork = placement.RecommendedNetwork?.Name,
+            RecommendedVlan = placement.RecommendedNetwork?.VlanId,
+            RecommendedAction = $"Move to {placement.RecommendedNetworkLabel}",
+            Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
             RuleId = RuleId,
-            ScoreImpact = scoreImpact
+            ScoreImpact = placement.ScoreImpact
         };
     }
 }

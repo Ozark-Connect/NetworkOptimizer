@@ -37,7 +37,7 @@ builder.Services.AddSingleton<NetworkPathAnalyzer>();
 
 // Register audit engine and analyzers
 builder.Services.AddTransient<VlanAnalyzer>();
-builder.Services.AddTransient<SecurityAuditEngine>();
+builder.Services.AddTransient<PortSecurityAnalyzer>();
 builder.Services.AddTransient<FirewallRuleParser>();
 builder.Services.AddTransient<FirewallRuleAnalyzer>();
 builder.Services.AddTransient<AuditScorer>();

@@ -673,7 +673,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle();
         var issue = issues.First();
         issue.Type.Should().Be("ORPHANED_RULE");
-        issue.Severity.Should().Be(AuditSeverity.Investigate);
+        issue.Severity.Should().Be(AuditSeverity.Informational);
     }
 
     [Fact]

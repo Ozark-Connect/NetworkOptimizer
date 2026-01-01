@@ -1,5 +1,4 @@
 using NetworkOptimizer.Audit.Models;
-using NetworkOptimizer.Audit.Scoring;
 using NetworkOptimizer.Core.Enums;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -28,44 +27,22 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
         if (network == null)
             return null;
 
-        // Check if it's on an isolated network (IoT or Security are both acceptable)
-        if (network.Purpose == NetworkPurpose.IoT || network.Purpose == NetworkPurpose.Security)
-            return null; // Correctly placed on isolated network
+        // Check placement using shared logic
+        var placement = VlanPlacementChecker.CheckIoTPlacement(
+            client.Detection.Category, network, networks, ScoreImpact);
 
-        // Find the IoT network to recommend (prefer lower VLAN number)
-        var iotNetwork = networks
-            .Where(n => n.Purpose == NetworkPurpose.IoT)
-            .OrderBy(n => n.VlanId)
-            .FirstOrDefault();
-        var recommendedVlanStr = iotNetwork != null
-            ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
-            : "IoT WiFi network";
-
-        // Low-risk IoT devices get Recommended severity - users often keep them on main WiFi
-        // Critical only for high-risk devices: SmartThermostat, SmartLock, SmartHub (security/control devices)
-        var isLowRiskDevice = client.Detection.Category.IsLowRiskIoT();
-
-        var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isLowRiskDevice ? ScoreConstants.LowRiskIoTImpact : ScoreImpact;
+        if (placement.IsCorrectlyPlaced)
+            return null;
 
         return CreateIssue(
             $"{client.Detection.CategoryName} on {network.Name} WiFi - should be isolated",
             client,
-            severityOverride: severity,
-            scoreImpactOverride: scoreImpact,
-            recommendedNetwork: iotNetwork?.Name,
-            recommendedVlan: iotNetwork?.VlanId,
-            recommendedAction: $"Connect to {recommendedVlanStr}",
-            metadata: new Dictionary<string, object>
-            {
-                { "device_type", client.Detection.CategoryName },
-                { "device_category", client.Detection.Category.ToString() },
-                { "detection_source", client.Detection.Source.ToString() },
-                { "detection_confidence", client.Detection.ConfidenceScore },
-                { "vendor", client.Detection.VendorName ?? "Unknown" },
-                { "current_network_purpose", network.Purpose.ToString() },
-                { "is_low_risk_device", isLowRiskDevice }
-            }
+            severityOverride: placement.Severity,
+            scoreImpactOverride: placement.ScoreImpact,
+            recommendedNetwork: placement.RecommendedNetwork?.Name,
+            recommendedVlan: placement.RecommendedNetwork?.VlanId,
+            recommendedAction: $"Connect to {placement.RecommendedNetworkLabel}",
+            metadata: VlanPlacementChecker.BuildMetadata(client.Detection, network, placement.IsLowRisk)
         );
     }
 }

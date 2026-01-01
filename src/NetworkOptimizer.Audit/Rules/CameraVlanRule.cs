@@ -35,18 +35,11 @@ public class CameraVlanRule : AuditRuleBase
         if (network == null)
             return null;
 
-        // Check if it's on a security network
-        if (network.Purpose == NetworkPurpose.Security)
-            return null; // Correctly placed
+        // Check placement using shared logic
+        var placement = VlanPlacementChecker.CheckCameraPlacement(network, networks, ScoreImpact);
 
-        // Find the security network to recommend (prefer lower VLAN number)
-        var securityNetwork = networks
-            .Where(n => n.Purpose == NetworkPurpose.Security)
-            .OrderBy(n => n.VlanId)
-            .FirstOrDefault();
-        var recommendedVlan = securityNetwork != null
-            ? $"{securityNetwork.Name} ({securityNetwork.VlanId})"
-            : "Security VLAN";
+        if (placement.IsCorrectlyPlaced)
+            return null;
 
         // Use connected client name if available, otherwise port name - include switch context
         var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
@@ -57,27 +50,19 @@ public class CameraVlanRule : AuditRuleBase
         return new AuditIssue
         {
             Type = RuleId,
-            Severity = Severity,
+            Severity = placement.Severity,
             Message = $"{detection.CategoryName} on {network.Name} VLAN - should be on security VLAN",
             DeviceName = deviceName,
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             CurrentNetwork = network.Name,
             CurrentVlan = network.VlanId,
-            RecommendedNetwork = securityNetwork?.Name,
-            RecommendedVlan = securityNetwork?.VlanId,
-            RecommendedAction = $"Move to {recommendedVlan}",
-            Metadata = new Dictionary<string, object>
-            {
-                { "device_type", detection.CategoryName },
-                { "device_category", detection.Category.ToString() },
-                { "detection_source", detection.Source.ToString() },
-                { "detection_confidence", detection.ConfidenceScore },
-                { "vendor", detection.VendorName ?? "Unknown" },
-                { "current_network_purpose", network.Purpose.ToString() }
-            },
+            RecommendedNetwork = placement.RecommendedNetwork?.Name,
+            RecommendedVlan = placement.RecommendedNetwork?.VlanId,
+            RecommendedAction = $"Move to {placement.RecommendedNetworkLabel}",
+            Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
             RuleId = RuleId,
-            ScoreImpact = ScoreImpact
+            ScoreImpact = placement.ScoreImpact
         };
     }
 }

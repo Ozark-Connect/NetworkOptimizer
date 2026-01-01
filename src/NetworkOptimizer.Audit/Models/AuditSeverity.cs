@@ -11,9 +11,9 @@ public enum AuditSeverity
     Info,
 
     /// <summary>
-    /// Investigation recommended to understand the configuration
+    /// Informational finding - worth knowing but no immediate action required
     /// </summary>
-    Investigate,
+    Informational,
 
     /// <summary>
     /// Recommended improvement for better security posture

@@ -18,7 +18,7 @@ public class ConfigAuditEngine
     private readonly ILogger<ConfigAuditEngine> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly VlanAnalyzer _vlanAnalyzer;
-    private readonly SecurityAuditEngine _securityEngine;
+    private readonly PortSecurityAnalyzer _securityEngine;
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly AuditScorer _scorer;
@@ -39,8 +39,8 @@ public class ConfigAuditEngine
         var detectionService = new DeviceTypeDetectionService(
             loggerFactory.CreateLogger<DeviceTypeDetectionService>());
 
-        _securityEngine = new SecurityAuditEngine(
-            loggerFactory.CreateLogger<SecurityAuditEngine>(),
+        _securityEngine = new PortSecurityAnalyzer(
+            loggerFactory.CreateLogger<PortSecurityAnalyzer>(),
             detectionService);
         var firewallParser = new FirewallRuleParser(loggerFactory.CreateLogger<FirewallRuleParser>());
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>(), firewallParser);
@@ -113,8 +113,8 @@ public class ConfigAuditEngine
             var detectionService = new DeviceTypeDetectionService(
                 _loggerFactory.CreateLogger<DeviceTypeDetectionService>(),
                 fingerprintDb);
-            securityEngine = new SecurityAuditEngine(
-                _loggerFactory.CreateLogger<SecurityAuditEngine>(),
+            securityEngine = new PortSecurityAnalyzer(
+                _loggerFactory.CreateLogger<PortSecurityAnalyzer>(),
                 detectionService);
         }
 

@@ -36,16 +36,16 @@ public class AuditScorer
             AuditSeverity.Recommended,
             ScoreConstants.MaxRecommendedDeduction);
 
-        var investigateDeduction = CalculateDeductionForSeverity(
-            auditResult.InvestigateIssues,
-            AuditSeverity.Investigate,
-            ScoreConstants.MaxInvestigateDeduction);
+        var informationalDeduction = CalculateDeductionForSeverity(
+            auditResult.InformationalIssues,
+            AuditSeverity.Informational,
+            ScoreConstants.MaxInformationalDeduction);
 
         deductions[AuditSeverity.Critical] = criticalDeduction;
         deductions[AuditSeverity.Recommended] = recommendedDeduction;
-        deductions[AuditSeverity.Investigate] = investigateDeduction;
+        deductions[AuditSeverity.Informational] = informationalDeduction;
 
-        var totalDeduction = criticalDeduction + recommendedDeduction + investigateDeduction;
+        var totalDeduction = criticalDeduction + recommendedDeduction + informationalDeduction;
 
         // Apply hardening bonus
         var hardeningBonus = CalculateHardeningBonus(auditResult.Statistics, auditResult.HardeningMeasures.Count);
@@ -56,8 +56,8 @@ public class AuditScorer
         score = Math.Max(0, Math.Min(100, score));
 
         _logger.LogInformation(
-            "Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Investigate: -{Investigate}, Hardening Bonus: +{Bonus})",
-            score, criticalDeduction, recommendedDeduction, investigateDeduction, hardeningBonus);
+            "Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Informational: -{Investigate}, Hardening Bonus: +{Bonus})",
+            score, criticalDeduction, recommendedDeduction, informationalDeduction, hardeningBonus);
 
         return score;
     }
@@ -81,12 +81,12 @@ public class AuditScorer
             AuditSeverity.Recommended,
             ScoreConstants.MaxRecommendedDeduction);
 
-        var investigateDeduction = CalculateDeductionForSeverity(
-            filteredIssues.Where(i => i.Severity == AuditSeverity.Investigate).ToList(),
-            AuditSeverity.Investigate,
-            ScoreConstants.MaxInvestigateDeduction);
+        var informationalDeduction = CalculateDeductionForSeverity(
+            filteredIssues.Where(i => i.Severity == AuditSeverity.Informational).ToList(),
+            AuditSeverity.Informational,
+            ScoreConstants.MaxInformationalDeduction);
 
-        var totalDeduction = criticalDeduction + recommendedDeduction + investigateDeduction;
+        var totalDeduction = criticalDeduction + recommendedDeduction + informationalDeduction;
 
         // Apply hardening bonus
         var hardeningBonus = CalculateHardeningBonus(stats, hardeningMeasureCount);
@@ -97,8 +97,8 @@ public class AuditScorer
         score = Math.Max(0, Math.Min(100, score));
 
         _logger.LogInformation(
-            "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Investigate: -{Investigate}, Hardening Bonus: +{Bonus})",
-            score, criticalDeduction, recommendedDeduction, investigateDeduction, hardeningBonus);
+            "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Informational: -{Investigate}, Hardening Bonus: +{Bonus})",
+            score, criticalDeduction, recommendedDeduction, informationalDeduction, hardeningBonus);
 
         return score;
     }

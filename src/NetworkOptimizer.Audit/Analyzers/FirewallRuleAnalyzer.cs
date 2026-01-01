@@ -262,7 +262,7 @@ public class FirewallRuleAnalyzer
                     issues.Add(new AuditIssue
                     {
                         Type = IssueTypes.OrphanedRule,
-                        Severity = AuditSeverity.Investigate,
+                        Severity = AuditSeverity.Informational,
                         Message = $"Rule '{rule.Name}' references non-existent source network",
                         Metadata = new Dictionary<string, object>
                         {
@@ -284,7 +284,7 @@ public class FirewallRuleAnalyzer
                     issues.Add(new AuditIssue
                     {
                         Type = IssueTypes.OrphanedRule,
-                        Severity = AuditSeverity.Investigate,
+                        Severity = AuditSeverity.Informational,
                         Message = $"Rule '{rule.Name}' references non-existent destination network",
                         Metadata = new Dictionary<string, object>
                         {

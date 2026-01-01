@@ -11,15 +11,15 @@ using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Analyzers;
 
-public class SecurityAuditEngineTests
+public class PortSecurityAnalyzerTests
 {
-    private readonly Mock<ILogger<SecurityAuditEngine>> _loggerMock;
-    private readonly SecurityAuditEngine _engine;
+    private readonly Mock<ILogger<PortSecurityAnalyzer>> _loggerMock;
+    private readonly PortSecurityAnalyzer _engine;
 
-    public SecurityAuditEngineTests()
+    public PortSecurityAnalyzerTests()
     {
-        _loggerMock = new Mock<ILogger<SecurityAuditEngine>>();
-        _engine = new SecurityAuditEngine(_loggerMock.Object);
+        _loggerMock = new Mock<ILogger<PortSecurityAnalyzer>>();
+        _engine = new PortSecurityAnalyzer(_loggerMock.Object);
     }
 
     #region Constructor Tests
@@ -27,7 +27,7 @@ public class SecurityAuditEngineTests
     [Fact]
     public void Constructor_WithLogger_CreatesInstance()
     {
-        var engine = new SecurityAuditEngine(_loggerMock.Object);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object);
         engine.Should().NotBeNull();
     }
 
@@ -37,7 +37,7 @@ public class SecurityAuditEngineTests
         var detectionServiceMock = new Mock<ILogger<DeviceTypeDetectionService>>();
         var detectionService = new DeviceTypeDetectionService(detectionServiceMock.Object, null);
 
-        var engine = new SecurityAuditEngine(_loggerMock.Object, detectionService);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object, detectionService);
 
         engine.Should().NotBeNull();
     }
