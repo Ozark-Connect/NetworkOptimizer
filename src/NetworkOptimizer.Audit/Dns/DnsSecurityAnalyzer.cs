@@ -12,6 +12,27 @@ public class DnsSecurityAnalyzer
 {
     private readonly ILogger<DnsSecurityAnalyzer> _logger;
 
+    // UniFi settings keys
+    private const string SettingsKeyDoh = "doh";
+    private const string SettingsKeyDns = "dns";
+    private const string SettingsKeyWanDns = "wan_dns";
+
+    // DNS provider domain patterns for detecting DoH block rules
+    private static readonly string[] DnsProviderPatterns =
+    [
+        "dns",
+        "doh",
+        "cloudflare-dns",
+        "quad9",
+        "nextdns",
+        "adguard",
+        "opendns"
+    ];
+
+    // Protocol blocking patterns
+    private const string ProtocolQuic = "quic";
+    private const string ProtocolDoh = "doh";
+
     public DnsSecurityAnalyzer(ILogger<DnsSecurityAnalyzer> logger)
     {
         _logger = logger;
@@ -20,19 +41,19 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Analyze DNS security from settings and firewall policies
     /// </summary>
-    public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData)
-        => Analyze(settingsData, firewallData, switches: null, networks: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData)
+        => AnalyzeAsync(settingsData, firewallData, switches: null, networks: null);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, and device configuration
     /// </summary>
-    public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
-        => Analyze(settingsData, firewallData, switches, networks, deviceData: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData: null);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
-    public DnsSecurityResult Analyze(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
     {
         var result = new DnsSecurityResult();
 
@@ -83,8 +104,8 @@ public class DnsSecurityAnalyzer
             result.GatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name;
         }
 
-        // Generate issues based on findings
-        GenerateAuditIssues(result);
+        // Generate issues based on findings (includes async WAN DNS validation)
+        await GenerateAuditIssuesAsync(result);
 
         _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
             result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
@@ -109,11 +130,11 @@ public class DnsSecurityAnalyzer
 
             var key = keyProp.GetString();
 
-            if (key == "doh")
+            if (key == SettingsKeyDoh)
             {
                 ParseDohSettings(setting, result);
             }
-            else if (key == "dns" || key == "wan_dns")
+            else if (key == SettingsKeyDns || key == SettingsKeyWanDns)
             {
                 _logger.LogDebug("Found WAN DNS settings with key '{Key}'", key);
                 ParseWanDnsSettings(setting, result);
@@ -369,13 +390,7 @@ public class DnsSecurityAnalyzer
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
-                    d.Contains("dns") ||
-                    d.Contains("doh") ||
-                    d.Contains("cloudflare-dns") ||
-                    d.Contains("quad9") ||
-                    d.Contains("nextdns") ||
-                    d.Contains("adguard") ||
-                    d.Contains("opendns")
+                    DnsProviderPatterns.Any(pattern => d.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                 ).ToList();
 
                 if (dnsProviderDomains.Count > 0)
@@ -391,7 +406,7 @@ public class DnsSecurityAnalyzer
             var protocol = policy.GetStringOrNull("protocol")?.ToLowerInvariant();
             if (isBlockAction && protocol is "udp" or "tcp_udp" && destPort?.Contains("443") == true)
             {
-                if (nameLower.Contains("quic") || nameLower.Contains("doh"))
+                if (nameLower.Contains(ProtocolQuic) || nameLower.Contains(ProtocolDoh))
                 {
                     result.HasQuicBlockRule = true;
                 }
@@ -413,30 +428,8 @@ public class DnsSecurityAnalyzer
         return string.Join(", ", sorted);
     }
 
-    /// <summary>
-    /// Format WAN interface name for display: "wan" -> "WAN1", "wan2" -> "WAN2", etc.
-    /// </summary>
-    private static string FormatWanInterfaceName(string interfaceName, string? portName)
-    {
-        // Convert wan/wan2/wan3 to WAN1/WAN2/WAN3
-        var formattedName = interfaceName.ToLowerInvariant() switch
-        {
-            "wan" => "WAN1",
-            var name when name.StartsWith("wan") && name.Length > 3 && char.IsDigit(name[3])
-                => $"WAN{name[3..]}",
-            _ => interfaceName
-        };
 
-        // Add port name if available
-        if (!string.IsNullOrEmpty(portName) && portName != "unnamed")
-        {
-            return $"{formattedName} ({portName})";
-        }
-
-        return formattedName;
-    }
-
-    private void GenerateAuditIssues(DnsSecurityResult result)
+    private async Task GenerateAuditIssuesAsync(DnsSecurityResult result)
     {
         // Issue: DoH not configured
         if (!result.DohConfigured)
@@ -468,7 +461,7 @@ public class DnsSecurityAnalyzer
         }
 
         // Validate WAN DNS against DoH provider (uses PTR lookup)
-        ValidateWanDnsConfiguration(result);
+        await ValidateWanDnsConfigurationAsync(result);
 
         // Issue: No DNS port 53 blocking (DNS leak prevention)
         if (!result.HasDns53BlockRule)
@@ -549,7 +542,7 @@ public class DnsSecurityAnalyzer
         }
     }
 
-    private void ValidateWanDnsConfiguration(DnsSecurityResult result)
+    private async Task ValidateWanDnsConfigurationAsync(DnsSecurityResult result)
     {
         if (!result.DohConfigured || result.WanDnsServers.Count == 0)
         {
@@ -581,7 +574,7 @@ public class DnsSecurityAnalyzer
             // If WAN DNS is from a known provider, assume DoH is the same provider
             foreach (var wanDns in result.WanDnsServers)
             {
-                var (wanProvider, _) = Task.Run(() => DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns)).GetAwaiter().GetResult();
+                var (wanProvider, _) = await DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns);
                 if (wanProvider != null)
                 {
                     expectedProvider = wanProvider;
@@ -619,8 +612,7 @@ public class DnsSecurityAnalyzer
             foreach (var wanDns in wanInterface.DnsServers)
             {
                 // Use PTR lookup for more accurate provider detection
-                // Task.Run avoids sync context deadlock in Blazor
-                var (wanProvider, reverseDns) = Task.Run(() => DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns)).GetAwaiter().GetResult();
+                var (wanProvider, reverseDns) = await DohProviderRegistry.IdentifyProviderFromIpWithPtrAsync(wanDns);
                 ptrResults.Add(reverseDns);
                 wanInterface.DetectedProvider = wanProvider?.Name;
 
@@ -689,7 +681,7 @@ public class DnsSecurityAnalyzer
         // Generate interface-specific issues
         foreach (var (interfaceName, portName, mismatchedServers) in interfacesWithMismatch)
         {
-            var displayName = FormatWanInterfaceName(interfaceName, portName);
+            var displayName = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, portName);
 
             // Only show complete IPs (not prefix patterns like "45.90.")
             var expectedIps = expectedProvider.DnsIps.Where(ip => !ip.EndsWith('.')).Take(2).ToList();
@@ -705,7 +697,7 @@ public class DnsSecurityAnalyzer
                 Message = $"{displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
                 RecommendedAction = recommendation,
                 DeviceName = result.GatewayName,
-                Port = FormatWanInterfaceName(interfaceName, null),
+                Port = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, null),
                 PortName = portName,
                 RuleId = "DNS-WAN-001",
                 ScoreImpact = 4,
@@ -723,7 +715,7 @@ public class DnsSecurityAnalyzer
         // Generate issues for interfaces with wrong DNS order (NextDNS: dns2 before dns1)
         foreach (var wanInterface in result.WanInterfaces.Where(w => w.MatchesDoH && !w.OrderCorrect))
         {
-            var displayName = FormatWanInterfaceName(wanInterface.InterfaceName, wanInterface.PortName);
+            var displayName = NetworkFormatHelpers.FormatWanInterfaceName(wanInterface.InterfaceName, wanInterface.PortName);
 
             var ips = string.Join(", ", wanInterface.DnsServers);
             // Use PTR results to determine correct order (dns1 before dns2)
@@ -735,7 +727,7 @@ public class DnsSecurityAnalyzer
                 Message = $"{displayName} DNS in wrong order: {ips}. Should be {correctOrder}",
                 RecommendedAction = $"Swap DNS order to {correctOrder}",
                 DeviceName = result.GatewayName,
-                Port = FormatWanInterfaceName(wanInterface.InterfaceName, null),
+                Port = NetworkFormatHelpers.FormatWanInterfaceName(wanInterface.InterfaceName, null),
                 PortName = wanInterface.PortName,
                 RuleId = "DNS-WAN-002",
                 ScoreImpact = 2,
@@ -755,7 +747,7 @@ public class DnsSecurityAnalyzer
             {
                 // Get the interface details for a better message
                 var wanInterface = result.WanInterfaces.FirstOrDefault(w => w.InterfaceName == interfaceName);
-                var displayName = FormatWanInterfaceName(interfaceName, wanInterface?.PortName);
+                var displayName = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, wanInterface?.PortName);
 
                 var providerName = result.ExpectedDnsProvider ?? "your DoH provider";
                 var expectedIps = result.ConfiguredServers
@@ -772,7 +764,7 @@ public class DnsSecurityAnalyzer
                     Message = $"WAN interface '{displayName}' has no static DNS configured. If DoH fails, DNS queries will leak to your ISP's DNS servers.",
                     RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers",
                     DeviceName = result.GatewayName,
-                    Port = FormatWanInterfaceName(interfaceName, null),
+                    Port = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, null),
                     PortName = wanInterface?.PortName,
                     RuleId = "DNS-WAN-002",
                     ScoreImpact = 3,

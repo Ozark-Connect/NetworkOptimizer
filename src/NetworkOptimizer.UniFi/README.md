@@ -272,22 +272,82 @@ Most endpoints return data in this format:
 }
 ```
 
-### 3. Session Expiration
+### 3. Hybrid JSON Deserialization Strategy
+
+**Why we use a hybrid approach (DTOs + JsonElement):**
+
+The UniFi "API" is actually the backing API for the UniFi Network web application - it's not an official, documented API. This creates several challenges:
+
+1. **Undocumented schema** - Field names and structures are reverse-engineered from browser network traffic
+2. **Version instability** - The schema changes between firmware versions without notice or deprecation
+3. **Device-type variance** - Different device types (gateways, switches, APs) return different field sets
+4. **Optional fields** - Many fields only appear under certain conditions (e.g., `uplink_table` only on connected devices)
+
+**Our approach:**
+
+```csharp
+// DTOs for stable, frequently-accessed core fields
+public class UniFiClientResponse
+{
+    [JsonPropertyName("mac")]
+    public string Mac { get; set; }  // Always present, always formatted the same
+
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }  // Usually present
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }  // User-assigned, may be null
+
+    // ...other core fields with strong typing
+}
+
+// JsonElement for variable/nested data
+public class UniFiDeviceResponse
+{
+    // Core fields as properties
+    [JsonPropertyName("mac")]
+    public string Mac { get; set; }
+
+    // Variable structures as JsonElement
+    [JsonPropertyName("port_table")]
+    public JsonElement? PortTable { get; set; }  // Schema varies by device type
+
+    [JsonPropertyName("network_table")]
+    public JsonElement? NetworkTable { get; set; }  // May be missing on some devices
+}
+```
+
+**Benefits:**
+- **Type safety** for fields we access frequently (compile-time checking, IntelliSense)
+- **Resilience** for fields that may change or be missing (no deserialization failures)
+- **Forward compatibility** - new fields don't break existing code
+- **Helper methods** in `NetworkOptimizer.Core.Helpers` for safe JsonElement access:
+  ```csharp
+  var vlanId = networkElement.GetIntOrDefault("vlan", 1);
+  var name = deviceElement.GetStringOrNull("name");
+  var isEnabled = settingElement.GetBoolOrDefault("enabled", true);
+  ```
+
+**When to use DTOs vs JsonElement:**
+- **DTOs**: MAC, IP, name, type, state - fields accessed in most code paths
+- **JsonElement**: port_table, network_table, config_network - nested/variable structures
+
+### 4. Session Expiration
 Sessions can expire, returning 401/403. The client automatically re-authenticates.
 
-### 4. Self-Signed Certificates
+### 5. Self-Signed Certificates
 UniFi controllers typically use self-signed certs. Certificate validation is disabled by default in this client.
 
-### 5. Site Names
+### 6. Site Names
 The default site is named "default". Multi-site controllers require specifying the site name.
 
-### 6. MAC Address Format
+### 7. MAC Address Format
 MAC addresses are lowercase with colons: `aa:bb:cc:dd:ee:ff`
 
-### 7. Unix Timestamps
+### 8. Unix Timestamps
 Most timestamps are in Unix epoch seconds (not milliseconds).
 
-### 8. State Codes
+### 9. State Codes
 Device state codes:
 - `0` - Disconnected
 - `1` - Connected
@@ -295,10 +355,10 @@ Device state codes:
 - `4` - Upgrading
 - `5` - Provisioning
 
-### 9. Traffic Routes API
+### 10. Traffic Routes API
 The newer UniFi Network Application uses a v2 API at `/proxy/network/v2/api/...` for traffic routes.
 
-### 10. Controller Fingerprinting
+### 11. Controller Fingerprinting
 The `anonymous_controller_id` in sysinfo is the licensing fingerprint - unique per controller installation.
 
 ## Error Handling

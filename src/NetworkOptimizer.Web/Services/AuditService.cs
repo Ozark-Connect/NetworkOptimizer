@@ -474,7 +474,7 @@ public class AuditService
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
             // Run the audit engine with all available data for comprehensive analysis
-            var auditResult = _auditEngine.RunAudit(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, "Network Audit");
+            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);

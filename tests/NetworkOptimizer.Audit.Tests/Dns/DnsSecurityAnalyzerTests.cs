@@ -33,9 +33,9 @@ public class DnsSecurityAnalyzerTests
     #region Analyze Basic Tests
 
     [Fact]
-    public void Analyze_NullSettingsAndFirewall_ReturnsDefaultResult()
+    public async Task Analyze_NullSettingsAndFirewall_ReturnsDefaultResult()
     {
-        var result = _analyzer.Analyze(null, null);
+        var result = await _analyzer.AnalyzeAsync(null, null);
 
         result.Should().NotBeNull();
         result.DohConfigured.Should().BeFalse();
@@ -45,20 +45,20 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_EmptySettingsArray_ReturnsDefaultResult()
+    public async Task Analyze_EmptySettingsArray_ReturnsDefaultResult()
     {
         var settings = JsonDocument.Parse("[]").RootElement;
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.Should().NotBeNull();
         result.DohConfigured.Should().BeFalse();
     }
 
     [Fact]
-    public void Analyze_EmptyDataWrapper_ReturnsDefaultResult()
+    public async Task Analyze_EmptyDataWrapper_ReturnsDefaultResult()
     {
         var settings = JsonDocument.Parse("{\"data\": []}").RootElement;
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.Should().NotBeNull();
         result.DohConfigured.Should().BeFalse();
@@ -69,44 +69,44 @@ public class DnsSecurityAnalyzerTests
     #region DoH Configuration Tests
 
     [Fact]
-    public void Analyze_WithDohDisabled_SetsStateCorrectly()
+    public async Task Analyze_WithDohDisabled_SetsStateCorrectly()
     {
         var settings = JsonDocument.Parse(@"[
             { ""key"": ""doh"", ""state"": ""disabled"" }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.DohState.Should().Be("disabled");
         result.DohConfigured.Should().BeFalse();
     }
 
     [Fact]
-    public void Analyze_WithDohAuto_SetsStateCorrectly()
+    public async Task Analyze_WithDohAuto_SetsStateCorrectly()
     {
         var settings = JsonDocument.Parse(@"[
             { ""key"": ""doh"", ""state"": ""auto"" }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.DohState.Should().Be("auto");
     }
 
     [Fact]
-    public void Analyze_WithDohCustom_SetsStateCorrectly()
+    public async Task Analyze_WithDohCustom_SetsStateCorrectly()
     {
         var settings = JsonDocument.Parse(@"[
             { ""key"": ""doh"", ""state"": ""custom"" }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.DohState.Should().Be("custom");
     }
 
     [Fact]
-    public void Analyze_WithDohServerNames_ParsesBuiltInServers()
+    public async Task Analyze_WithDohServerNames_ParsesBuiltInServers()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -116,14 +116,14 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.ConfiguredServers.Should().HaveCount(2);
         result.DohConfigured.Should().BeTrue();
     }
 
     [Fact]
-    public void Analyze_WithCustomSdnsStamp_ParsesCustomServer()
+    public async Task Analyze_WithCustomSdnsStamp_ParsesCustomServer()
     {
         // NextDNS SDNS stamp
         var sdnsStamp = "sdns://AgcAAAAAAAAAAAAOZG5zLm5leHRkbnMuaW8HL2FiY2RlZg";
@@ -137,14 +137,14 @@ public class DnsSecurityAnalyzerTests
             }}
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.ConfiguredServers.Should().HaveCountGreaterOrEqualTo(1);
         result.DohConfigured.Should().BeTrue();
     }
 
     [Fact]
-    public void Analyze_WithDisabledCustomServer_DoesNotCountAsConfigured()
+    public async Task Analyze_WithDisabledCustomServer_DoesNotCountAsConfigured()
     {
         var sdnsStamp = "sdns://AgcAAAAAAAAAAAAOZG5zLm5leHRkbnMuaW8HL2FiY2RlZg";
         var settings = JsonDocument.Parse($@"[
@@ -157,13 +157,13 @@ public class DnsSecurityAnalyzerTests
             }}
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.DohConfigured.Should().BeFalse();
     }
 
     [Fact]
-    public void Analyze_WithInvalidSdnsStamp_SkipsServer()
+    public async Task Analyze_WithInvalidSdnsStamp_SkipsServer()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -175,7 +175,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.ConfiguredServers.Should().BeEmpty();
     }
@@ -185,7 +185,7 @@ public class DnsSecurityAnalyzerTests
     #region WAN DNS Settings Tests
 
     [Fact]
-    public void Analyze_WithWanDnsServers_ParsesServers()
+    public async Task Analyze_WithWanDnsServers_ParsesServers()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -194,14 +194,14 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.WanDnsServers.Should().Contain("8.8.8.8");
         result.WanDnsServers.Should().Contain("8.8.4.4");
     }
 
     [Fact]
-    public void Analyze_WithWanDnsKey_ParsesServers()
+    public async Task Analyze_WithWanDnsKey_ParsesServers()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -210,13 +210,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.WanDnsServers.Should().Contain("1.1.1.1");
     }
 
     [Fact]
-    public void Analyze_WithAutoMode_SetsIspDnsFlag()
+    public async Task Analyze_WithAutoMode_SetsIspDnsFlag()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -225,13 +225,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.UsingIspDns.Should().BeTrue();
     }
 
     [Fact]
-    public void Analyze_WithDhcpMode_SetsIspDnsFlag()
+    public async Task Analyze_WithDhcpMode_SetsIspDnsFlag()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -240,7 +240,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.UsingIspDns.Should().BeTrue();
     }
@@ -250,7 +250,7 @@ public class DnsSecurityAnalyzerTests
     #region Firewall Rules Tests
 
     [Fact]
-    public void Analyze_WithDns53BlockRule_DetectsRule()
+    public async Task Analyze_WithDns53BlockRule_DetectsRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -261,14 +261,14 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDns53BlockRule.Should().BeTrue();
         result.Dns53RuleName.Should().Be("Block DNS");
     }
 
     [Fact]
-    public void Analyze_WithDotBlockRule_DetectsRule()
+    public async Task Analyze_WithDotBlockRule_DetectsRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -279,14 +279,14 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDotBlockRule.Should().BeTrue();
         result.DotRuleName.Should().Be("Block DoT");
     }
 
     [Fact]
-    public void Analyze_WithDohBlockRule_DetectsRule()
+    public async Task Analyze_WithDohBlockRule_DetectsRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -301,7 +301,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDohBlockRule.Should().BeTrue();
         result.DohBlockedDomains.Should().Contain("dns.google");
@@ -309,7 +309,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithQuicBlockRule_DetectsRule()
+    public async Task Analyze_WithQuicBlockRule_DetectsRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -321,13 +321,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasQuicBlockRule.Should().BeTrue();
     }
 
     [Fact]
-    public void Analyze_WithDisabledFirewallRule_IgnoresRule()
+    public async Task Analyze_WithDisabledFirewallRule_IgnoresRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -338,13 +338,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDns53BlockRule.Should().BeFalse();
     }
 
     [Fact]
-    public void Analyze_WithNonBlockAction_IgnoresRule()
+    public async Task Analyze_WithNonBlockAction_IgnoresRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -355,13 +355,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDns53BlockRule.Should().BeFalse();
     }
 
     [Fact]
-    public void Analyze_WithBlockAction_DetectsRule()
+    public async Task Analyze_WithBlockAction_DetectsRule()
     {
         var firewall = JsonDocument.Parse(@"[
             {
@@ -372,7 +372,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDns53BlockRule.Should().BeTrue();
     }
@@ -382,7 +382,7 @@ public class DnsSecurityAnalyzerTests
     #region WAN DNS Extraction Tests
 
     [Fact]
-    public void Analyze_WithGatewayDeviceData_ExtractsWanDns()
+    public async Task Analyze_WithGatewayDeviceData_ExtractsWanDns()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -399,7 +399,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, null, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
 
         result.WanDnsServers.Should().Contain("8.8.8.8");
         result.WanDnsServers.Should().Contain("8.8.4.4");
@@ -407,7 +407,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithUdmDevice_ExtractsWanDns()
+    public async Task Analyze_WithUdmDevice_ExtractsWanDns()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -423,13 +423,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, null, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
 
         result.WanDnsServers.Should().Contain("1.1.1.1");
     }
 
     [Fact]
-    public void Analyze_WithMultipleWanInterfaces_ExtractsAll()
+    public async Task Analyze_WithMultipleWanInterfaces_ExtractsAll()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -451,7 +451,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, null, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
 
         result.WanInterfaces.Should().HaveCount(2);
         result.WanDnsServers.Should().Contain("8.8.8.8");
@@ -459,7 +459,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithWanInterfaceWithoutDns_SetsIspDnsFlag()
+    public async Task Analyze_WithWanInterfaceWithoutDns_SetsIspDnsFlag()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -475,13 +475,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, null, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
 
         result.UsingIspDns.Should().BeTrue();
     }
 
     [Fact]
-    public void Analyze_WithNonGatewayDevice_SkipsDevice()
+    public async Task Analyze_WithNonGatewayDevice_SkipsDevice()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -495,7 +495,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(null, null, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
 
         result.WanInterfaces.Should().BeEmpty();
     }
@@ -517,7 +517,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void GetSummary_WithDohConfigured_ReflectsInSummary()
+    public async Task GetSummary_WithDohConfigured_ReflectsInSummary()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -527,7 +527,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var analysisResult = _analyzer.Analyze(settings, null);
+        var analysisResult = await _analyzer.AnalyzeAsync(settings, null);
         var summary = _analyzer.GetSummary(analysisResult);
 
         summary.DohEnabled.Should().BeTrue();
@@ -640,7 +640,7 @@ public class DnsSecurityAnalyzerTests
     #region Device DNS Configuration Tests (from switches)
 
     [Fact]
-    public void Analyze_WithDevicesHavingStaticDns_ChecksDnsConfiguration()
+    public async Task Analyze_WithDevicesHavingStaticDns_ChecksDnsConfiguration()
     {
         var switches = new List<SwitchInfo>
         {
@@ -676,7 +676,7 @@ public class DnsSecurityAnalyzerTests
             }
         };
 
-        var result = _analyzer.Analyze(null, null, switches, networks);
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
 
         result.TotalDevicesChecked.Should().Be(1);
         result.DevicesWithCorrectDns.Should().Be(1);
@@ -684,7 +684,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithMisconfiguredDeviceDns_GeneratesIssue()
+    public async Task Analyze_WithMisconfiguredDeviceDns_GeneratesIssue()
     {
         var switches = new List<SwitchInfo>
         {
@@ -720,14 +720,14 @@ public class DnsSecurityAnalyzerTests
             }
         };
 
-        var result = _analyzer.Analyze(null, null, switches, networks);
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
 
         result.DeviceDnsPointsToGateway.Should().BeFalse();
         result.Issues.Should().Contain(i => i.Type == "DNS_DEVICE_MISCONFIGURED");
     }
 
     [Fact]
-    public void Analyze_WithDhcpDevices_CountsAsDhcp()
+    public async Task Analyze_WithDhcpDevices_CountsAsDhcp()
     {
         var switches = new List<SwitchInfo>
         {
@@ -762,7 +762,7 @@ public class DnsSecurityAnalyzerTests
             }
         };
 
-        var result = _analyzer.Analyze(null, null, switches, networks);
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
 
         result.DhcpDeviceCount.Should().Be(1);
     }
@@ -772,7 +772,7 @@ public class DnsSecurityAnalyzerTests
     #region Device DNS from Raw Device Data Tests
 
     [Fact]
-    public void Analyze_WithRawDeviceData_ChecksAllDevices()
+    public async Task Analyze_WithRawDeviceData_ChecksAllDevices()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -811,7 +811,7 @@ public class DnsSecurityAnalyzerTests
             }
         };
 
-        var result = _analyzer.Analyze(null, null, null, networks, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
 
         result.TotalDevicesChecked.Should().Be(1); // Switch with static DNS
         result.DhcpDeviceCount.Should().Be(1); // AP with DHCP
@@ -819,7 +819,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithMisconfiguredApDns_GeneratesIssue()
+    public async Task Analyze_WithMisconfiguredApDns_GeneratesIssue()
     {
         var deviceData = JsonDocument.Parse(@"[
             {
@@ -850,7 +850,7 @@ public class DnsSecurityAnalyzerTests
             }
         };
 
-        var result = _analyzer.Analyze(null, null, null, networks, deviceData);
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
 
         result.DeviceDnsPointsToGateway.Should().BeFalse();
         result.Issues.Should().Contain(i => i.Type == "DNS_DEVICE_MISCONFIGURED");
@@ -861,7 +861,7 @@ public class DnsSecurityAnalyzerTests
     #region Hardening Notes Tests
 
     [Fact]
-    public void Analyze_WithDohConfigured_AddsHardeningNote()
+    public async Task Analyze_WithDohConfigured_AddsHardeningNote()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -871,13 +871,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.HardeningNotes.Should().Contain(n => n.Contains("DoH"));
     }
 
     [Fact]
-    public void Analyze_WithFullProtection_AddsFullProtectionNote()
+    public async Task Analyze_WithFullProtection_AddsFullProtectionNote()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -893,7 +893,7 @@ public class DnsSecurityAnalyzerTests
             { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, firewall);
+        var result = await _analyzer.AnalyzeAsync(settings, firewall);
 
         result.HardeningNotes.Should().Contain(n => n.Contains("fully configured"));
     }
@@ -903,7 +903,7 @@ public class DnsSecurityAnalyzerTests
     #region Additional Issue Generation Tests
 
     [Fact]
-    public void Analyze_WithDohAutoMode_GeneratesAutoModeIssue()
+    public async Task Analyze_WithDohAutoMode_GeneratesAutoModeIssue()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -913,13 +913,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.Issues.Should().Contain(i => i.Type == "DNS_DOH_AUTO");
     }
 
     [Fact]
-    public void Analyze_UsingIspDnsWithoutDoh_GeneratesIspDnsIssue()
+    public async Task Analyze_UsingIspDnsWithoutDoh_GeneratesIspDnsIssue()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -928,13 +928,13 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.Issues.Should().Contain(i => i.Type == "DNS_ISP");
     }
 
     [Fact]
-    public void Analyze_WithDohButNoDohBlock_GeneratesDohBypassIssue()
+    public async Task Analyze_WithDohButNoDohBlock_GeneratesDohBypassIssue()
     {
         var settings = JsonDocument.Parse(@"[
             {
@@ -944,7 +944,7 @@ public class DnsSecurityAnalyzerTests
             }
         ]").RootElement;
 
-        var result = _analyzer.Analyze(settings, null);
+        var result = await _analyzer.AnalyzeAsync(settings, null);
 
         result.Issues.Should().Contain(i => i.Type == "DNS_NO_DOH_BLOCK");
     }
@@ -954,7 +954,7 @@ public class DnsSecurityAnalyzerTests
     #region DeviceName on Issues Tests
 
     [Fact]
-    public void Analyze_DnsIssues_HaveGatewayDeviceName()
+    public async Task Analyze_DnsIssues_HaveGatewayDeviceName()
     {
         // Arrange
         var switches = new List<SwitchInfo>
@@ -968,7 +968,7 @@ public class DnsSecurityAnalyzerTests
         };
 
         // Act - analyze with no settings/firewall data to trigger DNS issues
-        var result = _analyzer.Analyze(
+        var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
             firewallData: null,
             switches: switches,
@@ -985,10 +985,10 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_NoGateway_IssuesHaveNullDeviceName()
+    public async Task Analyze_NoGateway_IssuesHaveNullDeviceName()
     {
         // Arrange - no switches provided
-        var result = _analyzer.Analyze(
+        var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
             firewallData: null,
             switches: null,
@@ -1006,7 +1006,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_MultipleDevices_UsesGatewayName()
+    public async Task Analyze_MultipleDevices_UsesGatewayName()
     {
         // Arrange - multiple devices, only one is gateway
         var switches = new List<SwitchInfo>
@@ -1032,7 +1032,7 @@ public class DnsSecurityAnalyzerTests
         };
 
         // Act
-        var result = _analyzer.Analyze(
+        var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
             firewallData: null,
             switches: switches,
@@ -1052,7 +1052,7 @@ public class DnsSecurityAnalyzerTests
     #region Issue Generation Tests
 
     [Fact]
-    public void Analyze_NoDoHConfigured_GeneratesRecommendedIssue()
+    public async Task Analyze_NoDoHConfigured_GeneratesRecommendedIssue()
     {
         // Arrange
         var switches = new List<SwitchInfo>
@@ -1061,7 +1061,7 @@ public class DnsSecurityAnalyzerTests
         };
 
         // Act
-        var result = _analyzer.Analyze(
+        var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
             firewallData: null,
             switches: switches,
@@ -1074,7 +1074,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_NoPort53Block_GeneratesCriticalIssue()
+    public async Task Analyze_NoPort53Block_GeneratesCriticalIssue()
     {
         // Arrange
         var switches = new List<SwitchInfo>
@@ -1083,7 +1083,7 @@ public class DnsSecurityAnalyzerTests
         };
 
         // Act
-        var result = _analyzer.Analyze(
+        var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
             firewallData: null,
             switches: switches,

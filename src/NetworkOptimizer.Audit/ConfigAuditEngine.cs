@@ -5,6 +5,7 @@ using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit;
@@ -22,6 +23,28 @@ public class ConfigAuditEngine
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
     private readonly AuditScorer _scorer;
+
+    /// <summary>
+    /// Internal context passed between audit phases
+    /// </summary>
+    private sealed class AuditContext
+    {
+        public required JsonElement DeviceData { get; init; }
+        public required List<UniFiClientResponse>? Clients { get; init; }
+        public required JsonElement? SettingsData { get; init; }
+        public required JsonElement? FirewallPoliciesData { get; init; }
+        public required string? ClientName { get; init; }
+        public required PortSecurityAnalyzer SecurityEngine { get; init; }
+
+        // Populated by phases
+        public List<NetworkInfo> Networks { get; set; } = [];
+        public List<SwitchInfo> Switches { get; set; } = [];
+        public List<WirelessClientInfo> WirelessClients { get; set; } = [];
+        public List<AuditIssue> AllIssues { get; } = [];
+        public List<string> HardeningMeasures { get; set; } = [];
+        public DnsSecurityResult? DnsSecurityResult { get; set; }
+        public AuditStatistics? Statistics { get; set; }
+    }
 
     /// <summary>
     /// Create ConfigAuditEngine with dependency injection
@@ -54,8 +77,8 @@ public class ConfigAuditEngine
     /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public AuditResult RunAudit(string deviceDataJson, string? clientName = null)
-        => RunAudit(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
+    public Task<AuditResult> RunAuditAsync(string deviceDataJson, string? clientName = null)
+        => RunAuditAsync(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
@@ -64,8 +87,8 @@ public class ConfigAuditEngine
     /// <param name="clients">Connected clients for device type detection (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
-        => RunAudit(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
+    public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data and fingerprint database for enhanced detection
@@ -75,8 +98,8 @@ public class ConfigAuditEngine
     /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public AuditResult RunAudit(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
-        => RunAudit(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, clientName);
+    public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with all available data sources
@@ -88,7 +111,7 @@ public class ConfigAuditEngine
     /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public AuditResult RunAudit(
+    public async Task<AuditResult> RunAuditAsync(
         string deviceDataJson,
         List<UniFiClientResponse>? clients,
         UniFiFingerprintDatabase? fingerprintDb,
@@ -97,14 +120,44 @@ public class ConfigAuditEngine
         string? clientName = null)
     {
         _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
+
+        // Initialize context with parsed data and security engine
+        var ctx = InitializeAuditContext(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, clientName);
+
+        // Execute audit phases
+        ExecutePhase1_ExtractNetworks(ctx);
+        ExecutePhase2_ExtractSwitches(ctx);
+        ExecutePhase3_AnalyzePortSecurity(ctx);
+        ExecutePhase3b_AnalyzeWirelessClients(ctx);
+        ExecutePhase4_AnalyzeNetworkConfiguration(ctx);
+        ExecutePhase5_AnalyzeFirewallRules(ctx);
+        await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
+        ExecutePhase6_AnalyzeHardeningMeasures(ctx);
+
+        // Build and score the final result
+        var auditResult = BuildAuditResult(ctx);
+        ExecutePhase7_CalculateSecurityScore(auditResult);
+
+        _logger.LogInformation("Audit complete: {Posture} (Score: {Score}/100, {Critical} critical, {Recommended} recommended)",
+            auditResult.Posture, auditResult.SecurityScore, auditResult.CriticalIssues.Count, auditResult.RecommendedIssues.Count);
+
+        return auditResult;
+    }
+
+    #region Audit Phase Methods
+
+    private AuditContext InitializeAuditContext(
+        string deviceDataJson,
+        List<UniFiClientResponse>? clients,
+        UniFiFingerprintDatabase? fingerprintDb,
+        JsonElement? settingsData,
+        JsonElement? firewallPoliciesData,
+        string? clientName)
+    {
         if (clients != null)
-        {
             _logger.LogInformation("Client data available for enhanced detection: {ClientCount} clients", clients.Count);
-        }
         if (fingerprintDb != null)
-        {
             _logger.LogInformation("Fingerprint database available: {DeviceCount} devices", fingerprintDb.DevIds.Count);
-        }
 
         // Use a security engine with fingerprint database if available
         var securityEngine = _securityEngine;
@@ -118,123 +171,156 @@ public class ConfigAuditEngine
                 detectionService);
         }
 
-        // Parse JSON
-        var deviceData = JsonDocument.Parse(deviceDataJson).RootElement;
+        // Parse JSON with error handling
+        JsonElement deviceData;
+        try
+        {
+            deviceData = JsonDocument.Parse(deviceDataJson).RootElement;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to parse device data JSON");
+            throw new InvalidOperationException("Invalid device data JSON format. Ensure the data is valid JSON from the UniFi API.", ex);
+        }
 
-        // Extract network topology
+        return new AuditContext
+        {
+            DeviceData = deviceData,
+            Clients = clients,
+            SettingsData = settingsData,
+            FirewallPoliciesData = firewallPoliciesData,
+            ClientName = clientName,
+            SecurityEngine = securityEngine
+        };
+    }
+
+    private void ExecutePhase1_ExtractNetworks(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 1: Extracting network topology");
-        var networks = _vlanAnalyzer.ExtractNetworks(deviceData);
-        _logger.LogInformation("Found {NetworkCount} networks", networks.Count);
+        ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData);
+        _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
+    }
 
-        // Extract switches and ports (with client correlation for detection)
+    private void ExecutePhase2_ExtractSwitches(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 2: Extracting switch configurations");
-        var switches = securityEngine.ExtractSwitches(deviceData, networks, clients);
+        ctx.Switches = ctx.SecurityEngine.ExtractSwitches(ctx.DeviceData, ctx.Networks, ctx.Clients);
         _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
-            switches.Count, switches.Sum(s => s.Ports.Count));
+            ctx.Switches.Count, ctx.Switches.Sum(s => s.Ports.Count));
+    }
 
-        // Run security analysis on ports
+    private void ExecutePhase3_AnalyzePortSecurity(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 3: Analyzing port security");
-        var portIssues = securityEngine.AnalyzePorts(switches, networks);
+        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks);
+        ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
+    }
 
-        // Extract and analyze wireless clients
+    private void ExecutePhase3b_AnalyzeWirelessClients(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 3b: Analyzing wireless clients");
-        var apLookup = securityEngine.ExtractAccessPointInfoLookup(deviceData);
-        var wirelessClients = securityEngine.ExtractWirelessClients(clients, networks, apLookup);
-        var wirelessIssues = securityEngine.AnalyzeWirelessClients(wirelessClients, networks);
+        var apLookup = ctx.SecurityEngine.ExtractAccessPointInfoLookup(ctx.DeviceData);
+        ctx.WirelessClients = ctx.SecurityEngine.ExtractWirelessClients(ctx.Clients, ctx.Networks, apLookup);
+        var wirelessIssues = ctx.SecurityEngine.AnalyzeWirelessClients(ctx.WirelessClients, ctx.Networks);
+        ctx.AllIssues.AddRange(wirelessIssues);
         _logger.LogInformation("Found {IssueCount} wireless client issues from {ClientCount} detected devices",
-            wirelessIssues.Count, wirelessClients.Count);
+            wirelessIssues.Count, ctx.WirelessClients.Count);
+    }
 
-        // Analyze network configuration
+    private void ExecutePhase4_AnalyzeNetworkConfiguration(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 4: Analyzing network configuration");
-        var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(networks);
-        var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(networks);
-        var gatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
-        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(networks, gatewayName);
-        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(networks, gatewayName);
-        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(networks, gatewayName);
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+
+        var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(ctx.Networks);
+        var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(ctx.Networks);
+        var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(ctx.Networks, gatewayName);
+        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName);
+        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName);
+
+        ctx.AllIssues.AddRange(dnsIssues);
+        ctx.AllIssues.AddRange(gatewayIssues);
+        ctx.AllIssues.AddRange(mgmtDhcpIssues);
+        ctx.AllIssues.AddRange(networkIsolationIssues);
+        ctx.AllIssues.AddRange(internetAccessIssues);
+
         _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {IsolationIssues} network isolation issues, {InternetIssues} internet access issues",
             dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, networkIsolationIssues.Count, internetAccessIssues.Count);
+    }
 
-        // Extract and analyze firewall rules (from both legacy device data and new policies API)
+    private void ExecutePhase5_AnalyzeFirewallRules(AuditContext ctx)
+    {
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
-        var firewallRules = _firewallAnalyzer.ExtractFirewallRules(deviceData);
-        var policyRules = _firewallAnalyzer.ExtractFirewallPolicies(firewallPoliciesData);
+
+        var firewallRules = _firewallAnalyzer.ExtractFirewallRules(ctx.DeviceData);
+        var policyRules = _firewallAnalyzer.ExtractFirewallPolicies(ctx.FirewallPoliciesData);
         firewallRules.AddRange(policyRules);
 
         var firewallIssues = firewallRules.Any()
-            ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, networks)
+            ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, ctx.Networks)
             : new List<AuditIssue>();
 
         // Check if there's a 5G/LTE device on the network
-        var has5GDevice = switches.Any(s =>
+        var has5GDevice = ctx.Switches.Any(s =>
             s.Model?.StartsWith("U5G", StringComparison.OrdinalIgnoreCase) == true ||
             s.Model?.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase) == true);
 
-        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, networks, has5GDevice);
+        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice);
+
+        ctx.AllIssues.AddRange(firewallIssues);
+        ctx.AllIssues.AddRange(mgmtFirewallIssues);
+
         _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues (5G device: {Has5G})",
             firewallIssues.Count, mgmtFirewallIssues.Count, has5GDevice);
 
-        // Analyze DNS security (DoH configuration and firewall rules for DNS leak prevention)
-        _logger.LogInformation("Phase 5b: Analyzing DNS security");
-        DnsSecurityResult? dnsSecurityResult = null;
-        var dnsSecurityIssues = new List<AuditIssue>();
-        var dnsHardeningNotes = new List<string>();
-
-        if (settingsData.HasValue || firewallPoliciesData.HasValue)
-        {
-            // Pass deviceData to extract WAN DNS from port_table
-            dnsSecurityResult = _dnsAnalyzer.Analyze(settingsData, firewallPoliciesData, switches, networks, deviceData);
-            dnsSecurityIssues = dnsSecurityResult.Issues;
-            dnsHardeningNotes = dnsSecurityResult.HardeningNotes;
-            _logger.LogInformation("Found {IssueCount} DNS security issues", dnsSecurityIssues.Count);
-        }
-        else
-        {
-            _logger.LogDebug("Skipping DNS security analysis - no settings or firewall policy data provided");
-        }
-
-        // Combine all issues
-        var allIssues = new List<AuditIssue>();
-        allIssues.AddRange(portIssues);
-        allIssues.AddRange(wirelessIssues);
-        allIssues.AddRange(dnsIssues);
-        allIssues.AddRange(gatewayIssues);
-        allIssues.AddRange(mgmtDhcpIssues);
-        allIssues.AddRange(networkIsolationIssues);
-        allIssues.AddRange(internetAccessIssues);
-        allIssues.AddRange(firewallIssues);
-        allIssues.AddRange(mgmtFirewallIssues);
-        allIssues.AddRange(dnsSecurityIssues);
-
-        // Analyze hardening measures
-        _logger.LogInformation("Phase 6: Analyzing hardening measures");
-        var hardeningMeasures = securityEngine.AnalyzeHardening(switches, networks);
-        hardeningMeasures.AddRange(dnsHardeningNotes);
+        // Store firewall info for hardening analysis
+        ctx.HardeningMeasures = ctx.SecurityEngine.AnalyzeHardening(ctx.Switches, ctx.Networks);
 
         // Add firewall rule consistency hardening measure
         var firewallCriticalOrWarnings = firewallIssues.Count(i =>
             i.Severity == Models.AuditSeverity.Critical || i.Severity == Models.AuditSeverity.Recommended);
         if (firewallRules.Any() && firewallCriticalOrWarnings == 0)
         {
-            hardeningMeasures.Add($"All {firewallRules.Count} firewall rules are consistent with no conflicts");
+            ctx.HardeningMeasures.Add($"All {firewallRules.Count} firewall rules are consistent with no conflicts");
         }
+    }
+
+    private async Task ExecutePhase5b_AnalyzeDnsSecurityAsync(AuditContext ctx)
+    {
+        _logger.LogInformation("Phase 5b: Analyzing DNS security");
+
+        if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue)
+        {
+            ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData);
+            ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
+            ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
+            _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);
+        }
+        else
+        {
+            _logger.LogDebug("Skipping DNS security analysis - no settings or firewall policy data provided");
+        }
+    }
+
+    private void ExecutePhase6_AnalyzeHardeningMeasures(AuditContext ctx)
+    {
+        _logger.LogInformation("Phase 6: Analyzing hardening measures");
 
         // Add IoT VLAN segmentation hardening measure (>90% threshold)
-        var iotNetwork = networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.IoT);
+        var iotNetwork = ctx.Networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.IoT);
         if (iotNetwork != null)
         {
-            // Count wired IoT devices (ports with IoT-like names on IoT VLAN)
-            var wiredIotOnCorrectVlan = switches.SelectMany(s => s.Ports)
+            var wiredIotOnCorrectVlan = ctx.Switches.SelectMany(s => s.Ports)
                 .Count(p => p.IsUp && !p.IsUplink && !p.IsWan &&
                     IsIotDeviceName(p.Name) && p.NativeNetworkId == iotNetwork.Id);
-            var wiredIotTotal = switches.SelectMany(s => s.Ports)
+            var wiredIotTotal = ctx.Switches.SelectMany(s => s.Ports)
                 .Count(p => p.IsUp && !p.IsUplink && !p.IsWan && IsIotDeviceName(p.Name));
 
-            // Count wireless IoT devices
-            var wirelessIotOnCorrectVlan = wirelessClients
+            var wirelessIotOnCorrectVlan = ctx.WirelessClients
                 .Count(c => c.Detection.Category.IsIoT() && c.Network?.Id == iotNetwork.Id);
-            var wirelessIotTotal = wirelessClients
+            var wirelessIotTotal = ctx.WirelessClients
                 .Count(c => c.Detection.Category.IsIoT());
 
             var totalIot = wiredIotTotal + wirelessIotTotal;
@@ -245,123 +331,119 @@ public class ConfigAuditEngine
                 var percentage = (double)totalIotCorrect / totalIot * 100;
                 if (percentage >= 90)
                 {
-                    hardeningMeasures.Add($"{totalIotCorrect} of {totalIot} IoT devices properly segmented on IoT VLAN ({percentage:F0}%)");
+                    ctx.HardeningMeasures.Add($"{totalIotCorrect} of {totalIot} IoT devices properly segmented on IoT VLAN ({percentage:F0}%)");
                 }
             }
         }
 
-        _logger.LogInformation("Found {MeasureCount} hardening measures in place", hardeningMeasures.Count);
+        ctx.Statistics = ctx.SecurityEngine.CalculateStatistics(ctx.Switches);
+        _logger.LogInformation("Found {MeasureCount} hardening measures in place", ctx.HardeningMeasures.Count);
+    }
 
-        // Calculate statistics
-        var statistics = securityEngine.CalculateStatistics(switches);
+    private AuditResult BuildAuditResult(AuditContext ctx)
+    {
+        var dnsSecurityInfo = BuildDnsSecurityInfo(ctx.DnsSecurityResult);
 
-        // Build DNS security info from analyzer result
-        DnsSecurityInfo? dnsSecurityInfo = null;
-        if (dnsSecurityResult != null)
-        {
-            var providerNames = dnsSecurityResult.ConfiguredServers
-                .Where(s => s.Enabled)
-                .Select(s => s.StampInfo?.ProviderInfo?.Name
-                    ?? s.Provider?.Name
-                    ?? Dns.DohProviderRegistry.IdentifyProviderFromName(s.ServerName)?.Name
-                    // Try identifying from stamp hostname (e.g., dns.nextdns.io)
-                    ?? (s.StampInfo?.Hostname != null ? Dns.DohProviderRegistry.IdentifyProvider(s.StampInfo.Hostname)?.Name : null)
-                    // Use hostname if available and looks like a domain
-                    ?? (s.StampInfo?.Hostname?.Contains('.') == true ? s.StampInfo.Hostname : null)
-                    // Last resort: show server name only if it looks like a name, not just an ID
-                    ?? (s.ServerName.Any(char.IsLetter) ? s.ServerName : "Custom DoH"))
-                .Distinct()
-                .ToList();
-
-            var configNames = dnsSecurityResult.ConfiguredServers
-                .Where(s => s.Enabled)
-                .Select(s => s.ServerName)
-                .Distinct()
-                .ToList();
-
-            // Build interface problem lists with friendly names
-            var interfacesWithoutDns = dnsSecurityResult.WanInterfaces
-                .Where(w => !w.HasStaticDns)
-                .Select(w => FormatWanInterfaceName(w.InterfaceName, w.PortName))
-                .ToList();
-
-            var interfacesWithMismatch = dnsSecurityResult.WanInterfaces
-                .Where(w => w.HasStaticDns && !w.MatchesDoH)
-                .Select(w => FormatWanInterfaceName(w.InterfaceName, w.PortName))
-                .ToList();
-
-            // Collect DNS servers only from mismatched interfaces
-            var mismatchedDnsServers = dnsSecurityResult.WanInterfaces
-                .Where(w => w.HasStaticDns && !w.MatchesDoH)
-                .SelectMany(w => w.DnsServers)
-                .Distinct()
-                .ToList();
-
-            // Collect DNS servers only from matched interfaces (for display when there's a mix)
-            var matchedDnsServers = dnsSecurityResult.WanInterfaces
-                .Where(w => w.HasStaticDns && w.MatchesDoH)
-                .SelectMany(w => w.DnsServers)
-                .Distinct()
-                .ToList();
-
-            dnsSecurityInfo = new DnsSecurityInfo
-            {
-                DohEnabled = dnsSecurityResult.DohConfigured,
-                DohState = dnsSecurityResult.DohState,
-                DohProviders = providerNames,
-                DohConfigNames = configNames,
-                DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
-                DotBlocked = dnsSecurityResult.HasDotBlockRule,
-                DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
-                WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
-                WanDnsPtrResults = dnsSecurityResult.WanDnsPtrResults.ToList(),
-                WanDnsMatchesDoH = dnsSecurityResult.WanDnsMatchesDoH,
-                WanDnsOrderCorrect = dnsSecurityResult.WanDnsOrderCorrect,
-                WanDnsProvider = dnsSecurityResult.WanDnsProvider,
-                ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider,
-                DeviceDnsPointsToGateway = dnsSecurityResult.DeviceDnsPointsToGateway,
-                TotalDevicesChecked = dnsSecurityResult.TotalDevicesChecked,
-                DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns,
-                DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount,
-                InterfacesWithoutDns = interfacesWithoutDns,
-                InterfacesWithMismatch = interfacesWithMismatch,
-                MismatchedDnsServers = mismatchedDnsServers,
-                MatchedDnsServers = matchedDnsServers
-            };
-        }
-
-        // Build audit result
-        var auditResult = new AuditResult
+        return new AuditResult
         {
             Timestamp = DateTime.UtcNow,
-            ClientName = clientName,
-            Networks = networks,
-            Switches = switches,
-            WirelessClients = wirelessClients,
-            Issues = allIssues,
-            HardeningMeasures = hardeningMeasures,
-            Statistics = statistics,
+            ClientName = ctx.ClientName,
+            Networks = ctx.Networks,
+            Switches = ctx.Switches,
+            WirelessClients = ctx.WirelessClients,
+            Issues = ctx.AllIssues,
+            HardeningMeasures = ctx.HardeningMeasures,
+            Statistics = ctx.Statistics,
             DnsSecurity = dnsSecurityInfo
         };
+    }
 
-        // Calculate security score
+    private static DnsSecurityInfo? BuildDnsSecurityInfo(DnsSecurityResult? dnsSecurityResult)
+    {
+        if (dnsSecurityResult == null)
+            return null;
+
+        var providerNames = dnsSecurityResult.ConfiguredServers
+            .Where(s => s.Enabled)
+            .Select(s => s.StampInfo?.ProviderInfo?.Name
+                ?? s.Provider?.Name
+                ?? DohProviderRegistry.IdentifyProviderFromName(s.ServerName)?.Name
+                ?? (s.StampInfo?.Hostname != null ? DohProviderRegistry.IdentifyProvider(s.StampInfo.Hostname)?.Name : null)
+                ?? (s.StampInfo?.Hostname?.Contains('.') == true ? s.StampInfo.Hostname : null)
+                ?? (s.ServerName.Any(char.IsLetter) ? s.ServerName : "Custom DoH"))
+            .Distinct()
+            .ToList();
+
+        var configNames = dnsSecurityResult.ConfiguredServers
+            .Where(s => s.Enabled)
+            .Select(s => s.ServerName)
+            .Distinct()
+            .ToList();
+
+        var interfacesWithoutDns = dnsSecurityResult.WanInterfaces
+            .Where(w => !w.HasStaticDns)
+            .Select(w => NetworkFormatHelpers.FormatWanInterfaceName(w.InterfaceName, w.PortName))
+            .ToList();
+
+        var interfacesWithMismatch = dnsSecurityResult.WanInterfaces
+            .Where(w => w.HasStaticDns && !w.MatchesDoH)
+            .Select(w => NetworkFormatHelpers.FormatWanInterfaceName(w.InterfaceName, w.PortName))
+            .ToList();
+
+        var mismatchedDnsServers = dnsSecurityResult.WanInterfaces
+            .Where(w => w.HasStaticDns && !w.MatchesDoH)
+            .SelectMany(w => w.DnsServers)
+            .Distinct()
+            .ToList();
+
+        var matchedDnsServers = dnsSecurityResult.WanInterfaces
+            .Where(w => w.HasStaticDns && w.MatchesDoH)
+            .SelectMany(w => w.DnsServers)
+            .Distinct()
+            .ToList();
+
+        return new DnsSecurityInfo
+        {
+            DohEnabled = dnsSecurityResult.DohConfigured,
+            DohState = dnsSecurityResult.DohState,
+            DohProviders = providerNames,
+            DohConfigNames = configNames,
+            DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
+            DotBlocked = dnsSecurityResult.HasDotBlockRule,
+            DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
+            WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
+            WanDnsPtrResults = dnsSecurityResult.WanDnsPtrResults.ToList(),
+            WanDnsMatchesDoH = dnsSecurityResult.WanDnsMatchesDoH,
+            WanDnsOrderCorrect = dnsSecurityResult.WanDnsOrderCorrect,
+            WanDnsProvider = dnsSecurityResult.WanDnsProvider,
+            ExpectedDnsProvider = dnsSecurityResult.ExpectedDnsProvider,
+            DeviceDnsPointsToGateway = dnsSecurityResult.DeviceDnsPointsToGateway,
+            TotalDevicesChecked = dnsSecurityResult.TotalDevicesChecked,
+            DevicesWithCorrectDns = dnsSecurityResult.DevicesWithCorrectDns,
+            DhcpDeviceCount = dnsSecurityResult.DhcpDeviceCount,
+            InterfacesWithoutDns = interfacesWithoutDns,
+            InterfacesWithMismatch = interfacesWithMismatch,
+            MismatchedDnsServers = mismatchedDnsServers,
+            MatchedDnsServers = matchedDnsServers
+        };
+    }
+
+    private void ExecutePhase7_CalculateSecurityScore(AuditResult auditResult)
+    {
         _logger.LogInformation("Phase 7: Calculating security score");
         var score = _scorer.CalculateScore(auditResult);
         var posture = _scorer.DeterminePosture(score, auditResult.CriticalIssues.Count);
 
         auditResult.SecurityScore = score;
         auditResult.Posture = posture;
-
-        _logger.LogInformation("Audit complete: {Posture} (Score: {Score}/100, {Critical} critical, {Recommended} recommended)",
-            posture, score, auditResult.CriticalIssues.Count, auditResult.RecommendedIssues.Count);
-
-        return auditResult;
     }
+
+    #endregion
 
     /// <summary>
     /// Run audit from a JSON file
     /// </summary>
-    public AuditResult RunAuditFromFile(string jsonFilePath, string? clientName = null)
+    public async Task<AuditResult> RunAuditFromFileAsync(string jsonFilePath, string? clientName = null)
     {
         _logger.LogInformation("Loading device data from {FilePath}", jsonFilePath);
 
@@ -370,8 +452,8 @@ public class ConfigAuditEngine
             throw new FileNotFoundException($"Device data file not found: {jsonFilePath}");
         }
 
-        var json = File.ReadAllText(jsonFilePath);
-        return RunAudit(json, clientName);
+        var json = await File.ReadAllTextAsync(jsonFilePath);
+        return await RunAuditAsync(json, clientName);
     }
 
     /// <summary>
@@ -572,28 +654,6 @@ public class ConfigAuditEngine
         return name;
     }
 
-    /// <summary>
-    /// Format WAN interface name for display: "wan" -> "WAN1", "wan2" -> "WAN2", etc.
-    /// </summary>
-    private static string FormatWanInterfaceName(string interfaceName, string? portName)
-    {
-        // Convert wan/wan2/wan3 to WAN1/WAN2/WAN3
-        var formattedName = interfaceName.ToLowerInvariant() switch
-        {
-            "wan" => "WAN1",
-            var name when name.StartsWith("wan") && name.Length > 3 && char.IsDigit(name[3])
-                => $"WAN{name[3..]}",
-            _ => interfaceName
-        };
-
-        // Add port name if available
-        if (!string.IsNullOrEmpty(portName) && portName != "unnamed")
-        {
-            return $"{formattedName} ({portName})";
-        }
-
-        return formattedName;
-    }
 
     /// <summary>
     /// Check if port name indicates an IoT device
