@@ -58,20 +58,20 @@ public class ConfigAuditEngineTests
     #region RunAuditFromFile Tests
 
     [Fact]
-    public void RunAuditFromFile_FileNotFound_ThrowsFileNotFoundException()
+    public async Task RunAuditFromFile_FileNotFound_ThrowsFileNotFoundException()
     {
-        var act = () => _engine.RunAuditFromFile("nonexistent-file.json");
+        var act = async () => await _engine.RunAuditFromFileAsync("nonexistent-file.json");
 
-        act.Should().Throw<FileNotFoundException>()
+        await act.Should().ThrowAsync<FileNotFoundException>()
             .WithMessage("*Device data file not found*");
     }
 
     [Fact]
-    public void RunAuditFromFile_EmptyPath_ThrowsFileNotFoundException()
+    public async Task RunAuditFromFile_EmptyPath_ThrowsFileNotFoundException()
     {
-        var act = () => _engine.RunAuditFromFile("   ");
+        var act = async () => await _engine.RunAuditFromFileAsync("   ");
 
-        act.Should().Throw<FileNotFoundException>();
+        await act.Should().ThrowAsync<FileNotFoundException>();
     }
 
     #endregion
@@ -336,11 +336,11 @@ public class ConfigAuditEngineTests
     #region RunAudit Basic Tests
 
     [Fact]
-    public void RunAudit_EmptyDeviceArray_ReturnsResult()
+    public async Task RunAudit_EmptyDeviceArray_ReturnsResult()
     {
         var deviceJson = "[]";
 
-        var result = _engine.RunAudit(deviceJson, "Test Site");
+        var result = await _engine.RunAuditAsync(deviceJson, "Test Site");
 
         result.Should().NotBeNull();
         result.ClientName.Should().Be("Test Site");
@@ -348,40 +348,41 @@ public class ConfigAuditEngineTests
     }
 
     [Fact]
-    public void RunAudit_InvalidJson_ThrowsJsonException()
+    public async Task RunAudit_InvalidJson_ThrowsInvalidOperationException()
     {
-        var act = () => _engine.RunAudit("not valid json");
+        var act = async () => await _engine.RunAuditAsync("not valid json");
 
-        act.Should().Throw<System.Text.Json.JsonException>();
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Invalid device data JSON format*");
     }
 
     [Fact]
-    public void RunAudit_NullClientName_SetsToNull()
+    public async Task RunAudit_NullClientName_SetsToNull()
     {
         var deviceJson = "[]";
 
-        var result = _engine.RunAudit(deviceJson, clientName: null);
+        var result = await _engine.RunAuditAsync(deviceJson, clientName: null);
 
         result.ClientName.Should().BeNull();
     }
 
     [Fact]
-    public void RunAudit_MinimalDevice_CalculatesScore()
+    public async Task RunAudit_MinimalDevice_CalculatesScore()
     {
         var deviceJson = "[]";
 
-        var result = _engine.RunAudit(deviceJson);
+        var result = await _engine.RunAuditAsync(deviceJson);
 
         result.SecurityScore.Should().BeGreaterThanOrEqualTo(0);
         result.SecurityScore.Should().BeLessThanOrEqualTo(100);
     }
 
     [Fact]
-    public void RunAudit_MinimalDevice_SetsPosture()
+    public async Task RunAudit_MinimalDevice_SetsPosture()
     {
         var deviceJson = "[]";
 
-        var result = _engine.RunAudit(deviceJson);
+        var result = await _engine.RunAuditAsync(deviceJson);
 
         result.Posture.Should().BeDefined();
     }

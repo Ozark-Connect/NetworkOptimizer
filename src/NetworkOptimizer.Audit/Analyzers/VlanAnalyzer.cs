@@ -167,8 +167,6 @@ public class VlanAnalyzer
     /// </summary>
     public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null, int? vlanId = null, bool? dhcpEnabled = null)
     {
-        var nameLower = networkName.ToLowerInvariant();
-
         // Check explicit UniFi "guest" purpose first (UniFi marks guest networks specially)
         if (!string.IsNullOrEmpty(purpose) && purpose.Equals("guest", StringComparison.OrdinalIgnoreCase))
         {
@@ -179,24 +177,24 @@ public class VlanAnalyzer
         // Order matters: more specific patterns first
 
         // Security first to avoid false positives with "Security Devices" matching IoT
-        if (SecurityPatterns.Any(p => nameLower.Contains(p)))
+        if (SecurityPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.Security;
 
-        if (IoTPatterns.Any(p => nameLower.Contains(p)))
+        if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.IoT;
 
-        if (ManagementPatterns.Any(p => nameLower.Contains(p)))
+        if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.Management;
 
-        if (GuestPatterns.Any(p => nameLower.Contains(p)))
+        if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.Guest;
 
         // Check for corporate patterns
-        if (CorporatePatterns.Any(p => nameLower.Contains(p)))
+        if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.Corporate;
 
         // Check for home/residential patterns
-        if (HomePatterns.Any(p => nameLower.Contains(p)))
+        if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             return NetworkPurpose.Home;
 
         // For VLAN 1 (native) with DHCP enabled and no specific keywords, assume Home
@@ -205,7 +203,8 @@ public class VlanAnalyzer
             return NetworkPurpose.Home;
 
         // Fallback: if name is "default" or "lan", treat as Home
-        if (nameLower == "default" || nameLower == "lan")
+        if (networkName.Equals("default", StringComparison.OrdinalIgnoreCase) ||
+            networkName.Equals("lan", StringComparison.OrdinalIgnoreCase))
             return NetworkPurpose.Home;
 
         return NetworkPurpose.Unknown;
@@ -219,8 +218,7 @@ public class VlanAnalyzer
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        var nameLower = networkName.ToLowerInvariant();
-        return IoTPatterns.Any(p => nameLower.Contains(p));
+        return IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -231,8 +229,7 @@ public class VlanAnalyzer
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        var nameLower = networkName.ToLowerInvariant();
-        return SecurityPatterns.Any(p => nameLower.Contains(p));
+        return SecurityPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -243,8 +240,7 @@ public class VlanAnalyzer
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        var nameLower = networkName.ToLowerInvariant();
-        return ManagementPatterns.Any(p => nameLower.Contains(p));
+        return ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
