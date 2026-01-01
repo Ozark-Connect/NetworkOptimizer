@@ -364,7 +364,7 @@
                     {
                         <div class="switch-section">
                             <h3 class="switch-title">
-                                <DeviceIcon Model="@sw.ModelName" Size="xl" />
+                                <DeviceIcon Model="@sw.ModelName" Size="lg" />
                                 @FormatDeviceName(sw.Name, sw.IsGateway) <span class="switch-model">(@sw.ModelName)</span>
                             </h3>
                             <table class="data-table port-table">
@@ -427,7 +427,7 @@
                         var apModel = ap.FirstOrDefault()?.AccessPointModelName;
                         <div class="ap-section">
                             <h3 class="ap-title">
-                                <DeviceIcon Model="@apModel" Size="xl" />
+                                <DeviceIcon Model="@apModel" Size="lg" />
                                 @ap.Key <span class="client-count">(@ap.Count() clients)</span>
                             </h3>
                             <table class="data-table">
