@@ -1,0 +1,62 @@
+@* Device icon component - displays UniFi device product images *@
+
+@if (!string.IsNullOrEmpty(IconPath))
+{
+    <img src="@IconPath"
+         alt="@Model"
+         class="device-icon @SizeClass"
+         loading="lazy"
+         onerror="this.style.display='none'" />
+}
+else if (!string.IsNullOrEmpty(FallbackEmoji))
+{
+    <span class="device-icon-fallback @SizeClass">@FallbackEmoji</span>
+}
+
+@code {
+    /// <summary>
+    /// The device model name (e.g., "U7-Pro", "USW-Flex-Mini", "UDM-Pro")
+    /// </summary>
+    [Parameter] public string? Model { get; set; }
+
+    /// <summary>
+    /// Icon size: "sm" (16px), "md" (24px), "lg" (32px), "xl" (48px)
+    /// </summary>
+    [Parameter] public string Size { get; set; } = "md";
+
+    /// <summary>
+    /// Fallback emoji to show when icon is not available
+    /// </summary>
+    [Parameter] public string? FallbackEmoji { get; set; }
+
+    private string SizeClass => Size switch
+    {
+        "sm" => "device-icon-sm",
+        "lg" => "device-icon-lg",
+        "xl" => "device-icon-xl",
+        _ => "device-icon-md"
+    };
+
+    private string? IconPath => GetIconPath(Model);
+
+    /// <summary>
+    /// Get the icon path for a device model name.
+    /// Returns null if no icon is available.
+    /// </summary>
+    public static string? GetIconPath(string? model)
+    {
+        if (string.IsNullOrEmpty(model))
+            return null;
+
+        // Normalize model name to icon filename:
+        // "U7-Pro" -> "u7-pro.png"
+        // "USW-Flex-Mini" -> "usw-flex-mini.png"
+        var filename = model.ToLowerInvariant().Replace(" ", "-") + ".png";
+        return $"/images/devices/{filename}";
+    }
+
+    /// <summary>
+    /// Check if an icon exists for a model (doesn't actually check file, just returns path)
+    /// </summary>
+    public static bool HasIcon(string? model) => !string.IsNullOrEmpty(model);
+}

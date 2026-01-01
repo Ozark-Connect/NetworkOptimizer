@@ -3284,3 +3284,84 @@ td .btn + .btn {
     width: 14px;
     height: 14px;
 }
+
+/* ============================================
+   Device Icons
+   ============================================ */
+
+/* Device icon image */
+.device-icon {
+    object-fit: contain;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+/* Size variants */
+.device-icon-sm {
+    width: 16px;
+    height: 16px;
+}
+
+.device-icon-md {
+    width: 24px;
+    height: 24px;
+}
+
+.device-icon-lg {
+    width: 32px;
+    height: 32px;
+}
+
+.device-icon-xl {
+    width: 48px;
+    height: 48px;
+}
+
+/* Fallback emoji display */
+.device-icon-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+}
+
+.device-icon-fallback.device-icon-sm {
+    font-size: 14px;
+}
+
+.device-icon-fallback.device-icon-md {
+    font-size: 18px;
+}
+
+.device-icon-fallback.device-icon-lg {
+    font-size: 24px;
+}
+
+.device-icon-fallback.device-icon-xl {
+    font-size: 36px;
+}
+
+/* Device icon with name wrapper */
+.device-with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Path visualization hop icons */
+.path-hop .device-icon {
+    width: 24px;
+    height: 24px;
+}
+
+/* Table icon cell */
+.icon-cell {
+    width: 32px;
+    padding-right: 0 !important;
+    text-align: center;
+}
+
+.icon-cell .device-icon {
+    display: block;
+    margin: 0 auto;
+}

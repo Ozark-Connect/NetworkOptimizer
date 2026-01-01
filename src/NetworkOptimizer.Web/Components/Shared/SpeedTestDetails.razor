@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Components.Shared
 
 <div class="speed-results">
     <div class="speed-result download">
@@ -72,7 +73,7 @@
                     {
                         var hop = PathAnalysis.Path.Hops[i];
                         <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
-                            <span class="hop-icon">@GetHopIcon(hop.Type)</span>
+                            <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                             <span class="hop-name">@hop.DeviceName</span>
                         </div>
                         @if (i < PathAnalysis.Path.Hops.Count - 1)
@@ -264,5 +265,40 @@
         HopType.Gateway => "🌐",
         HopType.Server => "🖥️",
         _ => "•"
+    };
+
+    /// <summary>
+    /// Render a device icon for the path hop, falling back to emoji if no icon available
+    /// </summary>
+    private RenderFragment GetHopIconMarkup(NetworkHop hop) => builder =>
+    {
+        var model = hop.DeviceModel;
+
+        // Only show device icons for actual UniFi devices (switch, AP, gateway)
+        // Client and Server types don't have UniFi device images
+        if (!string.IsNullOrEmpty(model) &&
+            (hop.Type == HopType.Switch || hop.Type == HopType.AccessPoint || hop.Type == HopType.Gateway))
+        {
+            var iconPath = DeviceIcon.GetIconPath(model);
+            if (iconPath != null)
+            {
+                builder.OpenElement(0, "img");
+                builder.AddAttribute(1, "src", iconPath);
+                builder.AddAttribute(2, "alt", model);
+                builder.AddAttribute(3, "class", "device-icon device-icon-md");
+                builder.AddAttribute(4, "loading", "lazy");
+                builder.AddAttribute(5, "onerror", "this.style.display='none';this.nextSibling.style.display='inline'");
+                builder.CloseElement();
+                // Fallback span (hidden by default)
+                builder.OpenElement(6, "span");
+                builder.AddAttribute(7, "style", "display:none");
+                builder.AddContent(8, GetHopIcon(hop.Type));
+                builder.CloseElement();
+                return;
+            }
+        }
+
+        // Fallback to emoji
+        builder.AddContent(0, GetHopIcon(hop.Type));
     };
 }
