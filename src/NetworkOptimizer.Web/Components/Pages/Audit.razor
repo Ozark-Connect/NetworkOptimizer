@@ -364,7 +364,7 @@
                     {
                         <div class="switch-section">
                             <h3 class="switch-title">
-                                <DeviceIcon Model="@sw.ModelName" Size="md" />
+                                <DeviceIcon Model="@sw.ModelName" Size="xl" />
                                 @FormatDeviceName(sw.Name, sw.IsGateway) <span class="switch-model">(@sw.ModelName)</span>
                             </h3>
                             <table class="data-table port-table">
@@ -427,7 +427,7 @@
                         var apModel = ap.FirstOrDefault()?.AccessPointModelName;
                         <div class="ap-section">
                             <h3 class="ap-title">
-                                <DeviceIcon Model="@apModel" Size="md" />
+                                <DeviceIcon Model="@apModel" Size="xl" />
                                 @ap.Key <span class="client-count">(@ap.Count() clients)</span>
                             </h3>
                             <table class="data-table">
@@ -489,7 +489,7 @@
                                 var macRestricted = sw.Ports.Count(p => p.PortSecurityMacs.Any());
                                 var unprotectedActive = sw.Ports.Count(p => p.Forward == "native" && p.IsUp && !p.PortSecurityMacs.Any() && !p.IsUplink);
                                 <tr>
-                                    <td class="icon-cell"><DeviceIcon Model="@sw.ModelName" Size="sm" /></td>
+                                    <td class="icon-cell"><DeviceIcon Model="@sw.ModelName" Size="md" /></td>
                                     <td>@sw.Name</td>
                                     <td>@totalPorts</td>
                                     <td>@disabledPorts</td>
