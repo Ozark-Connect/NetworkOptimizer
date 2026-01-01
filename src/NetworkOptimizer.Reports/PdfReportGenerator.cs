@@ -375,8 +375,8 @@ public class PdfReportGenerator
                     .Text(dns.GetDeviceDnsDisplay()).FontSize(9);
             });
 
-            // Overall protection status - use the descriptive status directly
-            var overallStatus = dns.GetProtectionStatusDisplay();
+            // Overall protection status - match web page display
+            var overallStatus = dns.FullyProtected ? "Full DNS Protection" : "Partial Protection";
             var overallColor = dns.FullyProtected ? successColor : warningColor;
 
             column.Item()

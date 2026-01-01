@@ -27,6 +27,7 @@ public class DnsSecuritySummary
     public bool DohEnabled { get; set; }
     public string DohState { get; set; } = "disabled";
     public List<string> DohProviders { get; set; } = new();
+    public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool DotBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
@@ -46,7 +47,7 @@ public class DnsSecuritySummary
 
     public string GetDohStatusDisplay()
     {
-        return DisplayFormatters.GetDohStatusDisplay(DohEnabled, DohState, DohProviders);
+        return DisplayFormatters.GetDohStatusDisplay(DohEnabled, DohState, DohProviders, DohConfigNames);
     }
 
     public string GetProtectionStatusDisplay()
