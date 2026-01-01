@@ -3,8 +3,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy solution file and all project files first for layer caching
+# Copy solution file, build props, and all project files first for layer caching
 COPY ["NetworkOptimizer.sln", "./"]
+COPY ["Directory.Build.props", "./"]
 COPY ["NetworkOptimizer.Core/NetworkOptimizer.Core.csproj", "NetworkOptimizer.Core/"]
 COPY ["src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj", "src/NetworkOptimizer.Web/"]
 COPY ["src/NetworkOptimizer.UniFi/NetworkOptimizer.UniFi.csproj", "src/NetworkOptimizer.UniFi/"]
