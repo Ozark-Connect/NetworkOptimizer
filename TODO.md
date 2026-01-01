@@ -27,6 +27,12 @@
 - Example: "on [AP] Tiny Home (5GHz)" instead of just "on [AP] Tiny Home"
 - Data source: UniFi client response has radio/channel info
 
+### Port Audit - Down Ports with MAC Restriction
+- Support VLAN placement analysis for ports that are currently down
+- Use the MAC restriction setting to identify the normally connected device
+- This allows auditing device placement even when the device is offline/disconnected
+- Currently: Down ports may be skipped or show no connected MAC for analysis
+
 ## SQM (Smart Queue Management)
 
 ### Multi-WAN Support
