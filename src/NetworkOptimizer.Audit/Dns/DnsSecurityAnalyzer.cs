@@ -443,7 +443,7 @@ public class DnsSecurityAnalyzer
         {
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_NO_DOH",
+                Type = IssueTypes.DnsNoDoh,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
@@ -457,7 +457,7 @@ public class DnsSecurityAnalyzer
             // DoH is auto-negotiated, may fall back to unencrypted
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_DOH_AUTO",
+                Type = IssueTypes.DnsDohAuto,
                 Severity = AuditSeverity.Investigate,
                 DeviceName = result.GatewayName,
                 Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
@@ -475,7 +475,7 @@ public class DnsSecurityAnalyzer
         {
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_NO_53_BLOCK",
+                Type = IssueTypes.DnsNo53Block,
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
@@ -490,7 +490,7 @@ public class DnsSecurityAnalyzer
         {
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_NO_DOT_BLOCK",
+                Type = IssueTypes.DnsNoDotBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks DNS-over-TLS (port 853). Devices can use encrypted DNS that bypasses your DoH configuration.",
@@ -505,7 +505,7 @@ public class DnsSecurityAnalyzer
         {
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_NO_DOH_BLOCK",
+                Type = IssueTypes.DnsNoDohBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks public DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
@@ -524,7 +524,7 @@ public class DnsSecurityAnalyzer
         {
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_ISP",
+                Type = IssueTypes.DnsIsp,
                 Severity = AuditSeverity.Investigate,
                 DeviceName = result.GatewayName,
                 Message = "Network is using ISP-provided DNS servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
@@ -700,7 +700,7 @@ public class DnsSecurityAnalyzer
 
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_WAN_MISMATCH",
+                Type = IssueTypes.DnsWanMismatch,
                 Severity = AuditSeverity.Recommended,
                 Message = $"{displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
                 RecommendedAction = recommendation,
@@ -730,7 +730,7 @@ public class DnsSecurityAnalyzer
             var correctOrder = GetCorrectDnsOrder(wanInterface.DnsServers, wanInterface.ReverseDnsResults);
             result.Issues.Add(new AuditIssue
             {
-                Type = "DNS_WAN_ORDER",
+                Type = IssueTypes.DnsWanOrder,
                 Severity = AuditSeverity.Recommended,
                 Message = $"{displayName} DNS in wrong order: {ips}. Should be {correctOrder}",
                 RecommendedAction = $"Swap DNS order to {correctOrder}",
@@ -767,7 +767,7 @@ public class DnsSecurityAnalyzer
 
                 result.Issues.Add(new AuditIssue
                 {
-                    Type = "DNS_WAN_NO_STATIC",
+                    Type = IssueTypes.DnsWanNoStatic,
                     Severity = AuditSeverity.Recommended,
                     Message = $"WAN interface '{displayName}' has no static DNS configured. If DoH fails, DNS queries will leak to your ISP's DNS servers.",
                     RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers",
@@ -888,7 +888,7 @@ public class DnsSecurityAnalyzer
 
                 result.Issues.Add(new AuditIssue
                 {
-                    Type = "DNS_DEVICE_MISCONFIGURED",
+                    Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Investigate,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
@@ -1005,7 +1005,7 @@ public class DnsSecurityAnalyzer
 
                 result.Issues.Add(new AuditIssue
                 {
-                    Type = "DNS_DEVICE_MISCONFIGURED",
+                    Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Investigate,
                     Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",

@@ -300,7 +300,7 @@ public class VlanAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "DNS_LEAKAGE",
+                        Type = IssueTypes.DnsLeakage,
                         Severity = AuditSeverity.Investigate,
                         Message = $"Network '{isolated.Name}' shares DNS servers with corporate network",
                         Metadata = new Dictionary<string, object>
@@ -336,7 +336,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "ROUTING_ENABLED",
+                    Type = IssueTypes.RoutingEnabled,
                     Severity = AuditSeverity.Investigate,
                     Message = $"Isolated network '{network.Name}' has routing enabled - may allow cross-VLAN access",
                     Metadata = new Dictionary<string, object>
@@ -371,7 +371,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_DHCP_ENABLED",
+                    Type = IssueTypes.MgmtDhcpEnabled,
                     Severity = AuditSeverity.Recommended,
                     Message = $"Management VLAN '{network.Name}' has DHCP enabled",
                     DeviceName = gatewayName,
@@ -411,7 +411,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "SECURITY_NETWORK_NOT_ISOLATED",
+                    Type = IssueTypes.SecurityNetworkNotIsolated,
                     Severity = AuditSeverity.Critical,
                     Message = $"Security/Camera VLAN '{network.Name}' is not isolated",
                     DeviceName = gatewayName,
@@ -434,7 +434,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_NETWORK_NOT_ISOLATED",
+                    Type = IssueTypes.MgmtNetworkNotIsolated,
                     Severity = AuditSeverity.Critical,
                     Message = $"Management VLAN '{network.Name}' is not isolated",
                     DeviceName = gatewayName,
@@ -457,7 +457,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "IOT_NETWORK_NOT_ISOLATED",
+                    Type = IssueTypes.IotNetworkNotIsolated,
                     Severity = AuditSeverity.Recommended,
                     Message = $"IoT VLAN '{network.Name}' is not isolated",
                     DeviceName = gatewayName,
@@ -498,7 +498,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "SECURITY_NETWORK_HAS_INTERNET",
+                    Type = IssueTypes.SecurityNetworkHasInternet,
                     Severity = AuditSeverity.Critical,
                     Message = $"Security/Camera VLAN '{network.Name}' has internet access enabled",
                     DeviceName = gatewayName,
@@ -521,7 +521,7 @@ public class VlanAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_NETWORK_HAS_INTERNET",
+                    Type = IssueTypes.MgmtNetworkHasInternet,
                     Severity = AuditSeverity.Recommended,
                     Message = $"Management VLAN '{network.Name}' has internet access enabled",
                     DeviceName = gatewayName,

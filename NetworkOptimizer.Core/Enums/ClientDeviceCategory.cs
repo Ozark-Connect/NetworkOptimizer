@@ -203,6 +203,39 @@ public static class ClientDeviceCategoryExtensions
     };
 
     /// <summary>
+    /// Check if the category is a low-risk IoT device.
+    /// Low-risk devices are entertainment or convenience devices that don't control home security/access.
+    /// Users often keep these on their main VLAN for easier access.
+    /// </summary>
+    public static bool IsLowRiskIoT(this ClientDeviceCategory category) => category switch
+    {
+        ClientDeviceCategory.SmartTV => true,
+        ClientDeviceCategory.StreamingDevice => true,
+        ClientDeviceCategory.MediaPlayer => true,
+        ClientDeviceCategory.GameConsole => true,
+        ClientDeviceCategory.SmartLighting => true,
+        ClientDeviceCategory.SmartPlug => true,
+        ClientDeviceCategory.SmartSpeaker => true,
+        ClientDeviceCategory.RoboticVacuum => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Check if the category is a high-risk IoT device.
+    /// High-risk devices control home security, access, or critical infrastructure.
+    /// These should always be isolated on an IoT VLAN.
+    /// </summary>
+    public static bool IsHighRiskIoT(this ClientDeviceCategory category) => category switch
+    {
+        ClientDeviceCategory.SmartThermostat => true,
+        ClientDeviceCategory.SmartLock => true,
+        ClientDeviceCategory.SmartHub => true,
+        ClientDeviceCategory.SmartSensor => true,
+        ClientDeviceCategory.SmartAppliance => true,
+        _ => false
+    };
+
+    /// <summary>
     /// Check if the category is network infrastructure
     /// </summary>
     public static bool IsInfrastructure(this ClientDeviceCategory category) => category switch

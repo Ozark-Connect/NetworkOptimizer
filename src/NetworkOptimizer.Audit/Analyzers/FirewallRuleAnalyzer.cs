@@ -82,7 +82,7 @@ public class FirewallRuleAnalyzer
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
                             {
-                                Type = "ALLOW_EXCEPTION_PATTERN",
+                                Type = IssueTypes.AllowExceptionPattern,
                                 Severity = AuditSeverity.Info,
                                 Message = $"Allow rule '{earlierRule.Name}' creates an intentional exception to deny rule '{laterRule.Name}'",
                                 Metadata = new Dictionary<string, object>
@@ -103,7 +103,7 @@ public class FirewallRuleAnalyzer
                             // Broad or similar scope allow before deny = potential security issue
                             issues.Add(new AuditIssue
                             {
-                                Type = "ALLOW_SUBVERTS_DENY",
+                                Type = IssueTypes.AllowSubvertsDeny,
                                 Severity = AuditSeverity.Recommended,
                                 Message = $"Allow rule '{earlierRule.Name}' may subvert deny rule '{laterRule.Name}'",
                                 Metadata = new Dictionary<string, object>
@@ -146,7 +146,7 @@ public class FirewallRuleAnalyzer
                             // Broad deny before allow = the allow may truly be ineffective
                             issues.Add(new AuditIssue
                             {
-                                Type = "DENY_SHADOWS_ALLOW",
+                                Type = IssueTypes.DenyShadowsAllow,
                                 Severity = AuditSeverity.Info,
                                 Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
                                 Metadata = new Dictionary<string, object>
@@ -202,7 +202,7 @@ public class FirewallRuleAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "PERMISSIVE_RULE",
+                    Type = IssueTypes.PermissiveRule,
                     Severity = AuditSeverity.Critical,
                     Message = $"Overly permissive rule '{rule.Name}' allows any->any traffic",
                     Metadata = new Dictionary<string, object>
@@ -222,7 +222,7 @@ public class FirewallRuleAnalyzer
                 var direction = isAnySource ? "any source" : "any destination";
                 issues.Add(new AuditIssue
                 {
-                    Type = "BROAD_RULE",
+                    Type = IssueTypes.BroadRule,
                     Severity = AuditSeverity.Recommended,
                     Message = $"Broad rule '{rule.Name}' allows traffic from/to {direction}",
                     Metadata = new Dictionary<string, object>
@@ -261,7 +261,7 @@ public class FirewallRuleAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "ORPHANED_RULE",
+                        Type = IssueTypes.OrphanedRule,
                         Severity = AuditSeverity.Investigate,
                         Message = $"Rule '{rule.Name}' references non-existent source network",
                         Metadata = new Dictionary<string, object>
@@ -283,7 +283,7 @@ public class FirewallRuleAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "ORPHANED_RULE",
+                        Type = IssueTypes.OrphanedRule,
                         Severity = AuditSeverity.Investigate,
                         Message = $"Rule '{rule.Name}' references non-existent destination network",
                         Metadata = new Dictionary<string, object>
@@ -331,7 +331,7 @@ public class FirewallRuleAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "MISSING_ISOLATION",
+                        Type = IssueTypes.MissingIsolation,
                         Severity = AuditSeverity.Recommended,
                         Message = $"No explicit isolation rule between {iot.Name} and {corporate.Name}",
                         Metadata = new Dictionary<string, object>
@@ -362,7 +362,7 @@ public class FirewallRuleAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "MISSING_ISOLATION",
+                        Type = IssueTypes.MissingIsolation,
                         Severity = AuditSeverity.Recommended,
                         Message = $"No explicit isolation rule between {guest.Name} and {corporate.Name}",
                         Metadata = new Dictionary<string, object>
@@ -437,7 +437,7 @@ public class FirewallRuleAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_MISSING_UNIFI_ACCESS",
+                    Type = IssueTypes.MgmtMissingUnifiAccess,
                     Severity = AuditSeverity.Info,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
                     CurrentNetwork = mgmtNetwork.Name,
@@ -466,7 +466,7 @@ public class FirewallRuleAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_MISSING_AFC_ACCESS",
+                    Type = IssueTypes.MgmtMissingAfcAccess,
                     Severity = AuditSeverity.Info,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack AFC traffic access",
                     CurrentNetwork = mgmtNetwork.Name,
@@ -497,7 +497,7 @@ public class FirewallRuleAnalyzer
             {
                 issues.Add(new AuditIssue
                 {
-                    Type = "MGMT_MISSING_NTP_ACCESS",
+                    Type = IssueTypes.MgmtMissingNtpAccess,
                     Severity = AuditSeverity.Info,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack NTP time sync access",
                     CurrentNetwork = mgmtNetwork.Name,
@@ -534,7 +534,7 @@ public class FirewallRuleAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = "MGMT_MISSING_5G_ACCESS",
+                        Type = IssueTypes.MgmtMissing5gAccess,
                         Severity = AuditSeverity.Info,
                         Message = $"Isolated management network '{mgmtNetwork.Name}' may lack 5G/LTE modem registration access",
                         CurrentNetwork = mgmtNetwork.Name,

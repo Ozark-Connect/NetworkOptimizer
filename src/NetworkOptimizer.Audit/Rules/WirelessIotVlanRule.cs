@@ -1,4 +1,5 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Scoring;
 using NetworkOptimizer.Core.Enums;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -40,20 +41,12 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT WiFi network";
 
-        // Low-risk IoT devices get Warning - users often keep them on main WiFi
-        // Critical only for: SmartThermostat, SmartLock, SmartHub (security/control devices)
-        var isLowRiskDevice = client.Detection.Category is
-            ClientDeviceCategory.SmartTV or
-            ClientDeviceCategory.StreamingDevice or
-            ClientDeviceCategory.MediaPlayer or
-            ClientDeviceCategory.GameConsole or
-            ClientDeviceCategory.SmartLighting or
-            ClientDeviceCategory.SmartPlug or
-            ClientDeviceCategory.SmartSpeaker or
-            ClientDeviceCategory.RoboticVacuum;
+        // Low-risk IoT devices get Recommended severity - users often keep them on main WiFi
+        // Critical only for high-risk devices: SmartThermostat, SmartLock, SmartHub (security/control devices)
+        var isLowRiskDevice = client.Detection.Category.IsLowRiskIoT();
 
         var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isLowRiskDevice ? 3 : ScoreImpact;
+        var scoreImpact = isLowRiskDevice ? ScoreConstants.LowRiskIoTImpact : ScoreImpact;
 
         return CreateIssue(
             $"{client.Detection.CategoryName} on {network.Name} WiFi - should be isolated",
