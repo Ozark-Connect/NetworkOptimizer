@@ -1,4 +1,5 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Scoring;
 using NetworkOptimizer.Core.Enums;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -48,20 +49,12 @@ public class IotVlanRule : AuditRuleBase
             ? $"{iotNetwork.Name} ({iotNetwork.VlanId})"
             : "IoT VLAN";
 
-        // Low-risk IoT devices get Warning - users often keep them on main VLAN
-        // Critical only for: SmartThermostat, SmartLock, SmartHub (security/control devices)
-        var isLowRiskDevice = detection.Category is
-            ClientDeviceCategory.SmartTV or
-            ClientDeviceCategory.StreamingDevice or
-            ClientDeviceCategory.MediaPlayer or
-            ClientDeviceCategory.GameConsole or
-            ClientDeviceCategory.SmartLighting or
-            ClientDeviceCategory.SmartPlug or
-            ClientDeviceCategory.SmartSpeaker or
-            ClientDeviceCategory.RoboticVacuum;
+        // Low-risk IoT devices get Recommended severity - users often keep them on main VLAN
+        // Critical only for high-risk devices: SmartThermostat, SmartLock, SmartHub (security/control devices)
+        var isLowRiskDevice = detection.Category.IsLowRiskIoT();
 
         var severity = isLowRiskDevice ? AuditSeverity.Recommended : Severity;
-        var scoreImpact = isLowRiskDevice ? 3 : ScoreImpact;
+        var scoreImpact = isLowRiskDevice ? ScoreConstants.LowRiskIoTImpact : ScoreImpact;
 
         // Use connected client name if available, otherwise port name - include switch context
         var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;

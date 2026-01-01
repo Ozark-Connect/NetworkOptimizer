@@ -415,15 +415,7 @@ public class SecurityAuditEngine
     /// <summary>
     /// Helper to check if port name is a camera
     /// </summary>
-    private bool IsCameraDeviceName(string? portName)
-    {
-        if (string.IsNullOrEmpty(portName))
-            return false;
-
-        var nameLower = portName.ToLowerInvariant();
-        var cameraHints = new[] { "cam", "camera", "ptz", "nvr", "protect" };
-        return cameraHints.Any(hint => nameLower.Contains(hint));
-    }
+    private static bool IsCameraDeviceName(string? portName) => DeviceNameHints.IsCameraDeviceName(portName);
 
     /// <summary>
     /// Access point info for lookup

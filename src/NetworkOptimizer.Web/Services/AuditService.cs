@@ -710,26 +710,28 @@ public class AuditService
     private static string GetCategory(string issueType) => issueType switch
     {
         // Firewall rule issues
-        "FW_SHADOWED" or "FW_PERMISSIVE" or "FW_ORPHANED" or "FW_ANY_ANY" => "Firewall Rules",
-        "ALLOW_SUBVERTS_DENY" or "ALLOW_EXCEPTION_PATTERN" or "DENY_SHADOWS_ALLOW" => "Firewall Rules",
-        "PERMISSIVE_RULE" or "BROAD_RULE" or "ORPHANED_RULE" or "MISSING_ISOLATION" => "Firewall Rules",
+        Audit.IssueTypes.FwAnyAny or
+        Audit.IssueTypes.AllowSubvertsDeny or Audit.IssueTypes.AllowExceptionPattern or Audit.IssueTypes.DenyShadowsAllow or
+        Audit.IssueTypes.PermissiveRule or Audit.IssueTypes.BroadRule or Audit.IssueTypes.OrphanedRule or Audit.IssueTypes.MissingIsolation => "Firewall Rules",
         var t when t.StartsWith("FW-") => "Firewall Rules",
 
         // VLAN security issues (includes device placement - putting devices on correct VLAN)
-        "VLAN_VIOLATION" or "INTER_VLAN" or "ROUTING_ENABLED" => "VLAN Security",
-        "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "VLAN Security",
-        "SECURITY_NETWORK_NOT_ISOLATED" or "MGMT_NETWORK_NOT_ISOLATED" or "IOT_NETWORK_NOT_ISOLATED" => "VLAN Security",
-        "SECURITY_NETWORK_HAS_INTERNET" or "MGMT_NETWORK_HAS_INTERNET" => "VLAN Security",
-        "MGMT_MISSING_UNIFI_ACCESS" or "MGMT_MISSING_AFC_ACCESS" or "MGMT_MISSING_NTP_ACCESS" or "MGMT_MISSING_5G_ACCESS" => "VLAN Security",
+        "VLAN_VIOLATION" or "INTER_VLAN" or Audit.IssueTypes.RoutingEnabled => "VLAN Security",
+        Audit.IssueTypes.MgmtDhcpEnabled => "VLAN Security",
+        Audit.IssueTypes.SecurityNetworkNotIsolated or Audit.IssueTypes.MgmtNetworkNotIsolated or Audit.IssueTypes.IotNetworkNotIsolated => "VLAN Security",
+        Audit.IssueTypes.SecurityNetworkHasInternet or Audit.IssueTypes.MgmtNetworkHasInternet => "VLAN Security",
+        Audit.IssueTypes.MgmtMissingUnifiAccess or Audit.IssueTypes.MgmtMissingAfcAccess or Audit.IssueTypes.MgmtMissingNtpAccess or Audit.IssueTypes.MgmtMissing5gAccess => "VLAN Security",
         // Device placement (wrong VLAN) - controlled by VLAN Security checkbox
-        "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "WIFI-IOT-VLAN-001" => "VLAN Security",
-        "CAMERA_WRONG_VLAN" or "CAMERA-VLAN-001" or "WIFI-CAMERA-VLAN-001" => "VLAN Security",
+        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "VLAN Security",
+        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "VLAN Security",
 
         // Port security issues
-        "MAC_RESTRICTION" or "MAC-RESTRICT-001" or "UNUSED_PORT" or "UNUSED-PORT-001" or "PORT_ISOLATION" or "PORT-ISOLATION-001" or "PORT_SECURITY" => "Port Security",
+        Audit.IssueTypes.MacRestriction or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" => "Port Security",
 
         // DNS security issues
-        "DNS_LEAKAGE" or "DNS_NO_DOH" or "DNS_DOH_AUTO" or "DNS_NO_53_BLOCK" or "DNS_NO_DOT_BLOCK" or "DNS_NO_DOH_BLOCK" or "DNS_ISP" or "DNS_WAN_MISMATCH" or "DNS_WAN_ORDER" or "DNS_WAN_NO_STATIC" or "DNS_DEVICE_MISCONFIGURED" => "DNS Security",
+        Audit.IssueTypes.DnsLeakage or Audit.IssueTypes.DnsNoDoh or Audit.IssueTypes.DnsDohAuto or Audit.IssueTypes.DnsNo53Block or
+        Audit.IssueTypes.DnsNoDotBlock or Audit.IssueTypes.DnsNoDohBlock or Audit.IssueTypes.DnsIsp or
+        Audit.IssueTypes.DnsWanMismatch or Audit.IssueTypes.DnsWanOrder or Audit.IssueTypes.DnsWanNoStatic or Audit.IssueTypes.DnsDeviceMisconfigured => "DNS Security",
 
         _ => "General"
     };
@@ -756,31 +758,30 @@ public class AuditService
         // Extract a short title from the issue type
         return type switch
         {
-            "FW_SHADOWED" => "Shadowed Firewall Rule",
-            "FW_PERMISSIVE" => "Overly Permissive Rule",
-            "FW_ORPHANED" => "Orphaned Firewall Rule",
-            "FW_ANY_ANY" => "Any-Any Firewall Rule",
+            Audit.IssueTypes.FwAnyAny => "Any-Any Firewall Rule",
+            Audit.IssueTypes.PermissiveRule => "Overly Permissive Rule",
+            Audit.IssueTypes.OrphanedRule => "Orphaned Firewall Rule",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
-            "ROUTING_ENABLED" => "Routing on Isolated VLAN",
-            "MAC_RESTRICTION" or "MAC-RESTRICT-001" => "Missing MAC Restriction",
-            "UNUSED_PORT" or "UNUSED-PORT-001" => "Unused Port Enabled",
-            "PORT_ISOLATION" or "PORT-ISOLATION-001" => "Missing Port Isolation",
+            Audit.IssueTypes.RoutingEnabled => "Routing on Isolated VLAN",
+            Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
+            Audit.IssueTypes.UnusedPort => "Unused Port Enabled",
+            Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
-            "DNS_LEAKAGE" => "DNS Leak Detected",
-            "DNS_NO_DOH" => "DoH Not Configured",
-            "DNS_DOH_AUTO" => "DoH Set to Auto Mode",
-            "DNS_NO_53_BLOCK" => "No DNS Leak Prevention",
-            "DNS_NO_DOT_BLOCK" => "DNS-over-TLS Not Blocked",
-            "DNS_NO_DOH_BLOCK" => "DoH Bypass Not Blocked",
-            "DNS_ISP" => "Using ISP DNS Servers",
-            "DNS_WAN_MISMATCH" => "WAN DNS Mismatch",
-            "DNS_WAN_ORDER" => "WAN DNS Wrong Order",
-            "DNS_WAN_NO_STATIC" => "WAN DNS Not Configured",
-            "DNS_DEVICE_MISCONFIGURED" => "Device DNS Misconfigured",
-            "IOT_WRONG_VLAN" or "IOT-VLAN-001" or "WIFI-IOT-VLAN-001" => "IoT Device on Wrong VLAN",
-            "CAMERA_WRONG_VLAN" or "CAMERA-VLAN-001" or "WIFI-CAMERA-VLAN-001" => "Camera on Wrong VLAN",
-            "MGMT_DHCP_ENABLED" or "MGMT-DHCP-001" => "Management VLAN Has DHCP Enabled",
+            Audit.IssueTypes.DnsLeakage => "DNS Leak Detected",
+            Audit.IssueTypes.DnsNoDoh => "DoH Not Configured",
+            Audit.IssueTypes.DnsDohAuto => "DoH Set to Auto Mode",
+            Audit.IssueTypes.DnsNo53Block => "No DNS Leak Prevention",
+            Audit.IssueTypes.DnsNoDotBlock => "DNS-over-TLS Not Blocked",
+            Audit.IssueTypes.DnsNoDohBlock => "DoH Bypass Not Blocked",
+            Audit.IssueTypes.DnsIsp => "Using ISP DNS Servers",
+            Audit.IssueTypes.DnsWanMismatch => "WAN DNS Mismatch",
+            Audit.IssueTypes.DnsWanOrder => "WAN DNS Wrong Order",
+            Audit.IssueTypes.DnsWanNoStatic => "WAN DNS Not Configured",
+            Audit.IssueTypes.DnsDeviceMisconfigured => "Device DNS Misconfigured",
+            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "IoT Device on Wrong VLAN",
+            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Camera on Wrong VLAN",
+            Audit.IssueTypes.MgmtDhcpEnabled => "Management VLAN Has DHCP Enabled",
             _ => message.Split('.').FirstOrDefault() ?? type
         };
     }
@@ -791,11 +792,6 @@ public class AuditService
     /// </summary>
     private int CalculateFilteredScore(AuditModels.AuditResult engineResult, AuditOptions options)
     {
-        const int BaseScore = 100;
-        const int MaxCriticalDeduction = 50;
-        const int MaxRecommendedDeduction = 30;
-        const int MaxInvestigateDeduction = 10;
-
         // Filter issues based on enabled options
         var filteredIssues = engineResult.Issues
             .Where(issue => ShouldInclude(GetCategory(issue.Type), options))
@@ -804,27 +800,33 @@ public class AuditService
         // Calculate deductions from filtered issues only
         var criticalDeduction = Math.Min(
             filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Critical).Sum(i => i.ScoreImpact),
-            MaxCriticalDeduction);
+            Audit.Scoring.ScoreConstants.MaxCriticalDeduction);
 
         var recommendedDeduction = Math.Min(
             filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Recommended).Sum(i => i.ScoreImpact),
-            MaxRecommendedDeduction);
+            Audit.Scoring.ScoreConstants.MaxRecommendedDeduction);
 
         var investigateDeduction = Math.Min(
             filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Investigate).Sum(i => i.ScoreImpact),
-            MaxInvestigateDeduction);
+            Audit.Scoring.ScoreConstants.MaxInvestigateDeduction);
 
         // Calculate hardening bonus (same as original - not filtered)
         var hardeningBonus = 0;
-        if (engineResult.Statistics.HardeningPercentage >= 80) hardeningBonus = 5;
-        else if (engineResult.Statistics.HardeningPercentage >= 60) hardeningBonus = 3;
-        else if (engineResult.Statistics.HardeningPercentage >= 40) hardeningBonus = 2;
+        if (engineResult.Statistics.HardeningPercentage >= Audit.Scoring.ScoreConstants.ExcellentHardeningPercentage)
+            hardeningBonus = Audit.Scoring.ScoreConstants.MaxHardeningPercentageBonus;
+        else if (engineResult.Statistics.HardeningPercentage >= Audit.Scoring.ScoreConstants.GoodHardeningPercentage)
+            hardeningBonus = 3;
+        else if (engineResult.Statistics.HardeningPercentage >= Audit.Scoring.ScoreConstants.FairHardeningPercentage)
+            hardeningBonus = 2;
 
-        if (engineResult.HardeningMeasures.Count >= 4) hardeningBonus += 3;
-        else if (engineResult.HardeningMeasures.Count >= 2) hardeningBonus += 2;
-        else if (engineResult.HardeningMeasures.Count >= 1) hardeningBonus += 1;
+        if (engineResult.HardeningMeasures.Count >= Audit.Scoring.ScoreConstants.ManyHardeningMeasures)
+            hardeningBonus += Audit.Scoring.ScoreConstants.MaxHardeningMeasureBonus;
+        else if (engineResult.HardeningMeasures.Count >= Audit.Scoring.ScoreConstants.SomeHardeningMeasures)
+            hardeningBonus += 2;
+        else if (engineResult.HardeningMeasures.Count >= 1)
+            hardeningBonus += 1;
 
-        var score = BaseScore - criticalDeduction - recommendedDeduction - investigateDeduction + hardeningBonus;
+        var score = Audit.Scoring.ScoreConstants.BaseScore - criticalDeduction - recommendedDeduction - investigateDeduction + hardeningBonus;
 
         _logger.LogInformation(
             "Filtered Security Score: {Score}/100 (Critical: -{Critical}, Recommended: -{Recommended}, Investigate: -{Investigate}, Bonus: +{Bonus})",
@@ -833,36 +835,28 @@ public class AuditService
         return Math.Max(0, Math.Min(100, score));
     }
 
-    private static string GetScoreLabelForScore(int score) => score switch
-    {
-        >= 90 => "EXCELLENT",
-        >= 75 => "GOOD",
-        >= 60 => "FAIR",
-        >= 40 => "NEEDS ATTENTION",
-        _ => "CRITICAL"
-    };
+    private static string GetScoreLabelForScore(int score) => Audit.Analyzers.AuditScorer.GetScoreLabel(score);
 
     private static string GetDefaultRecommendation(string type) => type switch
     {
-        "FW_SHADOWED" => "Reorder firewall rules so specific rules appear before broader ones.",
-        "FW_PERMISSIVE" => "Tighten the rule to only allow necessary traffic.",
-        "FW_ORPHANED" => "Remove rules that reference non-existent objects.",
-        "FW_ANY_ANY" => "Replace with specific allow rules for required traffic.",
-        "MAC_RESTRICTION" or "MAC-RESTRICT-001" => "Enable MAC-based port security on critical infrastructure ports.",
-        "UNUSED_PORT" or "UNUSED-PORT-001" => "Disable unused ports to reduce attack surface.",
-        "PORT_ISOLATION" or "PORT-ISOLATE-001" => "Enable port isolation for security devices.",
-        "IOT_WRONG_VLAN" or "IOT-VLAN-001" => "Move IoT devices to a dedicated IoT VLAN.",
-        "CAMERA_WRONG_VLAN" or "CAM-VLAN-001" => "Move cameras to a dedicated Security VLAN.",
-        "DNS_LEAKAGE" => "Configure firewall to block direct DNS queries from isolated networks.",
-        "DNS_NO_DOH" => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare.",
-        "DNS_DOH_AUTO" => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption.",
-        "DNS_NO_53_BLOCK" => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs.",
-        "DNS_NO_DOT_BLOCK" => "Create firewall rule to block outbound TCP port 853 to Internet.",
-        "DNS_NO_DOH_BLOCK" => "Create firewall rule to block HTTPS to known DoH provider domains.",
-        "DNS_ISP" => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
-        "DNS_WAN_MISMATCH" => "Set WAN DNS servers to match your DoH provider.",
-        "DNS_WAN_NO_STATIC" => "Configure static DNS on the WAN interface to use your DoH provider's servers.",
-        "DNS_DEVICE_MISCONFIGURED" => "Configure device DNS to point to the gateway.",
+        Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic.",
+        Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic.",
+        Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
+        Audit.IssueTypes.MacRestriction => "Enable MAC-based port security on critical infrastructure ports.",
+        Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface.",
+        Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices.",
+        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN.",
+        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN.",
+        Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks.",
+        Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare.",
+        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption.",
+        Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs.",
+        Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet.",
+        Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains.",
+        Audit.IssueTypes.DnsIsp => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
+        Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider.",
+        Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers.",
+        Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway.",
         _ => "Review the configuration and apply security best practices."
     };
 }

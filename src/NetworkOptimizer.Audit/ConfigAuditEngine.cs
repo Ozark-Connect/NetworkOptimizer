@@ -598,13 +598,5 @@ public class ConfigAuditEngine
     /// <summary>
     /// Check if port name indicates an IoT device
     /// </summary>
-    private static bool IsIotDeviceName(string? portName)
-    {
-        if (string.IsNullOrEmpty(portName))
-            return false;
-
-        var nameLower = portName.ToLowerInvariant();
-        var iotHints = new[] { "ikea", "hue", "smart", "iot", "alexa", "echo", "nest", "ring", "sonos", "philips" };
-        return iotHints.Any(hint => nameLower.Contains(hint));
-    }
+    private static bool IsIotDeviceName(string? portName) => DeviceNameHints.IsIoTDeviceName(portName);
 }

@@ -31,7 +31,7 @@ public class FirewallAnyAnyRule
     {
         return new AuditIssue
         {
-            Type = "FW_ANY_ANY",
+            Type = IssueTypes.FwAnyAny,
             Severity = AuditSeverity.Critical,
             Message = $"Firewall rule '{rule.Name}' allows any->any traffic",
             Metadata = new Dictionary<string, object>

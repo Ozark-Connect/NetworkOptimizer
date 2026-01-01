@@ -138,40 +138,17 @@ public abstract class AuditRuleBase : IAuditRule
     /// <summary>
     /// Helper to check if a port name suggests an IoT device
     /// </summary>
-    protected bool IsIoTDeviceName(string? portName)
-    {
-        if (string.IsNullOrEmpty(portName))
-            return false;
-
-        var nameLower = portName.ToLowerInvariant();
-        var iotHints = new[] { "ikea", "hue", "smart", "iot", "alexa", "echo", "nest", "ring", "sonos", "philips" };
-        return iotHints.Any(hint => nameLower.Contains(hint));
-    }
+    protected bool IsIoTDeviceName(string? portName) => DeviceNameHints.IsIoTDeviceName(portName);
 
     /// <summary>
     /// Helper to check if a port name suggests a security camera
     /// </summary>
-    protected bool IsCameraDeviceName(string? portName)
-    {
-        if (string.IsNullOrEmpty(portName))
-            return false;
-
-        var nameLower = portName.ToLowerInvariant();
-        var cameraHints = new[] { "cam", "camera", "ptz", "nvr", "protect" };
-        return cameraHints.Any(hint => nameLower.Contains(hint));
-    }
+    protected bool IsCameraDeviceName(string? portName) => DeviceNameHints.IsCameraDeviceName(portName);
 
     /// <summary>
     /// Helper to check if a port name suggests an access point
     /// </summary>
-    protected bool IsAccessPointName(string? portName)
-    {
-        if (string.IsNullOrEmpty(portName))
-            return false;
-
-        var nameLower = portName.ToLowerInvariant();
-        return nameLower.Contains("ap") || nameLower.Contains("access point") || nameLower.Contains("wifi");
-    }
+    protected bool IsAccessPointName(string? portName) => DeviceNameHints.IsAccessPointName(portName);
 
     /// <summary>
     /// Create an audit issue from this rule
