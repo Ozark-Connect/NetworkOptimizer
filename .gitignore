@@ -40,5 +40,8 @@ CLAUDE.md
 research/
 code-review/
 
+# Archived legacy code (not for public repo)
+archive/
+
 # Coverage reports
 coverage/

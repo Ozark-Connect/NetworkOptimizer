@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Storage\NetworkOptimizer.Storage.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.UniFi\NetworkOptimizer.UniFi.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Audit\NetworkOptimizer.Audit.csproj" />
