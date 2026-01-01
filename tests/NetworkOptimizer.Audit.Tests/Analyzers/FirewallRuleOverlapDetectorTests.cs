@@ -112,9 +112,31 @@ public class FirewallRuleOverlapDetectorTests
     }
 
     [Fact]
-    public void SourcesOverlap_DifferentTargetTypes_ReturnsFalse()
+    public void SourcesOverlap_NetworkVsIp_ReturnsTrue()
     {
+        // NETWORK and IP can overlap because an IP address may fall within a network's CIDR
+        // We conservatively assume they might overlap to catch shadowing cases
         var rule1 = CreateRule(sourceMatchingTarget: "NETWORK", sourceNetworkIds: new List<string> { "net1" });
+        var rule2 = CreateRule(sourceMatchingTarget: "IP", sourceIps: new List<string> { "192.168.1.1" });
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_ClientVsNetwork_ReturnsFalse()
+    {
+        // CLIENT (MAC addresses) and NETWORK are fundamentally different
+        var rule1 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff" });
+        var rule2 = CreateRule(sourceMatchingTarget: "NETWORK", sourceNetworkIds: new List<string> { "net1" });
+
+        FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SourcesOverlap_ClientVsIp_ReturnsFalse()
+    {
+        // CLIENT (MAC addresses) and IP are fundamentally different
+        var rule1 = CreateRule(sourceMatchingTarget: "CLIENT", sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff" });
         var rule2 = CreateRule(sourceMatchingTarget: "IP", sourceIps: new List<string> { "192.168.1.1" });
 
         FirewallRuleOverlapDetector.SourcesOverlap(rule1, rule2).Should().BeFalse();
@@ -239,6 +261,27 @@ public class FirewallRuleOverlapDetectorTests
         var rule2 = CreateRule(destMatchingTarget: "WEB", webDomains: new List<string> { "other.com" });
 
         FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_NetworkVsIp_ReturnsTrue()
+    {
+        // NETWORK and IP can overlap because an IP address may fall within a network's CIDR
+        // We conservatively assume they might overlap to catch shadowing cases
+        var rule1 = CreateRule(destMatchingTarget: "NETWORK", destNetworkIds: new List<string> { "net1" });
+        var rule2 = CreateRule(destMatchingTarget: "IP", destIps: new List<string> { "192.168.1.100" });
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_IpVsNetwork_ReturnsTrue()
+    {
+        // Same as above, but reversed order
+        var rule1 = CreateRule(destMatchingTarget: "IP", destIps: new List<string> { "192.168.1.100" });
+        var rule2 = CreateRule(destMatchingTarget: "NETWORK", destNetworkIds: new List<string> { "net1" });
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(rule1, rule2).Should().BeTrue();
     }
 
     #endregion
@@ -766,6 +809,26 @@ public class FirewallRuleOverlapDetectorTests
             destMatchingTarget: "ANY");
 
         FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_BlockToNetworkVsAllowToIp_ReturnsTrue()
+    {
+        // Scenario: Block rule targets NETWORK, Allow rule targets IP within that network
+        // These rules can overlap because the IP may be within the network's CIDR
+        var blockRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "isolated-net-1", "isolated-net-2" });
+        var allowRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "CLIENT",
+            sourceClientMacs: new List<string> { "aa:bb:cc:dd:ee:ff" },
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "192.168.64.210-192.168.64.219" });
+
+        FirewallRuleOverlapDetector.RulesOverlap(blockRule, allowRule).Should().BeTrue();
     }
 
     #endregion

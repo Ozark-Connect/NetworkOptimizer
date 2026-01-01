@@ -83,7 +83,12 @@ public static class FirewallRuleOverlapDetector
         if (target1 == "ANY" || target2 == "ANY")
             return true;
 
-        // Different target types don't overlap (IP vs NETWORK)
+        // NETWORK and IP CAN overlap: an IP address may fall within a network's CIDR.
+        // Since we don't have network CIDR info here, we conservatively assume they might overlap.
+        if ((target1 == "NETWORK" && target2 == "IP") || (target1 == "IP" && target2 == "NETWORK"))
+            return true;
+
+        // Different target types don't overlap (CLIENT vs NETWORK, CLIENT vs IP, etc.)
         if (target1 != target2)
             return false;
 
@@ -192,7 +197,20 @@ public static class FirewallRuleOverlapDetector
         if (target1 == "ANY" || target2 == "ANY")
             return true;
 
-        // Different target types don't overlap (IP vs NETWORK vs WEB)
+        // WEB is fundamentally different - it doesn't overlap with IP or NETWORK
+        if (target1 == "WEB" || target2 == "WEB")
+        {
+            if (target1 != target2)
+                return false;
+        }
+
+        // NETWORK and IP CAN overlap: an IP address may fall within a network's CIDR.
+        // Since we don't have network CIDR info here, we conservatively assume they might overlap.
+        // This catches cases like "Block to NETWORK X" eclipsing "Allow to IP within X".
+        if ((target1 == "NETWORK" && target2 == "IP") || (target1 == "IP" && target2 == "NETWORK"))
+            return true;
+
+        // Other different target types don't overlap
         if (target1 != target2)
             return false;
 

@@ -527,6 +527,53 @@ public class FirewallRuleAnalyzerTests
         issue!.Severity.Should().Be(AuditSeverity.Info);
     }
 
+    [Fact]
+    public void DetectShadowedRules_BroadBlockToNetworkBeforeNarrowAllowToIp_ReturnsShadowedIssue()
+    {
+        // This tests the scenario where a broad BLOCK rule to NETWORKs eclipses
+        // a narrow ALLOW rule to specific IPs. The allow rule may never match
+        // because the block rule (which comes first) blocks all traffic to those networks,
+        // including traffic to IPs within those networks.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-rule",
+                Name = "[CRITICAL] Block Access to Isolated VLANs",
+                Action = "block",
+                Enabled = true,
+                Index = 10016,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "net-1", "net-2", "net-3", "net-4" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow Device Screen Streaming",
+                Action = "allow",
+                Enabled = true,
+                Index = 10017,
+                Protocol = "all",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff", "11:22:33:44:55:66" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.64.210-192.168.64.219" }
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should detect that the allow rule is shadowed by the earlier block rule
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("DENY_SHADOWS_ALLOW");
+        issue.Severity.Should().Be(AuditSeverity.Info);
+        issue.Message.Should().Contain("Allow Device Screen Streaming");
+        issue.Message.Should().Contain("Block Access to Isolated VLANs");
+    }
+
     #endregion
 
     #region DetectPermissiveRules Tests
