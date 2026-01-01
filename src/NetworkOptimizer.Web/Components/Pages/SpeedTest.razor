@@ -15,6 +15,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 @inject SystemSettingsService SettingsService
+@using NetworkOptimizer.Web.Components.Shared
 
 <PageTitle>LAN Speed Test - Network Optimizer</PageTitle>
 
@@ -259,6 +260,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
+                            <th></th>
                             <th>Name</th>
                             <th>Model</th>
                             <th>IP Address</th>
@@ -272,6 +274,7 @@
                         {
                             var isOnline = device.State == 1 && device.Adopted;
                             <tr>
+                                <td class="icon-cell"><DeviceIcon Model="@device.FriendlyModelName" Size="md" /></td>
                                 <td>@device.Name</td>
                                 <td><code>@device.FriendlyModelName</code></td>
                                 <td><code>@device.Ip</code></td>
