@@ -207,6 +207,9 @@ public class VlanAnalyzer
             networkName.Equals("lan", StringComparison.OrdinalIgnoreCase))
             return NetworkPurpose.Home;
 
+        // Log unclassified networks for debugging and pattern improvement
+        _logger.LogDebug("Network '{NetworkName}' (VLAN {VlanId}) could not be classified - consider adding a matching pattern",
+            networkName, vlanId);
         return NetworkPurpose.Unknown;
     }
 
