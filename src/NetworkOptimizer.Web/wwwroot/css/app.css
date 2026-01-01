@@ -3356,9 +3356,13 @@ td .btn + .btn {
 
 /* Table icon cell */
 .icon-cell {
-    width: 32px;
-    padding-right: 0 !important;
+    width: 40px;
+    padding-right: 0.25rem !important;
     text-align: center;
+}
+
+.icon-cell + td {
+    padding-left: 0.25rem !important;
 }
 
 .icon-cell .device-icon {
