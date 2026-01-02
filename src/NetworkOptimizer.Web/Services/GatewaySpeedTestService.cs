@@ -499,8 +499,8 @@ public class GatewaySpeedTestService
             result.Success = true;
             _lastResult = result;
 
-            // Analyze network path before saving
-            var pathAnalysis = await AnalyzePathAsync(settings.Host, result.DownloadMbps, result.UploadMbps);
+            // Analyze network path before saving (use LocalIp parsed from iperf3 output)
+            var pathAnalysis = await AnalyzePathAsync(settings.Host, result.DownloadMbps, result.UploadMbps, result.LocalIp);
 
             // Save to history database
             await SaveResultToHistoryAsync(result, pathAnalysis);
@@ -594,6 +594,19 @@ public class GatewaySpeedTestService
             using var doc = JsonDocument.Parse(jsonOutput);
             var root = doc.RootElement;
 
+            // Extract local IP from the connection info (only need to do this once)
+            if (string.IsNullOrEmpty(result.LocalIp) &&
+                root.TryGetProperty("start", out var start) &&
+                start.TryGetProperty("connected", out var connected) &&
+                connected.GetArrayLength() > 0)
+            {
+                var firstConn = connected[0];
+                if (firstConn.TryGetProperty("local_host", out var localHost))
+                {
+                    result.LocalIp = localHost.GetString();
+                }
+            }
+
             if (root.TryGetProperty("end", out var end))
             {
                 // Get sum_sent and sum_received
@@ -652,13 +665,13 @@ public class GatewaySpeedTestService
     /// Analyze the network path to the gateway and calculate efficiency grades
     /// </summary>
     private async Task<PathAnalysisResult?> AnalyzePathAsync(
-        string targetHost, double downloadMbps, double uploadMbps)
+        string targetHost, double downloadMbps, double uploadMbps, string? localIp = null)
     {
         try
         {
             _logger.LogDebug("Analyzing network path to gateway {Host}", targetHost);
 
-            var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
+            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, localIp);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, downloadMbps, uploadMbps);
 
             if (analysis.Path.IsValid)
@@ -776,6 +789,11 @@ public class GatewaySpeedTestResult
 
     public string? RawDownloadJson { get; set; }
     public string? RawUploadJson { get; set; }
+
+    /// <summary>
+    /// Local IP address used for the test (parsed from iperf3 output)
+    /// </summary>
+    public string? LocalIp { get; set; }
 
     // Computed properties
     public double DownloadMbps => DownloadBitsPerSecond / 1_000_000;
