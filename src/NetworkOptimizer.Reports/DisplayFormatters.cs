@@ -67,6 +67,64 @@ public static class DisplayFormatters
         return $"{prefix} {cleanName}";
     }
 
+    /// <summary>
+    /// Parse a device name that may contain "on [Type] NetworkDevice" pattern.
+    /// Returns the client portion and the network device portion.
+    /// Example: "[IoT] Thermostat on [Switch] Office" → ("[IoT] Thermostat", "Switch", "Office")
+    /// </summary>
+    public static (string ClientName, string? DeviceType, string? NetworkDeviceName) ParseDeviceOnNetworkDevice(string? deviceName)
+    {
+        if (string.IsNullOrWhiteSpace(deviceName))
+            return (deviceName ?? string.Empty, null, null);
+
+        // Look for " on [" pattern that separates client from network device
+        var onIndex = deviceName.IndexOf(" on [", StringComparison.OrdinalIgnoreCase);
+        if (onIndex < 0)
+            return (deviceName, null, null);
+
+        var clientPart = deviceName[..onIndex].Trim();
+        var remainingPart = deviceName[(onIndex + 5)..]; // Skip " on ["
+
+        // Extract the device type and name from "[Type] Name" or "[Type] Name (band)"
+        var closeBracket = remainingPart.IndexOf(']');
+        if (closeBracket < 0)
+            return (clientPart, null, null);
+
+        var deviceType = remainingPart[..closeBracket];
+        var networkDeviceName = remainingPart[(closeBracket + 1)..].Trim();
+
+        // Strip any trailing band suffix like "(2.4 GHz)" from network device name
+        var bandSuffixStart = networkDeviceName.LastIndexOf(" (");
+        if (bandSuffixStart > 0 && networkDeviceName.EndsWith(")"))
+        {
+            var potentialBand = networkDeviceName[(bandSuffixStart + 2)..^1];
+            if (potentialBand.Contains("GHz", StringComparison.OrdinalIgnoreCase))
+            {
+                networkDeviceName = networkDeviceName[..bandSuffixStart].Trim();
+            }
+        }
+
+        return (clientPart, deviceType, networkDeviceName);
+    }
+
+    /// <summary>
+    /// Get the display label for a network device type.
+    /// Example: "Switch" → "Switch:", "AP" → "AP:", "Gateway" → "Gateway:"
+    /// </summary>
+    public static string GetNetworkDeviceLabel(string? deviceType)
+    {
+        if (string.IsNullOrWhiteSpace(deviceType))
+            return "Device:";
+
+        return deviceType.ToUpperInvariant() switch
+        {
+            "AP" => "AP:",
+            "SWITCH" => "Switch:",
+            "GATEWAY" => "Gateway:",
+            _ => $"{deviceType}:"
+        };
+    }
+
     #endregion
 
     #region Network/VLAN Display

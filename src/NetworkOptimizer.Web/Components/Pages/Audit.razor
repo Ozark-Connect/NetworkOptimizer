@@ -152,10 +152,15 @@
 
                                 @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
                                 {
+                                    var parsed = DisplayFormatters.ParseDeviceOnNetworkDevice(issue.DeviceName);
                                     <div class="issue-context">
-                                        @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                        @if (!string.IsNullOrEmpty(parsed.ClientName))
                                         {
-                                            <span class="context-item"><strong>Device:</strong> @issue.DeviceName</span>
+                                            <span class="context-item"><strong>Device:</strong> @parsed.ClientName</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
+                                        {
+                                            <span class="context-item"><strong>@DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType)</strong> @parsed.NetworkDeviceName</span>
                                         }
                                         @if (!string.IsNullOrEmpty(issue.Port))
                                         {
@@ -164,6 +169,14 @@
                                         @if (!string.IsNullOrEmpty(issue.PortName))
                                         {
                                             <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                        }
+                                        @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
+                                        {
+                                            <span class="context-item"><strong>Band:</strong> @issue.WifiBand</span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
+                                        {
+                                            <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
                                         }
                                     </div>
                                 }
@@ -199,10 +212,15 @@
 
                                     @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
                                     {
+                                        var parsed = DisplayFormatters.ParseDeviceOnNetworkDevice(issue.DeviceName);
                                         <div class="issue-context">
-                                            @if (!string.IsNullOrEmpty(issue.DeviceName))
+                                            @if (!string.IsNullOrEmpty(parsed.ClientName))
                                             {
-                                                <span class="context-item"><strong>Device:</strong> @issue.DeviceName</span>
+                                                <span class="context-item"><strong>Device:</strong> @parsed.ClientName</span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
+                                            {
+                                                <span class="context-item"><strong>@DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType)</strong> @parsed.NetworkDeviceName</span>
                                             }
                                             @if (!string.IsNullOrEmpty(issue.Port))
                                             {
@@ -211,6 +229,10 @@
                                             @if (!string.IsNullOrEmpty(issue.PortName))
                                             {
                                                 <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                            }
+                                            @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
+                                            {
+                                                <span class="context-item"><strong>Band:</strong> @issue.WifiBand</span>
                                             }
                                             @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
                                             {
