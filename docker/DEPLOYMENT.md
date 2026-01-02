@@ -4,42 +4,130 @@ Production deployment guide for Network Optimizer.
 
 ## Deployment Options
 
-### 1. Self-Hosted (Recommended)
+| Option | Best For | Guide |
+|--------|----------|-------|
+| Linux + Docker | Self-built servers, VMs, cloud | [Below](#1-linux-docker-recommended) |
+| NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
+| macOS Native | Mac servers, multi-gigabit speed testing | [Native Guide](NATIVE-DEPLOYMENT.md#macos-deployment) |
+| Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
+| Windows | Windows servers | [Native Guide](NATIVE-DEPLOYMENT.md#windows-deployment) |
 
-Deploy on your own infrastructure using Docker Compose.
+---
+
+### 1. Linux + Docker (Recommended)
+
+Deploy on any Linux server using Docker Compose. This is the recommended approach for self-built NAS, home servers, VMs, and cloud instances.
 
 **Requirements:**
-- Docker 20.10+
-- Docker Compose 2.0+
+- Docker 20.10+ and Docker Compose 2.0+
 - 2GB RAM minimum (4GB recommended)
-- 10GB disk space minimum
-- Linux, macOS, or Windows with Docker Desktop
+- 10GB disk space
+- Ubuntu 20.04+, Debian 11+, RHEL/CentOS 8+, or compatible
 
-**Supported Platforms:**
-- Ubuntu Server 20.04+
-- Debian 11+
-- RHEL/CentOS 8+
-- macOS 11+
-- Windows Server 2019+ with Docker Desktop
-- Synology NAS (Container Manager)
-- QNAP NAS (Container Station)
-- Unraid (Community Applications)
-- Proxmox VE (LXC or VM)
+#### Quick Start
 
-### 2. Cloud Deployment
+```bash
+# Install Docker (if not already installed)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in for group changes
 
-Deploy on cloud platforms with persistent storage.
+# Clone repository
+git clone https://github.com/ozark-connect/network-optimizer.git
+cd network-optimizer/docker
 
-**Tested Platforms:**
-- AWS EC2 with EBS volumes
-- Google Cloud Compute Engine
-- DigitalOcean Droplets
-- Linode
-- Vultr
+# Configure environment
+cp .env.example .env
+nano .env  # Set APP_PASSWORD and other options
 
-### 3. NAS Deployment
+# Create directories
+mkdir -p data logs
 
-Many users prefer running on NAS devices.
+# Start with host networking (recommended for Linux)
+docker compose up -d
+
+# Verify
+docker compose ps
+curl http://localhost:8080/api/health
+```
+
+Access at: **http://your-server:8080**
+
+#### Network Mode Options
+
+**Host Networking (Recommended for Linux):**
+```yaml
+# docker-compose.yml uses network_mode: host by default
+# This provides best performance and accurate IP detection
+```
+
+**Bridge Networking (if host mode unavailable):**
+```yaml
+# Use docker-compose.macos.yml which uses port mapping
+docker compose -f docker-compose.macos.yml up -d
+# Access at port 8042 instead of 8080
+```
+
+#### Service Management
+
+```bash
+# View logs
+docker compose logs -f
+
+# Restart
+docker compose restart
+
+# Stop
+docker compose down
+
+# Update to latest
+docker compose pull
+docker compose up -d
+
+# Full rebuild (after Dockerfile changes)
+docker compose build --no-cache
+docker compose up -d
+```
+
+#### Systemd Integration (Auto-Start on Boot)
+
+```bash
+# Enable Docker to start on boot
+sudo systemctl enable docker
+
+# Docker Compose containers with restart: unless-stopped will auto-start
+```
+
+Or create a dedicated systemd service:
+
+```bash
+sudo cat > /etc/systemd/system/network-optimizer.service << 'EOF'
+[Unit]
+Description=Network Optimizer
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/network-optimizer/docker
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable network-optimizer
+```
+
+---
+
+### 2. NAS Deployment (Docker)
+
+For commercial NAS devices with container support.
 
 #### Synology NAS
 
@@ -64,6 +152,22 @@ Many users prefer running on NAS devices.
 1. Install Community Applications plugin
 2. Search for "Network Optimizer" (when published)
 3. Or use manual Docker Compose deployment
+
+### 4. Native Deployment (No Docker)
+
+For maximum network performance or systems without Docker, run natively on the host.
+
+**Best for:**
+- macOS systems (avoids Docker Desktop's ~1.8 Gbps network throughput limitation)
+- Systems where Docker overhead is undesirable
+- Dedicated appliances
+
+**Supported Platforms:**
+- macOS 11+ (Intel or Apple Silicon)
+- Linux (Ubuntu 20.04+, Debian 11+, RHEL 8+)
+- Windows Server 2019+ / Windows 10+
+
+See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 
 ## Pre-Deployment Checklist
 

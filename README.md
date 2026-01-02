@@ -67,33 +67,35 @@ Agents deploy via SSH with connection testing built in.
 ## Requirements
 
 - UniFi Controller: UCG-Ultra, UCG-Max, UDM, UDM Pro, UDM SE, or standalone controller
-- Docker: Linux, macOS, Windows, Synology, Unraid - whatever you've got
 - Network access to your UniFi controller API (HTTPS)
 - For SQM features: SSH access to your gateway
+- See deployment options below for host requirements
 
-## Quick Start
+## Installation
 
-### macOS
+Choose your deployment method:
+
+| Platform | Method | Guide |
+|----------|--------|-------|
+| Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md#1-linux-docker-recommended) |
+| Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#2-nas-deployment-docker) |
+| macOS | Native (best performance) | [macOS Native](docker/NATIVE-DEPLOYMENT.md#macos-deployment) |
+| macOS | Docker | [Deployment Guide](docker/DEPLOYMENT.md) |
+| Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
+| Windows | Native | [Windows Native](docker/NATIVE-DEPLOYMENT.md#windows-deployment) |
+
+> **Note:** Docker Desktop (macOS/Windows) adds virtualization overhead that can limit network throughput. For accurate multi-gigabit speed testing, use [native deployment](docker/NATIVE-DEPLOYMENT.md).
+
+### Quick Start (Linux Docker)
 
 ```bash
-git clone https://github.com/your-org/network-optimizer.git
-cd network-optimizer/docker
-docker compose -f docker-compose.macos.yml build
-docker compose -f docker-compose.macos.yml up -d
-```
-
-Open http://localhost:8042 (give it about 60 seconds to start up)
-
-### Linux / Windows
-
-```bash
-git clone https://github.com/your-org/network-optimizer.git
+git clone https://github.com/ozark-connect/network-optimizer.git
 cd network-optimizer/docker
 cp .env.example .env  # Optional - edit to set APP_PASSWORD
 docker compose up -d
 ```
 
-Open http://localhost:8042
+Open http://localhost:8080
 
 ### First Run
 
