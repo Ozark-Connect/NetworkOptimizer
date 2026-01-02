@@ -97,4 +97,16 @@ public class PortInfo
     /// Used for enhanced device type detection via fingerprint and MAC OUI.
     /// </summary>
     public UniFiClientResponse? ConnectedClient { get; set; }
+
+    /// <summary>
+    /// MAC address of the last device connected to this port (for down ports).
+    /// From the UniFi API's last_connection.mac field.
+    /// </summary>
+    public string? LastConnectionMac { get; init; }
+
+    /// <summary>
+    /// Timestamp when the last device was seen on this port.
+    /// From the UniFi API's last_connection.last_seen field.
+    /// </summary>
+    public long? LastConnectionSeen { get; init; }
 }

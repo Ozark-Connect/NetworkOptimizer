@@ -57,6 +57,16 @@ public static class JsonExtensions
     }
 
     /// <summary>
+    /// Get a long property value, or null if not found.
+    /// </summary>
+    public static long? GetLongOrNull(this JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.Number
+            ? prop.GetInt64()
+            : null;
+    }
+
+    /// <summary>
     /// Get a double property value, or a default if not found.
     /// Handles both numeric values and string representations.
     /// </summary>

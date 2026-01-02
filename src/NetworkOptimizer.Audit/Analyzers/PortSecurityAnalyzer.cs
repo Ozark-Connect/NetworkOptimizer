@@ -264,6 +264,15 @@ public class PortSecurityAnalyzer
             clientsByPort.TryGetValue(key, out connectedClient);
         }
 
+        // Extract last_connection info for down ports
+        string? lastConnectionMac = null;
+        long? lastConnectionSeen = null;
+        if (port.TryGetProperty("last_connection", out var lastConnection))
+        {
+            lastConnectionMac = lastConnection.GetStringOrNull("mac");
+            lastConnectionSeen = lastConnection.GetLongOrNull("last_seen");
+        }
+
         return new PortInfo
         {
             PortIndex = portIdx,
@@ -283,7 +292,9 @@ public class PortSecurityAnalyzer
             PoeMode = poeMode,
             SupportsPoe = portPoe || !string.IsNullOrEmpty(poeMode),
             Switch = switchInfo,
-            ConnectedClient = connectedClient
+            ConnectedClient = connectedClient,
+            LastConnectionMac = lastConnectionMac,
+            LastConnectionSeen = lastConnectionSeen
         };
     }
 

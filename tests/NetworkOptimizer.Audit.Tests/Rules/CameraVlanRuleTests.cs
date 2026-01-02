@@ -450,6 +450,83 @@ public class CameraVlanRuleTests
         result!.DeviceName.Should().Be("Garage Camera on Outdoor Switch");
     }
 
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_CameraDevice_OnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Down port with last_connection.mac for an Amcrest camera
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Driveway Camera",
+            isUp: false,
+            networkId: corpNetwork.Id,
+            lastConnectionMac: "9C:8E:CD:11:22:33"); // Amcrest camera MAC
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should detect camera from last connection MAC
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("port down");
+        result.CurrentNetwork.Should().Be("Corporate");
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_OnSecurityVlan_ReturnsNull()
+    {
+        // Arrange - Down port with last connection MAC, correctly on Security VLAN
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var port = CreatePort(
+            portName: "Driveway Camera",
+            isUp: false,
+            networkId: securityNetwork.Id,
+            lastConnectionMac: "9C:8E:CD:11:22:33");
+        var networks = CreateNetworkList(securityNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Correctly placed, no issue
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_NonCameraDevice_ReturnsNull()
+    {
+        // Arrange - Down port with last connection MAC for non-camera device (Philips Hue)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Light Port",
+            isUp: false,
+            networkId: corpNetwork.Id,
+            lastConnectionMac: "00:17:88:11:22:33"); // Philips Hue (IoT, not camera)
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Not a camera device
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithNoMacInfo_ReturnsNull()
+    {
+        // Arrange - Down port with no last connection MAC and no MAC restrictions
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Empty Port",
+            isUp: false,
+            networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - No MAC info, should skip
+        result.Should().BeNull();
+    }
+
     #endregion
 
     #region Helper Methods
@@ -465,7 +542,8 @@ public class CameraVlanRuleTests
         string switchName = "Test Switch",
         ClientDeviceCategory deviceCategory = ClientDeviceCategory.Unknown,
         string? connectedClientName = null,
-        List<string>? allowedMacAddresses = null)
+        List<string>? allowedMacAddresses = null,
+        string? lastConnectionMac = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -500,7 +578,8 @@ public class CameraVlanRuleTests
             NativeNetworkId = networkId,
             Switch = switchInfo,
             ConnectedClient = connectedClient,
-            AllowedMacAddresses = allowedMacAddresses
+            AllowedMacAddresses = allowedMacAddresses,
+            LastConnectionMac = lastConnectionMac
         };
     }
 

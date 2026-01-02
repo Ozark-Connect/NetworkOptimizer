@@ -117,35 +117,45 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
-    /// Detect device type from MAC restriction list on a port.
-    /// Used for down ports where no client is connected but MAC addresses are whitelisted.
-    /// Returns the highest confidence detection from all allowed MACs.
+    /// Detect device type for a down port using available signals.
+    /// Priority: LastConnectionMac > AllowedMacAddresses > PortName
     /// </summary>
-    protected DeviceDetectionResult? DetectDeviceTypeFromMacRestrictions(PortInfo port)
+    protected DeviceDetectionResult? DetectDeviceTypeForDownPort(PortInfo port)
     {
         if (DetectionService == null)
             return null;
 
-        var macs = port.AllowedMacAddresses;
-        if (macs == null || macs.Count == 0)
-            return null;
-
         DeviceDetectionResult? bestResult = null;
 
-        foreach (var mac in macs)
+        // Priority 1: Last connected device MAC (most reliable for down ports)
+        if (!string.IsNullOrEmpty(port.LastConnectionMac))
         {
-            var result = DetectionService.DetectFromMac(mac);
+            var result = DetectionService.DetectFromMac(port.LastConnectionMac);
             if (result.Category != ClientDeviceCategory.Unknown)
             {
-                // Take the highest confidence detection
-                if (bestResult == null || result.ConfidenceScore > bestResult.ConfidenceScore)
+                bestResult = result;
+            }
+        }
+
+        // Priority 2: MAC restrictions (if configured)
+        var macs = port.AllowedMacAddresses;
+        if (macs != null && macs.Count > 0)
+        {
+            foreach (var mac in macs)
+            {
+                var result = DetectionService.DetectFromMac(mac);
+                if (result.Category != ClientDeviceCategory.Unknown)
                 {
-                    bestResult = result;
+                    // Take the highest confidence detection
+                    if (bestResult == null || result.ConfidenceScore > bestResult.ConfidenceScore)
+                    {
+                        bestResult = result;
+                    }
                 }
             }
         }
 
-        // Also check port name patterns if we have a port name
+        // Priority 3: Port name patterns
         if (!string.IsNullOrEmpty(port.Name))
         {
             var nameResult = DetectionService.DetectFromPortName(port.Name);
@@ -162,16 +172,17 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
-    /// Check if a port is a down port with MAC restrictions that should be audited.
-    /// Returns true if the port is down, has MAC restrictions, and is an access port.
+    /// Check if a down port has enough information to audit.
+    /// Returns true if the port is down, is an access port, and has either
+    /// a last connection MAC or MAC restrictions configured.
     /// </summary>
-    protected bool IsDownPortWithMacRestrictions(PortInfo port)
+    protected bool IsAuditableDownPort(PortInfo port)
     {
         return !port.IsUp
             && port.ForwardMode == "native"
             && !port.IsUplink
             && !port.IsWan
-            && port.AllowedMacAddresses?.Count > 0;
+            && (!string.IsNullOrEmpty(port.LastConnectionMac) || port.AllowedMacAddresses?.Count > 0);
     }
 
     /// <summary>

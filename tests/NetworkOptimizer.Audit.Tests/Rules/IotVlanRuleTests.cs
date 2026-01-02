@@ -610,6 +610,104 @@ public class IotVlanRuleTests
         result!.DeviceName.Should().Be("Port 5 on Office Switch");
     }
 
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_IoTDevice_OnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Down port with last_connection.mac for a Philips Hue device
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Smart Light Port",
+            isUp: false,
+            networkId: corpNetwork.Id,
+            lastConnectionMac: "00:17:88:11:22:33"); // Philips Hue MAC
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should detect IoT device from last connection MAC
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("port down");
+        result.CurrentNetwork.Should().Be("Corporate");
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_OnIoTVlan_ReturnsNull()
+    {
+        // Arrange - Down port with last connection MAC, correctly on IoT VLAN
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 40, Purpose = NetworkPurpose.IoT };
+        var port = CreatePort(
+            portName: "Smart Light Port",
+            isUp: false,
+            networkId: iotNetwork.Id,
+            lastConnectionMac: "00:17:88:11:22:33");
+        var networks = CreateNetworkList(iotNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Correctly placed, no issue
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithLastConnectionMac_NonIoTDevice_ReturnsNull()
+    {
+        // Arrange - Down port with last connection MAC for non-IoT device (Dell)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Workstation Port",
+            isUp: false,
+            networkId: corpNetwork.Id,
+            lastConnectionMac: "00:14:22:11:22:33"); // Dell MAC prefix
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Not an IoT device
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithBothLastConnectionAndMacRestriction_UsesHighestConfidence()
+    {
+        // Arrange - Down port with both last connection and MAC restriction
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "IoT Port",
+            isUp: false,
+            networkId: corpNetwork.Id,
+            lastConnectionMac: "00:17:88:11:22:33", // Philips Hue (IoT)
+            allowedMacAddresses: new List<string> { "00:17:88:44:55:66" }); // Also Philips Hue
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should detect IoT from either source
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("port down");
+    }
+
+    [Fact]
+    public void Evaluate_DownPortWithNoMacInfo_ReturnsNull()
+    {
+        // Arrange - Down port with no last connection MAC and no MAC restrictions
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(
+            portName: "Empty Port",
+            isUp: false,
+            networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - No MAC info, should skip
+        result.Should().BeNull();
+    }
+
     #endregion
 
     #region Helper Methods
@@ -625,7 +723,8 @@ public class IotVlanRuleTests
         string switchName = "Test Switch",
         ClientDeviceCategory deviceCategory = ClientDeviceCategory.Unknown,
         string? connectedClientName = null,
-        List<string>? allowedMacAddresses = null)
+        List<string>? allowedMacAddresses = null,
+        string? lastConnectionMac = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -660,7 +759,8 @@ public class IotVlanRuleTests
             NativeNetworkId = networkId,
             Switch = switchInfo,
             ConnectedClient = connectedClient,
-            AllowedMacAddresses = allowedMacAddresses
+            AllowedMacAddresses = allowedMacAddresses,
+            LastConnectionMac = lastConnectionMac
         };
     }
 

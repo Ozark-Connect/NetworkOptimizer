@@ -31,13 +31,13 @@ public class CameraVlanRule : AuditRuleBase
             // Active port: use full detection with connected client
             detection = DetectDeviceType(port);
         }
-        else if (IsDownPortWithMacRestrictions(port))
+        else if (IsAuditableDownPort(port))
         {
-            // Down port with MAC restrictions: detect from allowed MACs
-            var macDetection = DetectDeviceTypeFromMacRestrictions(port);
-            if (macDetection == null)
+            // Down port: detect from last connection MAC or MAC restrictions
+            var downPortDetection = DetectDeviceTypeForDownPort(port);
+            if (downPortDetection == null)
                 return null;
-            detection = macDetection;
+            detection = downPortDetection;
             isDownPort = true;
         }
         else
