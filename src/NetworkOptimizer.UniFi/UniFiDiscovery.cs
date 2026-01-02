@@ -28,7 +28,15 @@ public class UniFiDiscovery
     {
         _logger.LogInformation("Starting UniFi device discovery via API");
 
-        var devices = await _apiClient.GetDevicesAsync(cancellationToken);
+        // Fetch devices and network configs in parallel
+        var devicesTask = _apiClient.GetDevicesAsync(cancellationToken);
+        var networksTask = _apiClient.GetNetworkConfigsAsync(cancellationToken);
+
+        await Task.WhenAll(devicesTask, networksTask);
+
+        var devices = await devicesTask;
+        var networks = await networksTask;
+
         if (devices == null || devices.Count == 0)
         {
             _logger.LogWarning("No devices discovered");
@@ -37,40 +45,87 @@ public class UniFiDiscovery
 
         _logger.LogInformation("Discovered {Count} UniFi devices", devices.Count);
 
-        var discoveredDevices = devices.Select(d => new DiscoveredDevice
+        // Find the default LAN network gateway IP for gateways
+        var defaultLanGatewayIp = GetDefaultLanGatewayIp(networks);
+
+        var discoveredDevices = devices.Select(d =>
         {
-            Id = d.Id,
-            Mac = d.Mac,
-            Name = d.Name,
-            Type = DetermineDeviceType(d.Type),
-            Model = d.Model,
-            Shortname = d.Shortname,
-            ModelDisplay = d.ModelDisplay,
-            IpAddress = d.Ip,
-            Firmware = d.Version,
-            Adopted = d.Adopted,
-            State = d.State,
-            Uptime = TimeSpan.FromSeconds(d.Uptime),
-            LastSeen = DateTimeOffset.FromUnixTimeSeconds(d.LastSeen).DateTime,
-            Upgradable = d.Upgradable,
-            UpgradeToFirmware = d.UpgradeToFirmware,
-            UplinkMac = d.Uplink?.UplinkMac,
-            UplinkPort = d.Uplink?.UplinkRemotePort,
-            IsUplinkConnected = d.Uplink?.Up ?? false,
-            // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
-            UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
-                ? (int)(d.Uplink.TxRate / 1000)
-                : d.Uplink?.Speed ?? 0,
-            UplinkType = d.Uplink?.Type,
-            CpuUsage = d.SystemStats?.Cpu,
-            MemoryUsage = d.SystemStats?.Mem,
-            LoadAverage = d.SystemStats?.LoadAvg1,
-            TxBytes = d.Stats?.TxBytes ?? 0,
-            RxBytes = d.Stats?.RxBytes ?? 0,
-            PortCount = d.PortTable?.Count ?? 0
+            var deviceType = DetermineDeviceType(d.Type);
+            return new DiscoveredDevice
+            {
+                Id = d.Id,
+                Mac = d.Mac,
+                Name = d.Name,
+                Type = deviceType,
+                Model = d.Model,
+                Shortname = d.Shortname,
+                ModelDisplay = d.ModelDisplay,
+                IpAddress = d.Ip,
+                // Set LAN IP for gateways from network config
+                LanIpAddress = deviceType.IsGateway() ? defaultLanGatewayIp : null,
+                Firmware = d.Version,
+                Adopted = d.Adopted,
+                State = d.State,
+                Uptime = TimeSpan.FromSeconds(d.Uptime),
+                LastSeen = DateTimeOffset.FromUnixTimeSeconds(d.LastSeen).DateTime,
+                Upgradable = d.Upgradable,
+                UpgradeToFirmware = d.UpgradeToFirmware,
+                UplinkMac = d.Uplink?.UplinkMac,
+                UplinkPort = d.Uplink?.UplinkRemotePort,
+                IsUplinkConnected = d.Uplink?.Up ?? false,
+                // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
+                UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
+                    ? (int)(d.Uplink.TxRate / 1000)
+                    : d.Uplink?.Speed ?? 0,
+                UplinkType = d.Uplink?.Type,
+                CpuUsage = d.SystemStats?.Cpu,
+                MemoryUsage = d.SystemStats?.Mem,
+                LoadAverage = d.SystemStats?.LoadAvg1,
+                TxBytes = d.Stats?.TxBytes ?? 0,
+                RxBytes = d.Stats?.RxBytes ?? 0,
+                PortCount = d.PortTable?.Count ?? 0
+            };
         }).ToList();
 
         return discoveredDevices;
+    }
+
+    /// <summary>
+    /// Gets the gateway IP from the default LAN network configuration.
+    /// This is the gateway's LAN-facing IP (not the WAN IP).
+    /// </summary>
+    private string? GetDefaultLanGatewayIp(List<UniFiNetworkConfig>? networks)
+    {
+        if (networks == null || networks.Count == 0)
+            return null;
+
+        // Find the default LAN network - typically:
+        // 1. Purpose = "corporate" with no VLAN (the default LAN)
+        // 2. Or the first "corporate" network if all have VLANs
+        var defaultLan = networks
+            .Where(n => n.Purpose == "corporate" && n.Enabled)
+            .OrderBy(n => n.Vlan ?? 0) // Prefer no VLAN (0) first
+            .FirstOrDefault();
+
+        if (defaultLan == null)
+            return null;
+
+        // First try DhcpdGateway (explicitly configured gateway IP)
+        if (!string.IsNullOrEmpty(defaultLan.DhcpdGateway))
+        {
+            _logger.LogDebug("Gateway LAN IP from DhcpdGateway: {Ip}", defaultLan.DhcpdGateway);
+            return defaultLan.DhcpdGateway;
+        }
+
+        // Otherwise extract from ip_subnet (e.g., "192.168.1.1/24" -> "192.168.1.1")
+        if (!string.IsNullOrEmpty(defaultLan.IpSubnet))
+        {
+            var ip = defaultLan.IpSubnet.Split('/')[0];
+            _logger.LogDebug("Gateway LAN IP from IpSubnet: {Ip}", ip);
+            return ip;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -312,6 +367,19 @@ public class DiscoveredDevice
         UniFiProductDatabase.IsMipsArchitecture(FriendlyModelName);
 
     public string IpAddress { get; set; } = string.Empty;
+
+    /// <summary>
+    /// LAN IP address for gateways (from network config).
+    /// For non-gateway devices, this is null.
+    /// </summary>
+    public string? LanIpAddress { get; set; }
+
+    /// <summary>
+    /// Gets the best IP address for display purposes.
+    /// For gateways, prefers LAN IP; for other devices, uses standard IP.
+    /// </summary>
+    public string DisplayIpAddress => !string.IsNullOrEmpty(LanIpAddress) ? LanIpAddress : IpAddress;
+
     public string Firmware { get; set; } = string.Empty;
     public bool Adopted { get; set; }
     public int State { get; set; }

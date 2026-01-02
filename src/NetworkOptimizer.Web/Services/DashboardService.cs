@@ -52,7 +52,7 @@ public class DashboardService
                     Name = d.Name ?? d.Mac ?? "Unknown",
                     Type = d.Type,
                     Status = d.State == 1 ? "Online" : "Offline",
-                    IpAddress = d.IpAddress ?? "",
+                    IpAddress = d.DisplayIpAddress ?? "",
                     Model = d.FriendlyModelName,
                     Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
                 })
