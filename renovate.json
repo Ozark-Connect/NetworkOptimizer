@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/Dockerfile$"],
+      "matchStrings": ["ARG IPERF3_VERSION=(?<currentValue>\\d+\\.\\d+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "esnet/iperf",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["esnet/iperf"],
+      "description": "iperf3 updates",
+      "automerge": false
+    }
+  ]
+}
