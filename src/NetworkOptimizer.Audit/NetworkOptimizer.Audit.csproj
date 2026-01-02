@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NetworkOptimizer.Core\NetworkOptimizer.Core.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.Reports\NetworkOptimizer.Reports.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.UniFi\NetworkOptimizer.UniFi.csproj" />
   </ItemGroup>
 

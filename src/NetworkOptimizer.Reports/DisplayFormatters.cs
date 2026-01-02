@@ -8,10 +8,16 @@ public static class DisplayFormatters
 {
     #region Device Name Formatting
 
+    // Known network device type keywords for prefix stripping
+    private static readonly string[] DeviceTypeKeywords = { "Gateway", "Switch", "AP", "Router", "Firewall" };
+
     /// <summary>
     /// Strip any existing device type prefix from a name.
-    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
-    /// Example: "[Switch] Office" → "Office"
+    /// Handles various prefix formats:
+    /// - "[Switch] Office" → "Office"
+    /// - "(Switch) Office" → "Office"
+    /// - "Switch - Office" → "Office"
+    /// - "Switch: Office" → "Office"
     /// </summary>
     public static string StripDevicePrefix(string? deviceName)
     {
@@ -20,17 +26,56 @@ public static class DisplayFormatters
 
         var name = deviceName.Trim();
 
-        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
+        // Pattern 1: Bracketed prefix like [Gateway], [Switch], [AP]
         if (name.StartsWith("["))
         {
             var closeBracket = name.IndexOf(']');
             if (closeBracket > 0 && closeBracket < name.Length - 1)
             {
-                name = name[(closeBracket + 1)..].TrimStart();
+                return name[(closeBracket + 1)..].TrimStart();
+            }
+        }
+
+        // Pattern 2: Parenthetical prefix like (Switch), (AP)
+        if (name.StartsWith("("))
+        {
+            var closeParen = name.IndexOf(')');
+            if (closeParen > 0 && closeParen < name.Length - 1)
+            {
+                var prefix = name[1..closeParen];
+                if (IsDeviceTypeKeyword(prefix))
+                {
+                    return name[(closeParen + 1)..].TrimStart();
+                }
+            }
+        }
+
+        // Pattern 3: Keyword followed by separator like "Switch - ", "AP: "
+        foreach (var keyword in DeviceTypeKeywords)
+        {
+            // "Switch - Name" or "Switch: Name"
+            var dashPattern = $"{keyword} - ";
+            if (name.StartsWith(dashPattern, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[dashPattern.Length..].TrimStart();
+            }
+
+            var colonPattern = $"{keyword}: ";
+            if (name.StartsWith(colonPattern, StringComparison.OrdinalIgnoreCase))
+            {
+                return name[colonPattern.Length..].TrimStart();
             }
         }
 
         return name;
+    }
+
+    /// <summary>
+    /// Check if a string is a known device type keyword.
+    /// </summary>
+    private static bool IsDeviceTypeKeyword(string value)
+    {
+        return DeviceTypeKeywords.Any(k => k.Equals(value, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

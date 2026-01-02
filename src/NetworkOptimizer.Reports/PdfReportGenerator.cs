@@ -709,10 +709,11 @@ public class PdfReportGenerator
                 var issueCount = ap.Clients.Count(c => c.HasIssue);
 
                 // Format AP header like switches: [AP] Name (Model)
+                var cleanApName = DisplayFormatters.StripDevicePrefix(ap.Name);
                 var modelDisplay = !string.IsNullOrEmpty(ap.ModelName) ? ap.ModelName : ap.Model ?? "";
                 var headerText = !string.IsNullOrEmpty(modelDisplay)
-                    ? $"[AP] {ap.Name} ({modelDisplay})"
-                    : $"[AP] {ap.Name}";
+                    ? $"[AP] {cleanApName} ({modelDisplay})"
+                    : $"[AP] {cleanApName}";
 
                 column.Item()
                     .PaddingBottom(6)

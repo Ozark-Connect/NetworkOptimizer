@@ -8,6 +8,8 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
+using static NetworkOptimizer.Reports.DisplayFormatters;
+
 namespace NetworkOptimizer.Audit;
 
 /// <summary>
@@ -631,31 +633,6 @@ public class ConfigAuditEngine
         File.WriteAllText(outputPath, content);
         _logger.LogInformation("Audit results saved to {OutputPath}", outputPath);
     }
-
-    /// <summary>
-    /// Strip any existing device type prefix from a name.
-    /// Handles prefixes like [Gateway], [Switch], [AP], etc.
-    /// </summary>
-    private static string StripDevicePrefix(string deviceName)
-    {
-        if (string.IsNullOrWhiteSpace(deviceName))
-            return deviceName;
-
-        var name = deviceName.Trim();
-
-        // Strip bracketed prefix like [Gateway], [Switch], [AP], etc.
-        if (name.StartsWith("["))
-        {
-            var closeBracket = name.IndexOf(']');
-            if (closeBracket > 0 && closeBracket < name.Length - 1)
-            {
-                name = name[(closeBracket + 1)..].TrimStart();
-            }
-        }
-
-        return name;
-    }
-
 
     /// <summary>
     /// Check if port name indicates an IoT device
