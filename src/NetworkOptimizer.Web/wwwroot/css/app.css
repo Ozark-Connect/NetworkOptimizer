@@ -2455,10 +2455,10 @@ td .btn + .btn {
 .path-analysis .path-connector.wireless::before {
     content: '📶';
     position: absolute;
-    top: -1.1rem;
+    top: -0.9rem;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 0.7rem;
+    font-size: 0.9rem;
     line-height: 1;
 }
 
