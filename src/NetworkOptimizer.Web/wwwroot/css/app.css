@@ -2447,6 +2447,21 @@ td .btn + .btn {
     font-weight: 500;
 }
 
+/* Wireless link indicator - shows wifi icon above the connector line */
+.path-analysis .path-connector.wireless {
+    position: relative;
+}
+
+.path-analysis .path-connector.wireless::before {
+    content: '📶';
+    position: absolute;
+    top: -1.1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    line-height: 1;
+}
+
 /* Warnings and badges */
 .path-analysis .bottleneck-warning {
     padding: 0.5rem 0.75rem;

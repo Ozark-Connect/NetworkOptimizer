@@ -87,7 +87,9 @@
                             var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck &&
                                                    linkSpeed > 0 &&
                                                    linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
-                            <div class="path-connector @(isBottleneckLink ? "bottleneck" : "")">
+                            @* Check if this link is wireless (current hop egress or next hop ingress) *@
+                            var isWirelessLink = hop.IsWirelessEgress || nextHop.IsWirelessIngress;
+                            <div class="path-connector @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
                                 <span class="connector-line"></span>
                                 @if (linkSpeed > 0)
                                 {
