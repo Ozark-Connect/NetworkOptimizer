@@ -3321,8 +3321,8 @@ td .btn + .btn {
 }
 
 .device-icon-md {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
 }
 
 .device-icon-lg {
@@ -3364,12 +3364,6 @@ td .btn + .btn {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-}
-
-/* Path visualization hop icons */
-.path-hop .device-icon {
-    width: 24px;
-    height: 24px;
 }
 
 /* Table icon cell */

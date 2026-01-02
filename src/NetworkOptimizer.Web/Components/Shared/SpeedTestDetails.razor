@@ -277,10 +277,10 @@
     {
         var model = hop.DeviceModel;
 
-        // Only show device icons for actual UniFi devices (switch, AP, gateway)
-        // Client and Server types don't have UniFi device images
+        // Show device icons for any UniFi infrastructure device with a model name
+        // Client, WirelessClient, and Server are endpoints without UniFi device images
         if (!string.IsNullOrEmpty(model) &&
-            (hop.Type == HopType.Switch || hop.Type == HopType.AccessPoint || hop.Type == HopType.Gateway))
+            hop.Type != HopType.Client && hop.Type != HopType.WirelessClient && hop.Type != HopType.Server)
         {
             var iconPath = DeviceIcon.GetIconPath(model);
             if (iconPath != null)
