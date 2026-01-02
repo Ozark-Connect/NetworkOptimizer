@@ -9,7 +9,7 @@
     // Load mappings from backend
     async function loadMappings() {
         try {
-            const response = await fetch('/api/demo-mappings');
+            const response = await fetch('/api/demo-mappings', { credentials: 'include' });
             if (response.ok) {
                 const data = await response.json();
                 if (data && data.mappings && data.mappings.length > 0) {
