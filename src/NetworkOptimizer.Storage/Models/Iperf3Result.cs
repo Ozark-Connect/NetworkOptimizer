@@ -80,7 +80,7 @@ public class Iperf3Result
     /// Local IP address used for the test (parsed from iperf3 output).
     /// This is the actual source IP the kernel chose for the connection.
     /// </summary>
-    [NotMapped]
+    [MaxLength(45)]  // IPv6 max length
     public string? LocalIp { get; set; }
 
     /// <summary>

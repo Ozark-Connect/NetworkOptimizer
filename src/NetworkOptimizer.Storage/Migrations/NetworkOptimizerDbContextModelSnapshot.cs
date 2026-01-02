@@ -580,6 +580,10 @@ namespace NetworkOptimizer.Storage.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LocalIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("ParallelStreams")
                         .HasColumnType("INTEGER");
 
