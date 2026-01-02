@@ -916,6 +916,22 @@
                 <small class="form-help">Apple TV, Roku, Fire TV, Chromecast on main/corporate VLANs will show as Info instead of Warning</small>
             </div>
 
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowNameBrandTVsOnMainNetwork" />
+                    <span>Allow name-brand Smart TVs on main network</span>
+                </label>
+                <small class="form-help">LG, Samsung, Sony TVs on main/corporate VLANs will show as Info instead of Warning</small>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowAllTVsOnMainNetwork" />
+                    <span>Allow all Smart TVs on main network</span>
+                </label>
+                <small class="form-help">All Smart TVs on main/corporate VLANs will show as Info instead of Warning</small>
+            </div>
+
             <div class="action-buttons">
                 <button class="btn btn-success" @onclick="SaveAuditSettings" disabled="@savingAuditSettings">
                     @if (savingAuditSettings)
@@ -1085,6 +1101,8 @@
     // Security Audit Settings
     private bool allowAppleStreamingOnMainNetwork = false;
     private bool allowAllStreamingOnMainNetwork = false;
+    private bool allowNameBrandTVsOnMainNetwork = false;
+    private bool allowAllTVsOnMainNetwork = false;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -2062,9 +2080,13 @@
         {
             var appleStreaming = await SystemSettings.GetAsync("audit:allowAppleStreamingOnMainNetwork");
             var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
+            var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
+            var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
+            allowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
+            allowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
         }
         catch (Exception ex)
         {
@@ -2083,6 +2105,8 @@
         {
             await SystemSettings.SetAsync("audit:allowAppleStreamingOnMainNetwork", allowAppleStreamingOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowAllStreamingOnMainNetwork", allowAllStreamingOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:allowNameBrandTVsOnMainNetwork", allowNameBrandTVsOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";

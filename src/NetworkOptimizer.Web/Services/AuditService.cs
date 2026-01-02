@@ -86,12 +86,17 @@ public class AuditService
 
             var appleStreaming = await settingsService.GetAsync("audit:allowAppleStreamingOnMainNetwork");
             var allStreaming = await settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
+            var nameBrandTVs = await settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
+            var allTVs = await settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
+            options.AllowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
+            options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
 
-            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAll={All}",
-                options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork);
+            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}",
+                options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
+                options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork);
         }
         catch (Exception ex)
         {
@@ -789,17 +794,20 @@ public class AuditService
         Dictionary<string, object>? metadata,
         AuditOptions options)
     {
-        // Check if this is a streaming device that should be allowed on main network
+        // Check if this is a streaming device or Smart TV that should be allowed on main network
         if (severity == AuditModels.AuditSeverity.Recommended && metadata != null)
         {
-            if (metadata.TryGetValue("device_category", out var categoryObj) &&
-                categoryObj?.ToString() == "StreamingDevice")
-            {
-                // Check vendor for Apple-specific setting
-                var vendor = metadata.TryGetValue("vendor", out var vendorObj)
-                    ? vendorObj?.ToString() ?? ""
-                    : "";
+            var category = metadata.TryGetValue("device_category", out var categoryObj)
+                ? categoryObj?.ToString() ?? ""
+                : "";
 
+            var vendor = metadata.TryGetValue("vendor", out var vendorObj)
+                ? vendorObj?.ToString() ?? ""
+                : "";
+
+            // Streaming device settings
+            if (category == "StreamingDevice")
+            {
                 // Allow all streaming devices setting takes precedence
                 if (options.AllowAllStreamingOnMainNetwork)
                 {
@@ -809,6 +817,25 @@ public class AuditService
                 // Apple-specific setting (check for "Apple" in vendor name)
                 if (options.AllowAppleStreamingOnMainNetwork &&
                     vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Info";
+                }
+            }
+
+            // Smart TV settings
+            if (category == "SmartTV")
+            {
+                // Allow all Smart TVs setting takes precedence
+                if (options.AllowAllTVsOnMainNetwork)
+                {
+                    return "Info";
+                }
+
+                // Name-brand TVs setting (LG, Samsung, Sony)
+                if (options.AllowNameBrandTVsOnMainNetwork &&
+                    (vendor.Contains("LG", StringComparison.OrdinalIgnoreCase) ||
+                     vendor.Contains("Samsung", StringComparison.OrdinalIgnoreCase) ||
+                     vendor.Contains("Sony", StringComparison.OrdinalIgnoreCase)))
                 {
                     return "Info";
                 }
@@ -950,6 +977,18 @@ public class AuditOptions
     /// When true, these devices show as Info instead of Warning.
     /// </summary>
     public bool AllowAllStreamingOnMainNetwork { get; set; } = false;
+
+    /// <summary>
+    /// Allow name-brand Smart TVs (LG, Samsung, Sony) on main network without warning.
+    /// When true, these devices show as Info instead of Warning.
+    /// </summary>
+    public bool AllowNameBrandTVsOnMainNetwork { get; set; } = false;
+
+    /// <summary>
+    /// Allow all Smart TVs on main network without warning.
+    /// When true, these devices show as Info instead of Warning.
+    /// </summary>
+    public bool AllowAllTVsOnMainNetwork { get; set; } = false;
 }
 
 public class AuditResult
