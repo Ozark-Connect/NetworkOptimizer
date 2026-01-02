@@ -676,7 +676,7 @@ public class NetworkPathAnalyzer
 
             // Add target device as first hop
             var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname, targetDevice.ModelDisplay);
-            _logger.LogInformation("Target device model resolution: Model={Model}, Shortname={Shortname}, ModelDisplay={ModelDisplay} => DeviceModel={DeviceModel}",
+            _logger.LogDebug("Target device model resolution: Model={Model}, Shortname={Shortname}, ModelDisplay={ModelDisplay} => DeviceModel={DeviceModel}",
                 targetDevice.Model, targetDevice.Shortname, targetDevice.ModelDisplay, deviceModel);
             var deviceHop = new NetworkHop
             {
