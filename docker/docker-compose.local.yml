@@ -35,7 +35,7 @@ services:
       start_period: 40s
 
   influxdb:
-    image: influxdb:2.7
+    image: influxdb:2.8
     container_name: network-optimizer-influxdb
     restart: unless-stopped
     ports:
