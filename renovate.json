@@ -1,6 +1,15 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:base"],
+  "extends": [
+    "config:base",
+    ":semanticCommits"
+  ],
+  "nuget": {
+    "enabled": true
+  },
+  "dockerfile": {
+    "enabled": true
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -15,7 +24,38 @@
     {
       "matchPackageNames": ["esnet/iperf"],
       "description": "iperf3 updates",
+      "groupName": "iperf3"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackagePatterns": ["mcr.microsoft.com/dotnet/*"],
+      "description": ".NET Docker images",
+      "groupName": "dotnet-docker"
+    },
+    {
+      "matchDatasources": ["nuget"],
+      "matchPackagePatterns": ["Microsoft.*", "System.*"],
+      "description": "Microsoft NuGet packages",
+      "groupName": "microsoft-nuget"
+    },
+    {
+      "matchDatasources": ["nuget"],
+      "excludePackagePatterns": ["Microsoft.*", "System.*"],
+      "description": "Third-party NuGet packages",
+      "groupName": "nuget-dependencies"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "labels": ["major-update"],
+      "automerge": false
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchDatasources": ["nuget"],
       "automerge": false
     }
-  ]
+  ],
+  "labels": ["dependencies"],
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 10
 }
