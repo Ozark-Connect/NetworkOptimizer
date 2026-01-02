@@ -1,6 +1,6 @@
 # Multi-stage build for Network Optimizer
 # Stage 1: Build stage with full .NET SDK
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy solution file, build props, and all project files first for layer caching
@@ -29,7 +29,7 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     --no-restore
 
 # Stage 2: Build iperf3 from source for latest version
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS iperf-build
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
 
 # iperf3 version - check https://github.com/esnet/iperf/releases for updates
 ARG IPERF3_VERSION=3.20
@@ -50,7 +50,7 @@ RUN curl -LO https://github.com/esnet/iperf/releases/download/${IPERF3_VERSION}/
     && make install
 
 # Stage 3: Runtime stage with ASP.NET runtime only
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Install necessary utilities (without iperf3 - we copy it from build)
