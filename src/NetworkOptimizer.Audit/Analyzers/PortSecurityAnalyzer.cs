@@ -529,7 +529,7 @@ public class PortSecurityAnalyzer
                 AccessPointModelName = apInfo?.ModelName
             });
 
-            _logger.LogInformation("Wireless client: {Name} ({Mac}) on {Network} - detected as {Category}, Radio={Radio}, Channel={Channel}",
+            _logger.LogDebug("Wireless client: {Name} ({Mac}) on {Network} - detected as {Category}, Radio={Radio}, Channel={Channel}",
                 client.Name ?? client.Hostname ?? client.Mac,
                 client.Mac,
                 network?.Name ?? "Unknown",
