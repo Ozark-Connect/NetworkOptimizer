@@ -27,9 +27,10 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
         if (network == null)
             return null;
 
-        // Check placement using shared logic
+        // Check placement using shared logic (with device allowance settings)
         var placement = VlanPlacementChecker.CheckIoTPlacement(
-            client.Detection.Category, network, networks, ScoreImpact);
+            client.Detection.Category, network, networks, ScoreImpact,
+            AllowanceSettings, client.Detection.VendorName);
 
         if (placement.IsCorrectlyPlaced)
             return null;

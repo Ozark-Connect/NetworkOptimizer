@@ -37,6 +37,7 @@ public class ConfigAuditEngine
         public required JsonElement? FirewallPoliciesData { get; init; }
         public required string? ClientName { get; init; }
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
+        public required DeviceAllowanceSettings AllowanceSettings { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -80,7 +81,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
@@ -90,7 +91,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data and fingerprint database for enhanced detection
@@ -101,7 +102,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with all available data sources
@@ -113,18 +114,39 @@ public class ConfigAuditEngine
     /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public async Task<AuditResult> RunAuditAsync(
+    public Task<AuditResult> RunAuditAsync(
         string deviceDataJson,
         List<UniFiClientResponse>? clients,
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
         JsonElement? firewallPoliciesData,
         string? clientName = null)
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings: null, clientName);
+
+    /// <summary>
+    /// Run a comprehensive audit on UniFi device data with all available data sources and device allowance settings
+    /// </summary>
+    /// <param name="deviceDataJson">JSON string containing UniFi device data from /stat/device API</param>
+    /// <param name="clients">Connected clients for device type detection (optional)</param>
+    /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
+    /// <param name="settingsData">Site settings data including DoH configuration (optional)</param>
+    /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
+    /// <param name="allowanceSettings">Settings for allowing devices on main network (optional)</param>
+    /// <param name="clientName">Optional client/site name for the report</param>
+    /// <returns>Complete audit results</returns>
+    public async Task<AuditResult> RunAuditAsync(
+        string deviceDataJson,
+        List<UniFiClientResponse>? clients,
+        UniFiFingerprintDatabase? fingerprintDb,
+        JsonElement? settingsData,
+        JsonElement? firewallPoliciesData,
+        DeviceAllowanceSettings? allowanceSettings,
+        string? clientName = null)
     {
         _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
 
         // Initialize context with parsed data and security engine
-        var ctx = InitializeAuditContext(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, clientName);
+        var ctx = InitializeAuditContext(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, clientName);
 
         // Execute audit phases
         ExecutePhase1_ExtractNetworks(ctx);
@@ -154,6 +176,7 @@ public class ConfigAuditEngine
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
         JsonElement? firewallPoliciesData,
+        DeviceAllowanceSettings? allowanceSettings,
         string? clientName)
     {
         if (clients != null)
@@ -187,6 +210,10 @@ public class ConfigAuditEngine
             throw new InvalidOperationException("Invalid device data JSON format. Ensure the data is valid JSON from the UniFi API.", ex);
         }
 
+        // Apply allowance settings to rules
+        var effectiveSettings = allowanceSettings ?? DeviceAllowanceSettings.Default;
+        securityEngine.SetAllowanceSettings(effectiveSettings);
+
         return new AuditContext
         {
             DeviceData = deviceData,
@@ -194,7 +221,8 @@ public class ConfigAuditEngine
             SettingsData = settingsData,
             FirewallPoliciesData = firewallPoliciesData,
             ClientName = clientName,
-            SecurityEngine = securityEngine
+            SecurityEngine = securityEngine,
+            AllowanceSettings = effectiveSettings
         };
     }
 

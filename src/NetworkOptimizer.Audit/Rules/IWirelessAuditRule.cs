@@ -59,6 +59,19 @@ public abstract class WirelessAuditRuleBase : IWirelessAuditRule
     public virtual int ScoreImpact { get; } = 5;
     public virtual bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Device allowance settings for allowing certain devices on main network
+    /// </summary>
+    protected DeviceAllowanceSettings AllowanceSettings { get; private set; } = DeviceAllowanceSettings.Default;
+
+    /// <summary>
+    /// Set the allowance settings for device placement rules
+    /// </summary>
+    public void SetAllowanceSettings(DeviceAllowanceSettings settings)
+    {
+        AllowanceSettings = settings;
+    }
+
     public abstract AuditIssue? Evaluate(WirelessClientInfo client, List<NetworkInfo> networks);
 
     /// <summary>

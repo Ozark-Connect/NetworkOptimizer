@@ -36,6 +36,26 @@ public static class VlanPlacementChecker
         NetworkInfo? currentNetwork,
         List<NetworkInfo> allNetworks,
         int defaultScoreImpact = 10)
+        => CheckIoTPlacement(category, currentNetwork, allNetworks, defaultScoreImpact, null, null);
+
+    /// <summary>
+    /// Check if an IoT device is correctly placed on an IoT or Security VLAN,
+    /// with optional device allowance settings.
+    /// </summary>
+    /// <param name="category">Device category from detection</param>
+    /// <param name="currentNetwork">The network the device is currently on</param>
+    /// <param name="allNetworks">All available networks</param>
+    /// <param name="defaultScoreImpact">Default score impact if not low-risk</param>
+    /// <param name="allowanceSettings">Settings for allowing devices on main network</param>
+    /// <param name="vendorName">Vendor name for device-specific allowances</param>
+    /// <returns>Placement result with recommendation</returns>
+    public static PlacementResult CheckIoTPlacement(
+        ClientDeviceCategory category,
+        NetworkInfo? currentNetwork,
+        List<NetworkInfo> allNetworks,
+        int defaultScoreImpact,
+        DeviceAllowanceSettings? allowanceSettings,
+        string? vendorName)
     {
         // IoT devices can be on IoT or Security networks
         var isCorrectlyPlaced = currentNetwork != null &&
@@ -56,6 +76,23 @@ public static class VlanPlacementChecker
         var isLowRisk = category.IsLowRiskIoT();
         var severity = isLowRisk ? AuditSeverity.Recommended : AuditSeverity.Critical;
         var scoreImpact = isLowRisk ? ScoreConstants.LowRiskIoTImpact : defaultScoreImpact;
+
+        // Check if device is explicitly allowed on main network
+        if (allowanceSettings != null && isLowRisk)
+        {
+            var isAllowed = category switch
+            {
+                ClientDeviceCategory.StreamingDevice => allowanceSettings.IsStreamingDeviceAllowed(vendorName),
+                ClientDeviceCategory.SmartTV => allowanceSettings.IsSmartTVAllowed(vendorName),
+                _ => false
+            };
+
+            if (isAllowed)
+            {
+                severity = AuditSeverity.Informational;
+                scoreImpact = ScoreConstants.InformationalImpact;
+            }
+        }
 
         return new PlacementResult(
             IsCorrectlyPlaced: isCorrectlyPlaced,

@@ -65,11 +65,24 @@ public abstract class AuditRuleBase : IAuditRule
     protected DeviceTypeDetectionService? DetectionService { get; private set; }
 
     /// <summary>
+    /// Device allowance settings for allowing certain devices on main network
+    /// </summary>
+    protected DeviceAllowanceSettings AllowanceSettings { get; private set; } = DeviceAllowanceSettings.Default;
+
+    /// <summary>
     /// Set the detection service for enhanced device type detection
     /// </summary>
     public void SetDetectionService(DeviceTypeDetectionService service)
     {
         DetectionService = service;
+    }
+
+    /// <summary>
+    /// Set the allowance settings for device placement rules
+    /// </summary>
+    public void SetAllowanceSettings(DeviceAllowanceSettings settings)
+    {
+        AllowanceSettings = settings;
     }
 
     public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks);

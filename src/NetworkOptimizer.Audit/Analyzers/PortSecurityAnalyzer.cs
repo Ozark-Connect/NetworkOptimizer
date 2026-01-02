@@ -81,6 +81,22 @@ public class PortSecurityAnalyzer
     }
 
     /// <summary>
+    /// Set device allowance settings on all rules
+    /// </summary>
+    public void SetAllowanceSettings(DeviceAllowanceSettings settings)
+    {
+        foreach (var rule in _rules.OfType<AuditRuleBase>())
+        {
+            rule.SetAllowanceSettings(settings);
+        }
+        foreach (var rule in _wirelessRules.OfType<WirelessAuditRuleBase>())
+        {
+            rule.SetAllowanceSettings(settings);
+        }
+        _logger.LogDebug("Device allowance settings applied to audit rules");
+    }
+
+    /// <summary>
     /// Extract switch and port information from UniFi device JSON
     /// </summary>
     public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks)

@@ -401,4 +401,31 @@ app.MapGet("/api/auth/check", async (HttpContext context, JwtService jwt) =>
     return Results.Unauthorized();
 });
 
+// Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
+app.MapGet("/api/demo-mappings", () =>
+{
+    var mappingsEnv = Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS");
+    if (string.IsNullOrWhiteSpace(mappingsEnv))
+    {
+        return Results.Ok(new { mappings = Array.Empty<object>() });
+    }
+
+    // Parse format: "key1:value1,key2:value2"
+    var mappings = mappingsEnv
+        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+        .Select(pair =>
+        {
+            var parts = pair.Split(':', 2);
+            if (parts.Length == 2)
+            {
+                return new { from = parts[0].Trim(), to = parts[1].Trim() };
+            }
+            return null;
+        })
+        .Where(m => m != null)
+        .ToArray();
+
+    return Results.Ok(new { mappings });
+});
+
 app.Run();

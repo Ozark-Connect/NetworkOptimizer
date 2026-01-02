@@ -513,8 +513,17 @@ public class AuditService
 
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
+            // Convert options to allowance settings for the audit engine
+            var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
+            {
+                AllowAppleStreamingOnMainNetwork = options.AllowAppleStreamingOnMainNetwork,
+                AllowAllStreamingOnMainNetwork = options.AllowAllStreamingOnMainNetwork,
+                AllowNameBrandTVsOnMainNetwork = options.AllowNameBrandTVsOnMainNetwork,
+                AllowAllTVsOnMainNetwork = options.AllowAllTVsOnMainNetwork
+            };
+
             // Run the audit engine with all available data for comprehensive analysis
-            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, "Network Audit");
+            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
@@ -569,7 +578,7 @@ public class AuditService
 
             issues.Add(new AuditIssue
             {
-                Severity = ConvertSeverity(issue.Severity, issue.Metadata, options),
+                Severity = ConvertSeverity(issue.Severity),
                 Category = category,
                 Title = GetIssueTitle(issue.Type, issue.Message),
                 Description = issue.Message,
@@ -789,75 +798,13 @@ public class AuditService
         _ => true
     };
 
-    /// <summary>
-    /// Check if an issue should be downgraded to Info based on device settings.
-    /// Used for both display severity and score calculation.
-    /// </summary>
-    private static bool ShouldDowngradeToInfo(
-        AuditModels.AuditSeverity severity,
-        Dictionary<string, object>? metadata,
-        AuditOptions options)
+    private static string ConvertSeverity(AuditModels.AuditSeverity severity) => severity switch
     {
-        // Only downgrade Recommended (Warning) severity issues
-        if (severity != AuditModels.AuditSeverity.Recommended || metadata == null)
-            return false;
-
-        var category = metadata.TryGetValue("device_category", out var categoryObj)
-            ? categoryObj?.ToString() ?? ""
-            : "";
-
-        var vendor = metadata.TryGetValue("vendor", out var vendorObj)
-            ? vendorObj?.ToString() ?? ""
-            : "";
-
-        // Streaming device settings
-        if (category == "StreamingDevice")
-        {
-            // Allow all streaming devices setting takes precedence
-            if (options.AllowAllStreamingOnMainNetwork)
-                return true;
-
-            // Apple-specific setting (check for "Apple" in vendor name)
-            if (options.AllowAppleStreamingOnMainNetwork &&
-                vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-
-        // Smart TV settings
-        if (category == "SmartTV")
-        {
-            // Allow all Smart TVs setting takes precedence
-            if (options.AllowAllTVsOnMainNetwork)
-                return true;
-
-            // Name-brand TVs setting (LG, Samsung, Sony)
-            if (options.AllowNameBrandTVsOnMainNetwork &&
-                (vendor.Contains("LG", StringComparison.OrdinalIgnoreCase) ||
-                 vendor.Contains("Samsung", StringComparison.OrdinalIgnoreCase) ||
-                 vendor.Contains("Sony", StringComparison.OrdinalIgnoreCase)))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static string ConvertSeverity(
-        AuditModels.AuditSeverity severity,
-        Dictionary<string, object>? metadata,
-        AuditOptions options)
-    {
-        // Check if this issue should be downgraded to Info
-        if (ShouldDowngradeToInfo(severity, metadata, options))
-            return "Info";
-
-        return severity switch
-        {
-            AuditModels.AuditSeverity.Critical => "Critical",
-            AuditModels.AuditSeverity.Recommended => "Warning",
-            AuditModels.AuditSeverity.Informational => "Info",
-            _ => "Info"
-        };
-    }
+        AuditModels.AuditSeverity.Critical => "Critical",
+        AuditModels.AuditSeverity.Recommended => "Warning",
+        AuditModels.AuditSeverity.Informational => "Info",
+        _ => "Info"
+    };
 
     private static string GetIssueTitle(string type, string message)
     {
@@ -895,6 +842,7 @@ public class AuditService
     /// <summary>
     /// Calculate security score based only on issues from enabled features.
     /// This ensures excluded features don't affect the score.
+    /// Severity is already set correctly by the audit engine based on device allowance settings.
     /// </summary>
     private int CalculateFilteredScore(AuditModels.AuditResult engineResult, AuditOptions options)
     {
@@ -904,20 +852,16 @@ public class AuditService
             .ToList();
 
         // Calculate deductions from filtered issues only
-        // Issues that should be downgraded to Info (allowed streaming/TV devices) are not counted as Recommended
         var criticalDeduction = Math.Min(
             filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Critical).Sum(i => i.ScoreImpact),
             Audit.Scoring.ScoreConstants.MaxCriticalDeduction);
 
         var recommendedDeduction = Math.Min(
-            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Recommended &&
-                                      !ShouldDowngradeToInfo(i.Severity, i.Metadata, options)).Sum(i => i.ScoreImpact),
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Recommended).Sum(i => i.ScoreImpact),
             Audit.Scoring.ScoreConstants.MaxRecommendedDeduction);
 
-        // Include downgraded issues in informational count
         var informationalDeduction = Math.Min(
-            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Informational ||
-                                      ShouldDowngradeToInfo(i.Severity, i.Metadata, options)).Sum(i => i.ScoreImpact),
+            filteredIssues.Where(i => i.Severity == AuditModels.AuditSeverity.Informational).Sum(i => i.ScoreImpact),
             Audit.Scoring.ScoreConstants.MaxInformationalDeduction);
 
         // Calculate hardening bonus (same as original - not filtered)

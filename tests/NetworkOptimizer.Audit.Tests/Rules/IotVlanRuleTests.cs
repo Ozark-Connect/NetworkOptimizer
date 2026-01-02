@@ -804,4 +804,135 @@ public class IotVlanRuleTests
     }
 
     #endregion
+
+    #region Device Allowance Settings Tests
+
+    [Fact]
+    public void Evaluate_StreamingDevice_AllowAllStreaming_ReturnsInformational()
+    {
+        // Arrange
+        var rule = new IotVlanRule();
+        rule.SetDetectionService(_detectionService);
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAllStreamingOnMainNetwork = true
+        });
+
+        var port = CreatePort(portName: "Roku", deviceCategory: ClientDeviceCategory.StreamingDevice);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+    }
+
+    [Fact]
+    public void Evaluate_StreamingDevice_AllowAppleOnly_NonApple_ReturnsRecommended()
+    {
+        // Arrange
+        var rule = new IotVlanRule();
+        rule.SetDetectionService(_detectionService);
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAppleStreamingOnMainNetwork = true
+        });
+
+        var port = CreatePort(portName: "Roku", deviceCategory: ClientDeviceCategory.StreamingDevice);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void Evaluate_SmartTV_AllowAllTVs_ReturnsInformational()
+    {
+        // Arrange
+        var rule = new IotVlanRule();
+        rule.SetDetectionService(_detectionService);
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAllTVsOnMainNetwork = true
+        });
+
+        var port = CreatePort(portName: "Smart TV", deviceCategory: ClientDeviceCategory.SmartTV);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+    }
+
+    [Fact]
+    public void Evaluate_SmartTV_AllowNameBrandOnly_Generic_ReturnsRecommended()
+    {
+        // Arrange
+        var rule = new IotVlanRule();
+        rule.SetDetectionService(_detectionService);
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowNameBrandTVsOnMainNetwork = true
+        });
+
+        // Generic TV (no vendor) should still be Recommended
+        var port = CreatePort(portName: "Smart TV", deviceCategory: ClientDeviceCategory.SmartTV);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void Evaluate_SmartTV_NoAllowance_ReturnsRecommended()
+    {
+        // Arrange - default settings (no allowances)
+        var port = CreatePort(portName: "Smart TV", deviceCategory: ClientDeviceCategory.SmartTV);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void Evaluate_HighRiskDevice_AllowanceDoesNotApply_ReturnsCritical()
+    {
+        // Arrange - even with allowances, high-risk devices stay Critical
+        var rule = new IotVlanRule();
+        rule.SetDetectionService(_detectionService);
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAllStreamingOnMainNetwork = true,
+            AllowAllTVsOnMainNetwork = true
+        });
+
+        var port = CreatePort(portName: "Smart Lock", deviceCategory: ClientDeviceCategory.SmartLock);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Critical);
+    }
+
+    #endregion
 }
