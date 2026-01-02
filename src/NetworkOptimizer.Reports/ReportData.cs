@@ -380,8 +380,8 @@ public class AuditIssue
             // Show AP name with WiFi band if available
             var apName = AccessPoint ?? "Unknown AP";
             return !string.IsNullOrEmpty(WifiBand)
-                ? $"on {apName} ({WifiBand})"
-                : $"on {apName}";
+                ? $"{apName} ({WifiBand})"
+                : apName;
         }
 
         // For non-integer port IDs (e.g., "WAN1"), show PortId with PortName
