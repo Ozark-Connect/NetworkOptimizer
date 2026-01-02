@@ -112,12 +112,6 @@
 
         // Get input's computed styles for matching
         const inputStyle = window.getComputedStyle(element);
-        const inputRect = element.getBoundingClientRect();
-        const parentRect = parent.getBoundingClientRect();
-
-        // Calculate input position relative to parent
-        const offsetLeft = inputRect.left - parentRect.left;
-        const offsetTop = inputRect.top - parentRect.top;
 
         // Create or get overlay
         let overlay = parent.querySelector('.demo-mask-overlay');
@@ -140,32 +134,31 @@
             });
         }
 
-        // Apply positioning to match input exactly
-        overlay.style.cssText = `
-            position: absolute;
-            left: ${offsetLeft}px;
-            top: ${offsetTop}px;
-            width: ${inputRect.width}px;
-            height: ${inputRect.height}px;
-            pointer-events: none;
-            display: flex;
-            align-items: center;
-            padding-left: ${inputStyle.paddingLeft};
-            padding-right: ${inputStyle.paddingRight};
-            padding-top: ${inputStyle.paddingTop};
-            padding-bottom: ${inputStyle.paddingBottom};
-            background: transparent;
-            color: ${inputStyle.color};
-            font-family: ${inputStyle.fontFamily};
-            font-size: ${inputStyle.fontSize};
-            font-weight: ${inputStyle.fontWeight};
-            line-height: ${inputStyle.lineHeight};
-            letter-spacing: ${inputStyle.letterSpacing};
-            box-sizing: border-box;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-        `;
+        // Apply positioning to match input exactly using offset properties
+        overlay.style.position = 'absolute';
+        overlay.style.left = element.offsetLeft + 'px';
+        overlay.style.top = element.offsetTop + 'px';
+        overlay.style.width = element.offsetWidth + 'px';
+        overlay.style.height = element.offsetHeight + 'px';
+        overlay.style.pointerEvents = 'none';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.paddingLeft = inputStyle.paddingLeft;
+        overlay.style.paddingRight = inputStyle.paddingRight;
+        overlay.style.paddingTop = inputStyle.paddingTop;
+        overlay.style.paddingBottom = inputStyle.paddingBottom;
+        overlay.style.background = 'transparent';
+        overlay.style.color = inputStyle.color;
+        overlay.style.fontFamily = inputStyle.fontFamily;
+        overlay.style.fontSize = inputStyle.fontSize;
+        overlay.style.fontWeight = inputStyle.fontWeight;
+        overlay.style.lineHeight = inputStyle.lineHeight;
+        overlay.style.letterSpacing = inputStyle.letterSpacing;
+        overlay.style.boxSizing = 'border-box';
+        overlay.style.overflow = 'hidden';
+        overlay.style.whiteSpace = 'nowrap';
+        overlay.style.textOverflow = 'ellipsis';
+        overlay.style.zIndex = '1';
 
         // Update overlay text and hide input text
         overlay.textContent = maskString(currentValue);
