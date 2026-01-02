@@ -85,10 +85,17 @@ public abstract class WirelessAuditRuleBase : IWirelessAuditRule
         string? recommendedAction = null,
         Dictionary<string, object>? metadata = null)
     {
-        // Include AP context: "ClientName on APName"
-        var deviceName = !string.IsNullOrEmpty(client.AccessPointName)
-            ? $"{client.DisplayName} on {client.AccessPointName}"
-            : client.DisplayName;
+        // Include AP context: "ClientName on APName (Band)"
+        string deviceName;
+        if (!string.IsNullOrEmpty(client.AccessPointName))
+        {
+            var bandSuffix = !string.IsNullOrEmpty(client.WifiBand) ? $" ({client.WifiBand})" : "";
+            deviceName = $"{client.DisplayName} on {client.AccessPointName}{bandSuffix}";
+        }
+        else
+        {
+            deviceName = client.DisplayName;
+        }
 
         return new AuditIssue
         {
