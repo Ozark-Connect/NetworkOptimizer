@@ -8,12 +8,22 @@ Network Optimizer fills that gap - analyzing your UniFi configuration and giving
 
 ### Security & Configuration Auditing
 
-The audit engine runs 60+ checks across your entire UniFi setup and scores your network 0-100. Not just "you have a firewall" but actually looking at what your rules do:
+The audit engine runs **39 security checks** across 4 categories, scoring your network 0-100. Not just "you have a firewall" but actually analyzing what your rules do:
 
-- DNS security analysis: DoH configuration, DNS leak prevention, DoT blocking, per-interface DNS validation (that last one catches a lot of people - your WAN DNS settings might not be what you think they are)
-- Port security: finds access ports without MAC filtering, flags unused ports that aren't explicitly disabled, checks whether your cameras and IoT devices are actually on the VLANs you intended
-- Firewall analysis: detects overly permissive any-any rules, finds shadowed rules that never fire, verifies inter-VLAN isolation
-- Hardening recognition: gives you credit for security measures you've already implemented
+| Category | Checks | What It Analyzes |
+|----------|--------|------------------|
+| **Firewall** | 8 | Any-any rules, shadowed rules, permissive patterns, orphaned references, inter-VLAN isolation |
+| **VLAN Security** | 18 | Device placement (IoT/cameras on wrong VLANs), network isolation, management access, routing config |
+| **DNS Security** | 10 | DoH configuration, DNS leak prevention (port 53/853 blocking), WAN DNS validation, provider detection |
+| **Port Security** | 3 | MAC restrictions, port isolation, unused port hardening |
+
+**Severity levels:** Critical (12 rules), Recommended (16 rules), Informational (11 rules)
+
+Key capabilities:
+- **Device detection**: Multi-tier classification using UniFi fingerprints, MAC OUI lookup, and port naming patterns
+- **Firewall intelligence**: Detects rule shadowing, subversion, and ordering issues that cause unintended behavior
+- **DNS leak prevention**: Validates DoH config, checks for bypass routes, verifies WAN interface DNS settings
+- **VLAN validation**: Confirms cameras and IoT devices are actually on the VLANs you intended
 
 You can dismiss false positives, export PDF reports for documentation, and track your score over time.
 
@@ -123,12 +133,11 @@ Alpha - core features are working, actively looking for testers.
 
 What works:
 - UniFi controller auth (UniFi OS and standalone)
-- Security audit with 60+ checks, scoring, PDF reports
+- Security audit with 39 checks across firewall, VLAN, DNS, and port security - with scoring and PDF reports
 - Adaptive SQM configuration and deployment (dual-WAN)
-- LAN speed testing with path analysis
-- Cellular modem monitoring
-- Agent deployment
-- Dashboard with real-time status
+- LAN speed testing with L2 path analysis and device icons
+- Cellular modem monitoring (U-LTE, U5G-Max)
+- Dashboard with real-time status and device images
 
 In progress:
 - Time-series metrics with InfluxDB/Grafana
