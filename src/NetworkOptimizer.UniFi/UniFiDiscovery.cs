@@ -306,6 +306,14 @@ public class DiscoveredDevice
     public string Model { get; set; } = string.Empty;
     public string? Shortname { get; set; }
     public string ModelDisplay { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Best product name for display and image lookup.
+    /// Uses the same logic as UniFiDeviceResponse.FriendlyModelName.
+    /// </summary>
+    public string FriendlyModelName =>
+        UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
+
     public string IpAddress { get; set; } = string.Empty;
     public string Firmware { get; set; } = string.Empty;
     public bool Adopted { get; set; }

@@ -52,7 +52,7 @@ public class DashboardService
                     Type = d.Type,
                     Status = d.State == 1 ? "Online" : "Offline",
                     IpAddress = d.IpAddress ?? "",
-                    Model = d.ModelDisplay ?? d.Shortname ?? d.Model,
+                    Model = d.FriendlyModelName,
                     Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
                 })
                 .OrderBy(d => ParseIpForSorting(d.IpAddress))
