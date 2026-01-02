@@ -72,7 +72,10 @@
     </div>
 
     <script src="_framework/blazor.web.js"></script>
-    <script src="js/demo-mask.js"></script>
+    @if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS")))
+    {
+        <script src="js/demo-mask.js"></script>
+    }
     <script>
         function downloadFile(fileName, contentType, base64Data) {
             const linkSource = `data:${contentType};base64,${base64Data}`;
