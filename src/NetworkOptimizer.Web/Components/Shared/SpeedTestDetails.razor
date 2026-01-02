@@ -277,9 +277,8 @@
     {
         var model = hop.DeviceModel;
 
-        // Show device icons for any UniFi device with a product-style model name (contains dash)
-        // This covers switches, APs, gateways, cellular modems, etc.
-        if (!string.IsNullOrEmpty(model) && model.Contains('-'))
+        // Show device icons for any device with a model name - onerror falls back to emoji
+        if (!string.IsNullOrEmpty(model))
         {
             var iconPath = DeviceIcon.GetIconPath(model);
             if (iconPath != null)
