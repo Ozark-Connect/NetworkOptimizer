@@ -160,10 +160,10 @@ public class PathAnalysisResult
 
         // UniFi devices (APs, gateways) are CPU-bound and may show higher retransmits
         // Use higher thresholds for UniFi devices: 1% elevated, 2% high
-        // Regular clients: 0.5% elevated, 1% high
+        // Regular clients: 0.6% elevated, 1.2% high
         var isUniFiDevice = Path.TargetIsAccessPoint || Path.TargetIsGateway;
-        var highThresholdPercent = isUniFiDevice ? 1.0 : 0.5;
-        var veryHighThresholdPercent = isUniFiDevice ? 2.0 : 1.0;
+        var highThresholdPercent = isUniFiDevice ? 1.0 : 0.6;
+        var veryHighThresholdPercent = isUniFiDevice ? 2.0 : 1.2;
 
         // Determine if this is a wireless client (not an AP but has wireless connection)
         var isWirelessClient = Path.HasWirelessConnection && !Path.TargetIsAccessPoint;
