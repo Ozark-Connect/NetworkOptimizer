@@ -28,18 +28,40 @@ RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     -o /app/publish \
     --no-restore
 
-# Stage 2: Runtime stage with ASP.NET runtime only
+# Stage 2: Build iperf3 from source for latest version
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS iperf-build
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build iperf3 3.20 from source
+WORKDIR /tmp
+RUN curl -LO https://github.com/esnet/iperf/releases/download/3.20/iperf-3.20.tar.gz \
+    && tar xzf iperf-3.20.tar.gz \
+    && cd iperf-3.20 \
+    && ./configure --prefix=/usr/local \
+    && make \
+    && make install
+
+# Stage 3: Runtime stage with ASP.NET runtime only
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-# Install necessary utilities
+# Install necessary utilities (without iperf3 - we copy it from build)
 RUN apt-get update && apt-get install -y \
     curl \
     iputils-ping \
     openssh-client \
     sshpass \
-    iperf3 \
+    libssl3 \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy iperf3 from build stage
+COPY --from=iperf-build /usr/local/bin/iperf3 /usr/local/bin/
+COPY --from=iperf-build /usr/local/lib/libiperf* /usr/local/lib/
+RUN ldconfig
 
 # Copy published application
 COPY --from=build /app/publish .
