@@ -74,6 +74,31 @@ public class AuditService
         }
     }
 
+    /// <summary>
+    /// Load audit settings from database into options
+    /// </summary>
+    private async Task LoadAuditSettingsAsync(AuditOptions options)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var settingsService = scope.ServiceProvider.GetRequiredService<SystemSettingsService>();
+
+            var appleStreaming = await settingsService.GetAsync("audit:allowAppleStreamingOnMainNetwork");
+            var allStreaming = await settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
+
+            options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
+            options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
+
+            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAll={All}",
+                options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load audit settings, using defaults");
+        }
+    }
+
     public AuditResult? LastAuditResult => _lastAuditResult;
     public DateTime? LastAuditTime => _lastAuditTime;
 
@@ -431,6 +456,9 @@ public class AuditService
 
         try
         {
+            // Load streaming device settings from database
+            await LoadAuditSettingsAsync(options);
+
             // Get raw device data from UniFi API
             var deviceDataJson = await _connectionService.Client.GetDevicesRawJsonAsync();
 
@@ -536,7 +564,7 @@ public class AuditService
 
             issues.Add(new AuditIssue
             {
-                Severity = ConvertSeverity(issue.Severity),
+                Severity = ConvertSeverity(issue.Severity, issue.Metadata, options),
                 Category = category,
                 Title = GetIssueTitle(issue.Type, issue.Message),
                 Description = issue.Message,
@@ -755,13 +783,45 @@ public class AuditService
         _ => true
     };
 
-    private static string ConvertSeverity(AuditModels.AuditSeverity severity) => severity switch
+    private static string ConvertSeverity(
+        AuditModels.AuditSeverity severity,
+        Dictionary<string, object>? metadata,
+        AuditOptions options)
     {
-        AuditModels.AuditSeverity.Critical => "Critical",
-        AuditModels.AuditSeverity.Recommended => "Warning",
-        AuditModels.AuditSeverity.Informational => "Info",
-        _ => "Info"
-    };
+        // Check if this is a streaming device that should be allowed on main network
+        if (severity == AuditModels.AuditSeverity.Recommended && metadata != null)
+        {
+            if (metadata.TryGetValue("device_category", out var categoryObj) &&
+                categoryObj?.ToString() == "StreamingDevice")
+            {
+                // Check vendor for Apple-specific setting
+                var vendor = metadata.TryGetValue("vendor", out var vendorObj)
+                    ? vendorObj?.ToString() ?? ""
+                    : "";
+
+                // Allow all streaming devices setting takes precedence
+                if (options.AllowAllStreamingOnMainNetwork)
+                {
+                    return "Info";
+                }
+
+                // Apple-specific setting (check for "Apple" in vendor name)
+                if (options.AllowAppleStreamingOnMainNetwork &&
+                    vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
+                {
+                    return "Info";
+                }
+            }
+        }
+
+        return severity switch
+        {
+            AuditModels.AuditSeverity.Critical => "Critical",
+            AuditModels.AuditSeverity.Recommended => "Warning",
+            AuditModels.AuditSeverity.Informational => "Info",
+            _ => "Info"
+        };
+    }
 
     private static string GetIssueTitle(string type, string message)
     {
@@ -877,6 +937,18 @@ public class AuditOptions
     public bool IncludeVlanSecurity { get; set; } = true;
     public bool IncludePortSecurity { get; set; } = true;
     public bool IncludeDnsSecurity { get; set; } = true;
+
+    /// <summary>
+    /// Allow Apple streaming devices (Apple TV) on main network without warning.
+    /// When true, these devices show as Info instead of Warning.
+    /// </summary>
+    public bool AllowAppleStreamingOnMainNetwork { get; set; } = false;
+
+    /// <summary>
+    /// Allow all streaming devices (Apple TV, Roku, Fire TV, Chromecast) on main network without warning.
+    /// When true, these devices show as Info instead of Warning.
+    /// </summary>
+    public bool AllowAllStreamingOnMainNetwork { get; set; } = false;
 }
 
 public class AuditResult

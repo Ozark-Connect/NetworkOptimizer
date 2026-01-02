@@ -4,6 +4,7 @@
 @inject AuditService AuditService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Audit> Logger
+@inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
@@ -35,6 +36,10 @@
 
                 <button class="btn btn-secondary" @onclick="ExportReport" disabled="@(!hasResults)">
                     Export Report
+                </button>
+
+                <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings#security-audit"))">
+                    Settings
                 </button>
 
                 <div class="audit-options">

@@ -890,7 +890,56 @@
         </div>
     </div>
 
-    <!-- 11. Data Management -->
+    <!-- 11. Security Audit -->
+    <div class="card" id="security-audit">
+        <div class="card-header">
+            <h2 class="card-title">Security Audit</h2>
+        </div>
+        <div class="card-body">
+            <p class="section-description">
+                Configure how the security audit evaluates device placement on your network.
+            </p>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowAppleStreamingOnMainNetwork" />
+                    <span>Allow Apple streaming devices on main network</span>
+                </label>
+                <small class="form-help">Apple TV devices on main/corporate VLANs will show as Info instead of Warning</small>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowAllStreamingOnMainNetwork" />
+                    <span>Allow all streaming devices on main network</span>
+                </label>
+                <small class="form-help">Apple TV, Roku, Fire TV, Chromecast on main/corporate VLANs will show as Info instead of Warning</small>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-success" @onclick="SaveAuditSettings" disabled="@savingAuditSettings">
+                    @if (savingAuditSettings)
+                    {
+                        <span class="spinner"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <span>Save Audit Settings</span>
+                    }
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(auditSettingsMessage))
+            {
+                <div class="alert alert-@auditSettingsMessageClass" style="margin-top: 1rem;">
+                    @auditSettingsMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- 12. Data Management -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Data Management</h2>
@@ -1033,6 +1082,13 @@
     private string notificationEmail = "";
     private string theme = "dark";
 
+    // Security Audit Settings
+    private bool allowAppleStreamingOnMainNetwork = false;
+    private bool allowAllStreamingOnMainNetwork = false;
+    private bool savingAuditSettings = false;
+    private string auditSettingsMessage = "";
+    private string auditSettingsMessageClass = "";
+
     protected override async Task OnInitializedAsync()
     {
         // Load saved configuration if available
@@ -1056,6 +1112,7 @@
         await LoadDiscoveredModems();
         await LoadIperf3Settings();
         await LoadAdminPasswordSettings();
+        await LoadAuditSettings();
     }
 
     private async Task LoadIperf3Settings()
@@ -1994,6 +2051,50 @@
         finally
         {
             savingAdminPassword = false;
+            StateHasChanged();
+        }
+    }
+
+    // Security Audit Settings methods
+    private async Task LoadAuditSettings()
+    {
+        try
+        {
+            var appleStreaming = await SystemSettings.GetAsync("audit:allowAppleStreamingOnMainNetwork");
+            var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
+
+            allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
+            allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
+        }
+        catch (Exception ex)
+        {
+            auditSettingsMessage = $"Error loading audit settings: {ex.Message}";
+            auditSettingsMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveAuditSettings()
+    {
+        savingAuditSettings = true;
+        auditSettingsMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync("audit:allowAppleStreamingOnMainNetwork", allowAppleStreamingOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:allowAllStreamingOnMainNetwork", allowAllStreamingOnMainNetwork.ToString().ToLower());
+
+            auditSettingsMessage = "Audit settings saved successfully";
+            auditSettingsMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            auditSettingsMessage = $"Error saving audit settings: {ex.Message}";
+            auditSettingsMessageClass = "danger";
+        }
+        finally
+        {
+            savingAuditSettings = false;
             StateHasChanged();
         }
     }
