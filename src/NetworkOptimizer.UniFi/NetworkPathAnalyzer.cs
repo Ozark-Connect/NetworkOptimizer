@@ -128,8 +128,18 @@ public class NetworkPathAnalyzer
         _logger.LogInformation("Discovering server position in network topology");
 
         // Determine which IP(s) to search for
+        // Priority: HOST_IP env var > sourceIp from iperf3 > interface enumeration
+        // HOST_IP takes priority because on Docker port-mapping mode (macOS), the iperf3
+        // sourceIp will be the container's internal IP which isn't visible to UniFi
         List<string> localIps;
-        if (!string.IsNullOrEmpty(sourceIp))
+        var hostIpOverride = Environment.GetEnvironmentVariable("HOST_IP");
+        if (!string.IsNullOrWhiteSpace(hostIpOverride))
+        {
+            // Admin has explicitly configured the server IP - use it
+            localIps = new List<string> { hostIpOverride.Trim() };
+            _logger.LogDebug("Using HOST_IP override: {Ip}", hostIpOverride);
+        }
+        else if (!string.IsNullOrEmpty(sourceIp))
         {
             // Use the specific source IP from iperf3 output - this is the actual IP used
             localIps = new List<string> { sourceIp };
@@ -137,7 +147,7 @@ public class NetworkPathAnalyzer
         }
         else
         {
-            // Fall back to auto-detection (HOST_IP env var or interface enumeration)
+            // Fall back to interface enumeration
             localIps = GetLocalIpAddresses();
             if (localIps.Count == 0)
             {
