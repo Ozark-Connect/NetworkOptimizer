@@ -161,6 +161,10 @@
                                         {
                                             <span class="context-item"><strong>Port:</strong> @issue.Port</span>
                                         }
+                                        @if (issue.IsWireless && !string.IsNullOrEmpty(issue.AccessPoint))
+                                        {
+                                            <span class="context-item"><strong>AP:</strong> @issue.AccessPoint@(!string.IsNullOrEmpty(issue.WifiBand) ? $" ({issue.WifiBand})" : "")</span>
+                                        }
                                         @if (!string.IsNullOrEmpty(issue.PortName))
                                         {
                                             <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
@@ -207,6 +211,10 @@
                                             @if (!string.IsNullOrEmpty(issue.Port))
                                             {
                                                 <span class="context-item"><strong>Port:</strong> @issue.Port</span>
+                                            }
+                                            @if (issue.IsWireless && !string.IsNullOrEmpty(issue.AccessPoint))
+                                            {
+                                                <span class="context-item"><strong>AP:</strong> @issue.AccessPoint@(!string.IsNullOrEmpty(issue.WifiBand) ? $" ({issue.WifiBand})" : "")</span>
                                             }
                                             @if (!string.IsNullOrEmpty(issue.PortName))
                                             {
@@ -743,7 +751,8 @@
                         IsWireless = i.IsWireless,
                         ClientName = i.ClientName,
                         ClientMac = i.ClientMac,
-                        AccessPoint = i.AccessPoint
+                        AccessPoint = i.AccessPoint,
+                        WifiBand = i.WifiBand
                     })
                     .ToList(),
 
@@ -765,7 +774,8 @@
                         IsWireless = i.IsWireless,
                         ClientName = i.ClientName,
                         ClientMac = i.ClientMac,
-                        AccessPoint = i.AccessPoint
+                        AccessPoint = i.AccessPoint,
+                        WifiBand = i.WifiBand
                     })
                     .ToList(),
 
