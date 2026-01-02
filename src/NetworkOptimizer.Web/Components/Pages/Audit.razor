@@ -64,12 +64,9 @@
                 </div>
             }
 
-            @if (auditProgress > 0 && isRunning)
+            @if (isRunning)
             {
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: @(auditProgress)%"></div>
-                </div>
-                <p class="progress-text">@currentStep (@auditProgress%)</p>
+                <p class="progress-text">@currentStep</p>
             }
         </div>
     </div>
@@ -520,7 +517,6 @@
 @code {
     private bool isRunning = false;
     private bool hasResults = false;
-    private int auditProgress = 0;
     private string currentStep = "";
     private string lastAuditTime = "";
 
@@ -570,14 +566,11 @@
     private async Task RunAudit()
     {
         isRunning = true;
-        auditProgress = 0;
-        currentStep = "Initializing audit...";
+        currentStep = "Running audit...";
         StateHasChanged();
 
         try
         {
-            await SimulateAuditProgress();
-
             var result = await AuditService.RunAuditAsync(new Services.AuditOptions
             {
                 IncludeFirewallRules = includeFirewallRules,
@@ -607,28 +600,7 @@
         finally
         {
             isRunning = false;
-            auditProgress = 100;
             StateHasChanged();
-        }
-    }
-
-    private async Task SimulateAuditProgress()
-    {
-        var steps = new[]
-        {
-            ("Connecting to UniFi Controller...", 20),
-            ("Analyzing firewall rules...", 40),
-            ("Checking VLAN configuration...", 60),
-            ("Validating port security...", 80),
-            ("Finalizing results...", 100)
-        };
-
-        foreach (var (step, progress) in steps)
-        {
-            currentStep = step;
-            auditProgress = progress;
-            StateHasChanged();
-            await Task.Delay(500);
         }
     }
 
