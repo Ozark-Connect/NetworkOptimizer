@@ -245,7 +245,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
     // Only these paths are public (no auth required)
-    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health", "/api/demo-mappings" };
+    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health" };
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
     // Allow public endpoints
