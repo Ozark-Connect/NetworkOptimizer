@@ -110,28 +110,20 @@
             parent.style.position = 'relative';
         }
 
+        // Get input's computed styles for matching
+        const inputStyle = window.getComputedStyle(element);
+        const inputRect = element.getBoundingClientRect();
+        const parentRect = parent.getBoundingClientRect();
+
+        // Calculate input position relative to parent
+        const offsetLeft = inputRect.left - parentRect.left;
+        const offsetTop = inputRect.top - parentRect.top;
+
         // Create or get overlay
         let overlay = parent.querySelector('.demo-mask-overlay');
         if (!overlay) {
             overlay = document.createElement('span');
             overlay.className = 'demo-mask-overlay';
-            overlay.style.cssText = `
-                position: absolute;
-                left: 0;
-                top: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-                display: flex;
-                align-items: center;
-                padding: inherit;
-                background: transparent;
-                color: inherit;
-                font: inherit;
-                overflow: hidden;
-                white-space: nowrap;
-                text-overflow: ellipsis;
-            `;
             parent.appendChild(overlay);
 
             // Hide/show overlay on focus/blur
@@ -147,6 +139,33 @@
                 }
             });
         }
+
+        // Apply positioning to match input exactly
+        overlay.style.cssText = `
+            position: absolute;
+            left: ${offsetLeft}px;
+            top: ${offsetTop}px;
+            width: ${inputRect.width}px;
+            height: ${inputRect.height}px;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            padding-left: ${inputStyle.paddingLeft};
+            padding-right: ${inputStyle.paddingRight};
+            padding-top: ${inputStyle.paddingTop};
+            padding-bottom: ${inputStyle.paddingBottom};
+            background: transparent;
+            color: ${inputStyle.color};
+            font-family: ${inputStyle.fontFamily};
+            font-size: ${inputStyle.fontSize};
+            font-weight: ${inputStyle.fontWeight};
+            line-height: ${inputStyle.lineHeight};
+            letter-spacing: ${inputStyle.letterSpacing};
+            box-sizing: border-box;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        `;
 
         // Update overlay text and hide input text
         overlay.textContent = maskString(currentValue);
