@@ -1876,6 +1876,16 @@ td .btn + .btn {
     opacity: 0.5;
 }
 
+.empty-state .empty-icon-img {
+    margin-bottom: 0;
+}
+
+.empty-state .empty-icon-img img {
+    width: 100px;
+    height: 100px;
+    opacity: 0.5;
+}
+
 .empty-state h3 {
     color: var(--text-primary);
     margin-bottom: 0.5rem;
