@@ -27,9 +27,9 @@ echo "[3/4] Copying to Mac and extracting..."
 scp "publish/$TARBALL" "$MAC_HOST:/tmp/"
 ssh "$MAC_HOST" "cd $MAC_APP_DIR && tar -xzf /tmp/$TARBALL --strip-components=1"
 
-# Step 4: Sign and restart
-echo "[4/4] Signing binaries and restarting service..."
-ssh "$MAC_HOST" "cd $MAC_APP_DIR && find . -name '*.dylib' -exec codesign --force --sign - {} \; && codesign --force --sign - NetworkOptimizer.Web"
+# Step 4: Fix permissions, sign, and restart
+echo "[4/4] Fixing permissions, signing binaries, and restarting service..."
+ssh "$MAC_HOST" "cd $MAC_APP_DIR && chmod +x NetworkOptimizer.Web && find . -name '*.dylib' -exec codesign --force --sign - {} \; && codesign --force --sign - NetworkOptimizer.Web"
 ssh "$MAC_HOST" "launchctl unload ~/Library/LaunchAgents/com.networkoptimizer.app.plist 2>/dev/null || true; launchctl load ~/Library/LaunchAgents/com.networkoptimizer.app.plist"
 
 # Verify
