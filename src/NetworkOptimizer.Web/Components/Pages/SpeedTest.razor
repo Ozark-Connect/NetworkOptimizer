@@ -1114,19 +1114,35 @@
             // Set currentResult to most recent test and calculate path analysis
             if (testHistory.Count > 0)
             {
-                currentResult = testHistory[0];
+                var latestFromDb = testHistory[0];
 
-                // Auto-calculate path analysis for latest result if not already set
-                if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
+                // If we already have the same test in memory with fresh PathAnalysis, preserve it
+                // This happens after running a test - don't replace fresh analysis with stale DB data
+                if (currentResult != null &&
+                    currentResult.Id == latestFromDb.Id &&
+                    currentResult.PathAnalysis != null)
                 {
-                    try
+                    // Keep the in-memory PathAnalysis but update other fields from DB
+                    var freshAnalysis = currentResult.PathAnalysis;
+                    currentResult = latestFromDb;
+                    currentResult.PathAnalysis = freshAnalysis;
+                }
+                else
+                {
+                    currentResult = latestFromDb;
+
+                    // Auto-calculate path analysis for latest result if not already set
+                    if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
                     {
-                        var path = await PathAnalyzer.CalculatePathAsync(currentResult.DeviceHost);
-                        currentResult.PathAnalysis = PathAnalyzer.AnalyzeSpeedTest(path, currentResult.DownloadMbps, currentResult.UploadMbps);
-                    }
-                    catch
-                    {
-                        // Path analysis failed, leave as null
+                        try
+                        {
+                            var path = await PathAnalyzer.CalculatePathAsync(currentResult.DeviceHost);
+                            currentResult.PathAnalysis = PathAnalyzer.AnalyzeSpeedTest(path, currentResult.DownloadMbps, currentResult.UploadMbps);
+                        }
+                        catch
+                        {
+                            // Path analysis failed, leave as null
+                        }
                     }
                 }
             }
