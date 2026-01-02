@@ -1111,38 +1111,24 @@
             testHistory = await SpeedTestService.GetRecentResultsAsync(100);
             historyPage = 1; // Reset to first page when loading fresh data
 
-            // Set currentResult to most recent test and calculate path analysis
-            if (testHistory.Count > 0)
+            // Only set currentResult on initial page load (when it's null)
+            // After running a test, currentResult is already set with fresh data - don't replace it
+            if (currentResult == null && testHistory.Count > 0)
             {
-                var latestFromDb = testHistory[0];
+                currentResult = testHistory[0];
 
-                // If we already have the same test in memory with fresh PathAnalysis, preserve it
-                // This happens after running a test - don't replace fresh analysis with stale DB data
-                if (currentResult != null &&
-                    currentResult.Id == latestFromDb.Id &&
-                    currentResult.PathAnalysis != null)
+                // PathAnalysis is normally a persisted snapshot - only calculate if missing
+                // (for backwards compatibility with old tests before PathAnalysis was added)
+                if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
                 {
-                    // Keep the in-memory PathAnalysis but update other fields from DB
-                    var freshAnalysis = currentResult.PathAnalysis;
-                    currentResult = latestFromDb;
-                    currentResult.PathAnalysis = freshAnalysis;
-                }
-                else
-                {
-                    currentResult = latestFromDb;
-
-                    // Auto-calculate path analysis for latest result if not already set
-                    if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
+                    try
                     {
-                        try
-                        {
-                            var path = await PathAnalyzer.CalculatePathAsync(currentResult.DeviceHost);
-                            currentResult.PathAnalysis = PathAnalyzer.AnalyzeSpeedTest(path, currentResult.DownloadMbps, currentResult.UploadMbps);
-                        }
-                        catch
-                        {
-                            // Path analysis failed, leave as null
-                        }
+                        var path = await PathAnalyzer.CalculatePathAsync(currentResult.DeviceHost, currentResult.LocalIp);
+                        currentResult.PathAnalysis = PathAnalyzer.AnalyzeSpeedTest(path, currentResult.DownloadMbps, currentResult.UploadMbps);
+                    }
+                    catch
+                    {
+                        // Path analysis failed, leave as null
                     }
                 }
             }
