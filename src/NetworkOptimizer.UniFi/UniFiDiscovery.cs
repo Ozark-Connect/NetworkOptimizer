@@ -43,6 +43,7 @@ public class UniFiDiscovery
             Name = d.Name,
             Type = DetermineDeviceType(d.Type),
             Model = d.Model,
+            Shortname = d.Shortname,
             ModelDisplay = d.ModelDisplay,
             IpAddress = d.Ip,
             Firmware = d.Version,
@@ -301,6 +302,7 @@ public class DiscoveredDevice
     public string Name { get; set; } = string.Empty;
     public DeviceType Type { get; set; }
     public string Model { get; set; } = string.Empty;
+    public string? Shortname { get; set; }
     public string ModelDisplay { get; set; } = string.Empty;
     public string IpAddress { get; set; } = string.Empty;
     public string Firmware { get; set; } = string.Empty;
