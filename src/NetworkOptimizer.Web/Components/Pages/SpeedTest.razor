@@ -1351,7 +1351,7 @@
 
         try
         {
-            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost);
+            var path = await PathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
             var analysis = PathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
             historyPathAnalysis[result.Id] = analysis;
         }
