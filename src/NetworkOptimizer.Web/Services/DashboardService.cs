@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -40,8 +40,8 @@ public class DashboardService
 
         try
         {
-            // Fetch real device data from UniFi API
-            var devices = await _connectionService.Client.GetDevicesAsync();
+            // Fetch devices using discovery service (returns proper DeviceType enum)
+            var devices = await _connectionService.GetDiscoveredDevicesAsync();
 
             if (devices != null)
             {
@@ -49,19 +49,19 @@ public class DashboardService
                 data.Devices = devices.Select(d => new DeviceInfo
                 {
                     Name = d.Name ?? d.Mac ?? "Unknown",
-                    Type = GetDeviceType(d.Type),
+                    Type = d.Type,
                     Status = d.State == 1 ? "Online" : "Offline",
-                    IpAddress = d.Ip ?? "",
-                    Model = d.FriendlyModelName, // Uses shortname if available
-                    Uptime = FormatUptime(d.Uptime)
+                    IpAddress = d.IpAddress ?? "",
+                    Model = d.ModelDisplay ?? d.Shortname ?? d.Model,
+                    Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
                 })
                 .OrderBy(d => ParseIpForSorting(d.IpAddress))
                 .ToList();
 
-                // Count by type
-                data.GatewayCount = devices.Count(d => UniFiDeviceTypes.IsGateway(d.Type));
-                data.SwitchCount = devices.Count(d => UniFiDeviceTypes.IsSwitch(d.Type));
-                data.ApCount = devices.Count(d => UniFiDeviceTypes.IsAccessPoint(d.Type));
+                // Count by type using enum
+                data.GatewayCount = devices.Count(d => d.Type == DeviceType.Gateway);
+                data.SwitchCount = devices.Count(d => d.Type == DeviceType.Switch);
+                data.ApCount = devices.Count(d => d.Type == DeviceType.AccessPoint);
             }
 
             // Get client count (in try/catch since client API can have parsing issues)
@@ -146,8 +146,6 @@ public class DashboardService
         return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
     }
 
-    private static string GetDeviceType(string? type) => UniFiDeviceTypes.GetDisplayName(type);
-
     private static string FormatUptime(long? uptimeSeconds)
     {
         if (!uptimeSeconds.HasValue || uptimeSeconds.Value <= 0)
@@ -208,10 +206,22 @@ public class DashboardData
 public class DeviceInfo
 {
     public string Name { get; set; } = "";
-    public string Type { get; set; } = "";
+    public DeviceType Type { get; set; }
     public string Status { get; set; } = "";
     public string IpAddress { get; set; } = "";
     public string? Model { get; set; }
     public string? Uptime { get; set; }
     public int? ClientCount { get; set; }
+
+    /// <summary>
+    /// Get display name for the device type
+    /// </summary>
+    public string TypeDisplayName => Type switch
+    {
+        DeviceType.Gateway => "Gateway",
+        DeviceType.Switch => "Switch",
+        DeviceType.AccessPoint => "Access Point",
+        DeviceType.CellularModem => "Cellular Modem",
+        _ => "Unknown"
+    };
 }

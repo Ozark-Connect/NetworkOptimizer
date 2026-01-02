@@ -18,7 +18,7 @@
             <div class="device-info">
                 <h4 class="device-name">@Device.Name</h4>
                 <div class="device-meta">
-                    <span class="device-type">@Device.Type</span>
+                    <span class="device-type">@Device.TypeDisplayName</span>
                     <div class="device-status">
                         <span class="status-dot"></span>
                         <span class="status-text">@Device.Status</span>
@@ -69,6 +69,7 @@
 </style>
 
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.UniFi
 @inject IWebHostEnvironment Environment
 
 @code {
@@ -90,16 +91,14 @@
         return null;
     }
 
-    private string GetDeviceIcon(string deviceType)
+    private string GetDeviceIcon(DeviceType deviceType)
     {
-        return deviceType.ToLower() switch
+        return deviceType switch
         {
-            "gateway" => "🌐",
-            "switch" => "🔌",
-            "access point" => "📡",
-            "ap" => "📡",
-            "camera" => "📹",
-            "cellular modem" => "📶",
+            DeviceType.Gateway => "🌐",
+            DeviceType.Switch => "🔌",
+            DeviceType.AccessPoint => "📡",
+            DeviceType.CellularModem => "📶",
             _ => "🖥️"
         };
     }

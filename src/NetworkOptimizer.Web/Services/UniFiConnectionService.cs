@@ -480,6 +480,23 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         _cacheTime = DateTime.MinValue;
     }
 
+    /// <summary>
+    /// Get all discovered devices with proper DeviceType enum values.
+    /// This is the preferred way to get devices - use this instead of Client.GetDevicesAsync().
+    /// </summary>
+    public async Task<List<DiscoveredDevice>> GetDiscoveredDevicesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_client == null || !_isConnected)
+        {
+            _logger.LogWarning("Cannot get devices - not connected to controller");
+            return new List<DiscoveredDevice>();
+        }
+
+        var discoveryLogger = _loggerFactory.CreateLogger<UniFiDiscovery>();
+        var discovery = new UniFiDiscovery(_client, discoveryLogger);
+        return await discovery.DiscoverDevicesAsync(cancellationToken);
+    }
+
     public void Dispose()
     {
         _client?.Dispose();
