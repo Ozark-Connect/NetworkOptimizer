@@ -594,6 +594,19 @@ public class Iperf3SpeedTestService
                 }
             }
 
+            // Extract local IP from the connection info (only need to do this once)
+            if (string.IsNullOrEmpty(result.LocalIp) &&
+                root.TryGetProperty("start", out var start) &&
+                start.TryGetProperty("connected", out var connected) &&
+                connected.GetArrayLength() > 0)
+            {
+                var firstConn = connected[0];
+                if (firstConn.TryGetProperty("local_host", out var localHost))
+                {
+                    result.LocalIp = localHost.GetString();
+                }
+            }
+
             if (root.TryGetProperty("end", out var end))
             {
                 if (end.TryGetProperty("sum_sent", out var sumSent))
@@ -646,9 +659,9 @@ public class Iperf3SpeedTestService
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Host}", targetHost);
+            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}", targetHost, result.LocalIp ?? "auto");
 
-            var path = await _pathAnalyzer.CalculatePathAsync(targetHost);
+            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(path, result.DownloadMbps, result.UploadMbps);
 
             result.PathAnalysis = analysis;

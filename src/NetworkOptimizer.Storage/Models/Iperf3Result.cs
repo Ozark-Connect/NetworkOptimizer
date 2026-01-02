@@ -77,6 +77,13 @@ public class Iperf3Result
     public string? RawDownloadJson { get; set; }
 
     /// <summary>
+    /// Local IP address used for the test (parsed from iperf3 output).
+    /// This is the actual source IP the kernel chose for the connection.
+    /// </summary>
+    [NotMapped]
+    public string? LocalIp { get; set; }
+
+    /// <summary>
     /// Serialized path analysis JSON - stored as snapshot at test time.
     /// </summary>
     public string? PathAnalysisJson { get; set; }

@@ -112,25 +112,40 @@ public class NetworkPathAnalyzer
     /// Discovers the server's position in the network topology.
     /// The server is the machine running this application (the iperf3 server).
     /// </summary>
-    public async Task<ServerPosition?> DiscoverServerPositionAsync(CancellationToken cancellationToken = default)
+    /// <param name="sourceIp">Optional source IP (from iperf3 output). If provided, uses this directly.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task<ServerPosition?> DiscoverServerPositionAsync(
+        string? sourceIp = null,
+        CancellationToken cancellationToken = default)
     {
-        // Check cache first
-        if (_cache.TryGetValue(ServerPositionCacheKey, out ServerPosition? cached))
+        // If sourceIp is provided, don't use cache (it's specific to this test)
+        // Otherwise check cache
+        if (string.IsNullOrEmpty(sourceIp) && _cache.TryGetValue(ServerPositionCacheKey, out ServerPosition? cached))
         {
             return cached;
         }
 
         _logger.LogInformation("Discovering server position in network topology");
 
-        // Get local IP addresses
-        var localIps = GetLocalIpAddresses();
-        if (localIps.Count == 0)
+        // Determine which IP(s) to search for
+        List<string> localIps;
+        if (!string.IsNullOrEmpty(sourceIp))
         {
-            _logger.LogWarning("Could not determine local IP addresses");
-            return null;
+            // Use the specific source IP from iperf3 output - this is the actual IP used
+            localIps = new List<string> { sourceIp };
+            _logger.LogDebug("Using source IP from iperf3: {Ip}", sourceIp);
         }
-
-        _logger.LogDebug("Local IP addresses: {Ips}", string.Join(", ", localIps));
+        else
+        {
+            // Fall back to auto-detection (HOST_IP env var or interface enumeration)
+            localIps = GetLocalIpAddresses();
+            if (localIps.Count == 0)
+            {
+                _logger.LogWarning("Could not determine local IP addresses");
+                return null;
+            }
+            _logger.LogDebug("Auto-detected local IP addresses: {Ips}", string.Join(", ", localIps));
+        }
 
         // Get topology
         var topology = await GetTopologyAsync(cancellationToken);
@@ -182,8 +197,11 @@ public class NetworkPathAnalyzer
         _logger.LogInformation("Server position: {Ip} on {Switch} port {Port} ({Network})",
             position.IpAddress, position.SwitchName ?? "unknown", position.SwitchPort, position.NetworkName);
 
-        // Cache the result
-        _cache.Set(ServerPositionCacheKey, position, ServerPositionCacheDuration);
+        // Only cache if we auto-detected (sourceIp was null) - specific IPs are per-test
+        if (string.IsNullOrEmpty(sourceIp))
+        {
+            _cache.Set(ServerPositionCacheKey, position, ServerPositionCacheDuration);
+        }
 
         return position;
     }
@@ -191,8 +209,12 @@ public class NetworkPathAnalyzer
     /// <summary>
     /// Calculates the network path from the server to a target device or client.
     /// </summary>
+    /// <param name="targetHost">Target hostname or IP</param>
+    /// <param name="sourceIp">Optional source IP (from iperf3 output). If null, auto-detects.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     public async Task<NetworkPath> CalculatePathAsync(
         string targetHost,
+        string? sourceIp = null,
         CancellationToken cancellationToken = default)
     {
         var path = new NetworkPath
@@ -202,8 +224,8 @@ public class NetworkPathAnalyzer
 
         try
         {
-            // Get server position
-            var serverPosition = await DiscoverServerPositionAsync(cancellationToken);
+            // Get server position - use provided sourceIp if available
+            var serverPosition = await DiscoverServerPositionAsync(sourceIp, cancellationToken);
             if (serverPosition == null)
             {
                 path.IsValid = false;

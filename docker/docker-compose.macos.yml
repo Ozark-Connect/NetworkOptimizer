@@ -26,7 +26,7 @@ services:
     environment:
       - TZ=${TZ:-America/Chicago}
       - APP_PASSWORD=${APP_PASSWORD:-}
-      - HOST_IP=${HOST_IP:-}              # Set to host machine's IP for path analysis (e.g., 192.168.1.100)
+      - HOST_IP=${HOST_IP:-}              # Override if auto-detection fails (rarely needed)
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
