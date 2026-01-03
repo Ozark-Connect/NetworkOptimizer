@@ -42,18 +42,24 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 brew install sshpass iperf3
 ```
 
-### Download Release
+### Build from Source
 
 ```bash
-# Create installation directory
-mkdir -p ~/network-optimizer
+# Install .NET SDK (if not present)
+brew install dotnet
+
+# Clone repository
+git clone https://github.com/tvancott42/NetworkOptimizer.git
+cd NetworkOptimizer
+
+# Build for your architecture
+# Apple Silicon (M1/M2/M3):
+dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -o ~/network-optimizer
+
+# Intel Macs:
+# dotnet publish src/NetworkOptimizer.Web -c Release -r osx-x64 --self-contained -o ~/network-optimizer
+
 cd ~/network-optimizer
-
-# Download latest release (replace VERSION with actual version)
-curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
-
-# For Intel Macs, use:
-# curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-x64.tar.gz | tar -xz --strip-components=1
 ```
 
 ### Code Signing
@@ -198,11 +204,13 @@ launchctl unload ~/Library/LaunchAgents/com.networkoptimizer.app.plist
 # Backup database (optional)
 cp ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.backup
 
-# Download new version
-cd ~/network-optimizer
-curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
+# Pull latest and rebuild
+cd ~/NetworkOptimizer
+git pull
+dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -o ~/network-optimizer
 
 # Re-sign binaries
+cd ~/network-optimizer
 find . -name '*.dylib' -exec codesign --force --sign - {} \;
 codesign --force --sign - NetworkOptimizer.Web
 
@@ -247,22 +255,32 @@ sudo dnf install -y epel-release
 sudo dnf install -y sshpass iperf3
 ```
 
-### Download Release
+### Build from Source
 
 ```bash
+# Install .NET SDK
+# Debian/Ubuntu:
+wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+chmod +x dotnet-install.sh
+./dotnet-install.sh --channel 9.0
+export PATH="$HOME/.dotnet:$PATH"
+
+# Clone and build
+git clone https://github.com/tvancott42/NetworkOptimizer.git
+cd NetworkOptimizer
+
 # Create installation directory
 sudo mkdir -p /opt/network-optimizer
 sudo chown $USER:$USER /opt/network-optimizer
-cd /opt/network-optimizer
 
-# Download latest release (x64)
-curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-linux-x64.tar.gz | tar -xz --strip-components=1
+# Build for your architecture (x64)
+dotnet publish src/NetworkOptimizer.Web -c Release -r linux-x64 --self-contained -o /opt/network-optimizer
 
 # For ARM64, use:
-# curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-linux-arm64.tar.gz | tar -xz --strip-components=1
+# dotnet publish src/NetworkOptimizer.Web -c Release -r linux-arm64 --self-contained -o /opt/network-optimizer
 
 # Make executable
-chmod +x NetworkOptimizer.Web
+chmod +x /opt/network-optimizer/NetworkOptimizer.Web
 ```
 
 ### Create Startup Script
@@ -372,17 +390,19 @@ Or download directly:
 - iperf3: https://iperf.fr/iperf-download.php
 - sshpass: Build from source or use Cygwin
 
-### Download Release
+### Build from Source
 
 ```powershell
-# Create installation directory
-mkdir C:\NetworkOptimizer
-cd C:\NetworkOptimizer
+# Install .NET SDK from https://dotnet.microsoft.com/download/dotnet/9.0
+# Or via winget:
+winget install Microsoft.DotNet.SDK.9
 
-# Download and extract (use browser or PowerShell)
-Invoke-WebRequest -Uri "https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-win-x64.zip" -OutFile "network-optimizer.zip"
-Expand-Archive -Path "network-optimizer.zip" -DestinationPath "." -Force
-Remove-Item "network-optimizer.zip"
+# Clone repository
+git clone https://github.com/tvancott42/NetworkOptimizer.git
+cd NetworkOptimizer
+
+# Build
+dotnet publish src/NetworkOptimizer.Web -c Release -r win-x64 --self-contained -o C:\NetworkOptimizer
 ```
 
 ### Create Startup Script

@@ -183,16 +183,8 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 ### 1. Download Files
 
 ```bash
-# Clone repository or download release
 git clone https://github.com/tvancott42/NetworkOptimizer.git
-cd network-optimizer/docker
-```
-
-Or download latest release:
-```bash
-wget https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/docker-deploy.tar.gz
-tar xzf docker-deploy.tar.gz
-cd docker
+cd NetworkOptimizer/docker
 ```
 
 ### 2. Configure Environment
@@ -685,7 +677,7 @@ services:
 
 ```bash
 # Scan images for vulnerabilities
-docker scan ozark-connect/network-optimizer:latest
+docker scan network-optimizer:latest
 ```
 
 ### 5. Secrets Management
