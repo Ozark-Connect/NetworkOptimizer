@@ -880,8 +880,8 @@ public class AuditService
             Audit.IssueTypes.DnsWanOrder => "WAN DNS Wrong Order",
             Audit.IssueTypes.DnsWanNoStatic => "WAN DNS Not Configured",
             Audit.IssueTypes.DnsDeviceMisconfigured => "Device DNS Misconfigured",
-            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "IoT Device on Wrong VLAN",
-            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Camera on Wrong VLAN",
+            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" => "IoT Device on Wrong VLAN",
+            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" => "Camera on Wrong VLAN",
             Audit.IssueTypes.MgmtDhcpEnabled => "Management VLAN Has DHCP Enabled",
             _ => message.Split('.').FirstOrDefault() ?? type
         };
