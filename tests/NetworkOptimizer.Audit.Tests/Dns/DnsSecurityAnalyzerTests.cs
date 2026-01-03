@@ -12,11 +12,14 @@ public class DnsSecurityAnalyzerTests
 {
     private readonly DnsSecurityAnalyzer _analyzer;
     private readonly Mock<ILogger<DnsSecurityAnalyzer>> _loggerMock;
+    private readonly ThirdPartyDnsDetector _thirdPartyDetector;
 
     public DnsSecurityAnalyzerTests()
     {
         _loggerMock = new Mock<ILogger<DnsSecurityAnalyzer>>();
-        _analyzer = new DnsSecurityAnalyzer(_loggerMock.Object);
+        var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+        _thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+        _analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, _thirdPartyDetector);
     }
 
     #region Constructor Tests
@@ -24,7 +27,9 @@ public class DnsSecurityAnalyzerTests
     [Fact]
     public void Constructor_WithLogger_CreatesInstance()
     {
-        var analyzer = new DnsSecurityAnalyzer(_loggerMock.Object);
+        var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+        var thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+        var analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, thirdPartyDetector);
         analyzer.Should().NotBeNull();
     }
 

@@ -34,9 +34,12 @@ public class DnsSecurityAnalyzer
     private const string ProtocolQuic = "quic";
     private const string ProtocolDoh = "doh";
 
-    public DnsSecurityAnalyzer(ILogger<DnsSecurityAnalyzer> logger)
+    private readonly ThirdPartyDnsDetector _thirdPartyDetector;
+
+    public DnsSecurityAnalyzer(ILogger<DnsSecurityAnalyzer> logger, ThirdPartyDnsDetector thirdPartyDetector)
     {
         _logger = logger;
+        _thirdPartyDetector = thirdPartyDetector;
     }
 
     /// <summary>
@@ -103,6 +106,12 @@ public class DnsSecurityAnalyzer
         if (switches != null)
         {
             result.GatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name;
+        }
+
+        // Detect third-party LAN DNS (Pi-hole, etc.)
+        if (networks?.Any() == true)
+        {
+            await AnalyzeThirdPartyDnsAsync(networks, result);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -437,16 +446,59 @@ public class DnsSecurityAnalyzer
         // Issue: DoH not configured
         if (!result.DohConfigured)
         {
-            result.Issues.Add(new AuditIssue
+            if (result.HasThirdPartyDns)
             {
-                Type = IssueTypes.DnsNoDoh,
-                Severity = AuditSeverity.Recommended,
-                DeviceName = result.GatewayName,
-                Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
-                RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
-                RuleId = "DNS-DOH-001",
-                ScoreImpact = 8
-            });
+                // Third-party DNS detected - create Info issue (neutral, not a security gap)
+                var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
+                var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsThirdPartyDetected,
+                    Severity = AuditSeverity.Informational,
+                    DeviceName = result.GatewayName,
+                    Message = $"{result.ThirdPartyDnsProviderName} detected handling DNS queries. Networks using third-party DNS: {string.Join(", ", networkNames)}. DNS server(s): {string.Join(", ", dnsServerIps)}.",
+                    RecommendedAction = "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass.",
+                    RuleId = "DNS-3RDPARTY-001",
+                    ScoreImpact = 0, // Neutral - not a security gap
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "third_party_dns_ips", dnsServerIps },
+                        { "is_pihole", result.IsPiholeDetected },
+                        { "affected_networks", networkNames },
+                        { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" }
+                    }
+                });
+
+                // Add hardening note for third-party DNS
+                result.HardeningNotes.Add($"{result.ThirdPartyDnsProviderName} configured as DNS resolver on {networkNames.Count} network(s)");
+            }
+            else
+            {
+                // No DoH and no third-party DNS - flag as needing attention
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsUnknownConfig,
+                    Severity = AuditSeverity.Informational,
+                    DeviceName = result.GatewayName,
+                    Message = "Unable to determine DNS security solution. No DoH configured and no third-party LAN DNS detected.",
+                    RecommendedAction = "Configure DoH in Network Settings or deploy a DNS security solution like Pi-hole",
+                    RuleId = "DNS-UNKNOWN-001",
+                    ScoreImpact = 2
+                });
+
+                // Also add the standard DoH recommendation
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsNoDoh,
+                    Severity = AuditSeverity.Recommended,
+                    DeviceName = result.GatewayName,
+                    Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
+                    RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
+                    RuleId = "DNS-DOH-001",
+                    ScoreImpact = 8
+                });
+            }
         }
         else if (result.DohState == "auto")
         {
@@ -1017,6 +1069,34 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// Detect third-party LAN DNS servers (like Pi-hole) across networks
+    /// </summary>
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result)
+    {
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks);
+
+        if (thirdPartyResults.Any())
+        {
+            result.HasThirdPartyDns = true;
+            result.ThirdPartyDnsServers.AddRange(thirdPartyResults);
+
+            // Determine provider name (Pi-hole takes precedence)
+            if (thirdPartyResults.Any(t => t.IsPihole))
+            {
+                result.ThirdPartyDnsProviderName = "Pi-hole";
+                _logger.LogInformation("Pi-hole detected as third-party DNS on {Count} network(s)",
+                    thirdPartyResults.Count(t => t.IsPihole));
+            }
+            else
+            {
+                result.ThirdPartyDnsProviderName = "Third-Party LAN DNS";
+                _logger.LogInformation("Third-party LAN DNS detected on {Count} network(s)",
+                    thirdPartyResults.Count);
+            }
+        }
+    }
+
+    /// <summary>
     /// Get a summary of DNS security status
     /// </summary>
     public DnsSecuritySummary GetSummary(DnsSecurityResult result)
@@ -1091,6 +1171,12 @@ public class DnsSecurityResult
     public int DevicesWithCorrectDns { get; set; }
     public int DhcpDeviceCount { get; set; }
     public List<DeviceDnsInfo> DeviceDnsDetails { get; } = new();
+
+    // Third-Party DNS (Pi-hole, etc.)
+    public bool HasThirdPartyDns { get; set; }
+    public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> ThirdPartyDnsServers { get; } = new();
+    public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
+    public string? ThirdPartyDnsProviderName { get; set; }
 
     // Audit Issues
     public List<AuditIssue> Issues { get; } = new();

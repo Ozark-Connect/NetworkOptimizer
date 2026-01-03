@@ -78,6 +78,23 @@ public class DnsSecuritySummary
         return DisplayFormatters.GetDeviceDnsDisplay(
             TotalDevicesChecked, DevicesWithCorrectDns, DhcpDeviceCount, DeviceDnsPointsToGateway);
     }
+
+    // Third-party DNS (Pi-hole, etc.)
+    public bool HasThirdPartyDns { get; set; }
+    public bool IsPiholeDetected { get; set; }
+    public string? ThirdPartyDnsProviderName { get; set; }
+    public List<ThirdPartyDnsNetworkInfo> ThirdPartyNetworks { get; set; } = new();
+}
+
+/// <summary>
+/// Third-party DNS network information for reports
+/// </summary>
+public class ThirdPartyDnsNetworkInfo
+{
+    public required string NetworkName { get; init; }
+    public int VlanId { get; init; }
+    public required string DnsServerIp { get; init; }
+    public string? DnsProviderName { get; init; }
 }
 
 /// <summary>

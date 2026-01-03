@@ -316,8 +316,8 @@
                         <tbody>
                             <tr>
                                 <td>DNS-over-HTTPS (DoH)</td>
-                                <td class="@(lastResult.DnsSecurity.DohEnabled ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DohEnabled ? "Enabled" : "Disabled")
+                                <td class="@GetDohStatusClass()">
+                                    @GetDohStatusText()
                                 </td>
                                 <td>@GetDohStatusDisplay()</td>
                             </tr>
@@ -358,8 +358,8 @@
                             </tr>
                         </tbody>
                     </table>
-                    <div class="dns-summary @(lastResult.DnsSecurity.FullyProtected ? "dns-protected" : "dns-partial")">
-                        <strong>Overall:</strong> @(lastResult.DnsSecurity.FullyProtected ? "Full DNS Protection" : "Partial Protection")
+                    <div class="dns-summary @GetDnsProtectionClass()">
+                        <strong>Overall:</strong> @GetDnsProtectionSummary()
                     </div>
                 </div>
             </div>
@@ -878,7 +878,20 @@
                     DeviceDnsPointsToGateway = lastResult.DnsSecurity.DeviceDnsPointsToGateway,
                     TotalDevicesChecked = lastResult.DnsSecurity.TotalDevicesChecked,
                     DevicesWithCorrectDns = lastResult.DnsSecurity.DevicesWithCorrectDns,
-                    DhcpDeviceCount = lastResult.DnsSecurity.DhcpDeviceCount
+                    DhcpDeviceCount = lastResult.DnsSecurity.DhcpDeviceCount,
+                    // Third-party DNS
+                    HasThirdPartyDns = lastResult.DnsSecurity.HasThirdPartyDns,
+                    IsPiholeDetected = lastResult.DnsSecurity.IsPiholeDetected,
+                    ThirdPartyDnsProviderName = lastResult.DnsSecurity.ThirdPartyDnsProviderName,
+                    ThirdPartyNetworks = lastResult.DnsSecurity.ThirdPartyNetworks
+                        .Select(n => new NetworkOptimizer.Reports.ThirdPartyDnsNetworkInfo
+                        {
+                            NetworkName = n.NetworkName,
+                            VlanId = n.VlanId,
+                            DnsServerIp = n.DnsServerIp,
+                            DnsProviderName = n.DnsProviderName
+                        })
+                        .ToList()
                 } : null,
 
                 // Access Points with wireless clients (grouped by AP MAC for accurate grouping)
@@ -1019,11 +1032,76 @@
     private static string ExtractNetworkName(string deviceName) => DisplayFormatters.ExtractNetworkName(deviceName);
     private static string FormatDeviceName(string deviceName, bool isGateway) => DisplayFormatters.FormatDeviceName(deviceName, isGateway);
 
+    private string GetDohStatusClass()
+    {
+        if (lastResult?.DnsSecurity == null) return "";
+        var dns = lastResult.DnsSecurity;
+
+        if (dns.DohEnabled) return "status-success";
+        if (dns.HasThirdPartyDns) return "status-neutral";
+        return "status-warning";
+    }
+
+    private string GetDohStatusText()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+
+        if (dns.DohEnabled) return "Enabled";
+        if (dns.HasThirdPartyDns) return "Third-Party";
+        return "Disabled";
+    }
+
     private string GetDohStatusDisplay()
     {
         if (lastResult?.DnsSecurity == null) return "N/A";
         var dns = lastResult.DnsSecurity;
-        return DisplayFormatters.GetDohStatusDisplay(dns.DohEnabled, dns.DohState, dns.DohProviders.ToList(), dns.DohConfigNames.ToList());
+
+        if (dns.DohEnabled)
+        {
+            return DisplayFormatters.GetDohStatusDisplay(dns.DohEnabled, dns.DohState, dns.DohProviders.ToList(), dns.DohConfigNames.ToList());
+        }
+
+        if (dns.HasThirdPartyDns)
+        {
+            var provider = dns.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+            var ips = dns.ThirdPartyNetworks.Select(n => n.DnsServerIp).Distinct().ToList();
+            var networks = dns.ThirdPartyNetworks.Select(n => n.NetworkName).Distinct().ToList();
+            return $"{provider} ({string.Join(", ", ips)}) on {string.Join(", ", networks)}";
+        }
+
+        return "Not Configured";
+    }
+
+    private string GetDnsProtectionClass()
+    {
+        if (lastResult?.DnsSecurity == null) return "";
+        var dns = lastResult.DnsSecurity;
+
+        if (dns.FullyProtected) return "dns-protected";
+        if (dns.HasThirdPartyDns && dns.DnsLeakProtection) return "dns-protected";
+        if (dns.HasThirdPartyDns) return "dns-partial";
+        if (dns.DohEnabled) return "dns-partial";
+        return "dns-partial";
+    }
+
+    private string GetDnsProtectionSummary()
+    {
+        if (lastResult?.DnsSecurity == null) return "Unknown";
+        var dns = lastResult.DnsSecurity;
+
+        if (dns.FullyProtected) return "Full DNS Protection";
+
+        if (dns.HasThirdPartyDns)
+        {
+            var provider = dns.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+            if (dns.DnsLeakProtection)
+                return $"{provider} with Leak Prevention";
+            return $"{provider} (Consider adding leak prevention)";
+        }
+
+        if (dns.DohEnabled) return "Partial Protection";
+        return "Not Protected";
     }
 
     /// <summary>

@@ -746,7 +746,20 @@ public class AuditService
                 InterfacesWithoutDns = dns.InterfacesWithoutDns.ToList(),
                 InterfacesWithMismatch = dns.InterfacesWithMismatch.ToList(),
                 MismatchedDnsServers = dns.MismatchedDnsServers.ToList(),
-                MatchedDnsServers = dns.MatchedDnsServers.ToList()
+                MatchedDnsServers = dns.MatchedDnsServers.ToList(),
+                // Third-party DNS
+                HasThirdPartyDns = dns.HasThirdPartyDns,
+                IsPiholeDetected = dns.IsPiholeDetected,
+                ThirdPartyDnsProviderName = dns.ThirdPartyDnsProviderName,
+                ThirdPartyNetworks = dns.ThirdPartyNetworks
+                    .Select(n => new ThirdPartyDnsNetworkReference
+                    {
+                        NetworkName = n.NetworkName,
+                        VlanId = n.VlanId,
+                        DnsServerIp = n.DnsServerIp,
+                        DnsProviderName = n.DnsProviderName
+                    })
+                    .ToList()
             };
         }
 
@@ -1042,6 +1055,20 @@ public class DnsSecurityReference
     public int TotalDevicesChecked { get; set; }
     public int DevicesWithCorrectDns { get; set; }
     public int DhcpDeviceCount { get; set; }
+
+    // Third-party DNS (Pi-hole, etc.)
+    public bool HasThirdPartyDns { get; set; }
+    public bool IsPiholeDetected { get; set; }
+    public string? ThirdPartyDnsProviderName { get; set; }
+    public List<ThirdPartyDnsNetworkReference> ThirdPartyNetworks { get; set; } = new();
+}
+
+public class ThirdPartyDnsNetworkReference
+{
+    public required string NetworkName { get; init; }
+    public int VlanId { get; init; }
+    public required string DnsServerIp { get; init; }
+    public string? DnsProviderName { get; init; }
 }
 
 public class AuditStatistics

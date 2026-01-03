@@ -77,7 +77,10 @@ public class ConfigAuditEngine
             detectionService);
         var firewallParser = new FirewallRuleParser(loggerFactory.CreateLogger<FirewallRuleParser>());
         _firewallAnalyzer = new FirewallRuleAnalyzer(loggerFactory.CreateLogger<FirewallRuleAnalyzer>(), firewallParser);
-        _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>());
+        var thirdPartyDetector = new ThirdPartyDnsDetector(
+            loggerFactory.CreateLogger<ThirdPartyDnsDetector>(),
+            new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+        _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -645,6 +648,17 @@ public class ConfigAuditEngine
             .Distinct()
             .ToList();
 
+        // Build third-party DNS network info
+        var thirdPartyNetworks = dnsSecurityResult.ThirdPartyDnsServers
+            .Select(t => new ThirdPartyDnsNetwork
+            {
+                NetworkName = t.NetworkName,
+                VlanId = t.NetworkVlanId,
+                DnsServerIp = t.DnsServerIp,
+                DnsProviderName = t.DnsProviderName
+            })
+            .ToList();
+
         return new DnsSecurityInfo
         {
             DohEnabled = dnsSecurityResult.DohConfigured,
@@ -667,7 +681,12 @@ public class ConfigAuditEngine
             InterfacesWithoutDns = interfacesWithoutDns,
             InterfacesWithMismatch = interfacesWithMismatch,
             MismatchedDnsServers = mismatchedDnsServers,
-            MatchedDnsServers = matchedDnsServers
+            MatchedDnsServers = matchedDnsServers,
+            // Third-party DNS
+            HasThirdPartyDns = dnsSecurityResult.HasThirdPartyDns,
+            IsPiholeDetected = dnsSecurityResult.IsPiholeDetected,
+            ThirdPartyDnsProviderName = dnsSecurityResult.ThirdPartyDnsProviderName,
+            ThirdPartyNetworks = thirdPartyNetworks
         };
     }
 

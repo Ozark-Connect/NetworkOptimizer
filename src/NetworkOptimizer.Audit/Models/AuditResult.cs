@@ -197,9 +197,55 @@ public class DnsSecurityInfo
     public List<string> MatchedDnsServers { get; set; } = new();
 
     /// <summary>
+    /// Whether third-party LAN DNS (like Pi-hole) is detected
+    /// </summary>
+    public bool HasThirdPartyDns { get; set; }
+
+    /// <summary>
+    /// Whether Pi-hole specifically was detected
+    /// </summary>
+    public bool IsPiholeDetected { get; set; }
+
+    /// <summary>
+    /// Name of the third-party DNS provider (e.g., "Pi-hole", "Third-Party LAN DNS")
+    /// </summary>
+    public string? ThirdPartyDnsProviderName { get; set; }
+
+    /// <summary>
+    /// Networks using third-party DNS with their DNS server details
+    /// </summary>
+    public List<ThirdPartyDnsNetwork> ThirdPartyNetworks { get; set; } = new();
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
     public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
+}
+
+/// <summary>
+/// Network-specific third-party DNS information
+/// </summary>
+public class ThirdPartyDnsNetwork
+{
+    /// <summary>
+    /// Name of the network using third-party DNS
+    /// </summary>
+    public required string NetworkName { get; init; }
+
+    /// <summary>
+    /// VLAN ID of the network
+    /// </summary>
+    public int VlanId { get; init; }
+
+    /// <summary>
+    /// IP address of the third-party DNS server
+    /// </summary>
+    public required string DnsServerIp { get; init; }
+
+    /// <summary>
+    /// Provider name (e.g., "Pi-hole", "Third-Party LAN DNS")
+    /// </summary>
+    public string? DnsProviderName { get; init; }
 }
 
 /// <summary>
