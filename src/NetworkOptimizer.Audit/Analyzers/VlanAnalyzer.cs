@@ -248,7 +248,15 @@ public class VlanAnalyzer
                 // Network named like Home/Corporate but has no internet - suspicious
                 if (networkIsolationEnabled == true)
                 {
-                    // Isolated + no internet = likely a security/camera VLAN
+                    // VLAN 1 is special - it's the enterprise native/management VLAN
+                    if (vlanId == 1)
+                    {
+                        _logger.LogDebug("Network '{NetworkName}' on VLAN 1 has unusual flags but respecting enterprise convention - classifying as Management",
+                            networkName);
+                        return NetworkPurpose.Management;
+                    }
+
+                    // Non-VLAN-1: Isolated + no internet = likely a security/camera VLAN
                     _logger.LogDebug("Network '{NetworkName}' matches Home/Corporate pattern but has no internet and is isolated - reclassifying as Security",
                         networkName);
                     return NetworkPurpose.Security;

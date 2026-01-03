@@ -511,15 +511,32 @@ public class VlanAnalyzerTests
         result.Should().Be(NetworkPurpose.IoT);
     }
 
-    // VLAN 1 special handling with flags
+    // VLAN 1 special handling with flags - VLAN 1 is always Management (enterprise convention)
 
     [Fact]
-    public void ClassifyNetwork_DefaultNameNoInternetIsolated_ReturnsSecurity()
+    public void ClassifyNetwork_Vlan1DefaultNameNoInternetIsolated_ReturnsManagement()
     {
-        // "Default" matches Home pattern, but with no internet + isolated, it's reclassified as Security
-        // This catches cases where someone named a camera VLAN "Default"
+        // VLAN 1 with no internet + isolated still becomes Management (enterprise native VLAN)
         var result = _analyzer.ClassifyNetwork("Default",
             vlanId: 1, networkIsolationEnabled: true, internetAccessEnabled: false);
+        result.Should().Be(NetworkPurpose.Management);
+    }
+
+    [Fact]
+    public void ClassifyNetwork_Vlan1HomeNameNoInternetIsolated_ReturnsManagement()
+    {
+        // VLAN 1 with Home-like name but unusual flags still becomes Management
+        var result = _analyzer.ClassifyNetwork("Home Network",
+            vlanId: 1, networkIsolationEnabled: true, internetAccessEnabled: false);
+        result.Should().Be(NetworkPurpose.Management);
+    }
+
+    [Fact]
+    public void ClassifyNetwork_NonVlan1DefaultNameNoInternetIsolated_ReturnsSecurity()
+    {
+        // Non-VLAN-1 "Default" with no internet + isolated = Security (misnamed camera VLAN)
+        var result = _analyzer.ClassifyNetwork("Default",
+            vlanId: 50, networkIsolationEnabled: true, internetAccessEnabled: false);
         result.Should().Be(NetworkPurpose.Security);
     }
 
@@ -535,8 +552,7 @@ public class VlanAnalyzerTests
     [Fact]
     public void ClassifyNetwork_Vlan1NoPatternMatchNoInternetIsolated_ReturnsManagement()
     {
-        // VLAN 1 with no pattern match becomes Management, and Management is not
-        // affected by flag-based reclassification (flags don't override explicit classifications)
+        // VLAN 1 with no pattern match becomes Management regardless of flags
         var result = _analyzer.ClassifyNetwork("MyNetwork",
             vlanId: 1, networkIsolationEnabled: true, internetAccessEnabled: false);
         result.Should().Be(NetworkPurpose.Management);

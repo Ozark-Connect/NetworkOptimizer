@@ -40,18 +40,15 @@ cd network-optimizer/docker
 cp .env.example .env
 nano .env  # Set APP_PASSWORD and other options
 
-# Create directories
-mkdir -p data logs
-
 # Start with host networking (recommended for Linux)
 docker compose up -d
 
 # Verify
 docker compose ps
-curl http://localhost:8080/api/health
+curl http://localhost:8042/api/health
 ```
 
-Access at: **http://your-server:8080**
+Access at: **http://your-server:8042**
 
 #### Network Mode Options
 
@@ -62,10 +59,10 @@ Access at: **http://your-server:8080**
 ```
 
 **Bridge Networking (if host mode unavailable):**
-```yaml
+```bash
 # Use docker-compose.macos.yml which uses port mapping
+# IMPORTANT: Set HOST_IP in .env to your server's IP for accurate path analysis
 docker compose -f docker-compose.macos.yml up -d
-# Access at port 8042 instead of 8080
 ```
 
 #### Service Management
@@ -132,12 +129,12 @@ For commercial NAS devices with container support.
 #### Synology NAS
 
 1. Install Container Manager from Package Center
-2. Create folders:
-   - `/docker/network-optimizer/data`
-   - `/docker/network-optimizer/logs`
-3. Upload `docker-compose.yml` and `.env`
-4. Create project in Container Manager
+2. Clone or upload the repository to `/docker/network-optimizer`
+3. Copy `.env.example` to `.env` and configure
+4. Create project in Container Manager pointing to docker-compose.yml
 5. Start containers
+
+**Note:** If using bridge networking, set `HOST_IP` in `.env` to your NAS IP address.
 
 #### QNAP NAS
 
@@ -197,31 +194,16 @@ cp .env.example .env
 nano .env
 ```
 
-**Required changes:**
+**Recommended changes:**
 ```env
-# CHANGE THESE!
-INFLUXDB_PASSWORD=your_secure_password_here
-INFLUXDB_TOKEN=your_secure_token_here
-GRAFANA_PASSWORD=your_secure_password_here
+# Set an admin password (optional but recommended)
+APP_PASSWORD=your_secure_password_here
+
+# Set your timezone
+TZ=America/Chicago
 ```
 
-Generate secure tokens:
-```bash
-# For INFLUXDB_TOKEN
-openssl rand -base64 32
-
-# For AGENT_AUTH_TOKEN (if needed)
-openssl rand -hex 32
-```
-
-### 3. Create Directories
-
-```bash
-mkdir -p data logs ssh-keys
-chmod 700 ssh-keys
-```
-
-### 4. Deploy Stack
+### 3. Deploy Stack
 
 ```bash
 docker-compose up -d
