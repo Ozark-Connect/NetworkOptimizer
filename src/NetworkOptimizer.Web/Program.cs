@@ -45,7 +45,7 @@ builder.Services.AddSingleton<UniFiConnectionService>();
 builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<UniFiConnectionService>());
 
 // Register Network Path Analyzer (singleton - uses caching)
-builder.Services.AddSingleton<NetworkPathAnalyzer>();
+builder.Services.AddSingleton<INetworkPathAnalyzer, NetworkPathAnalyzer>();
 
 // Register audit engine and analyzers
 builder.Services.AddTransient<VlanAnalyzer>();
@@ -96,10 +96,10 @@ builder.Services.AddSingleton<SystemSettingsService>();
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
 
 // Register Admin Auth service (scoped - depends on ISettingsRepository)
-builder.Services.AddScoped<AdminAuthService>();
+builder.Services.AddScoped<IAdminAuthService, AdminAuthService>();
 
 // Register JWT service (singleton - caches secret key)
-builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<IJwtService, JwtService>();
 
 // Add HttpContextAccessor for accessing cookies in Blazor
 builder.Services.AddHttpContextAccessor();
