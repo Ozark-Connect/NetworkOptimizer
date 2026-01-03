@@ -506,9 +506,9 @@ Data persists in volumes.
 ## Support
 
 For issues, feature requests, or questions:
-- GitHub: https://github.com/ozark-connect/network-optimizer
-- Documentation: https://docs.ozark-connect.com/network-optimizer
-- Support: support@ozark-connect.com
+- GitHub: https://github.com/tvancott42/NetworkOptimizer
+- Documentation: See `docs/` folder in repository
+- Support: tj@ozarkconnect.net
 
 ## License
 

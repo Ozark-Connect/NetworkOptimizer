@@ -317,8 +317,7 @@ public class ReportGenerationService : BackgroundService
 
 ## Reference Implementation
 
-Based on Python implementation:
-`a prior Python prototype`
+This C# implementation improves upon a prior Python prototype.
 
 Key improvements in C# version:
 - ✅ Strong typing with compile-time safety

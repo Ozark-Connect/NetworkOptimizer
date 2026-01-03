@@ -534,4 +534,4 @@ docker-compose up -d
 - **.env.example**: All configuration options
 - **Grafana Dashboards**: Pre-built JSON files
 
-For support, see main project documentation or contact support@ozark-connect.com.
+For support, see main project documentation or contact tj@ozarkconnect.net.

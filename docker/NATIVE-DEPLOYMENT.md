@@ -50,10 +50,10 @@ mkdir -p ~/network-optimizer
 cd ~/network-optimizer
 
 # Download latest release (replace VERSION with actual version)
-curl -L https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
+curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
 
 # For Intel Macs, use:
-# curl -L https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-osx-x64.tar.gz | tar -xz --strip-components=1
+# curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-x64.tar.gz | tar -xz --strip-components=1
 ```
 
 ### Code Signing
@@ -200,7 +200,7 @@ cp ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db ~/networ
 
 # Download new version
 cd ~/network-optimizer
-curl -L https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
+curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-osx-arm64.tar.gz | tar -xz --strip-components=1
 
 # Re-sign binaries
 find . -name '*.dylib' -exec codesign --force --sign - {} \;
@@ -256,10 +256,10 @@ sudo chown $USER:$USER /opt/network-optimizer
 cd /opt/network-optimizer
 
 # Download latest release (x64)
-curl -L https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-linux-x64.tar.gz | tar -xz --strip-components=1
+curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-linux-x64.tar.gz | tar -xz --strip-components=1
 
 # For ARM64, use:
-# curl -L https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-linux-arm64.tar.gz | tar -xz --strip-components=1
+# curl -L https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-linux-arm64.tar.gz | tar -xz --strip-components=1
 
 # Make executable
 chmod +x NetworkOptimizer.Web
@@ -380,7 +380,7 @@ mkdir C:\NetworkOptimizer
 cd C:\NetworkOptimizer
 
 # Download and extract (use browser or PowerShell)
-Invoke-WebRequest -Uri "https://github.com/ozark-connect/network-optimizer/releases/latest/download/network-optimizer-win-x64.zip" -OutFile "network-optimizer.zip"
+Invoke-WebRequest -Uri "https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/network-optimizer-win-x64.zip" -OutFile "network-optimizer.zip"
 Expand-Archive -Path "network-optimizer.zip" -DestinationPath "." -Force
 Remove-Item "network-optimizer.zip"
 ```
@@ -561,6 +561,6 @@ type C:\NetworkOptimizer\logs\stdout.log
 
 ## Support
 
-- Documentation: https://docs.ozark-connect.com
-- GitHub Issues: https://github.com/ozark-connect/network-optimizer/issues
-- Email: support@ozark-connect.com
+- Documentation: See `docs/` folder in repository
+- GitHub Issues: https://github.com/tvancott42/NetworkOptimizer/issues
+- Email: tj@ozarkconnect.net

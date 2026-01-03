@@ -33,7 +33,7 @@ sudo usermod -aG docker $USER
 # Log out and back in for group changes
 
 # Clone repository
-git clone https://github.com/ozark-connect/network-optimizer.git
+git clone https://github.com/tvancott42/NetworkOptimizer.git
 cd network-optimizer/docker
 
 # Configure environment
@@ -184,13 +184,13 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 
 ```bash
 # Clone repository or download release
-git clone https://github.com/ozark-connect/network-optimizer.git
+git clone https://github.com/tvancott42/NetworkOptimizer.git
 cd network-optimizer/docker
 ```
 
 Or download latest release:
 ```bash
-wget https://github.com/ozark-connect/network-optimizer/releases/latest/download/docker-deploy.tar.gz
+wget https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/docker-deploy.tar.gz
 tar xzf docker-deploy.tar.gz
 cd docker
 ```
@@ -739,9 +739,9 @@ sudo sysctl -p
 
 ### Getting Help
 
-- Documentation: https://docs.ozark-connect.com
-- GitHub Issues: https://github.com/ozark-connect/network-optimizer/issues
-- Email: support@ozark-connect.com
+- Documentation: See `docs/` folder in repository
+- GitHub Issues: https://github.com/tvancott42/NetworkOptimizer/issues
+- Email: tj@ozarkconnect.net
 
 ### Maintenance Windows
 

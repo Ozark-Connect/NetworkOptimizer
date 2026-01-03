@@ -89,7 +89,7 @@ Choose your deployment method:
 ### Quick Start (Linux Docker)
 
 ```bash
-git clone https://github.com/ozark-connect/network-optimizer.git
+git clone https://github.com/tvancott42/NetworkOptimizer.git
 cd network-optimizer/docker
 cp .env.example .env  # Optional - edit to set APP_PASSWORD
 docker compose up -d
@@ -163,7 +163,7 @@ This software is provided for evaluation and testing purposes only. Commercial u
 
 ## Support
 
-- Issues: [GitHub Issues](https://github.com/your-org/network-optimizer/issues)
+- Issues: [GitHub Issues](https://github.com/tvancott42/NetworkOptimizer/issues)
 - Documentation: See `docs/` folder and component READMEs
 
 ---

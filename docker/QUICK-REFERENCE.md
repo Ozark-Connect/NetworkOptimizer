@@ -262,8 +262,8 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 - **Documentation**: README.md, DEPLOYMENT.md, STRUCTURE.md
 - **Logs**: `docker-compose logs -f`
 - **Health**: `docker-compose ps`
-- **GitHub**: https://github.com/ozark-connect/network-optimizer
-- **Support**: support@ozark-connect.com
+- **GitHub**: https://github.com/tvancott42/NetworkOptimizer
+- **Support**: tj@ozarkconnect.net
 
 ## 🎯 Performance Tuning
 
