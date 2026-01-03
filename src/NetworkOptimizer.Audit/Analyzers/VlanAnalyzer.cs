@@ -113,7 +113,7 @@ public class VlanAnalyzer
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
         var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
         var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
-        var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled);
+        var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
 
         _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}",
             name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
@@ -192,9 +192,12 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Classify a network based on its name and purpose
+    /// Classify a network based on its name, purpose, and UniFi configuration flags.
+    /// Uses name patterns as primary classification, then applies flag-based adjustments
+    /// to catch misclassifications (e.g., "Home" network with no internet is suspicious).
     /// </summary>
-    public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null, int? vlanId = null, bool? dhcpEnabled = null)
+    public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null, int? vlanId = null,
+        bool? dhcpEnabled = null, bool? networkIsolationEnabled = null, bool? internetAccessEnabled = null)
     {
         // Check explicit UniFi "guest" purpose first (UniFi marks guest networks specially)
         if (!string.IsNullOrEmpty(purpose) && purpose.Equals("guest", StringComparison.OrdinalIgnoreCase))
@@ -202,49 +205,101 @@ public class VlanAnalyzer
             return NetworkPurpose.Guest;
         }
 
-        // Check name patterns - these take priority over UniFi's generic "corporate" purpose
+        // Step 1: Name-based classification (primary)
         // Order matters: more specific patterns first
+        NetworkPurpose nameBasedPurpose;
 
         // Security first to avoid false positives with "Security Devices" matching IoT
         if (SecurityPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.Security;
-
+            nameBasedPurpose = NetworkPurpose.Security;
         // Word-boundary patterns for Security (e.g., "NoT" should not match "Hotspot")
-        if (SecurityWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
-            return NetworkPurpose.Security;
-
-        if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.IoT;
-
-        if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.Management;
-
-        if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.Guest;
-
-        // Check for corporate patterns
-        if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.Corporate;
-
-        // Check for home/residential patterns
-        if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
-            return NetworkPurpose.Home;
-
+        else if (SecurityWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
+            nameBasedPurpose = NetworkPurpose.Security;
+        else if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.IoT;
+        else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Management;
+        else if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Guest;
+        else if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Corporate;
+        else if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Home;
         // Fallback: if name starts with "default" or "main", or is exactly "lan", treat as Home
-        if (networkName.StartsWith("default", StringComparison.OrdinalIgnoreCase) ||
-            networkName.StartsWith("main", StringComparison.OrdinalIgnoreCase) ||
-            networkName.Equals("lan", StringComparison.OrdinalIgnoreCase))
-            return NetworkPurpose.Home;
-
+        else if (networkName.StartsWith("default", StringComparison.OrdinalIgnoreCase) ||
+                 networkName.StartsWith("main", StringComparison.OrdinalIgnoreCase) ||
+                 networkName.Equals("lan", StringComparison.OrdinalIgnoreCase))
+            nameBasedPurpose = NetworkPurpose.Home;
         // For VLAN 1 (native) that doesn't match home/corporate patterns, assume Management
-        // Enterprise networks typically use VLAN 1 as the native/management VLAN
-        if (vlanId == 1)
-            return NetworkPurpose.Management;
+        else if (vlanId == 1)
+            nameBasedPurpose = NetworkPurpose.Management;
+        else
+            nameBasedPurpose = NetworkPurpose.Unknown;
 
-        // Log unclassified networks for debugging and pattern improvement
-        _logger.LogDebug("Network '{NetworkName}' (VLAN {VlanId}) could not be classified - consider adding a matching pattern",
-            networkName, vlanId);
-        return NetworkPurpose.Unknown;
+        // Step 2: Flag-based adjustments
+        // Use UniFi's isolation and internet access flags to refine classification
+
+        // Home/Corporate networks should have internet access
+        // If they don't, the name-based classification is likely wrong
+        if (nameBasedPurpose is NetworkPurpose.Home or NetworkPurpose.Corporate)
+        {
+            if (internetAccessEnabled == false)
+            {
+                // Network named like Home/Corporate but has no internet - suspicious
+                if (networkIsolationEnabled == true)
+                {
+                    // Isolated + no internet = likely a security/camera VLAN
+                    _logger.LogDebug("Network '{NetworkName}' matches Home/Corporate pattern but has no internet and is isolated - reclassifying as Security",
+                        networkName);
+                    return NetworkPurpose.Security;
+                }
+                else
+                {
+                    // No internet but not isolated - unusual config, can't determine
+                    _logger.LogDebug("Network '{NetworkName}' matches Home/Corporate pattern but has no internet - reclassifying as Unknown",
+                        networkName);
+                    return NetworkPurpose.Unknown;
+                }
+            }
+        }
+
+        // For Unknown networks, use flags to infer purpose
+        if (nameBasedPurpose == NetworkPurpose.Unknown)
+        {
+            if (networkIsolationEnabled == true)
+            {
+                if (internetAccessEnabled == false)
+                {
+                    // Isolated + no internet = likely security/camera VLAN
+                    _logger.LogDebug("Network '{NetworkName}' is isolated with no internet - classifying as Security",
+                        networkName);
+                    return NetworkPurpose.Security;
+                }
+                else if (internetAccessEnabled == true)
+                {
+                    // Isolated + internet = likely IoT (needs internet for updates/cloud)
+                    _logger.LogDebug("Network '{NetworkName}' is isolated with internet access - classifying as IoT",
+                        networkName);
+                    return NetworkPurpose.IoT;
+                }
+            }
+
+            // Log unclassified networks for debugging and pattern improvement
+            _logger.LogDebug("Network '{NetworkName}' (VLAN {VlanId}) could not be classified - consider adding a matching pattern",
+                networkName, vlanId);
+        }
+
+        // Log when isolation confirms secure VLAN classification (positive indicator)
+        if (nameBasedPurpose is NetworkPurpose.Security or NetworkPurpose.IoT or NetworkPurpose.Management)
+        {
+            if (networkIsolationEnabled == true)
+            {
+                _logger.LogDebug("Network '{NetworkName}' isolation setting confirms {Purpose} classification",
+                    networkName, nameBasedPurpose);
+            }
+        }
+
+        return nameBasedPurpose;
     }
 
     /// <summary>
