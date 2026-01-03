@@ -98,13 +98,9 @@
     private string? errorMessage;
     private bool needsGatewayConfig = false;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender)
-        {
-            await LoadStatus();
-            StateHasChanged();
-        }
+        await LoadStatus();
     }
 
     private async Task LoadStatus()
