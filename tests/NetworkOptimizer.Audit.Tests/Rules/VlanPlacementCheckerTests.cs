@@ -175,6 +175,205 @@ public class VlanPlacementCheckerTests
 
     #endregion
 
+    #region Device Allowance Settings Tests
+
+    [Fact]
+    public void CheckIoTPlacement_StreamingDevice_AppleWithAllowApple_ReturnsInformational()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Apple Inc");
+
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.IsLowRisk.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_StreamingDevice_RokuWithAllowApple_StaysRecommended()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Roku Inc");
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(ScoreConstants.LowRiskIoTImpact);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_StreamingDevice_AllowAll_ReturnsInformationalForAnyVendor()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAllStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Roku Inc");
+
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+    }
+
+    [Theory]
+    [InlineData("LG Electronics")]
+    [InlineData("Samsung")]
+    [InlineData("Sony Corporation")]
+    public void CheckIoTPlacement_SmartTV_NameBrandWithAllowNameBrand_ReturnsInformational(string vendor)
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowNameBrandTVsOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartTV,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: vendor);
+
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartTV_OffBrandWithAllowNameBrand_StaysRecommended()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowNameBrandTVsOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartTV,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "TCL Electronics");
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(ScoreConstants.LowRiskIoTImpact);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartTV_AllowAll_ReturnsInformationalForAnyVendor()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAllTVsOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartTV,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Hisense");
+
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_HighRiskDevice_IgnoresAllowanceSettings()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings
+        {
+            AllowAllStreamingOnMainNetwork = true,
+            AllowAllTVsOnMainNetwork = true
+        };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartLock,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "August");
+
+        // High-risk devices always get Critical severity regardless of allowance settings
+        result.Severity.Should().Be(AuditSeverity.Critical);
+        result.ScoreImpact.Should().Be(10);
+        result.IsLowRisk.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_StreamingDevice_NullVendor_StaysRecommended()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: null);
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_WithNullAllowanceSettings_UsesDefaultSeverity()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.StreamingDevice,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowanceSettings: null,
+            vendorName: "Apple Inc");
+
+        // Without allowance settings, stays at default Recommended for low-risk devices
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.IsLowRisk.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartPlug_IsLowRiskButNotInAllowanceSettings()
+    {
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings
+        {
+            AllowAllStreamingOnMainNetwork = true,
+            AllowAllTVsOnMainNetwork = true
+        };
+
+        // SmartPlug IS low-risk, but allowance settings only cover StreamingDevice and SmartTV
+        // So SmartPlug stays at Recommended severity, not Informational
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartPlug,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "TP-Link");
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.IsLowRisk.Should().BeTrue();
+    }
+
+    #endregion
+
     #region BuildMetadata Tests
 
     [Fact]

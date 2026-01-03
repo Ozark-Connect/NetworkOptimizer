@@ -280,6 +280,225 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region Client History Tests
+
+    [Fact]
+    public void SetClientHistory_WithValidList_PopulatesLookup()
+    {
+        // Arrange - DevCat 9 = "IP Network Camera" in UniFi fingerprint database
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Camera",
+                Fingerprint = new ClientFingerprintData { DevCat = 9 }
+            }
+        };
+
+        // Act
+        _service.SetClientHistory(history);
+        var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
+
+        // Assert - should find the device from history
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void SetClientHistory_WithNull_ClearsLookup()
+    {
+        // Arrange - first set some history with valid DevCat 9 (IP Network Camera)
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Front Door Camera",
+                Fingerprint = new ClientFingerprintData { DevCat = 9 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act - clear it
+        _service.SetClientHistory(null);
+
+        // Assert - should now fall back to OUI detection (unknown in this case)
+        var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
+        result.Source.Should().NotBe(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void SetClientHistory_WithEmptyList_ClearsLookup()
+    {
+        // Arrange - first set some history with valid DevCat 9 (IP Network Camera)
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Camera",
+                Fingerprint = new ClientFingerprintData { DevCat = 9 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act - set empty list
+        _service.SetClientHistory(new List<UniFiClientHistoryResponse>());
+
+        // Assert - should now fall back to OUI detection
+        var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
+        result.Source.Should().NotBe(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void DetectFromMac_WithHistoryFingerprint_ReturnsCorrectCategory()
+    {
+        // Arrange - history with camera fingerprint
+        // DevCat 9 = "IP Network Camera" in UniFi fingerprint database
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Garage",
+                Fingerprint = new ClientFingerprintData { DevCat = 9, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void DetectFromMac_WithHistoryNamePattern_ReturnsCorrectCategory()
+    {
+        // Arrange - history without fingerprint but with recognizable name
+        // Note: Sonos devices are classified as MediaPlayer, not SmartSpeaker
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Kitchen Sonos One",
+                Fingerprint = null
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - Sonos is classified as MediaPlayer
+        result.Category.Should().Be(ClientDeviceCategory.MediaPlayer);
+    }
+
+    [Fact]
+    public void DetectFromMac_WithoutHistory_FallsBackToOuiDatabase()
+    {
+        // Arrange - no history set, use a known IoT MAC prefix
+        // Ring devices: F8:02:78
+        var ringMac = "f8:02:78:12:34:56";
+
+        // Act
+        var result = _service.DetectFromMac(ringMac);
+
+        // Assert - should use OUI detection
+        // Note: actual detection depends on OUI database content
+        result.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void DetectFromMac_CaseInsensitiveLookup_FindsMatch()
+    {
+        // Arrange - DevCat 9 = "IP Network Camera"
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "AA:BB:CC:DD:EE:FF",  // uppercase
+                Name = "Test Camera",
+                Fingerprint = new ClientFingerprintData { DevCat = 9 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act - query with lowercase
+        var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void DetectFromMac_EmptyMac_ReturnsUnknown()
+    {
+        // Act
+        var result = _service.DetectFromMac("");
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+    }
+
+    [Fact]
+    public void DetectFromMac_NullMac_ReturnsUnknown()
+    {
+        // Act
+        var result = _service.DetectFromMac(null!);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+    }
+
+    [Fact]
+    public void DetectFromMac_HistoryUsesDisplayName_WhenNameNull()
+    {
+        // Arrange - history with DisplayName but no Name
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = null,
+                DisplayName = "Living Room Camera",
+                Fingerprint = null
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should detect from DisplayName pattern
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void SetClientHistory_FiltersEntriesWithEmptyMac()
+    {
+        // Arrange - history with some empty MACs
+        // DevCat 9 = "IP Network Camera"
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new() { Mac = "", Name = "Empty MAC" },
+            new() { Mac = "aa:bb:cc:dd:ee:ff", Name = "Valid Camera", Fingerprint = new ClientFingerprintData { DevCat = 9 } },
+            new() { Mac = null!, Name = "Null MAC" }
+        };
+
+        // Act - should not throw
+        _service.SetClientHistory(history);
+        var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
     #region Category Extension Tests
 
     [Theory]

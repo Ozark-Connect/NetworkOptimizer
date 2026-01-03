@@ -729,7 +729,7 @@ public class PortSecurityAnalyzerTests
             {
                 Type = "CUSTOM_ISSUE",
                 Message = "Custom rule triggered",
-                Severity = Models.AuditSeverity.Recommended
+                Severity = NetworkOptimizer.Audit.Models.AuditSeverity.Recommended
             });
 
         _engine.AddRule(customRuleMock.Object);
