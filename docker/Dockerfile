@@ -60,6 +60,7 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     sshpass \
     libssl3 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy iperf3 from build stage
@@ -86,8 +87,12 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
 
-# Run as non-root user (using built-in 'app' user from base image)
+# Set ownership for app directories
 RUN chown -R app:app /app
-USER app
 
-ENTRYPOINT ["dotnet", "NetworkOptimizer.Web.dll"]
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Run as root initially; entrypoint will fix volume permissions then drop to app user
+ENTRYPOINT ["/entrypoint.sh"]
