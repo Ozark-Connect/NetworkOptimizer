@@ -1102,4 +1102,284 @@ public class DnsSecurityAnalyzerTests
     }
 
     #endregion
+
+    #region Third-Party DNS Detection Tests
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyLanDns_SetsHasThirdPartyDns()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsServers.Should().NotBeEmpty();
+        result.ThirdPartyDnsServers.Should().Contain(t => t.DnsServerIp == "192.168.1.5");
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDns_GeneratesInfoIssue()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.Issues.Should().Contain(i =>
+            i.Type == IssueTypes.DnsThirdPartyDetected &&
+            i.Severity == AuditSeverity.Informational);
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDns_DoesNotGenerateDnsNoDohIssue()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Should NOT have DNS_NO_DOH issue when third-party DNS is detected
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNoDoh);
+    }
+
+    [Fact]
+    public async Task Analyze_WithoutDoHOrThirdParty_GeneratesUnknownConfigIssue()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.1" } // DNS matches gateway
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsUnknownConfig);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNoDoh);
+    }
+
+    [Fact]
+    public async Task Analyze_WithPublicDns_DoesNotDetectAsThirdParty()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "8.8.8.8", "1.1.1.1" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeFalse();
+        result.ThirdPartyDnsServers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsWithMultipleNetworks_SetsProviderName()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.2.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsProviderName.Should().Be("Third-Party LAN DNS");
+        result.ThirdPartyDnsServers.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsIssue_HasZeroScoreImpact()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Third-party DNS issue should have no score impact
+        var thirdPartyIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsThirdPartyDetected);
+        thirdPartyIssue.Should().NotBeNull();
+        thirdPartyIssue!.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDns_AddsHardeningNote()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HardeningNotes.Should().Contain(n => n.Contains("Third-Party LAN DNS"));
+    }
+
+    #endregion
 }
