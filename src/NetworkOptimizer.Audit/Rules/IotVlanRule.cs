@@ -24,25 +24,35 @@ public class IotVlanRule : AuditRuleBase
             return null;
 
         DeviceDetectionResult detection;
-        bool isDownPort = false;
+        bool isOfflineDevice = false;
 
-        if (port.IsUp)
+        if (port.IsUp && port.ConnectedClient != null)
         {
-            // Active port: use full detection with connected client
+            // Active port with connected client: use full detection
             detection = DetectDeviceType(port);
         }
-        else if (IsAuditableDownPort(port))
+        else if (port.IsUp && port.ConnectedClient == null && HasOfflineDeviceData(port))
+        {
+            // Port is UP (link active) but no client connected (e.g., TV in standby)
+            // Use LastConnectionMac or MAC restrictions for detection
+            var offlineDetection = DetectDeviceTypeForDownPort(port);
+            if (offlineDetection == null)
+                return null;
+            detection = offlineDetection;
+            isOfflineDevice = true;
+        }
+        else if (!port.IsUp && IsAuditableDownPort(port))
         {
             // Down port: detect from last connection MAC or MAC restrictions
             var downPortDetection = DetectDeviceTypeForDownPort(port);
             if (downPortDetection == null)
                 return null;
             detection = downPortDetection;
-            isDownPort = true;
+            isOfflineDevice = true;
         }
         else
         {
-            // Down port without MAC restrictions: skip
+            // No connected client and no MAC data: skip
             return null;
         }
 
@@ -65,9 +75,9 @@ public class IotVlanRule : AuditRuleBase
 
         // Build device name based on port state
         string deviceName;
-        if (isDownPort)
+        if (isOfflineDevice)
         {
-            // Down port: use port name or port number with switch context
+            // Offline device: use port name or port number with switch context
             deviceName = !string.IsNullOrEmpty(port.Name)
                 ? $"{port.Name} on {port.Switch.Name}"
                 : $"Port {port.PortIndex} on {port.Switch.Name}";
@@ -81,8 +91,8 @@ public class IotVlanRule : AuditRuleBase
                 : $"{port.Name ?? $"Port {port.PortIndex}"} on {port.Switch.Name}";
         }
 
-        // Adjust message for down ports
-        var statusNote = isDownPort ? " (port down, MAC restricted)" : "";
+        // Adjust message for offline devices
+        var statusNote = isOfflineDevice ? " (offline, MAC restricted)" : "";
         var message = $"{detection.CategoryName} on {network.Name} VLAN{statusNote} - should be isolated";
 
         return new AuditIssue

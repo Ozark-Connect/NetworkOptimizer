@@ -367,7 +367,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect camera from MAC OUI and flag VLAN issue
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("port down, MAC restricted");
+        result!.Message.Should().Contain("offline, MAC restricted");
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -426,7 +426,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect from port name pattern
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("port down, MAC restricted");
+        result!.Message.Should().Contain("offline, MAC restricted");
     }
 
     [Fact]
@@ -467,7 +467,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect camera from last connection MAC
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("port down");
+        result!.Message.Should().Contain("offline");
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -525,6 +525,61 @@ public class CameraVlanRuleTests
 
         // Assert - No MAC info, should skip
         result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_UpPortNoClient_WithLastConnectionMac_CameraDevice_OnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Port is UP (link active) but no client connected (camera in standby/offline)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Test Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Driveway Camera",
+            IsUp = true, // Port is UP (link active)
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = null, // No connected client (camera offline)
+            LastConnectionMac = "9C:8E:CD:11:22:33" // Hikvision MAC
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should detect camera from last connection MAC even though port is UP
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("offline");
+        result.CurrentNetwork.Should().Be("Corporate");
+    }
+
+    [Fact]
+    public void Evaluate_UpPortNoClient_WithMacRestriction_CameraDevice_OnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Port is UP but no client connected, has MAC restriction for camera
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Test Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Camera Port",
+            IsUp = true, // Port is UP
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = null, // No connected client
+            AllowedMacAddresses = new List<string> { "9C:8E:CD:44:55:66" } // Hikvision MAC
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should detect camera from MAC restriction
+        result.Should().NotBeNull();
+        result!.Message.Should().Contain("offline");
     }
 
     #endregion

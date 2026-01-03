@@ -195,7 +195,16 @@ public abstract class AuditRuleBase : IAuditRule
             && port.ForwardMode == "native"
             && !port.IsUplink
             && !port.IsWan
-            && (!string.IsNullOrEmpty(port.LastConnectionMac) || port.AllowedMacAddresses?.Count > 0);
+            && HasOfflineDeviceData(port);
+    }
+
+    /// <summary>
+    /// Check if a port has offline device data (last connection MAC or MAC restrictions).
+    /// Used for detecting devices that are offline but have historical MAC data.
+    /// </summary>
+    protected bool HasOfflineDeviceData(PortInfo port)
+    {
+        return !string.IsNullOrEmpty(port.LastConnectionMac) || port.AllowedMacAddresses?.Count > 0;
     }
 
     /// <summary>
