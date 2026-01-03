@@ -49,7 +49,7 @@ brew install sshpass iperf3
 brew install dotnet
 
 # Clone repository
-git clone https://github.com/tvancott42/NetworkOptimizer.git
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Build for your architecture
@@ -266,7 +266,7 @@ chmod +x dotnet-install.sh
 export PATH="$HOME/.dotnet:$PATH"
 
 # Clone and build
-git clone https://github.com/tvancott42/NetworkOptimizer.git
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Create installation directory
@@ -398,7 +398,7 @@ Or download directly:
 winget install Microsoft.DotNet.SDK.9
 
 # Clone repository
-git clone https://github.com/tvancott42/NetworkOptimizer.git
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Build
@@ -582,5 +582,5 @@ type C:\NetworkOptimizer\logs\stdout.log
 ## Support
 
 - Documentation: See `docs/` folder in repository
-- GitHub Issues: https://github.com/tvancott42/NetworkOptimizer/issues
+- GitHub Issues: https://github.com/Ozark-Connect/NetworkOptimizer/issues
 - Email: tj@ozarkconnect.net
