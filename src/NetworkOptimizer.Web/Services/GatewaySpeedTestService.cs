@@ -171,6 +171,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Gateway SSH connection test failed for {Host}", settings.Host);
             return (false, ex.Message);
         }
     }
@@ -273,6 +274,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Gateway SSH command execution failed");
             return (false, ex.Message);
         }
     }
@@ -591,6 +593,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "iperf3 client execution failed for {Host}:{Port}", host, port);
             return (false, ex.Message);
         }
     }

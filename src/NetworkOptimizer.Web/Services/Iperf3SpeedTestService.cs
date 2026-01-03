@@ -579,6 +579,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Local iperf3 execution failed for {Host}", host);
             return (false, ex.Message);
         }
     }

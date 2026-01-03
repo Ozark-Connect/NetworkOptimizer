@@ -91,7 +91,7 @@ public class DeviceTypeDetectionService
         var obviousNameResult = CheckObviousNameOverride(client?.Name, client?.Hostname);
         if (obviousNameResult != null)
         {
-            _logger?.LogInformation("[Detection] '{DisplayName}': Name override → {Category} (name clearly indicates device type)",
+            _logger?.LogDebug("[Detection] '{DisplayName}': Name override → {Category} (name clearly indicates device type)",
                 displayName, obviousNameResult.Category);
             return obviousNameResult;
         }
@@ -102,7 +102,7 @@ public class DeviceTypeDetectionService
         var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat);
         if (vendorOverrideResult != null)
         {
-            _logger?.LogInformation("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
+            _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
                 displayName, vendorOverrideResult.Category);
             return vendorOverrideResult;
         }
@@ -220,7 +220,7 @@ public class DeviceTypeDetectionService
         // Return best result
         if (results.Count == 0)
         {
-            _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): No detection → Unknown",
+            _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): No detection → Unknown",
                 displayName, mac);
             return DeviceDetectionResult.Unknown;
         }
@@ -257,7 +257,7 @@ public class DeviceTypeDetectionService
                     }
                 };
 
-                _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): {Sources} → {Category} ({Confidence}%, {Source})",
+                _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): {Sources} → {Category} ({Confidence}%, {Source})",
                     displayName, mac,
                     string.Join("+", results.Select(r => r.Source.ToString()).Distinct()),
                     combinedResult.Category, combinedResult.ConfidenceScore, combinedResult.Source);
@@ -266,7 +266,7 @@ public class DeviceTypeDetectionService
             }
         }
 
-        _logger?.LogInformation("[Detection] '{DisplayName}' ({Mac}): {Source} → {Category} ({Confidence}%)",
+        _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): {Source} → {Category} ({Confidence}%)",
             displayName, mac, best.Source, best.Category, best.ConfidenceScore);
 
         return best;
