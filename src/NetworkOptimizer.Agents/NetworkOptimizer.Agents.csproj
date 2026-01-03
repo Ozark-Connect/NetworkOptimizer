@@ -11,8 +11,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="SSH.NET" Version="2024.2.0" />
-    <PackageReference Include="Scriban" Version="5.12.1" />
+    <PackageReference Include="SSH.NET" Version="2025.1.0" />
+    <PackageReference Include="Scriban" Version="6.5.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.1" />

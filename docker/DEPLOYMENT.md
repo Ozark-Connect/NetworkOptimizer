@@ -33,7 +33,7 @@ sudo usermod -aG docker $USER
 # Log out and back in for group changes
 
 # Clone repository
-git clone https://github.com/tvancott42/NetworkOptimizer.git
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
 cd network-optimizer/docker
 
 # Configure environment
@@ -183,16 +183,8 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 ### 1. Download Files
 
 ```bash
-# Clone repository or download release
-git clone https://github.com/tvancott42/NetworkOptimizer.git
-cd network-optimizer/docker
-```
-
-Or download latest release:
-```bash
-wget https://github.com/tvancott42/NetworkOptimizer/releases/latest/download/docker-deploy.tar.gz
-tar xzf docker-deploy.tar.gz
-cd docker
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+cd NetworkOptimizer/docker
 ```
 
 ### 2. Configure Environment
@@ -740,7 +732,7 @@ sudo sysctl -p
 ### Getting Help
 
 - Documentation: See `docs/` folder in repository
-- GitHub Issues: https://github.com/tvancott42/NetworkOptimizer/issues
+- GitHub Issues: https://github.com/Ozark-Connect/NetworkOptimizer/issues
 - Email: tj@ozarkconnect.net
 
 ### Maintenance Windows

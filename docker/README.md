@@ -506,7 +506,7 @@ Data persists in volumes.
 ## Support
 
 For issues, feature requests, or questions:
-- GitHub: https://github.com/tvancott42/NetworkOptimizer
+- GitHub: https://github.com/Ozark-Connect/NetworkOptimizer
 - Documentation: See `docs/` folder in repository
 - Support: tj@ozarkconnect.net
 

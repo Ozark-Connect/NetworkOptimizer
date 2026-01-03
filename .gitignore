@@ -15,7 +15,7 @@ publish/
 *.pdb
 *.cache
 
-# Docker data (runtime data, created by container)
+# Docker data
 docker/data/
 docker/logs/
 
@@ -33,7 +33,7 @@ nul
 *.tmp
 *.log
 
-# Internal development notes (not for public repo)
+# Internal development notes
 CLAUDE.md
 .claude/
 
@@ -44,7 +44,7 @@ code-review/
 # Local development scripts
 scripts/local-dev/
 
-# Archived legacy code (not for public repo)
+# Archived code
 archive/
 
 # Coverage reports
