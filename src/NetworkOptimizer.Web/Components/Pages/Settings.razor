@@ -67,7 +67,17 @@
             </div>
 
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="TestControllerConnection" disabled="@testingController">
+                <button class="btn btn-primary" @onclick="SaveAndConnectController" disabled="@testingController">
+                    @if (ConnectionService.IsConnected)
+                    {
+                        <span>Update</span>
+                    }
+                    else
+                    {
+                        <span>Connect</span>
+                    }
+                </button>
+                <button class="btn btn-secondary" @onclick="TestControllerConnection" disabled="@testingController">
                     @if (testingController)
                     {
                         <span class="spinner"></span>
@@ -76,16 +86,6 @@
                     else
                     {
                         <span>Test Connection</span>
-                    }
-                </button>
-                <button class="btn btn-success" @onclick="SaveAndConnectController" disabled="@testingController">
-                    @if (ConnectionService.IsConnected)
-                    {
-                        <span>Reconnect</span>
-                    }
-                    else
-                    {
-                        <span>Connect</span>
                     }
                 </button>
                 @if (ConnectionService.IsConnected)
