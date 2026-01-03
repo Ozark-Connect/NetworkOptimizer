@@ -201,11 +201,22 @@ using (var scope = app.Services.CreateScope())
         foreach (var (migrationId, tableName) in migrationsToCheck)
         {
             // Check if the table created by this migration exists
-            cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{tableName}'";
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@tableName";
+            cmd.Parameters.Clear();
+            var tableParam = cmd.CreateParameter();
+            tableParam.ParameterName = "@tableName";
+            tableParam.Value = tableName;
+            cmd.Parameters.Add(tableParam);
+
             if (cmd.ExecuteScalar() != null)
             {
                 // Table exists, mark migration as applied
-                cmd.CommandText = $"INSERT OR IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('{migrationId}', '9.0.0')";
+                cmd.CommandText = "INSERT OR IGNORE INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES (@migrationId, '9.0.0')";
+                cmd.Parameters.Clear();
+                var migrationParam = cmd.CreateParameter();
+                migrationParam.ParameterName = "@migrationId";
+                migrationParam.Value = migrationId;
+                cmd.Parameters.Add(migrationParam);
                 cmd.ExecuteNonQuery();
             }
         }
@@ -353,12 +364,29 @@ app.MapPost("/api/iperf3/test/{deviceId:int}", async (int deviceId, Iperf3SpeedT
 
 app.MapGet("/api/iperf3/results", async (Iperf3SpeedTestService service, int count = 50) =>
 {
+    // Validate count parameter is within reasonable bounds
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+
     var results = await service.GetRecentResultsAsync(count);
     return Results.Ok(results);
 });
 
 app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3SpeedTestService service, int count = 20) =>
 {
+    // Validate deviceHost format (IP address or hostname, no path traversal)
+    if (string.IsNullOrWhiteSpace(deviceHost) ||
+        deviceHost.Contains("..") ||
+        deviceHost.Contains('/') ||
+        deviceHost.Contains('\\'))
+    {
+        return Results.BadRequest(new { error = "Invalid device host format" });
+    }
+
+    // Validate count parameter
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+
     var results = await service.GetResultsForDeviceAsync(deviceHost, count);
     return Results.Ok(results);
 });
@@ -366,6 +394,16 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 // Auth API endpoints
 app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string returnUrl = "/") =>
 {
+    // Validate returnUrl to prevent open redirect attacks
+    // Only allow relative URLs that start with /
+    if (string.IsNullOrEmpty(returnUrl) ||
+        !returnUrl.StartsWith('/') ||
+        returnUrl.StartsWith("//") ||
+        returnUrl.Contains(':'))
+    {
+        returnUrl = "/";
+    }
+
     // Only set Secure flag if actually using HTTPS
     // (localhost/127.0.0.1 check was causing issues when accessed via IP over HTTP)
     var isSecure = context.Request.IsHttps;

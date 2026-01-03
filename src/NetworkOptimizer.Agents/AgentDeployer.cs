@@ -176,7 +176,7 @@ public class AgentDeployer
                 {
                     var bootPath = "/data/on_boot.d/99-network-optimizer.sh";
                     UploadScript(sftp, bootScript, bootPath);
-                    ExecuteCommand(client, $"chmod +x {bootPath}");
+                    ExecuteCommand(client, $"chmod +x \"{bootPath}\"");
                     result.DeployedFiles.Add(bootPath);
                     _logger.LogDebug("Deployed boot script to {Path}", bootPath);
                 }
@@ -186,7 +186,7 @@ public class AgentDeployer
                 {
                     var metricsPath = "/data/network-optimizer/metrics-collector.sh";
                     UploadScript(sftp, metricsScript, metricsPath);
-                    ExecuteCommand(client, $"chmod +x {metricsPath}");
+                    ExecuteCommand(client, $"chmod +x \"{metricsPath}\"");
                     result.DeployedFiles.Add(metricsPath);
                     _logger.LogDebug("Deployed metrics collector to {Path}", metricsPath);
                 }
@@ -196,10 +196,10 @@ public class AgentDeployer
                 {
                     var installPath = "/tmp/install-network-optimizer.sh";
                     UploadScript(sftp, installScript, installPath);
-                    ExecuteCommand(client, $"chmod +x {installPath}");
-                    var installOutput = ExecuteCommand(client, $"sh {installPath}");
+                    ExecuteCommand(client, $"chmod +x \"{installPath}\"");
+                    var installOutput = ExecuteCommand(client, $"sh \"{installPath}\"");
                     _logger.LogDebug("Installation output: {Output}", installOutput);
-                    ExecuteCommand(client, $"rm {installPath}");
+                    ExecuteCommand(client, $"rm \"{installPath}\"");
                 }
 
                 _logger.LogInformation("Successfully deployed UniFi agent scripts");
@@ -240,7 +240,7 @@ public class AgentDeployer
                 {
                     var agentPath = "/opt/network-optimizer/agent.sh";
                     UploadScript(sftp, agentScript, agentPath);
-                    ExecuteCommand(client, $"chmod +x {agentPath}");
+                    ExecuteCommand(client, $"chmod +x \"{agentPath}\"");
                     result.DeployedFiles.Add(agentPath);
                     _logger.LogDebug("Deployed agent script to {Path}", agentPath);
                 }
@@ -264,10 +264,10 @@ public class AgentDeployer
                 {
                     var installPath = "/tmp/install-network-optimizer.sh";
                     UploadScript(sftp, installScript, installPath);
-                    ExecuteCommand(client, $"chmod +x {installPath}");
-                    var installOutput = ExecuteCommand(client, $"bash {installPath}");
+                    ExecuteCommand(client, $"chmod +x \"{installPath}\"");
+                    var installOutput = ExecuteCommand(client, $"bash \"{installPath}\"");
                     _logger.LogDebug("Installation output: {Output}", installOutput);
-                    ExecuteCommand(client, $"rm {installPath}");
+                    ExecuteCommand(client, $"rm \"{installPath}\"");
                 }
 
                 _logger.LogInformation("Successfully deployed Linux agent");
@@ -455,7 +455,7 @@ public class AgentDeployer
     /// </summary>
     private bool FileExists(SshClient client, string path)
     {
-        var result = ExecuteCommand(client, $"test -f {path} && echo 'exists' || echo 'not found'");
+        var result = ExecuteCommand(client, $"test -f \"{path}\" && echo 'exists' || echo 'not found'");
         return result.Trim() == "exists";
     }
 
