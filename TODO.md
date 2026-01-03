@@ -48,6 +48,14 @@
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 
+## Distribution
+
+### ISO/OVA Image for MSP Deployment
+- Create distributable ISO and/or OVA image for MSP users
+- Pre-configured Linux appliance with Network Optimizer installed
+- Easy deployment to customer sites without Docker expertise
+- Consider: Ubuntu Server base, auto-updates, web-based initial setup
+
 ## General
 
 ### ~~Unify Device Type System~~ (FIXED)
