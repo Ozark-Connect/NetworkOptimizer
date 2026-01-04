@@ -542,14 +542,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     private static List<string> GetLocalIpAddresses()
     {
-        var ips = new List<string>();
-
         // Check for HOST_IP environment variable override (useful for Docker port mapping mode)
         var hostIp = Environment.GetEnvironmentVariable("HOST_IP");
         if (!string.IsNullOrWhiteSpace(hostIp))
         {
             return new List<string> { hostIp.Trim() };
         }
+
+        var interfaceIps = new List<(string Ip, int Priority, string Name)>();
 
         try
         {
@@ -561,12 +561,48 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
                     continue;
 
+                var name = ni.Name.ToLowerInvariant();
+                var desc = ni.Description.ToLowerInvariant();
+
+                // Skip virtual/bridge/tunnel interfaces - these are rarely the "real" network
+                if (name.Contains("docker") || desc.Contains("docker") ||
+                    name.Contains("veth") || name.Contains("br-") ||
+                    name.Contains("virbr") || name.Contains("vbox") ||
+                    name.Contains("vmnet") || name.Contains("vmware") ||
+                    name.Contains("hyper-v") || desc.Contains("hyper-v") ||
+                    name.Contains("virtualbox") || desc.Contains("virtualbox") ||
+                    name.StartsWith("veth") || name.StartsWith("cni") ||
+                    name.StartsWith("gre") || name.StartsWith("ifb"))
+                    continue;
+
+                // Assign priority: lower = better
+                // Physical Ethernet > WiFi > Everything else
+                // Note: 10GbE/25GbE/etc typically report as Ethernet (6) or FastEtherFx (69)
+                int priority;
+                var ifType = ni.NetworkInterfaceType;
+                if (ifType == NetworkInterfaceType.Ethernet ||
+                    ifType == NetworkInterfaceType.Ethernet3Megabit ||
+                    ifType == NetworkInterfaceType.FastEthernetT ||
+                    ifType == NetworkInterfaceType.FastEthernetFx ||
+                    ifType == NetworkInterfaceType.GigabitEthernet)
+                {
+                    priority = 1; // Physical Ethernet (any speed) - highest priority
+                }
+                else if (ifType == NetworkInterfaceType.Wireless80211)
+                {
+                    priority = 2; // WiFi
+                }
+                else
+                {
+                    priority = 3; // Other (tunnel, ppp, etc.)
+                }
+
                 var props = ni.GetIPProperties();
                 foreach (var addr in props.UnicastAddresses)
                 {
                     if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
                     {
-                        ips.Add(addr.Address.ToString());
+                        interfaceIps.Add((addr.Address.ToString(), priority, ni.Name));
                     }
                 }
             }
@@ -576,7 +612,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Ignore network enumeration errors
         }
 
-        return ips;
+        // Return IPs sorted by priority (Ethernet first, then WiFi, then others)
+        return interfaceIps
+            .OrderBy(x => x.Priority)
+            .Select(x => x.Ip)
+            .ToList();
     }
 
     private static DiscoveredDevice? FindDevice(NetworkTopology topology, string hostOrIp)

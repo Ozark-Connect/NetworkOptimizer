@@ -190,8 +190,9 @@ public class Iperf3ServerService : BackgroundService
                 }
             }
 
-            // Extract client IP from connection info
+            // Extract client IP and server's local IP from connection info
             string? clientIp = null;
+            string? serverLocalIp = null;
             if (root.TryGetProperty("start", out var start) &&
                 start.TryGetProperty("connected", out var connected) &&
                 connected.GetArrayLength() > 0)
@@ -200,6 +201,10 @@ public class Iperf3ServerService : BackgroundService
                 if (firstConn.TryGetProperty("remote_host", out var remoteHost))
                 {
                     clientIp = remoteHost.GetString();
+                }
+                if (firstConn.TryGetProperty("local_host", out var localHost))
+                {
+                    serverLocalIp = localHost.GetString();
                 }
             }
 
@@ -267,7 +272,8 @@ public class Iperf3ServerService : BackgroundService
                     toDeviceRetransmits,
                     durationSeconds,
                     parallelStreams,
-                    json);
+                    json,
+                    serverLocalIp);  // Actual server interface IP from iperf3
 
                 _logger.LogInformation(
                     "Recorded iperf3 client test from {ClientIp}: From Device {FromDevice:F1} Mbps, To Device {ToDevice:F1} Mbps",

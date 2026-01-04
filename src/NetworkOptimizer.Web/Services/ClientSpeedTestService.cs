@@ -98,10 +98,12 @@ public class ClientSpeedTestService
         int? uploadRetransmits,
         int durationSeconds,
         int parallelStreams,
-        string? rawJson)
+        string? rawJson,
+        string? serverLocalIp = null)
     {
         var now = DateTime.UtcNow;
-        var serverIp = _configuration["HOST_IP"];
+        // Use the actual server IP from iperf3, fall back to HOST_IP config
+        var serverIp = serverLocalIp ?? _configuration["HOST_IP"];
 
         await using var db = await _dbFactory.CreateDbContextAsync();
 
