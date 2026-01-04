@@ -160,6 +160,91 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region Camera Name Override Tests (Nest/Google cameras)
+
+    [Theory]
+    [InlineData("Nest Labs Inc.", "[IoT] Nest Doorbell")]
+    [InlineData("Nest Labs Inc.", "[IoT] Nest Driveway Cam")]
+    [InlineData("Google, Inc.", "Front Door Camera")]
+    [InlineData("Nest Labs Inc.", "Garage Cam")]
+    [InlineData("Google, Inc.", "Video Doorbell Pro")]
+    public void DetectDeviceType_NestOrGoogleWithCameraName_ReturnsCamera(string oui, string deviceName)
+    {
+        // Arrange - Nest/Google OUI would normally map to SmartThermostat/SmartSpeaker,
+        // but camera-indicating names should override that
+        var client = new UniFiClientResponse
+        {
+            Mac = "18:b4:30:12:34:56", // Nest MAC prefix
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 51 // IoT fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Camera name should override Nest OUI mapping
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().BeGreaterThanOrEqualTo(95);
+    }
+
+    [Theory]
+    [InlineData("Nest Labs Inc.", "Living Room Thermostat", ClientDeviceCategory.SmartThermostat)]
+    [InlineData("Nest Labs Inc.", "Hallway Ecobee", ClientDeviceCategory.SmartThermostat)]
+    [InlineData("Google, Inc.", "Kitchen Nest Hub", ClientDeviceCategory.SmartSpeaker)]
+    [InlineData("Google, Inc.", "Living Room Google Home", ClientDeviceCategory.SmartSpeaker)]
+    [InlineData("Amazon", "Echo Dot Kitchen", ClientDeviceCategory.SmartSpeaker)]
+    public void DetectDeviceType_IoTDeviceNames_OverridesOui(string oui, string deviceName, ClientDeviceCategory expected)
+    {
+        // Arrange - IoT device names should override OUI detection
+        var client = new UniFiClientResponse
+        {
+            Mac = "18:b4:30:12:34:56",
+            Name = deviceName,
+            Oui = oui
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should detect based on name, not OUI
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Pool Cam")]
+    [InlineData("Backyard Cam")]
+    [InlineData("Shed Cam")]
+    [InlineData("Baby Cam")]
+    public void DetectDeviceType_CamWithWordBoundary_ReturnsCamera(string deviceName)
+    {
+        // Names ending in " Cam" should match via word boundary regex (not in specific list)
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        var result = _service.DetectDeviceType(client);
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CamInWord_DoesNotMatchCamera()
+    {
+        // "Cambridge" should NOT match camera pattern
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Cambridge Device"
+        };
+
+        var result = _service.DetectDeviceType(client);
+        result.Category.Should().NotBe(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
     #region Apple Watch Tests
 
     [Theory]

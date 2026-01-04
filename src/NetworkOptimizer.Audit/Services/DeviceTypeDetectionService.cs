@@ -452,6 +452,57 @@ public class DeviceTypeDetectionService
             };
         }
 
+        // Obvious camera/doorbell keywords - overrides vendor OUI (e.g., Nest cameras misdetected as thermostats)
+        if (IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Camera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                RecommendedNetwork = NetworkPurpose.Security,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains camera/doorbell keyword - overrides vendor OUI",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Obvious thermostat keywords - overrides vendor OUI (e.g., Nest thermostats misdetected as cameras)
+        if (IsThermostatName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartThermostat,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains thermostat keyword - overrides vendor OUI",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Obvious speaker/voice assistant keywords
+        if (IsSpeakerName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartSpeaker,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains speaker/voice assistant keyword - overrides vendor OUI",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
         return null;
     }
 
@@ -460,13 +511,38 @@ public class DeviceTypeDetectionService
     /// </summary>
     private static bool IsCameraName(string nameLower)
     {
-        return nameLower.Contains("cam") ||
+        // Use word boundary check for "cam" to avoid matching "Cambridge" etc.
+        return System.Text.RegularExpressions.Regex.IsMatch(nameLower, @"\bcam\b") ||
                nameLower.Contains("camera") ||
                nameLower.Contains("doorbell") ||
                nameLower.Contains("video") ||
                nameLower.Contains("security") ||
                nameLower.Contains("nvr") ||
                nameLower.Contains("ptz");
+    }
+
+    /// <summary>
+    /// Check if a name indicates a thermostat device
+    /// </summary>
+    private static bool IsThermostatName(string nameLower)
+    {
+        return nameLower.Contains("thermostat") ||
+               nameLower.Contains("ecobee") ||
+               nameLower.Contains("hvac");
+    }
+
+    /// <summary>
+    /// Check if a name indicates a smart speaker/voice assistant
+    /// </summary>
+    private static bool IsSpeakerName(string nameLower)
+    {
+        return nameLower.Contains("echo dot") ||
+               nameLower.Contains("echo show") ||
+               nameLower.Contains("homepod") ||
+               nameLower.Contains("google home") ||
+               nameLower.Contains("nest mini") ||
+               nameLower.Contains("nest audio") ||
+               nameLower.Contains("nest hub");
     }
 
     /// <summary>

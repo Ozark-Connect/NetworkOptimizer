@@ -22,7 +22,8 @@ public class NamePatternDetector
             ClientDeviceCategory.SmartPlug, 92),
 
         // Cameras (high confidence, specific patterns)
-        (new[] { "cam", "camera", "ptz", "nvr", "ipc", "protect", "surveillance", "cctv", "security cam" },
+        // Note: "cam" with word boundary is handled in CheckObviousNameOverride (Priority 0)
+        (new[] { "camera", "ptz", "nvr", "ipc", "protect", "surveillance", "cctv", "security cam", "webcam", "driveway cam", "front cam", "back cam", "garage cam" },
             ClientDeviceCategory.Camera, 85),
 
         // Doorbells (often have video)
