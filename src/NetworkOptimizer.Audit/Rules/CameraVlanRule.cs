@@ -90,9 +90,23 @@ public class CameraVlanRule : AuditRuleBase
             }
         }
 
-        // Build device name: always use detected category (e.g., "IP Camera") since that's what we detected
-        // The port name is shown separately in the issue details
-        var deviceName = $"{detection.CategoryName} on {port.Switch.Name}";
+        // Build device name based on port state
+        string deviceName;
+        if (isOfflineDevice)
+        {
+            // Offline device: use port name or port number with switch context
+            deviceName = !string.IsNullOrEmpty(port.Name)
+                ? $"{port.Name} on {port.Switch.Name}"
+                : $"Port {port.PortIndex} on {port.Switch.Name}";
+        }
+        else
+        {
+            // Active port: use connected client name if available, fall back to detected category
+            var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname;
+            deviceName = !string.IsNullOrEmpty(clientName)
+                ? $"{clientName} on {port.Switch.Name}"
+                : $"{detection.CategoryName} on {port.Switch.Name}";
+        }
 
         var message = $"{detection.CategoryName} on {network.Name} VLAN - should be on security VLAN";
 
