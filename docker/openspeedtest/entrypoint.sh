@@ -72,9 +72,9 @@ if [ -f "$NGINX_CONF" ]; then
 
     if [ -n "$CANONICAL_HOST" ]; then
         echo "Enforcing canonical host: $CANONICAL_HOST:$CANONICAL_PORT"
-        # Add redirect rule inside the server block (after listen directives)
+        # Add redirect rule inside the server block (after root directive)
         # This redirects any request where Host doesn't match the configured host
-        sed -i "/listen 3000;/a\\
+        sed -i "/root \/usr\/share\/nginx\/html/a\\
     # Enforce canonical host\\
     if (\$host != \"$CANONICAL_HOST\") {\\
         return 302 \$scheme://$CANONICAL_HOST:$CANONICAL_PORT\$request_uri;\\
