@@ -46,11 +46,11 @@ fi
 # Disable caching for HTML files (so patches take effect immediately)
 NGINX_CONF="/etc/nginx/conf.d/OpenSpeedTest-Server.conf"
 if [ -f "$NGINX_CONF" ]; then
-    # Remove aggressive caching and add no-cache for HTML
-    if grep -q "max-age=31536000" "$NGINX_CONF"; then
-        sed -i 's/max-age=31536000/max-age=0, no-cache, no-store, must-revalidate/' "$NGINX_CONF"
-        echo "Disabled aggressive caching"
-    fi
+    # Change "expires 365d" to "expires -1" (no cache)
+    sed -i 's/expires 365d;/expires -1;/' "$NGINX_CONF"
+    # Change Cache-Control public to no-cache
+    sed -i 's/add_header Cache-Control public;/add_header Cache-Control "no-cache, no-store, must-revalidate";/' "$NGINX_CONF"
+    echo "Disabled aggressive caching"
 fi
 
 # Run the original entrypoint (OpenSpeedTest's nginx setup)
