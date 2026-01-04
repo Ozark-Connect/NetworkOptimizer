@@ -667,25 +667,27 @@ Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`
 
 **Configuration:**
 
-Set one of these environment variables in `.env` to enable result reporting:
+Set these environment variables in `.env`:
 
 ```env
-# Option 1: IP address (always works, required for path analysis)
+# Required: Server IP for path analysis (matching speed tests to network topology)
 HOST_IP=192.168.1.100
 
-# Option 2: Hostname (more user-friendly, but requires DNS resolution by clients)
+# Optional: Hostname for friendlier user-facing URLs (requires DNS resolution)
+# Can be local DNS via router/Pi-hole (e.g., nas, server.local, optimizer.home.arpa)
 HOST_NAME=nas
 
-# Option 3: Behind reverse proxy (uses HTTPS)
+# Optional: If app/API is behind a reverse proxy with HTTPS
+# Only affects API URL for result reporting, not the OpenSpeedTest URL
 REVERSE_PROXIED_HOST_NAME=optimizer.example.com
 ```
 
-**Note:** `HOST_IP` is required for speed test path analysis. `HOST_NAME` is optional but provides friendlier URLs for users—just ensure the hostname is resolvable by clients (can be a local name via gateway/local DNS, e.g., `nas.local`).
+These settings are complementary—set `HOST_IP` always, then optionally add `HOST_NAME` for friendlier URLs and/or `REVERSE_PROXIED_HOST_NAME` if behind a proxy.
 
-The API URL is constructed automatically using this priority:
-1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/speedtest/results`
-2. `HOST_NAME` → `http://hostname:8042/api/speedtest/results`
-3. `HOST_IP` → `http://ip:8042/api/speedtest/results`
+The API URL for result reporting is constructed using this priority:
+1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/public/speedtest/results`
+2. `HOST_NAME` → `http://hostname:8042/api/public/speedtest/results`
+3. `HOST_IP` → `http://ip:8042/api/public/speedtest/results`
 
 **Usage:**
 1. Open `http://your-server:3005` (or your configured port) from any device on your network
