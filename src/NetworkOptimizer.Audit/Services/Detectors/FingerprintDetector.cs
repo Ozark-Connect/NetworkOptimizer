@@ -197,24 +197,49 @@ public class FingerprintDetector
             };
         }
 
-        // Priority 2: User-selected device type - lookup from database and infer category
+        // Priority 2: User-selected device type - lookup from database, use dev_type_id
         if (client.DevIdOverride.HasValue && _database != null)
         {
             var deviceIdStr = client.DevIdOverride.Value.ToString();
             if (_database.DevIds.TryGetValue(deviceIdStr, out var deviceEntry))
             {
                 var deviceName = deviceEntry.Name?.Trim();
-                var inferredCategory = InferCategoryFromDeviceName(deviceName);
+                var vendorName = _database.GetVendorName(client.DevVendor);
 
+                // First try: use dev_type_id from database entry (most reliable)
+                if (!string.IsNullOrEmpty(deviceEntry.DevTypeId) &&
+                    int.TryParse(deviceEntry.DevTypeId, out var devTypeId) &&
+                    DevTypeMapping.TryGetValue(devTypeId, out var mappedCategory))
+                {
+                    return new DeviceDetectionResult
+                    {
+                        Category = mappedCategory,
+                        Source = DetectionSource.UniFiFingerprint,
+                        ConfidenceScore = 96, // Very high - dev_type_id from database
+                        VendorName = vendorName,
+                        ProductName = deviceName,
+                        RecommendedNetwork = GetRecommendedNetwork(mappedCategory),
+                        Metadata = new Dictionary<string, object>
+                        {
+                            ["dev_id_override"] = client.DevIdOverride.Value,
+                            ["dev_type_id"] = devTypeId,
+                            ["dev_cat"] = client.DevCat ?? 0,
+                            ["dev_family"] = client.DevFamily ?? 0,
+                            ["dev_vendor"] = client.DevVendor ?? 0,
+                            ["user_override"] = true
+                        }
+                    };
+                }
+
+                // Fallback: infer from device name
+                var inferredCategory = InferCategoryFromDeviceName(deviceName);
                 if (inferredCategory != ClientDeviceCategory.Unknown)
                 {
-                    var vendorName = _database.GetVendorName(client.DevVendor);
-
                     return new DeviceDetectionResult
                     {
                         Category = inferredCategory,
                         Source = DetectionSource.UniFiFingerprint,
-                        ConfidenceScore = 92, // High confidence - user selected, category inferred from name
+                        ConfidenceScore = 92, // High confidence - inferred from name
                         VendorName = vendorName,
                         ProductName = deviceName,
                         RecommendedNetwork = GetRecommendedNetwork(inferredCategory),
