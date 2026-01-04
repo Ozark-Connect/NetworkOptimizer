@@ -101,10 +101,6 @@ public class IotVlanRule : AuditRuleBase
                 ?? port.HistoricalClient?.Name
                 ?? port.HistoricalClient?.Hostname;
 
-            Console.WriteLine($"[IotVlanRule] Offline device on {port.Switch.Name} port {port.PortIndex}: " +
-                $"HistoricalClient={(port.HistoricalClient != null ? "present" : "null")}, " +
-                $"historicalName='{historicalName}', portName='{port.Name}'");
-
             if (!string.IsNullOrEmpty(historicalName))
             {
                 deviceName = $"{historicalName} on {port.Switch.Name}";
