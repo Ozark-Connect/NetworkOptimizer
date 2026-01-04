@@ -92,6 +92,8 @@ public class ClientSpeedTestService
         string clientIp,
         double downloadBitsPerSecond,
         double uploadBitsPerSecond,
+        long downloadBytes,
+        long uploadBytes,
         int? downloadRetransmits,
         int? uploadRetransmits,
         int durationSeconds,
@@ -124,11 +126,13 @@ public class ClientSpeedTestService
             if (downloadBitsPerSecond > 0)
             {
                 recentResult.DownloadBitsPerSecond = downloadBitsPerSecond;
+                recentResult.DownloadBytes = downloadBytes;
                 recentResult.DownloadRetransmits = downloadRetransmits ?? 0;
             }
             if (uploadBitsPerSecond > 0)
             {
                 recentResult.UploadBitsPerSecond = uploadBitsPerSecond;
+                recentResult.UploadBytes = uploadBytes;
                 recentResult.UploadRetransmits = uploadRetransmits ?? 0;
             }
 
@@ -157,6 +161,8 @@ public class ClientSpeedTestService
             LocalIp = serverIp,
             DownloadBitsPerSecond = downloadBitsPerSecond,
             UploadBitsPerSecond = uploadBitsPerSecond,
+            DownloadBytes = downloadBytes,
+            UploadBytes = uploadBytes,
             DownloadRetransmits = downloadRetransmits ?? 0,
             UploadRetransmits = uploadRetransmits ?? 0,
             DurationSeconds = durationSeconds,

@@ -125,8 +125,8 @@
                                         ↓ Mbps
                                         <span class="tooltip-icon">?</span>
                                         <span class="tooltip-content">
-                                            <strong>Download (To Device)</strong><br />
-                                            Data transferred to the client device.
+                                            <strong>From Device</strong><br />
+                                            Data transferred from the client device.
                                         </span>
                                     </span>
                                 </th>
@@ -135,8 +135,8 @@
                                         ↑ Mbps
                                         <span class="tooltip-icon">?</span>
                                         <span class="tooltip-content">
-                                            <strong>Upload (From Device)</strong><br />
-                                            Data transferred from the client device.
+                                            <strong>To Device</strong><br />
+                                            Data transferred to the client device.
                                         </span>
                                     </span>
                                 </th>
@@ -169,11 +169,11 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
+                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
                                         <span class="speed-unit">Mbps</span>
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
+                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
                                         <span class="speed-unit">Mbps</span>
                                     </td>
                                     <td>

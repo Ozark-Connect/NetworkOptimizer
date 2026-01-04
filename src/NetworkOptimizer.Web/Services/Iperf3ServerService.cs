@@ -221,47 +221,57 @@ public class Iperf3ServerService : BackgroundService
                     parallelStreams = streams.GetInt32();
             }
 
-            // Parse end results - from server perspective:
-            // sum_received = data we received from client = client UPLOAD
-            // sum_sent = data we sent to client = client DOWNLOAD
-            double uploadBps = 0;
-            double downloadBps = 0;
-            int? uploadRetransmits = null;
-            int? downloadRetransmits = null;
+            // Parse end results - from SERVER perspective:
+            // sum_received = data server received FROM client = "From Device" = DownloadBitsPerSecond
+            // sum_sent = data server sent TO client = "To Device" = UploadBitsPerSecond
+            double fromDeviceBps = 0;  // Server download = received from client
+            double toDeviceBps = 0;    // Server upload = sent to client
+            long fromDeviceBytes = 0;
+            long toDeviceBytes = 0;
+            int? fromDeviceRetransmits = null;
+            int? toDeviceRetransmits = null;
 
             if (root.TryGetProperty("end", out var end))
             {
-                // Client upload (server received)
+                // Data received FROM client (server download = "From Device")
                 if (end.TryGetProperty("sum_received", out var sumReceived))
                 {
-                    uploadBps = sumReceived.GetProperty("bits_per_second").GetDouble();
+                    fromDeviceBps = sumReceived.GetProperty("bits_per_second").GetDouble();
+                    if (sumReceived.TryGetProperty("bytes", out var bytes))
+                        fromDeviceBytes = bytes.GetInt64();
+                    if (sumReceived.TryGetProperty("retransmits", out var rt))
+                        fromDeviceRetransmits = rt.GetInt32();
                 }
 
-                // Client download (server sent)
+                // Data sent TO client (server upload = "To Device")
                 if (end.TryGetProperty("sum_sent", out var sumSent))
                 {
-                    downloadBps = sumSent.GetProperty("bits_per_second").GetDouble();
+                    toDeviceBps = sumSent.GetProperty("bits_per_second").GetDouble();
+                    if (sumSent.TryGetProperty("bytes", out var bytes))
+                        toDeviceBytes = bytes.GetInt64();
                     if (sumSent.TryGetProperty("retransmits", out var rt))
-                        downloadRetransmits = rt.GetInt32();
+                        toDeviceRetransmits = rt.GetInt32();
                 }
             }
 
             // Only record if we got meaningful data
-            if (uploadBps > 0 || downloadBps > 0)
+            if (fromDeviceBps > 0 || toDeviceBps > 0)
             {
                 await _clientSpeedTestService.RecordIperf3ClientResultAsync(
                     clientIp,
-                    downloadBps,
-                    uploadBps,
-                    downloadRetransmits,
-                    uploadRetransmits,
+                    fromDeviceBps,   // DownloadBitsPerSecond = From Device
+                    toDeviceBps,     // UploadBitsPerSecond = To Device
+                    fromDeviceBytes, // DownloadBytes = From Device
+                    toDeviceBytes,   // UploadBytes = To Device
+                    fromDeviceRetransmits,
+                    toDeviceRetransmits,
                     durationSeconds,
                     parallelStreams,
                     json);
 
                 _logger.LogInformation(
-                    "Recorded iperf3 client test from {ClientIp}: Down {Download:F1} Mbps, Up {Upload:F1} Mbps",
-                    clientIp, downloadBps / 1_000_000, uploadBps / 1_000_000);
+                    "Recorded iperf3 client test from {ClientIp}: From Device {FromDevice:F1} Mbps, To Device {ToDevice:F1} Mbps",
+                    clientIp, fromDeviceBps / 1_000_000, toDeviceBps / 1_000_000);
             }
             else
             {
