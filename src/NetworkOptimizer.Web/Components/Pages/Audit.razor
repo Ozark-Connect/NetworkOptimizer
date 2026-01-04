@@ -4,6 +4,7 @@
 @using NetworkOptimizer.Reports
 @using NetworkOptimizer.Web.Components.Shared
 @inject AuditService AuditService
+@inject UniFiConnectionService ConnectionService
 @inject IJSRuntime JSRuntime
 @inject ILogger<Audit> Logger
 @inject NavigationManager NavigationManager
@@ -16,6 +17,20 @@
     <p class="page-description">Comprehensive network security analysis</p>
 </div>
 
+@if (!ConnectionService.IsConnected)
+{
+    <div class="connection-banner">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>Not Connected</strong>
+                <span>Connect to your UniFi controller to run security audits.</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Connect Now</a>
+        </div>
+    </div>
+}
+
 <div class="audit-container">
     <!-- Audit Controls -->
     <div class="card">
@@ -24,7 +39,7 @@
         </div>
         <div class="card-body">
             <div class="audit-controls">
-                <button class="btn btn-primary" @onclick="RunAudit" disabled="@isRunning" style="min-width: 140px;">
+                <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)" style="min-width: 140px;">
                     @if (isRunning)
                     {
                         <span class="spinner"></span>
