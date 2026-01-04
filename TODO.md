@@ -2,35 +2,14 @@
 
 ## LAN Speed Test
 
-### 🔥 Non-SSH Device Speed Testing (HIGH PRIORITY)
-Current limitation: LAN speed tests require SSH access to target devices (UniFi equipment only).
-
-**Goal:** Enable speed testing from any device (phones, tablets, laptops, IoT) without SSH.
-
-**Approach Options:**
-
-1. **Server-side iperf3 monitoring**
-   - Run `iperf3 -s` on the Network Optimizer server
-   - Monitor stdout for incoming test results
-   - Build lightweight clients:
-     - iOS app
-     - Android app
-     - Web client (simplest, works everywhere)
-   - Server captures results and associates with device
-
-2. **Branded OpenSpeedTest integration** (preferred)
-   - Host a branded OpenSpeedTest instance
-   - User runs browser-based speed test from any device
-   - After test completes, import/correlate results into Network Optimizer
-   - Benefits: No app install, works on any device with a browser
-   - Challenge: Correlating browser client to network device identity
-
-**Implementation considerations:**
-- Device identification via source IP (sufficient - can correlate to UniFi client list)
-- Result storage and historical tracking
-- Integration with existing path analysis
-
-**Status:** In Progress - implementing both approaches
+### ~~Non-SSH Device Speed Testing~~ (DONE)
+- ~~Current limitation: LAN speed tests require SSH access to target devices (UniFi equipment only)~~
+- ~~Goal: Enable speed testing from any device (phones, tablets, laptops, IoT) without SSH~~
+- DONE: Implemented both approaches:
+  - Server-side iperf3 server with automatic result capture
+  - OpenSpeedTest integration with branded instance and result correlation
+  - Device identification via source IP matched to UniFi client list
+  - Full path analysis integration for browser-based tests
 
 ### ~~Retransmit Analysis~~ (FIXED)
 - ~~Flag high retransmit counts as a separate insight~~
@@ -40,7 +19,7 @@ Current limitation: LAN speed tests require SSH access to target devices (UniFi 
 - FIXED: PathAnalysisResult.AnalyzeRetransmits() detects high/asymmetric retransmits and generates insights
 
 ### Path Analysis Enhancements
-- Direction-aware bottleneck calculation (separate from/to max speeds)
+- Direction-aware bottleneck calculation: TX and RX rates can differ significantly on Wi-Fi (e.g., client may have 800 Mbps TX but 400 Mbps RX); path analysis should use direction-appropriate rate for separate from/to max speeds
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
