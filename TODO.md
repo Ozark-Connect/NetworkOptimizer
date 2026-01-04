@@ -48,6 +48,25 @@
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 
+## Multi-Tenant / Multi-Site Support
+
+### Multi-Tenant Architecture
+- Add multi-tenant support for single deployment serving multiple sites
+- Current architecture: Local console access with local UniFi API
+- Target architecture: Support tunneled access to multiple UniFi sites from one deployment
+- Deployment models:
+  - **Local (default):** Deploy instance at each site for direct LAN API access
+  - **Centralized (optional):** Single deployment with VPN/tunnel access to multiple client networks
+    - Requires unique IP structure per client (no overlapping subnets)
+    - Relies on same local API access, just over tunnel instead of local LAN
+- Use cases: MSPs managing multiple customer sites, enterprises with distributed locations
+- Considerations:
+  - Site/tenant isolation for data and configuration
+  - Per-site authentication and API credentials
+  - Tenant-aware database schema or separate databases per tenant
+  - Site selector/switcher in UI
+  - Aggregate dashboard views across sites (optional)
+
 ## Distribution
 
 ### ISO/OVA Image for MSP Deployment
