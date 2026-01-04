@@ -119,11 +119,14 @@ public class FingerprintDetector
         { 32, ClientDeviceCategory.Smartphone },    // Android Device
         { 30, ClientDeviceCategory.Tablet },        // Tablet
 
-        // VoIP
+        // VoIP (specific VoIP types only)
         { 3, ClientDeviceCategory.VoIP },           // VoIP Phone
         { 10, ClientDeviceCategory.VoIP },          // VoIP Gateway
-        { 26, ClientDeviceCategory.VoIP },          // Phone
         { 27, ClientDeviceCategory.VoIP },          // Video Phone
+
+        // Generic "Phone" - more likely smartphone than VoIP
+        // VoIP phones have specific dev_cat values (3, 10, 27)
+        { 26, ClientDeviceCategory.Smartphone },    // Phone (generic)
 
         // Network Infrastructure
         { 12, ClientDeviceCategory.AccessPoint },   // Access Point

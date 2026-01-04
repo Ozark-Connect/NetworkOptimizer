@@ -387,9 +387,8 @@ public class FingerprintDetectorTests
     #region VoIP Detection Tests
 
     [Theory]
-    [InlineData(3)]  // VoIP Phone
+    [InlineData(3)]  // VoIP Phone (specific)
     [InlineData(10)] // VoIP Gateway
-    [InlineData(26)] // Phone
     [InlineData(27)] // Video Phone
     public void Detect_VoIPDevCat_ReturnsVoIP(int devCat)
     {
@@ -398,6 +397,18 @@ public class FingerprintDetectorTests
         var result = _detector.Detect(client);
 
         result.Category.Should().Be(ClientDeviceCategory.VoIP);
+    }
+
+    [Fact]
+    public void Detect_GenericPhoneDevCat26_ReturnsSmartphone()
+    {
+        // DevCat 26 is "Phone" - generic category more likely to be smartphone than VoIP
+        // VoIP phones have specific dev_cat values (3, 10, 27)
+        var client = new UniFiClientResponse { DevCat = 26 };
+
+        var result = _detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
     }
 
     #endregion

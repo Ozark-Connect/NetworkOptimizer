@@ -452,6 +452,23 @@ public class DeviceTypeDetectionService
             };
         }
 
+        // VR headsets (Quest, Oculus, etc.) - often misdetected as Smartphone
+        if (IsVRHeadsetName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains VR headset keyword - overrides fingerprint",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
         // Obvious camera/doorbell keywords - overrides vendor OUI (e.g., Nest cameras misdetected as thermostats)
         if (IsCameraName(nameLower))
         {
@@ -543,6 +560,21 @@ public class DeviceTypeDetectionService
                nameLower.Contains("nest mini") ||
                nameLower.Contains("nest audio") ||
                nameLower.Contains("nest hub");
+    }
+
+    /// <summary>
+    /// Check if a name indicates a VR headset (Meta Quest, Oculus, etc.)
+    /// </summary>
+    private static bool IsVRHeadsetName(string nameLower)
+    {
+        return nameLower.Contains("quest") ||
+               nameLower.Contains("oculus") ||
+               nameLower.Contains("meta quest") ||
+               nameLower.Contains("[vr]") ||
+               nameLower.Contains("vive") ||
+               nameLower.Contains("valve index") ||
+               nameLower.Contains("psvr") ||
+               nameLower.Contains("pico");
     }
 
     /// <summary>

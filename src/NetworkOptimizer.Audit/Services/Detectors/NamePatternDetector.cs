@@ -74,6 +74,12 @@ public class NamePatternDetector
         (new[] { "nintendo", "switch", "wii" },
             ClientDeviceCategory.GameConsole, 85),
 
+        // VR Headsets (gaming devices)
+        (new[] { "quest", "quest 2", "quest 3", "quest pro", "oculus", "meta quest" },
+            ClientDeviceCategory.GameConsole, 90),
+        (new[] { "vr", "vive", "htc vive", "valve index", "psvr", "pico" },
+            ClientDeviceCategory.GameConsole, 85),
+
         // Smart Lighting (specific brands)
         (new[] { "hue", "philips hue", "hue bridge" },
             ClientDeviceCategory.SmartLighting, 90),
@@ -141,7 +147,7 @@ public class NamePatternDetector
         // NAS
         (new[] { "synology", "diskstation", "ds920", "ds720", "ds220", "ds418", "ds918" },
             ClientDeviceCategory.NAS, 95),
-        (new[] { "qnap", "ts-", "tvs-" },
+        (new[] { "qnap", "qnap ts-", "qnap tvs-" },
             ClientDeviceCategory.NAS, 95),
         (new[] { "nas", "network storage" },
             ClientDeviceCategory.NAS, 75),

@@ -295,6 +295,96 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region VR Headset Detection Tests
+
+    [Theory]
+    [InlineData("[VR] Quest 3")]
+    [InlineData("Meta Quest 3")]
+    [InlineData("Quest Pro")]
+    [InlineData("Oculus Quest 2")]
+    [InlineData("HTC Vive")]
+    [InlineData("Valve Index")]
+    [InlineData("PSVR Headset")]
+    [InlineData("Pico 4")]
+    public void DetectDeviceType_VRHeadset_ReturnsGameConsole(string deviceName)
+    {
+        // Arrange - VR headsets should be categorized as GameConsole
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 6 // Smartphone fingerprint (should be overridden)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Fact]
+    public void DetectDeviceType_VRPrefixTag_ReturnsGameConsole()
+    {
+        // [VR] prefix tag should trigger VR detection
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "[VR] Living Room Headset",
+            DevCat = 32 // Android Device fingerprint
+        };
+
+        var result = _service.DetectDeviceType(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+    }
+
+    #endregion
+
+    #region NAS Pattern Tests (avoid false positives)
+
+    [Theory]
+    [InlineData("Tiny Home - Deck Rail Lights")]
+    [InlineData("lights-deck")]
+    [InlineData("Patio Lights Controller")]
+    [InlineData("Christmas Lights")]
+    public void DetectDeviceType_LightsInName_DoesNotMatchNAS(string deviceName)
+    {
+        // Names containing "lights" should NOT match NAS patterns like "ts-" or "tvs-"
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        var result = _service.DetectDeviceType(client);
+
+        // Should NOT be NAS (could be SmartLighting or Unknown, but definitely not NAS)
+        result.Category.Should().NotBe(ClientDeviceCategory.NAS);
+    }
+
+    [Theory]
+    [InlineData("Synology DS920+")]
+    [InlineData("QNAP TS-453D")]
+    [InlineData("QNAP TVS-872XT")]
+    [InlineData("My NAS Server")]
+    public void DetectDeviceType_ActualNAS_ReturnsNAS(string deviceName)
+    {
+        // Actual NAS names should still match correctly
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        var result = _service.DetectDeviceType(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.NAS);
+    }
+
+    #endregion
+
     #region Fingerprint Detection Tests
 
     [Fact]

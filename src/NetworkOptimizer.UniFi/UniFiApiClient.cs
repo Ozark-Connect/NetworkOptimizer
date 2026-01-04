@@ -1145,17 +1145,20 @@ public class UniFiApiClient : IDisposable
     {
         var combined = new UniFiFingerprintDatabase();
         var maxIndices = 15; // UniFi typically has indices 0-10+
+        var indicesFetched = 0;
 
         for (int i = 0; i <= maxIndices; i++)
         {
             var db = await GetFingerprintDatabaseAsync(i, cancellationToken);
             if (db == null)
             {
-                _logger.LogDebug("Fingerprint database ends at index {Index}", i - 1);
+                _logger.LogInformation("Fingerprint database: fetched {Count} indices (0-{Last})",
+                    indicesFetched, i - 1);
                 break;
             }
 
             combined.Merge(db);
+            indicesFetched++;
             _logger.LogDebug("Merged fingerprint index {Index} - Total devices: {Count}",
                 i, combined.DevIds.Count);
         }
