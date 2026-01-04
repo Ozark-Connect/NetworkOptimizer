@@ -24,7 +24,7 @@ public class VlanAnalyzer
     private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
     // Note: "work" removed - it matches "network" which causes false positives
     private static readonly string[] CorporatePatterns = { "corporate", "office", "business", "enterprise" };
-    private static readonly string[] PrinterPatterns = { "printer", "printers", "print server", "print", "printing" };
+    private static readonly string[] PrinterPatterns = { "print" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
     {
