@@ -1905,36 +1905,64 @@ td .btn + .btn {
         min-width: 70px;
     }
 
-    /* Alert items - stack on mobile */
+    /* Alert items - icon inline on mobile */
     .alert-item {
-        flex-wrap: wrap;
+        display: block;
+        position: relative;
+        padding-left: 2.5rem;
     }
 
-    .alert-content {
-        flex: 1 1 calc(100% - 3rem);
-        min-width: 0;
+    .alert-icon {
+        position: absolute;
+        left: 1rem;
+        top: 1rem;
     }
 
     .alert-header {
+        display: flex;
         flex-wrap: wrap;
-        gap: 0.25rem;
+        gap: 0.25rem 0.5rem;
+        align-items: center;
+        margin-bottom: 0.5rem;
     }
 
     .alert-title {
         flex: 1 1 100%;
         font-size: 0.9rem;
-    }
-
-    .alert-time {
-        flex: 1 1 100%;
         order: 1;
     }
 
+    .alert-time {
+        font-size: 0.7rem;
+    }
+
     .alert-actions {
-        flex: 1 1 100%;
+        display: flex;
         flex-direction: row;
-        justify-content: flex-end;
-        margin-top: 0.5rem;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    /* Issue items - icon inline on mobile */
+    .issue-item {
+        display: block;
+        position: relative;
+        padding-left: 2.5rem;
+    }
+
+    .issue-icon {
+        position: absolute;
+        left: 1rem;
+        top: 1rem;
+    }
+
+    .issue-header {
+        flex-wrap: wrap;
+        gap: 0.25rem 0.5rem;
+    }
+
+    .issue-action {
+        margin-left: auto;
     }
 }
 
