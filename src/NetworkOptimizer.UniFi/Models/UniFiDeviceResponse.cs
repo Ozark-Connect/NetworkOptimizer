@@ -245,13 +245,13 @@ public class SystemStats
     public string? Uptime { get; set; }
 
     [JsonPropertyName("loadavg_1")]
-    public string? LoadAvg1 { get; set; }
+    public double? LoadAvg1 { get; set; }
 
     [JsonPropertyName("loadavg_5")]
-    public string? LoadAvg5 { get; set; }
+    public double? LoadAvg5 { get; set; }
 
     [JsonPropertyName("loadavg_15")]
-    public string? LoadAvg15 { get; set; }
+    public double? LoadAvg15 { get; set; }
 }
 
 public class ConfigNetwork

@@ -87,8 +87,8 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 - [x] Add `GetAllDevicesV2Async()` API method
 - [x] Add `GetProtectCameraMacsAsync()` helper
 - [x] Update `DeviceTypeDetectionService` to check Protect MACs first
-- [ ] Wire up in audit engine to fetch and use Protect MACs
-- [ ] Test camera detection with 100% confidence
+- [x] Wire up in audit engine to fetch and use Protect MACs
+- [x] Test camera detection with 100% confidence
 
 ### Phase 2: Access Devices (Door Access)
 - [ ] Parse `access_devices` array
