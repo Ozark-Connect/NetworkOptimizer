@@ -1897,21 +1897,28 @@ td .btn + .btn {
     /* Issue counts - reduce padding and allow wrap on mobile */
     .issue-counts {
         flex-wrap: wrap;
-        gap: 0.75rem;
+        gap: 0.5rem;
     }
 
     .issue-count {
-        padding: 0.75rem 1rem;
+        padding: 1rem 1rem;
         min-width: 70px;
     }
 
-    /* Alert items - hide icon on mobile, rely on badge */
+    /* Alert items - icon inline with title on mobile */
     .alert-item {
         display: block;
     }
 
     .alert-icon {
-        display: none;
+        display: inline;
+        float: left;
+        margin-right: 0.5rem;
+        margin-top: 0.1rem;
+    }
+
+    .alert-content {
+        overflow: hidden;
     }
 
     .alert-header {
@@ -1923,13 +1930,12 @@ td .btn + .btn {
     }
 
     .alert-title {
-        flex: 1 1 100%;
         font-size: 0.9rem;
-        order: 1;
     }
 
     .alert-time {
         font-size: 0.7rem;
+        margin-left: auto;
     }
 
     .alert-actions {
@@ -1937,20 +1943,59 @@ td .btn + .btn {
         flex-direction: row;
         gap: 0.5rem;
         margin-top: 0.75rem;
+        clear: both;
     }
 
-    /* Issue items - hide icon on mobile, rely on severity badge */
+    /* Issue items - icon inline with title on mobile */
     .issue-item {
-        display: block;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 0.5rem;
+        row-gap: 0.25rem;
     }
 
     .issue-icon {
-        display: none;
+        grid-column: 1;
+        grid-row: 2;
+        align-self: start;
+        padding-top: 0.1rem;
+    }
+
+    .issue-body {
+        display: contents;
     }
 
     .issue-header {
+        grid-column: 1 / -1;
+        grid-row: 1;
         flex-wrap: wrap;
         gap: 0.25rem 0.5rem;
+    }
+
+    .issue-severity {
+        font-size: 0.6rem;
+    }
+
+    .issue-category {
+        font-size: 0.65rem;
+    }
+
+    .issue-title {
+        grid-column: 2;
+        grid-row: 2;
+        font-size: 0.9rem;
+    }
+
+    .issue-description {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        font-size: 0.8rem;
+    }
+
+    .issue-recommendation {
+        grid-column: 1 / -1;
+        grid-row: 4;
+        font-size: 0.8rem;
     }
 
     .issue-action {
