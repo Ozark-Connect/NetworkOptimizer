@@ -111,8 +111,7 @@ public class AuditScorer
         >= ScoreConstants.ExcellentScoreThreshold => "EXCELLENT",
         >= ScoreConstants.GoodScoreThreshold => "GOOD",
         >= ScoreConstants.FairScoreThreshold => "FAIR",
-        >= ScoreConstants.NeedsAttentionScoreThreshold => "NEEDS ATTENTION",
-        _ => "CRITICAL"
+        _ => "NEEDS ATTENTION"
     };
 
     /// <summary>
