@@ -417,6 +417,7 @@
                                 <DeviceIcon Model="@sw.ModelName" Size="lg" />
                                 @FormatDeviceName(sw.Name, sw.IsGateway) <span class="switch-model">(@sw.ModelName)</span>
                             </h3>
+                            <div class="table-responsive">
                             <table class="data-table port-table">
                                 <thead>
                                     <tr>
@@ -453,6 +454,7 @@
                                     }
                                 </tbody>
                             </table>
+                            </div>
                             @if (sw.MaxCustomMacAcls == 0)
                             {
                                 <p class="switch-note">Note: @sw.ModelName doesn't support MAC ACLs</p>
