@@ -145,3 +145,22 @@ public class NetworkOptimizerDbContext : DbContext
         });
     }
 }
+
+/// <summary>
+/// Simple DbContext factory for singleton services that need database access.
+/// Creates new DbContext instances with pre-configured options.
+/// </summary>
+public class NetworkOptimizerDbContextFactory : IDbContextFactory<NetworkOptimizerDbContext>
+{
+    private readonly DbContextOptions<NetworkOptimizerDbContext> _options;
+
+    public NetworkOptimizerDbContextFactory(DbContextOptions<NetworkOptimizerDbContext> options)
+    {
+        _options = options;
+    }
+
+    public NetworkOptimizerDbContext CreateDbContext()
+    {
+        return new NetworkOptimizerDbContext(_options);
+    }
+}

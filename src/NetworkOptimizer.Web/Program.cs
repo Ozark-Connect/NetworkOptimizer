@@ -72,10 +72,13 @@ builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 // Also register DbContextFactory for singletons that need database access (ClientSpeedTestService)
-// Use pooled factory to avoid DI validation issues in Development mode
-builder.Services.AddPooledDbContextFactory<NetworkOptimizerDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}")
-           .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
+// Use custom factory with separate options instance to avoid DI lifetime conflict with scoped DbContext
+var factoryOptions = new DbContextOptionsBuilder<NetworkOptimizerDbContext>()
+    .UseSqlite($"Data Source={dbPath}")
+    .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning))
+    .Options;
+builder.Services.AddSingleton<IDbContextFactory<NetworkOptimizerDbContext>>(
+    new NetworkOptimizer.Storage.Models.NetworkOptimizerDbContextFactory(factoryOptions));
 
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
