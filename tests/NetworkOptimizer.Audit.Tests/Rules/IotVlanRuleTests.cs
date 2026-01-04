@@ -587,7 +587,7 @@ public class IotVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_DownPortWithMacRestriction_NoPortName_UsesPortNumber()
+    public void Evaluate_DownPortWithMacRestriction_NoPortName_UsesDetectedCategory()
     {
         // Arrange
         var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
@@ -597,15 +597,15 @@ public class IotVlanRuleTests
             isUp: false,
             networkId: corpNetwork.Id,
             switchName: "Office Switch",
-            allowedMacAddresses: new List<string> { "00:17:88:11:22:33" });
+            allowedMacAddresses: new List<string> { "00:17:88:11:22:33" }); // Philips Hue MAC
         var networks = CreateNetworkList(corpNetwork);
 
         // Act
         var result = _rule.Evaluate(port, networks);
 
-        // Assert - Device name should use port number
+        // Assert - Device name should use detected category when no custom port name
         result.Should().NotBeNull();
-        result!.DeviceName.Should().Be("Port 5 on Office Switch");
+        result!.DeviceName.Should().Be("Smart Lighting on Office Switch");
     }
 
     [Fact]
