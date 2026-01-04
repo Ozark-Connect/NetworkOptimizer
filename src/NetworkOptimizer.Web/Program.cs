@@ -174,6 +174,7 @@ builder.Services.AddHttpClient("TcMonitor", client =>
 var corsOriginsList = new List<string>();
 var hostIp = builder.Configuration["HOST_IP"];
 var hostName = builder.Configuration["HOST_NAME"];
+var reverseProxiedHostName = builder.Configuration["REVERSE_PROXIED_HOST_NAME"];
 var corsOriginsConfig = builder.Configuration["CORS_ORIGINS"];
 
 // Add origins from config
@@ -191,6 +192,8 @@ if (!string.IsNullOrEmpty(hostName))
 {
     corsOriginsList.Add($"http://{hostName}:3005");
 }
+// Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
+// OpenSpeedTest still runs on port 3005, even when API is behind reverse proxy
 
 builder.Services.AddCors(options =>
 {

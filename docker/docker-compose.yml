@@ -19,6 +19,8 @@ services:
       # Host IP/name for path analysis and CORS (required for client speed tests)
       - HOST_IP=${HOST_IP:-}
       - HOST_NAME=${HOST_NAME:-}
+      # Reverse proxy hostname (e.g., optimizer.example.com) - overrides HOST_NAME for API URLs
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
       # iperf3 server mode - enable to accept client-initiated speed tests on port 5201
       - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
       # Logging (Trace, Debug, Information, Warning, Error, Critical)
@@ -49,9 +51,13 @@ services:
       - "3005:3000"
     environment:
       - TZ=${TZ:-America/Chicago}
-      # URL where browser POSTs results - uses HOST_IP if set, otherwise HOST_NAME
-      # The URL must be reachable from client devices (not localhost)
-      - OPENSPEEDTEST_SAVE_URL=${OPENSPEEDTEST_SAVE_URL:-http://${HOST_IP:-${HOST_NAME:-localhost}}:8042/api/speedtest/result?}
+      # URL where browser POSTs results (constructed by entrypoint if not set)
+      # Priority: OPENSPEEDTEST_SAVE_URL > constructed from below vars
+      - OPENSPEEDTEST_SAVE_URL=${OPENSPEEDTEST_SAVE_URL:-}
+      # For URL construction: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      - HOST_NAME=${HOST_NAME:-}
+      - HOST_IP=${HOST_IP:-}
     logging:
       driver: "json-file"
       options:
