@@ -207,11 +207,6 @@ public class AuditService
     /// </summary>
     public async Task<List<AuditIssue>> GetActiveIssuesAsync()
     {
-        // Load from database if cache is empty
-        if (LastAuditResultCached == null)
-        {
-            await LoadLastAuditFromDatabaseAsync();
-        }
         await EnsureDismissedIssuesLoadedAsync();
         return LastAuditResultCached?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
     }
@@ -221,11 +216,6 @@ public class AuditService
     /// </summary>
     public async Task<List<AuditIssue>> GetDismissedIssuesAsync()
     {
-        // Load from database if cache is empty
-        if (LastAuditResultCached == null)
-        {
-            await LoadLastAuditFromDatabaseAsync();
-        }
         await EnsureDismissedIssuesLoadedAsync();
         return LastAuditResultCached?.Issues.Where(i => IsIssueDismissed(i)).ToList() ?? new();
     }

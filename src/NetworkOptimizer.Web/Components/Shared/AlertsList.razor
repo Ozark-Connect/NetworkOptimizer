@@ -10,12 +10,19 @@
             <span>Loading alerts...</span>
         </div>
     }
-    else if (!ConnectionService.IsConnected)
+    else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
     {
         <div class="no-alerts">
             <div class="no-alerts-icon">!</div>
             <p>Connect to a UniFi controller to view alerts.</p>
             <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
+        </div>
+    }
+    else if (!ConnectionService.IsInitialized)
+    {
+        <div class="loading-state">
+            <span class="spinner"></span>
+            <span>Connecting...</span>
         </div>
     }
     else if (!alerts.Any())
@@ -72,6 +79,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Wait for connection service to initialize before loading alerts
+        await ConnectionService.EnsureInitializedAsync();
         await LoadAlerts();
     }
 
@@ -81,6 +90,11 @@
         try
         {
             alerts.Clear();
+
+            if (!ConnectionService.IsConnected)
+            {
+                return;
+            }
 
             // Use active (non-dismissed) issues
             var activeIssues = await AuditService.GetActiveIssuesAsync();
