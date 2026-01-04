@@ -103,12 +103,13 @@
                                 iperf3 -c @serverHost -P 4 --bidir
                             </code>
                         </div>
-                        <p class="form-help">
-                            Install iperf3:<br />
-                            <code>sudo apt install iperf3</code> (Linux)<br />
-                            <code>brew install iperf3</code> (Mac)<br />
-                            <a href="https://iperf.fr/iperf-download.php" target="_blank">iperf.fr</a> (Windows)
-                        </p>
+                        <div class="form-help install-help">
+                            <div class="install-header">Install iperf3:</div>
+                            <div class="install-item"><code>sudo apt install iperf3</code> <span class="text-muted">(Linux)</span></div>
+                            <div class="install-item"><code>brew install iperf3</code> <span class="text-muted">(Mac)</span></div>
+                            <div class="install-item"><a href="https://iperf.fr/iperf-download.php" target="_blank">iperf.fr</a> <span class="text-muted">(Windows)</span></div>
+                            <div class="install-item">Various clients available on iOS App Store and Google Play</div>
+                        </div>
                     }
                     else
                     {
@@ -325,6 +326,27 @@
         background: var(--bg-tertiary);
         border-radius: var(--border-radius);
         padding: 1.25rem;
+    }
+
+    .form-help.install-help {
+        color: var(--text-primary);
+    }
+
+    .install-help code {
+        background: var(--bg-primary);
+        padding: 0.125rem 0.375rem;
+        border-radius: 0.25rem;
+        font-size: 0.8125rem;
+    }
+
+    .install-header {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .install-item {
+        padding-left: 1rem;
+        margin-top: 0.25rem;
     }
 
     .test-option-header {
