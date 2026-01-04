@@ -2,6 +2,7 @@
 @using NetworkOptimizer.Web.Services
 @using System.Reflection
 @inject UniFiConnectionService ConnectionService
+@rendermode InteractiveServer
 
 <div class="app-container">
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
