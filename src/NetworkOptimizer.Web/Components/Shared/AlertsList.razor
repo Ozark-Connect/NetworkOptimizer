@@ -96,16 +96,20 @@
                 return;
             }
 
-            // Use active (non-dismissed) issues
+            // Use active (non-dismissed) issues - only actionable ones (Critical/Recommended)
             var activeIssues = await AuditService.GetActiveIssuesAsync();
-            if (activeIssues.Any())
+            var actionableIssues = activeIssues
+                .Where(i => i.Severity == "Critical" || i.Severity == "Recommended")
+                .ToList();
+
+            if (actionableIssues.Any())
             {
                 var id = 1;
                 var timeAgo = AuditService.LastAuditTime.HasValue
                     ? FormatTimeAgo(AuditService.LastAuditTime.Value)
                     : "Recently";
 
-                foreach (var issue in activeIssues.Take(10))
+                foreach (var issue in actionableIssues.Take(10))
                 {
                     alerts.Add(new AlertInfo
                     {
