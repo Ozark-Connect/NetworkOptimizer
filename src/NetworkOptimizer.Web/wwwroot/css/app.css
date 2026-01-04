@@ -1834,11 +1834,21 @@ td .btn + .btn {
 
     /* Content adjustments */
     .stats-row {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .content-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
     }
 
     .device-grid {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
     }
 
     .page-content {
