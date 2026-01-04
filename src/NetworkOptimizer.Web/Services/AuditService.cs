@@ -915,16 +915,42 @@ public class AuditService
         // Extract a short title from the issue type
         return type switch
         {
+            // Firewall rules
             Audit.IssueTypes.FwAnyAny => "Any-Any Firewall Rule",
             Audit.IssueTypes.PermissiveRule => "Overly Permissive Rule",
+            Audit.IssueTypes.BroadRule => "Broad Firewall Rule",
             Audit.IssueTypes.OrphanedRule => "Orphaned Firewall Rule",
+            Audit.IssueTypes.AllowExceptionPattern => "Allow Exception Pattern",
+            Audit.IssueTypes.AllowSubvertsDeny => "Rule Order Issue",
+            Audit.IssueTypes.DenyShadowsAllow => "Ineffective Allow Rule",
+            Audit.IssueTypes.MissingIsolation => "Missing VLAN Isolation",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
+
+            // Management network access
+            Audit.IssueTypes.MgmtMissingUnifiAccess => "Missing UniFi Cloud Access",
+            Audit.IssueTypes.MgmtMissingAfcAccess => "Missing AFC Access",
+            Audit.IssueTypes.MgmtMissingNtpAccess => "Missing NTP Access",
+            Audit.IssueTypes.MgmtMissing5gAccess => "Missing 5G/LTE Access",
+
+            // VLAN security
             Audit.IssueTypes.RoutingEnabled => "Routing on Isolated VLAN",
+            Audit.IssueTypes.MgmtDhcpEnabled => "Management VLAN Has DHCP Enabled",
+            Audit.IssueTypes.SecurityNetworkNotIsolated => "Security Network Not Isolated",
+            Audit.IssueTypes.MgmtNetworkNotIsolated => "Management Network Not Isolated",
+            Audit.IssueTypes.IotNetworkNotIsolated => "IoT Network Not Isolated",
+            Audit.IssueTypes.SecurityNetworkHasInternet => "Security Network Has Internet",
+            Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
+            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" => "IoT Device on Wrong VLAN",
+            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" => "Camera on Wrong VLAN",
+
+            // Port security
             Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
             Audit.IssueTypes.UnusedPort => "Unused Port Enabled",
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
+
+            // DNS security
             Audit.IssueTypes.DnsLeakage => "DNS Leak Detected",
             Audit.IssueTypes.DnsNoDoh => "DoH Not Configured",
             Audit.IssueTypes.DnsDohAuto => "DoH Set to Auto Mode",
@@ -936,9 +962,9 @@ public class AuditService
             Audit.IssueTypes.DnsWanOrder => "WAN DNS Wrong Order",
             Audit.IssueTypes.DnsWanNoStatic => "WAN DNS Not Configured",
             Audit.IssueTypes.DnsDeviceMisconfigured => "Device DNS Misconfigured",
-            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" => "IoT Device on Wrong VLAN",
-            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" => "Camera on Wrong VLAN",
-            Audit.IssueTypes.MgmtDhcpEnabled => "Management VLAN Has DHCP Enabled",
+            Audit.IssueTypes.DnsThirdPartyDetected => "Third-Party DNS Detected",
+            Audit.IssueTypes.DnsUnknownConfig => "Unknown DNS Configuration",
+
             _ => message.Split('.').FirstOrDefault() ?? type
         };
     }
