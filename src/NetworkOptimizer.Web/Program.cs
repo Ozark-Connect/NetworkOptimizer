@@ -72,7 +72,8 @@ builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 // Also register DbContextFactory for singletons that need database access (ClientSpeedTestService)
-builder.Services.AddDbContextFactory<NetworkOptimizerDbContext>(options =>
+// Use pooled factory to avoid DI validation issues in Development mode
+builder.Services.AddPooledDbContextFactory<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}")
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 

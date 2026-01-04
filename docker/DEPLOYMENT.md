@@ -701,14 +701,14 @@ IPERF3_SERVER_ENABLED=true
 
 **Usage from client devices:**
 ```bash
-# Download test (server to client)
-iperf3 -c your-server
+# Upload test (client to server, 4 streams)
+iperf3 -c your-server -P 4
 
-# Upload test (client to server)
-iperf3 -c your-server -R
+# Download test (server to client, 4 streams)
+iperf3 -c your-server -P 4 -R
 
-# Both directions
-iperf3 -c your-server && iperf3 -c your-server -R
+# Bidirectional test (runs both directions simultaneously)
+iperf3 -c your-server -P 4 --bidir
 ```
 
 Results are captured automatically and stored with client IP identification.
@@ -723,7 +723,7 @@ sudo netstat -tlnp | grep 5201
 # or
 sudo ss -tlnp | grep 5201
 
-# Check for existing OpenSpeedTest or other services on port 3005
+# Check for existing services on port 3005 (our default external port)
 sudo netstat -tlnp | grep 3005
 docker ps | grep -E "3000|3005"
 ```
@@ -733,8 +733,9 @@ docker ps | grep -E "3000|3005"
 | Port | Service | Resolution |
 |------|---------|------------|
 | 5201 | Existing iperf3 server | Stop: `sudo systemctl stop iperf3` |
-| 3005 | Existing OpenSpeedTest container | Stop: `docker stop openspeedtest && docker rm openspeedtest` |
-| 3005 | Other web services | Change port in docker-compose.yml: `"3006:3000"` |
+| 3005 | Other web services | Change our mapping in docker-compose.yml: `"3006:3000"` |
+
+> **Note:** OpenSpeedTest listens on port 3000 internally. We map it to 3005 externally via `"3005:3000"` in docker-compose.yml. Currently this external port cannot be reconfigured via environment variable.
 
 **Container name conflicts:**
 
