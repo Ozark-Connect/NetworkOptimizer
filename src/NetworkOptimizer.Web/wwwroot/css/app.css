@@ -1905,17 +1905,13 @@ td .btn + .btn {
         min-width: 70px;
     }
 
-    /* Alert items - icon inline on mobile */
+    /* Alert items - hide icon on mobile, rely on badge */
     .alert-item {
         display: block;
-        position: relative;
-        padding-left: 2.5rem;
     }
 
     .alert-icon {
-        position: absolute;
-        left: 1rem;
-        top: 1rem;
+        display: none;
     }
 
     .alert-header {
@@ -1943,17 +1939,13 @@ td .btn + .btn {
         margin-top: 0.75rem;
     }
 
-    /* Issue items - icon inline on mobile */
+    /* Issue items - hide icon on mobile, rely on severity badge */
     .issue-item {
         display: block;
-        position: relative;
-        padding-left: 2.5rem;
     }
 
     .issue-icon {
-        position: absolute;
-        left: 1rem;
-        top: 1rem;
+        display: none;
     }
 
     .issue-header {
