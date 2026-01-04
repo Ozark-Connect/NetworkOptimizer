@@ -1152,7 +1152,7 @@ public class UniFiApiClient : IDisposable
             var db = await GetFingerprintDatabaseAsync(i, cancellationToken);
             if (db == null)
             {
-                _logger.LogInformation("Fingerprint database: fetched {Count} indices (0-{Last})",
+                _logger.LogDebug("Fingerprint database: fetched {Count} indices (0-{Last})",
                     indicesFetched, i - 1);
                 break;
             }
