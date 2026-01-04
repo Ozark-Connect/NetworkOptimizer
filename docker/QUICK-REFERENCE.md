@@ -102,13 +102,13 @@ docker-compose up -d
 ## Client Speed Testing
 
 ### Browser-Based (OpenSpeedTest™)
-Access at: **http://localhost:3005**
+Access at: **http://localhost:3005** (port configurable via `OPENSPEEDTEST_PORT`)
 
 Configure result reporting in `.env`:
 ```env
-HOST_IP=192.168.1.100       # or
-HOST_NAME=nas               # or
-REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+HOST_IP=192.168.1.100       # Always works, required for path analysis
+HOST_NAME=nas               # More user-friendly (requires DNS resolution)
+REVERSE_PROXIED_HOST_NAME=optimizer.example.com  # Behind reverse proxy
 ```
 
 To disable: comment out `openspeedtest` service in `docker-compose.yml`

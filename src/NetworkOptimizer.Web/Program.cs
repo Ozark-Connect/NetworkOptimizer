@@ -192,17 +192,18 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
     corsOriginsList.AddRange(corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }
 
-// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest on port 3005)
+// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
+var openSpeedTestPort = builder.Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
 if (!string.IsNullOrEmpty(hostIp))
 {
-    corsOriginsList.Add($"http://{hostIp}:3005");
+    corsOriginsList.Add($"http://{hostIp}:{openSpeedTestPort}");
 }
 if (!string.IsNullOrEmpty(hostName))
 {
-    corsOriginsList.Add($"http://{hostName}:3005");
+    corsOriginsList.Add($"http://{hostName}:{openSpeedTestPort}");
 }
 // Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
-// OpenSpeedTest still runs on port 3005, even when API is behind reverse proxy
+// OpenSpeedTest runs on its own port, even when API is behind reverse proxy
 
 builder.Services.AddCors(options =>
 {

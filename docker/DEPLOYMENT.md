@@ -654,7 +654,7 @@ Two methods are available:
 
 | Method | Best For | Port |
 |--------|----------|------|
-| **OpenSpeedTest™** | Browser-based testing from any device | 3005 |
+| **OpenSpeedTest™** | Browser-based testing from any device | 3005 (configurable) |
 | **iperf3 Server** | CLI testing with iperf3 clients | 5201 |
 
 Results from both methods are stored in Network Optimizer and visible in the Client Speed Test page.
@@ -663,22 +663,24 @@ Results from both methods are stored in Network Optimizer and visible in the Cli
 
 ### OpenSpeedTest™ (Browser-Based)
 
-Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`.
+Bundled as part of the Docker Compose stack. Access at `http://your-server:3005` (port configurable via `OPENSPEEDTEST_PORT`).
 
 **Configuration:**
 
 Set one of these environment variables in `.env` to enable result reporting:
 
 ```env
-# Option 1: Direct access (simplest)
+# Option 1: IP address (always works, required for path analysis)
 HOST_IP=192.168.1.100
 
-# Option 2: Hostname-based
+# Option 2: Hostname (more user-friendly, but requires DNS resolution by clients)
 HOST_NAME=nas
 
 # Option 3: Behind reverse proxy (uses HTTPS)
 REVERSE_PROXIED_HOST_NAME=optimizer.example.com
 ```
+
+**Note:** `HOST_IP` is required for speed test path analysis. `HOST_NAME` is optional but provides friendlier URLs for users—just ensure the hostname is resolvable by clients (can be a local name via gateway/local DNS, e.g., `nas.local`).
 
 The API URL is constructed automatically using this priority:
 1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/speedtest/results`
@@ -686,7 +688,7 @@ The API URL is constructed automatically using this priority:
 3. `HOST_IP` → `http://ip:8042/api/speedtest/results`
 
 **Usage:**
-1. Open `http://your-server:3005` from any device on your network
+1. Open `http://your-server:3005` (or your configured port) from any device on your network
 2. Run the speed test
 3. Results automatically appear in Network Optimizer's Client Speed Test page
 
@@ -733,7 +735,7 @@ docker ps | grep -E "3000|3005"
 | Port | Service | Resolution |
 |------|---------|------------|
 | 5201 | Existing iperf3 server | Stop: `sudo systemctl stop iperf3` |
-| 3005 | OpenSpeedTest port conflict | [Open an issue](https://github.com/Ozark-Connect/NetworkOptimizer/issues) for port remapping support |
+| 3005 | OpenSpeedTest port conflict | Set `OPENSPEEDTEST_PORT=3006` (or another free port) in `.env` |
 
 **Container name conflicts:**
 

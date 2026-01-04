@@ -61,7 +61,7 @@ Access at http://localhost:8042 (wait ~60 seconds for startup)
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                   OpenSpeedTest                           │  │
-│  │  - Browser-based speed test :3005                         │  │
+│  │  - Browser-based speed test :3005 (configurable)          │  │
 │  │  - Results sent to Network Optimizer API                  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
@@ -85,11 +85,11 @@ The main application providing:
 - `./ssh-keys` → `/app/ssh-keys` - SSH keys for agent deployment (optional)
 - `./logs` → `/app/logs` - Application logs
 
-### OpenSpeedTest (Port 3005)
+### OpenSpeedTest (Port 3005, configurable)
 
 Browser-based speed testing from any device. Results are automatically sent to Network Optimizer.
 
-**Configuration:** Set `HOST_IP` or `HOST_NAME` in `.env` to enable result reporting.
+**Configuration:** Set `HOST_IP` in `.env` (required for path analysis). Optionally set `HOST_NAME` for friendlier URLs (requires DNS resolution—can be local DNS via gateway).
 
 **To disable:** Comment out the `openspeedtest` service in `docker-compose.yml`.
 
