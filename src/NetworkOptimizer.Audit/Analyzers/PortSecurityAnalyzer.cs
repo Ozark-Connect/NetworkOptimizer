@@ -110,6 +110,16 @@ public class PortSecurityAnalyzer
     /// <param name="networks">Network configuration list</param>
     /// <param name="clients">Connected clients for port correlation (optional)</param>
     public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients)
+        => ExtractSwitches(deviceData, networks, clients, clientHistory: null);
+
+    /// <summary>
+    /// Extract switch and port information from UniFi device JSON with client and history correlation
+    /// </summary>
+    /// <param name="deviceData">UniFi device JSON data</param>
+    /// <param name="networks">Network configuration list</param>
+    /// <param name="clients">Connected clients for port correlation (optional)</param>
+    /// <param name="clientHistory">Historical clients for offline port correlation (optional)</param>
+    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientHistoryResponse>? clientHistory)
     {
         var switches = new List<SwitchInfo>();
 
@@ -120,19 +130,27 @@ public class PortSecurityAnalyzer
             _logger.LogDebug("Built client lookup with {Count} wired clients for port correlation", clientsByPort.Count);
         }
 
+        // Build lookup for historical clients by switch MAC + port for offline device detection
+        var historyByPort = BuildClientHistoryPortLookup(clientHistory);
+        if (historyByPort.Count > 0)
+        {
+            _logger.LogDebug("Built client history lookup with {Count} historical wired clients for port correlation", historyByPort.Count);
+        }
+
         foreach (var device in deviceData.UnwrapDataArray())
         {
             var portTableItems = device.GetArrayOrEmpty("port_table").ToList();
             if (portTableItems.Count == 0)
                 continue;
 
-            var switchInfo = ParseSwitch(device, networks, clientsByPort);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort);
             if (switchInfo != null)
             {
                 switches.Add(switchInfo);
                 var clientCount = switchInfo.Ports.Count(p => p.ConnectedClient != null);
-                _logger.LogInformation("Discovered switch: {Name} with {PortCount} ports ({ClientCount} with client data)",
-                    switchInfo.Name, switchInfo.Ports.Count, clientCount);
+                var historyCount = switchInfo.Ports.Count(p => p.HistoricalClient != null);
+                _logger.LogInformation("Discovered switch: {Name} with {PortCount} ports ({ClientCount} with client data, {HistoryCount} with history)",
+                    switchInfo.Name, switchInfo.Ports.Count, clientCount, historyCount);
             }
         }
 
@@ -166,9 +184,55 @@ public class PortSecurityAnalyzer
     }
 
     /// <summary>
+    /// Build lookup table for wired client history by switch MAC + port index.
+    /// Returns most recently seen client per port for offline device correlation.
+    /// </summary>
+    private Dictionary<(string, int), UniFiClientHistoryResponse> BuildClientHistoryPortLookup(List<UniFiClientHistoryResponse>? clientHistory)
+    {
+        var lookup = new Dictionary<(string, int), UniFiClientHistoryResponse>();
+
+        if (clientHistory == null)
+            return lookup;
+
+        foreach (var client in clientHistory)
+        {
+            // Only wired clients have switch/port info
+            if (!client.IsWired)
+                continue;
+
+            // Need switch MAC and port number
+            if (string.IsNullOrEmpty(client.LastUplinkMac) || !client.LastUplinkRemotePort.HasValue)
+                continue;
+
+            var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
+
+            // Keep the most recently seen client per port
+            if (lookup.TryGetValue(key, out var existing))
+            {
+                if (client.LastSeen > existing.LastSeen)
+                {
+                    lookup[key] = client;
+                }
+            }
+            else
+            {
+                lookup[key] = client;
+            }
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
     /// Parse a single switch from JSON
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
+        => ParseSwitch(device, networks, clientsByPort, new Dictionary<(string, int), UniFiClientHistoryResponse>());
+
+    /// <summary>
+    /// Parse a single switch from JSON with client history
+    /// </summary>
+    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort)
     {
         var deviceType = device.GetStringOrNull("type");
         var isGateway = FromUniFiApiType(deviceType).IsGateway();
@@ -209,7 +273,7 @@ public class PortSecurityAnalyzer
         };
 
         var ports = device.GetArrayOrEmpty("port_table")
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -255,7 +319,7 @@ public class PortSecurityAnalyzer
     /// <summary>
     /// Parse a single port from JSON
     /// </summary>
-    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
+    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort = null)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -275,10 +339,12 @@ public class PortSecurityAnalyzer
 
         // Look up connected client for this port
         UniFiClientResponse? connectedClient = null;
+        UniFiClientHistoryResponse? historicalClient = null;
         if (!string.IsNullOrEmpty(switchInfo.MacAddress))
         {
             var key = (switchInfo.MacAddress.ToLowerInvariant(), portIdx);
             clientsByPort.TryGetValue(key, out connectedClient);
+            historyByPort?.TryGetValue(key, out historicalClient);
         }
 
         // Extract last_connection info for down ports
@@ -288,6 +354,13 @@ public class PortSecurityAnalyzer
         {
             lastConnectionMac = lastConnection.GetStringOrNull("mac");
             lastConnectionSeen = lastConnection.GetLongOrNull("last_seen");
+        }
+
+        // If no last_connection MAC but we have a historical client, use their MAC
+        if (string.IsNullOrEmpty(lastConnectionMac) && historicalClient != null)
+        {
+            lastConnectionMac = historicalClient.Mac;
+            lastConnectionSeen = historicalClient.LastSeen;
         }
 
         return new PortInfo
@@ -311,7 +384,8 @@ public class PortSecurityAnalyzer
             Switch = switchInfo,
             ConnectedClient = connectedClient,
             LastConnectionMac = lastConnectionMac,
-            LastConnectionSeen = lastConnectionSeen
+            LastConnectionSeen = lastConnectionSeen,
+            HistoricalClient = historicalClient
         };
     }
 

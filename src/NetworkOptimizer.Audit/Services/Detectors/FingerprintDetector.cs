@@ -170,13 +170,16 @@ public class FingerprintDetector
     /// Checks user-selected device type (DevIdOverride) first, then auto-detected (DevCat).
     /// Falls back to database lookup and keyword matching for unknown device IDs.
     /// </summary>
-    public DeviceDetectionResult Detect(UniFiClientResponse client)
+    public DeviceDetectionResult Detect(UniFiClientResponse? clientFingerprint)
     {
+        if (clientFingerprint == null)
+            return DeviceDetectionResult.Unknown;
+
         // Priority 1: User-selected device type override (from UniFi UI) - exact mapping
-        if (client.DevIdOverride.HasValue && DevTypeMapping.TryGetValue(client.DevIdOverride.Value, out var overrideCategory))
+        if (clientFingerprint.DevIdOverride.HasValue && DevTypeMapping.TryGetValue(clientFingerprint.DevIdOverride.Value, out var overrideCategory))
         {
-            var vendorName = _database?.GetVendorName(client.DevVendor);
-            var typeName = _database?.GetDeviceTypeName(client.DevIdOverride);
+            var vendorName = _database?.GetVendorName(clientFingerprint.DevVendor);
+            var typeName = _database?.GetDeviceTypeName(clientFingerprint.DevIdOverride);
 
             return new DeviceDetectionResult
             {
@@ -188,26 +191,26 @@ public class FingerprintDetector
                 RecommendedNetwork = GetRecommendedNetwork(overrideCategory),
                 Metadata = new Dictionary<string, object>
                 {
-                    ["dev_id_override"] = client.DevIdOverride.Value,
-                    ["dev_cat"] = client.DevCat ?? 0,
-                    ["dev_family"] = client.DevFamily ?? 0,
-                    ["dev_vendor"] = client.DevVendor ?? 0,
+                    ["dev_id_override"] = clientFingerprint.DevIdOverride.Value,
+                    ["dev_cat"] = clientFingerprint.DevCat ?? 0,
+                    ["dev_family"] = clientFingerprint.DevFamily ?? 0,
+                    ["dev_vendor"] = clientFingerprint.DevVendor ?? 0,
                     ["user_override"] = true
                 }
             };
         }
 
         // Priority 2: User-selected device type - lookup from database, use dev_type_id
-        if (client.DevIdOverride.HasValue && _database != null)
+        if (clientFingerprint.DevIdOverride.HasValue && _database != null)
         {
-            var deviceIdStr = client.DevIdOverride.Value.ToString();
+            var deviceIdStr = clientFingerprint.DevIdOverride.Value.ToString();
             if (_database.DevIds.TryGetValue(deviceIdStr, out var deviceEntry) &&
                 !string.IsNullOrEmpty(deviceEntry.DevTypeId) &&
                 int.TryParse(deviceEntry.DevTypeId, out var devTypeId) &&
                 DevTypeMapping.TryGetValue(devTypeId, out var mappedCategory))
             {
                 var deviceName = deviceEntry.Name?.Trim();
-                var vendorName = _database.GetVendorName(client.DevVendor);
+                var vendorName = _database.GetVendorName(clientFingerprint.DevVendor);
 
                 return new DeviceDetectionResult
                 {
@@ -219,11 +222,11 @@ public class FingerprintDetector
                     RecommendedNetwork = GetRecommendedNetwork(mappedCategory),
                     Metadata = new Dictionary<string, object>
                     {
-                        ["dev_id_override"] = client.DevIdOverride.Value,
+                        ["dev_id_override"] = clientFingerprint.DevIdOverride.Value,
                         ["dev_type_id"] = devTypeId,
-                        ["dev_cat"] = client.DevCat ?? 0,
-                        ["dev_family"] = client.DevFamily ?? 0,
-                        ["dev_vendor"] = client.DevVendor ?? 0,
+                        ["dev_cat"] = clientFingerprint.DevCat ?? 0,
+                        ["dev_family"] = clientFingerprint.DevFamily ?? 0,
+                        ["dev_vendor"] = clientFingerprint.DevVendor ?? 0,
                         ["user_override"] = true
                     }
                 };
@@ -231,22 +234,22 @@ public class FingerprintDetector
         }
 
         // Priority 3: Auto-detected device category
-        if (client.DevCat.HasValue && DevTypeMapping.TryGetValue(client.DevCat.Value, out var category))
+        if (clientFingerprint.DevCat.HasValue && DevTypeMapping.TryGetValue(clientFingerprint.DevCat.Value, out var category))
         {
-            var vendorName = _database?.GetVendorName(client.DevVendor);
-            var typeName = _database?.GetDeviceTypeName(client.DevCat);
+            var vendorName = _database?.GetVendorName(clientFingerprint.DevVendor);
+            var typeName = _database?.GetDeviceTypeName(clientFingerprint.DevCat);
 
             var metadata = new Dictionary<string, object>
             {
-                ["dev_cat"] = client.DevCat.Value,
-                ["dev_family"] = client.DevFamily ?? 0,
-                ["dev_vendor"] = client.DevVendor ?? 0
+                ["dev_cat"] = clientFingerprint.DevCat.Value,
+                ["dev_family"] = clientFingerprint.DevFamily ?? 0,
+                ["dev_vendor"] = clientFingerprint.DevVendor ?? 0
             };
 
             // Include unmatched dev_id_override so we can see what user selected
-            if (client.DevIdOverride.HasValue)
+            if (clientFingerprint.DevIdOverride.HasValue)
             {
-                metadata["dev_id_override_unmatched"] = client.DevIdOverride.Value;
+                metadata["dev_id_override_unmatched"] = clientFingerprint.DevIdOverride.Value;
             }
 
             return new DeviceDetectionResult

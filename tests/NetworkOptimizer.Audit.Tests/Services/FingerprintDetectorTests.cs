@@ -1024,4 +1024,506 @@ public class FingerprintDetectorTests
     }
 
     #endregion
+
+    #region Additional DevType Mapping Tests
+
+    [Theory]
+    [InlineData("57", ClientDeviceCategory.Camera)]        // Smart Security Camera
+    [InlineData("106", ClientDeviceCategory.Camera)]       // Camera
+    [InlineData("116", ClientDeviceCategory.SecuritySystem)] // Surveillance System
+    [InlineData("124", ClientDeviceCategory.Camera)]       // Network Video Recorder
+    [InlineData("147", ClientDeviceCategory.Camera)]       // Doorbell Camera
+    [InlineData("161", ClientDeviceCategory.Camera)]       // Video Doorbell
+    public void Detect_DevTypeId_CameraTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Camera", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("35", ClientDeviceCategory.SmartLighting)]  // Wireless Lighting
+    [InlineData("53", ClientDeviceCategory.SmartLighting)]  // Smart Lighting Device
+    [InlineData("179", ClientDeviceCategory.SmartLighting)] // LED Lighting
+    [InlineData("184", ClientDeviceCategory.SmartLighting)] // Smart Light Strip
+    public void Detect_DevTypeId_LightingTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Light", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("97", ClientDeviceCategory.SmartPlug)]   // Smart Power Strip
+    [InlineData("153", ClientDeviceCategory.SmartPlug)]  // Smart Socket
+    public void Detect_DevTypeId_PlugTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Plug", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("63", ClientDeviceCategory.SmartThermostat)]  // Smart Thermostat
+    [InlineData("70", ClientDeviceCategory.SmartThermostat)]  // Smart Heating Device
+    [InlineData("71", ClientDeviceCategory.SmartAppliance)]   // Air Conditioner
+    public void Detect_DevTypeId_HvacTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test HVAC", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("133", ClientDeviceCategory.SmartLock)]  // Door Lock
+    [InlineData("125", ClientDeviceCategory.SmartLock)]  // Touch Screen Deadbolt
+    public void Detect_DevTypeId_LockTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Lock", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("100", ClientDeviceCategory.SmartSensor)]  // Weather Station
+    [InlineData("148", ClientDeviceCategory.SmartSensor)]  // Air Quality Monitor
+    [InlineData("234", ClientDeviceCategory.SmartSensor)]  // Weather Monitor
+    [InlineData("139", ClientDeviceCategory.SmartSensor)]  // Water Monitor
+    [InlineData("109", ClientDeviceCategory.SmartSensor)]  // Sleep Monitor
+    public void Detect_DevTypeId_SensorTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Sensor", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("48", ClientDeviceCategory.SmartAppliance)]  // Intelligent Home Appliances
+    [InlineData("131", ClientDeviceCategory.SmartAppliance)] // Washing Machine
+    [InlineData("140", ClientDeviceCategory.SmartAppliance)] // Dishwasher
+    [InlineData("118", ClientDeviceCategory.SmartAppliance)] // Dryer
+    [InlineData("92", ClientDeviceCategory.SmartAppliance)]  // Air Purifier
+    [InlineData("149", ClientDeviceCategory.SmartAppliance)] // Smart Kettle
+    public void Detect_DevTypeId_ApplianceTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Appliance", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("93", ClientDeviceCategory.SmartHub)]   // Home Automation
+    [InlineData("154", ClientDeviceCategory.SmartHub)]  // Smart Bridge
+    [InlineData("4904", ClientDeviceCategory.SmartHub)] // IKEA Dirigera Gateway
+    public void Detect_DevTypeId_HubTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Hub", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("65", ClientDeviceCategory.RoboticVacuum)]  // Smart Cleaning Device
+    public void Detect_DevTypeId_VacuumTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Vacuum", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("47", ClientDeviceCategory.SmartTV)]  // Smart TV & Set-top box
+    [InlineData("50", ClientDeviceCategory.SmartTV)]  // Smart TV & Set-top box
+    public void Detect_DevTypeId_TvTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test TV", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("238", ClientDeviceCategory.StreamingDevice)]  // Media Player
+    [InlineData("242", ClientDeviceCategory.StreamingDevice)]  // Streaming Media Device
+    [InlineData("186", ClientDeviceCategory.StreamingDevice)]  // IPTV Set Top Box
+    [InlineData("4405", ClientDeviceCategory.StreamingDevice)] // Apple TV (user override)
+    public void Detect_DevTypeId_StreamingTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Streaming", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("52", ClientDeviceCategory.SmartSpeaker)]   // Smart Audio Device
+    [InlineData("170", ClientDeviceCategory.SmartSpeaker)]  // Wifi Speaker
+    public void Detect_DevTypeId_SpeakerTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Speaker", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("20", ClientDeviceCategory.MediaPlayer)]   // Multimedia Device
+    [InlineData("69", ClientDeviceCategory.MediaPlayer)]   // AV Receiver
+    [InlineData("73", ClientDeviceCategory.MediaPlayer)]   // Soundbar
+    [InlineData("96", ClientDeviceCategory.MediaPlayer)]   // Audio Streamer
+    [InlineData("132", ClientDeviceCategory.MediaPlayer)]  // Music Server
+    [InlineData("152", ClientDeviceCategory.MediaPlayer)]  // Blu Ray Player
+    public void Detect_DevTypeId_MediaPlayerTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test MediaPlayer", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("1", ClientDeviceCategory.Laptop)]     // Desktop/Laptop
+    [InlineData("46", ClientDeviceCategory.Desktop)]   // Computer
+    [InlineData("56", ClientDeviceCategory.Server)]    // Server
+    [InlineData("28", ClientDeviceCategory.Desktop)]   // Workstation
+    [InlineData("25", ClientDeviceCategory.Desktop)]   // Thin Client
+    public void Detect_DevTypeId_ComputerTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Computer", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("91", ClientDeviceCategory.NAS)]  // Network Storage
+    public void Detect_DevTypeId_StorageTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test NAS", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("6", ClientDeviceCategory.Smartphone)]   // Smartphone
+    [InlineData("29", ClientDeviceCategory.Smartphone)]  // Apple iOS Device
+    [InlineData("32", ClientDeviceCategory.Smartphone)]  // Android Device
+    [InlineData("30", ClientDeviceCategory.Tablet)]      // Tablet
+    [InlineData("26", ClientDeviceCategory.Smartphone)]  // Phone (generic)
+    public void Detect_DevTypeId_MobileTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Mobile", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("10", ClientDeviceCategory.VoIP)]  // VoIP Gateway
+    [InlineData("27", ClientDeviceCategory.VoIP)]  // Video Phone
+    public void Detect_DevTypeId_VoIPTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test VoIP", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("12", ClientDeviceCategory.AccessPoint)]  // Access Point
+    [InlineData("14", ClientDeviceCategory.AccessPoint)]  // Wireless Controller
+    [InlineData("13", ClientDeviceCategory.Switch)]       // Switch
+    [InlineData("2", ClientDeviceCategory.Router)]        // Router
+    [InlineData("8", ClientDeviceCategory.Router)]        // Router
+    [InlineData("82", ClientDeviceCategory.Router)]       // Firewall System
+    public void Detect_DevTypeId_InfrastructureTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Infrastructure", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("22", ClientDeviceCategory.Scanner)]      // Scanner
+    [InlineData("146", ClientDeviceCategory.Printer)]     // 3D Printer
+    [InlineData("171", ClientDeviceCategory.Printer)]     // Label Printer
+    public void Detect_DevTypeId_PrinterTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Printer", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("51", ClientDeviceCategory.IoTGeneric)]       // Smart Device
+    [InlineData("66", ClientDeviceCategory.IoTGeneric)]       // IoT Device
+    [InlineData("64", ClientDeviceCategory.IoTGeneric)]       // Smart Garden Device
+    [InlineData("60", ClientDeviceCategory.IoTGeneric)]       // Alarm System
+    [InlineData("80", ClientDeviceCategory.SecuritySystem)]   // Smart Home Security System
+    public void Detect_DevTypeId_GenericIoTTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test IoT", DevTypeId = devTypeId };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+    }
+
+    #endregion
+
+    #region DevCat Fallback Tests
+
+    [Theory]
+    [InlineData(57, ClientDeviceCategory.Camera)]
+    [InlineData(106, ClientDeviceCategory.Camera)]
+    [InlineData(37, ClientDeviceCategory.SmartSpeaker)]
+    [InlineData(41, ClientDeviceCategory.RoboticVacuum)]
+    [InlineData(17, ClientDeviceCategory.GameConsole)]
+    public void Detect_DevCat_MapsCorrectly(int devCat, ClientDeviceCategory expected)
+    {
+        var detector = new FingerprintDetector();
+        var client = new UniFiClientResponse { DevCat = devCat };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(expected);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void Detect_DevCatWithDevIdOverride_IncludesUnmatchedInMetadata()
+    {
+        // When DevIdOverride doesn't map but DevCat does, include unmatched info
+        var detector = new FingerprintDetector();
+        var client = new UniFiClientResponse { DevIdOverride = 99999, DevCat = 9 };
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Metadata.Should().ContainKey("dev_id_override_unmatched");
+        result.Metadata["dev_id_override_unmatched"].Should().Be(99999);
+    }
+
+    [Fact]
+    public void Detect_InvalidDevTypeId_FallsBackToDevCat()
+    {
+        // If dev_type_id is not a valid integer, fall back to dev_cat
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Device", DevTypeId = "invalid" };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345, DevCat = 17 }; // GameConsole
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+    }
+
+    [Fact]
+    public void Detect_EmptyDevTypeId_FallsBackToDevCat()
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Device", DevTypeId = "" };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345, DevCat = 31 }; // SmartTV
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.SmartTV);
+    }
+
+    [Fact]
+    public void Detect_WhitespaceDevTypeId_FallsBackToDevCat()
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Test Device", DevTypeId = "   " };
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345, DevCat = 42 }; // SmartPlug
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.SmartPlug);
+    }
+
+    #endregion
+
+    #region Edge Cases
+
+    [Fact]
+    public void Detect_NullDatabase_HandlesGracefully()
+    {
+        var detector = new FingerprintDetector(null);
+        var client = new UniFiClientResponse { DevIdOverride = 12345, DevCat = 9 };
+
+        var result = detector.Detect(client);
+
+        // Should fall back to dev_cat since database is null
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void Detect_DevIdOverrideNotInDatabase_FallsBackToDevCat()
+    {
+        var database = new UniFiFingerprintDatabase();
+        // Don't add anything to DevIds
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 99999, DevCat = 37 }; // SmartSpeaker
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+    }
+
+    [Fact]
+    public void Detect_NoDevCatNoDevIdOverride_ReturnsUnknown()
+    {
+        var detector = new FingerprintDetector();
+        var client = new UniFiClientResponse();
+
+        var result = detector.Detect(client);
+
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+    }
+
+    [Fact]
+    public void Detect_NullClient_ReturnsUnknown()
+    {
+        var detector = new FingerprintDetector();
+
+        var result = detector.Detect(null);
+
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+    }
+
+    [Fact]
+    public void Detect_WithVendorInfo_IncludesVendorName()
+    {
+        var database = new UniFiFingerprintDatabase();
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Apple TV 4K", DevTypeId = "5" }; // 5 = StreamingDevice
+        database.VendorIds["1"] = "Apple Inc.";
+
+        var detector = new FingerprintDetector(database);
+        var client = new UniFiClientResponse { DevIdOverride = 12345, DevVendor = 1 };
+
+        var result = detector.Detect(client);
+
+        result.VendorName.Should().Be("Apple Inc.");
+        result.Category.Should().Be(ClientDeviceCategory.StreamingDevice);
+    }
+
+    #endregion
 }

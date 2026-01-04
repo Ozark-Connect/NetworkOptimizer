@@ -286,7 +286,7 @@ public class ConfigAuditEngine
     private void ExecutePhase2_ExtractSwitches(AuditContext ctx)
     {
         _logger.LogInformation("Phase 2: Extracting switch configurations");
-        ctx.Switches = ctx.SecurityEngine.ExtractSwitches(ctx.DeviceData, ctx.Networks, ctx.Clients);
+        ctx.Switches = ctx.SecurityEngine.ExtractSwitches(ctx.DeviceData, ctx.Networks, ctx.Clients, ctx.ClientHistory);
         _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
             ctx.Switches.Count, ctx.Switches.Sum(s => s.Ports.Count));
     }

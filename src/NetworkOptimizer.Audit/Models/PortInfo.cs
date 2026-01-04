@@ -109,4 +109,10 @@ public class PortInfo
     /// From the UniFi API's last_connection.last_seen field.
     /// </summary>
     public long? LastConnectionSeen { get; init; }
+
+    /// <summary>
+    /// Historical client that was last seen on this port.
+    /// Populated from client history by matching switch MAC and port number.
+    /// </summary>
+    public UniFi.Models.UniFiClientHistoryResponse? HistoricalClient { get; init; }
 }

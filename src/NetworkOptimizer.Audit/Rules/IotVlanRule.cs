@@ -96,13 +96,24 @@ public class IotVlanRule : AuditRuleBase
         string deviceName;
         if (isOfflineDevice)
         {
-            // Offline device: use custom port name if set, otherwise detected category
-            // Default port names like "Port 5" should fall back to detection
-            var hasCustomPortName = !string.IsNullOrEmpty(port.Name) &&
-                !System.Text.RegularExpressions.Regex.IsMatch(port.Name, @"^Port \d+$");
-            deviceName = hasCustomPortName
-                ? $"{port.Name} on {port.Switch.Name}"
-                : $"{detection.CategoryName} on {port.Switch.Name}";
+            // Offline device: prefer historical client name, then custom port name, then detected category
+            var historicalName = port.HistoricalClient?.DisplayName
+                ?? port.HistoricalClient?.Name
+                ?? port.HistoricalClient?.Hostname;
+
+            if (!string.IsNullOrEmpty(historicalName))
+            {
+                deviceName = $"{historicalName} on {port.Switch.Name}";
+            }
+            else
+            {
+                // Fall back to custom port name if set, otherwise detected category
+                var hasCustomPortName = !string.IsNullOrEmpty(port.Name) &&
+                    !System.Text.RegularExpressions.Regex.IsMatch(port.Name, @"^Port \d+$");
+                deviceName = hasCustomPortName
+                    ? $"{port.Name} on {port.Switch.Name}"
+                    : $"{detection.CategoryName} on {port.Switch.Name}";
+            }
         }
         else
         {
