@@ -33,31 +33,54 @@ Comprehensive security audit engine for UniFi network configurations. Analyzes s
 
 ```
 NetworkOptimizer.Audit/
-├── Models/                      # Data models
-│   ├── AuditResult.cs          # Complete audit results
-│   ├── AuditIssue.cs           # Individual security finding
-│   ├── AuditSeverity.cs        # Severity levels
-│   ├── NetworkInfo.cs          # Network/VLAN information
-│   ├── PortInfo.cs             # Switch port configuration
-│   ├── SwitchInfo.cs           # Switch device information
-│   └── FirewallRule.cs         # Firewall rule representation
+├── Models/                           # Data models
+│   ├── AuditResult.cs               # Complete audit results
+│   ├── AuditIssue.cs                # Individual security finding
+│   ├── AuditSeverity.cs             # Severity levels
+│   ├── NetworkInfo.cs               # Network/VLAN information
+│   ├── PortInfo.cs                  # Switch port configuration
+│   ├── SwitchInfo.cs                # Switch device information
+│   ├── WirelessClientInfo.cs        # Wireless client with detection
+│   ├── OfflineClientInfo.cs         # Offline client with last network
+│   ├── DeviceAllowanceSettings.cs   # Per-device-type VLAN allowances
+│   └── FirewallRule.cs              # Firewall rule representation
 │
-├── Analyzers/                   # Analysis engines
-│   ├── VlanAnalyzer.cs         # Network/VLAN analysis
-│   ├── SecurityAuditEngine.cs  # Port security analysis
-│   ├── FirewallRuleAnalyzer.cs # Firewall rule analysis
-│   └── AuditScorer.cs          # Security score calculation
+├── Analyzers/                        # Analysis engines
+│   ├── VlanAnalyzer.cs              # Network/VLAN analysis
+│   ├── PortSecurityAnalyzer.cs      # Port security analysis
+│   ├── FirewallRuleAnalyzer.cs      # Firewall rule analysis
+│   ├── FirewallRuleParser.cs        # Parse UniFi firewall JSON
+│   ├── FirewallRuleOverlapDetector.cs # Detect shadowed rules
+│   └── AuditScorer.cs               # Security score calculation
 │
-├── Rules/                       # Individual audit rules
-│   ├── IAuditRule.cs           # Rule interface and base class
-│   ├── IotVlanRule.cs          # IoT device VLAN placement
-│   ├── CameraVlanRule.cs       # Camera VLAN placement
-│   ├── MacRestrictionRule.cs   # MAC address filtering
-│   ├── UnusedPortRule.cs       # Unused port detection
-│   ├── PortIsolationRule.cs    # Port isolation checks
-│   └── FirewallAnyAnyRule.cs   # Firewall permissive rules
+├── Services/                         # Detection services
+│   ├── DeviceTypeDetectionService.cs # Multi-source device detection
+│   ├── IeeeOuiDatabase.cs           # IEEE OUI MAC vendor lookup
+│   └── Detectors/
+│       ├── MacOuiDetector.cs        # Detect by MAC OUI
+│       ├── FingerprintDetector.cs   # Detect by UniFi fingerprint DB
+│       └── NamePatternDetector.cs   # Detect by port/device name
 │
-└── ConfigAuditEngine.cs         # Main orchestrator
+├── Dns/                              # DNS security analysis
+│   ├── DnsSecurityAnalyzer.cs       # DoH/DoT configuration analysis
+│   ├── ThirdPartyDnsDetector.cs     # Detect Pi-hole, AdGuard, etc.
+│   ├── DnsStampDecoder.cs           # Decode DNS stamp URLs
+│   └── DohProviderRegistry.cs       # Known DoH provider database
+│
+├── Rules/                            # Individual audit rules
+│   ├── IAuditRule.cs                # Rule interface
+│   ├── IotVlanRule.cs               # Wired IoT VLAN placement
+│   ├── WirelessIotVlanRule.cs       # Wireless IoT VLAN placement
+│   ├── CameraVlanRule.cs            # Wired camera VLAN placement
+│   ├── WirelessCameraVlanRule.cs    # Wireless camera VLAN placement
+│   ├── VlanPlacementChecker.cs      # Shared VLAN recommendation logic
+│   ├── MacRestrictionRule.cs        # MAC address filtering
+│   ├── UnusedPortRule.cs            # Unused port detection
+│   └── PortIsolationRule.cs         # Port isolation checks
+│
+├── ConfigAuditEngine.cs              # Main orchestrator
+├── DeviceNameHints.cs                # Device type name patterns
+└── IssueTypes.cs                     # Issue type constants
 ```
 
 ## Usage
@@ -68,15 +91,16 @@ NetworkOptimizer.Audit/
 using NetworkOptimizer.Audit;
 using Microsoft.Extensions.Logging;
 
-// Create logger
+// Create logger factory
 var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
-var logger = loggerFactory.CreateLogger<ConfigAuditEngine>();
 
 // Create audit engine
-var auditEngine = new ConfigAuditEngine(logger);
+var auditEngine = new ConfigAuditEngine(
+    loggerFactory.CreateLogger<ConfigAuditEngine>(),
+    loggerFactory);
 
 // Run audit from UniFi device JSON
-var auditResult = auditEngine.RunAuditFromFile(
+var auditResult = await auditEngine.RunAuditFromFileAsync(
     "path/to/unifi_devices.json",
     clientName: "Example Corp"
 );
@@ -103,41 +127,31 @@ auditEngine.SaveResults(auditResult, "audit_results.json", format: "json");
 auditEngine.SaveResults(auditResult, "audit_results.txt", format: "text");
 ```
 
-### Audit from JSON String
+### Full Audit with All Data Sources
 
 ```csharp
-var deviceJson = await httpClient.GetStringAsync("https://unifi.local:8443/api/s/default/stat/device");
-var auditResult = auditEngine.RunAudit(deviceJson, clientName: "My Site");
+// For best detection accuracy, provide all available data:
+var auditResult = await auditEngine.RunAuditAsync(
+    deviceDataJson: deviceJson,           // /stat/device response
+    clients: clientList,                   // Connected clients for type detection
+    clientHistory: historyList,            // Historical clients for offline detection
+    fingerprintDb: uniFiFingerprintDb,     // UniFi fingerprint database
+    settingsData: settingsJson,            // Site settings (DoH config)
+    firewallPoliciesData: policiesJson,    // Firewall policies (DNS rules)
+    allowanceSettings: allowances,         // Per-device-type VLAN allowances
+    protectCameraMacs: cameraSet,          // UniFi Protect camera MACs
+    clientName: "My Site"
+);
 ```
 
-### Custom Rules
+### Device Type Detection
 
-Add custom audit rules by implementing `IAuditRule`:
+The audit engine uses multiple detection sources in priority order:
 
-```csharp
-public class CustomVlanRule : AuditRuleBase
-{
-    public override string RuleId => "CUSTOM-001";
-    public override string RuleName => "Custom VLAN Check";
-    public override string Description => "Check for custom requirement";
-    public override AuditSeverity Severity => AuditSeverity.Recommended;
-    public override int ScoreImpact => 5;
-
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
-    {
-        // Your custom logic here
-        if (/* condition */)
-        {
-            return CreateIssue("Custom issue found", port);
-        }
-        return null;
-    }
-}
-
-// Add to engine
-var securityEngine = new SecurityAuditEngine(logger);
-securityEngine.AddRule(new CustomVlanRule());
-```
+1. **UniFi Protect cameras** - 100% confidence for known Protect devices
+2. **UniFi fingerprint database** - Device category from controller fingerprints
+3. **IEEE OUI database** - Vendor lookup by MAC prefix (IKEA, Philips, etc.)
+4. **Name patterns** - Port/device names containing IoT keywords
 
 ## IoT Device Detection
 
@@ -261,7 +275,7 @@ The engine is designed for extensibility:
 
 ## Dependencies
 
-- .NET 8.0
+- .NET 10.0
 - Microsoft.Extensions.Logging.Abstractions
 
 ## Thread Safety

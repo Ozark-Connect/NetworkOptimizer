@@ -1,6 +1,8 @@
 # NetworkOptimizer.Monitoring
 
-Production-ready SNMP monitoring library for UniFi and network devices with comprehensive metrics collection, aggregation, and alerting capabilities.
+> **Status: Future Project** - This library is planned but not yet fully implemented. The structure and interfaces below represent the intended design.
+
+SNMP monitoring library for UniFi and network devices with metrics collection, aggregation, and alerting capabilities.
 
 ## Features
 
@@ -36,7 +38,7 @@ Production-ready SNMP monitoring library for UniFi and network devices with comp
 Add the NuGet package reference:
 
 ```xml
-<PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.6" />
+<PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
 ```
 
 ## Quick Start

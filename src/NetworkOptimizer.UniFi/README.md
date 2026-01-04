@@ -414,7 +414,7 @@ The client uses `ILogger` for comprehensive logging:
 
 ## Dependencies
 
-- .NET 8.0
+- .NET 10.0
 - Microsoft.Extensions.Logging.Abstractions
 - Polly (retry policies)
 - System.Text.Json

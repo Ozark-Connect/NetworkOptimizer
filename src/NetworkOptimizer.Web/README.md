@@ -1,6 +1,6 @@
 # NetworkOptimizer.Web
 
-Blazor Server .NET 9 web application for the Network Optimizer for UniFi.
+Blazor Server .NET 10 web application for the Network Optimizer for UniFi.
 
 ## Overview
 
@@ -93,7 +93,7 @@ NetworkOptimizer.Web/
 
 ## Technology Stack
 
-- **Framework**: ASP.NET Core 9.0
+- **Framework**: ASP.NET Core 10.0
 - **UI**: Blazor Server with Interactive Server components
 - **Styling**: Custom CSS with dark mode design
 - **Dependencies**:
@@ -208,9 +208,9 @@ Components follow Blazor best practices:
 
 ## Security Considerations
 
-- All sensitive credentials stored encrypted
+- **Connection credentials** (UniFi, SSH): AES-256 encrypted with machine-specific key (reversible for connections)
+- **Admin password**: PBKDF2-SHA256 hashed with 600K iterations and 16-byte salt (not reversible)
 - HTTPS enforced in production
-- CORS configured for agent endpoints
 - Input validation on all forms
 - SQL injection prevention via parameterized queries
 - XSS protection via Blazor's automatic encoding

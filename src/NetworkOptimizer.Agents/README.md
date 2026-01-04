@@ -1,8 +1,8 @@
 # NetworkOptimizer.Agents
 
-Generic agent deployment and monitoring system for Linux systems. This library provides SSH-based deployment, health monitoring, and template-based configuration management.
+> **Status: Future Project** - This library is planned but not yet implemented. The structure and interfaces below represent the intended design.
 
-> **Note:** UDM/UCG SQM functionality has been moved to `NetworkOptimizer.Sqm` and `NetworkOptimizer.Web/Services/SqmDeploymentService.cs`. This project now focuses on generic Linux agent deployment.
+Generic agent deployment and monitoring system for Linux systems. This library will provide SSH-based deployment, health monitoring, and template-based configuration management.
 
 ## Features
 
@@ -64,7 +64,11 @@ NetworkOptimizer.Agents/
 
 ## Dependencies
 
-- **SSH.NET** (2024.1.0): SSH/SFTP client library
-- **Scriban** (5.10.0): Template rendering engine
-- **Microsoft.Data.Sqlite** (9.0.0): SQLite database for health monitoring
-- **Microsoft.Extensions.Logging.Abstractions** (9.0.0): Logging infrastructure
+- **SSH.NET** (2025.1.0): SSH/SFTP client library
+- **Scriban** (6.5.2): Template rendering engine
+- **Microsoft.Data.Sqlite** (10.0.1): SQLite database for health monitoring
+- **Microsoft.Extensions.Logging.Abstractions** (10.0.1): Logging infrastructure
+
+## .NET Version
+
+Built for **.NET 10.0** with nullable reference types enabled and implicit usings.

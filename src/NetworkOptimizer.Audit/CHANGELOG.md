@@ -2,12 +2,57 @@
 
 All notable changes to NetworkOptimizer.Audit will be documented in this file.
 
-## [1.0.0] - 2024-12-08
+## [0.5.0] - 2026-01-03
+
+### Added
+- **DNS Security Analysis** (`DnsSecurityAnalyzer`)
+  - DoH (DNS-over-HTTPS) configuration detection
+  - DoT (DNS-over-TLS) configuration detection
+  - DNS stamp URL decoding
+  - Third-party DNS detection (Pi-hole, AdGuard, etc.)
+  - DNS leak prevention rule analysis
+  - WAN DNS server validation
+- **Device Type Detection Service** (`DeviceTypeDetectionService`)
+  - Multi-source detection with confidence scoring
+  - Priority-based detection: Protect cameras > Fingerprint DB > OUI > Name patterns
+  - IEEE OUI database integration for vendor detection
+  - UniFi fingerprint database support
+- **Wireless Client Analysis**
+  - `WirelessClientInfo` model for wireless device tracking
+  - VLAN placement analysis for wireless IoT/cameras
+  - Access point association tracking
+- **Offline Client Detection**
+  - `OfflineClientInfo` model for historical client analysis
+  - VLAN placement issues for recently-offline devices
+  - Two-week recency threshold for severity scoring
+- **Device Allowance Settings**
+  - Per-device-type VLAN allowance configuration
+  - Low-risk device handling (e.g., Philips Hue on main VLAN)
+  - Vendor-specific allowances
+- **UniFi Protect Integration**
+  - Highest-priority detection for Protect camera MACs
+  - 100% confidence for known Protect devices
+
+### Changed
+- Renamed `SecurityAuditEngine` to `PortSecurityAnalyzer`
+- Upgraded to .NET 10.0
+- Updated Microsoft.Extensions.Logging.Abstractions to 10.0.1
+- Refactored firewall analysis into `FirewallRuleParser` and `FirewallRuleAnalyzer`
+- Added `FirewallRuleOverlapDetector` for shadowed rule detection
+- Improved network classification with purpose-based detection
+
+### Fixed
+- Firewall rule shadowing detection now handles complex subnet overlap scenarios
+- Port isolation checks account for uplink ports correctly
+
+---
+
+## [0.1.0] - 2024-12-08
 
 ### Added
 - Initial release of NetworkOptimizer.Audit
 - Core audit engine (`ConfigAuditEngine`) for comprehensive UniFi network analysis
-- Port security analysis with `SecurityAuditEngine`
+- Port security analysis with `PortSecurityAnalyzer`
   - IoT device VLAN placement detection
   - Camera VLAN placement detection
   - MAC restriction analysis
@@ -68,8 +113,8 @@ All notable changes to NetworkOptimizer.Audit will be documented in this file.
   - Production-ready error handling
 
 ### Technical Details
-- Target Framework: .NET 8.0
-- Dependencies: Microsoft.Extensions.Logging.Abstractions 8.0.0
+- Target Framework: .NET 10.0
+- Dependencies: Microsoft.Extensions.Logging.Abstractions 10.0.1
 - Thread-safe for read operations
 - Performance: < 1 second for typical mid-sized networks
 - Comprehensive logging support via Microsoft.Extensions.Logging

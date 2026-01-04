@@ -227,13 +227,13 @@ await serviceProvider.EnsureDatabaseCreatedAsync();
 ## Dependencies
 
 - **InfluxDB.Client** (4.18.0): Official InfluxDB client library
-- **Microsoft.EntityFrameworkCore.Sqlite** (9.0.0): SQLite database provider
-- **Microsoft.EntityFrameworkCore.Design** (9.0.0): EF Core design-time tools
-- **Microsoft.Extensions.Logging.Abstractions** (9.0.0): Logging abstractions
+- **Microsoft.EntityFrameworkCore.Sqlite** (10.0.1): SQLite database provider
+- **Microsoft.EntityFrameworkCore.Design** (10.0.1): EF Core design-time tools
+- **Microsoft.Extensions.Logging.Abstractions** (10.0.1): Logging abstractions
 
 ## .NET Version
 
-Built for **.NET 9.0** with nullable reference types enabled and implicit usings.
+Built for **.NET 10.0** with nullable reference types enabled and implicit usings.
 
 ## Best Practices
 

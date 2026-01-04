@@ -306,8 +306,8 @@ reportData.SecurityScore.Rating = SecurityScore.CalculateRating(
 
 ## Dependencies
 
-- **.NET 8.0+**
-- **QuestPDF 2024.12.3+** - PDF generation library
+- **.NET 10.0**
+- **QuestPDF 2025.12.1** - PDF generation library
 
 ## License
 

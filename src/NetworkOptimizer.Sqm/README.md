@@ -1,303 +1,178 @@
 # NetworkOptimizer.Sqm
 
-Production-ready Smart Queue Management (SQM) system for UniFi Cloud Gateway and Dream Machine devices. This library generates shell scripts that implement adaptive bandwidth management with baseline learning and latency-based rate adjustment.
+Smart Queue Management (SQM) library for UniFi gateways (UCG/UDM). Generates self-contained boot scripts that implement adaptive bandwidth management with baseline learning and latency-based rate adjustment.
 
 ## Features
 
-### Core Components
+- **Self-contained boot scripts** - Single script survives firmware upgrades via `/data/on_boot.d/`
+- **Connection profiles** - Pre-tuned settings for DOCSIS Cable, Starlink, Fiber, DSL, Fixed Wireless, and Cellular
+- **168-hour baseline patterns** - Built-in hourly speed patterns based on real-world connection data
+- **Latency-based adjustment** - Ping monitoring with automatic rate decrease/increase
+- **Speedtest integration** - Ookla CLI with baseline blending
 
-1. **SqmManager** - Main orchestrator for SQM operations
-   - Configure SQM for WAN interfaces
-   - Start/stop learning mode
-   - Get current SQM status
-   - Trigger manual speedtests
-   - Apply rate adjustments
+## Components
 
-2. **BaselineCalculator** - 168-hour baseline management (7 days × 24 hours)
-   - Calculate per-hour statistics (mean, stddev, min, max, median)
-   - Blending algorithm: 60/40 or 80/20 based on variance from baseline
-   - Learning mode progress tracking
-   - Incremental baseline updates
+| Class | Purpose |
+|-------|---------|
+| `SqmManager` | Main orchestrator for SQM operations |
+| `SqmConfiguration` | Configuration model with profile-based defaults |
+| `ConnectionProfile` | Connection type with calculated speed/latency parameters |
+| `ScriptGenerator` | Generates self-contained boot script |
+| `BaselineCalculator` | 168-hour baseline learning and statistics |
+| `SpeedtestIntegration` | Ookla speedtest JSON parsing |
+| `LatencyMonitor` | Ping-based rate adjustment calculations |
 
-3. **SpeedtestIntegration** - Ookla Speedtest CLI integration
-   - Parse JSON speedtest output
-   - Calculate effective rate with overhead multiplier (5-15%)
-   - Apply minimum floor and maximum cap
-   - Baseline blending for stable rate recommendations
+## Connection Types
 
-4. **LatencyMonitor** - Ping-based latency monitoring
-   - Threshold detection (baseline + deviation)
-   - Rate adjustment calculations:
-     - High latency: 0.97^n decrease (3% per deviation)
-     - Normal/reduced latency: 1.04^n increase (4% recovery)
-   - Automatic recovery to optimal bandwidth
+Each connection type has tuned parameters for speed ranges, latency thresholds, and blending ratios:
 
-5. **ScriptGenerator** - Shell script generation
-   - Generate deployment scripts from templates
-   - Parameterize: interface, max speed, baseline table, InfluxDB endpoint
-   - Generate install.sh for easy deployment
+| Type | Description | Speed Range | Latency |
+|------|-------------|-------------|---------|
+| `DocsisCable` | DOCSIS Cable (Coax) | 65-95% of nominal | 18ms baseline |
+| `Starlink` | Satellite | 35-110% of nominal | 25ms baseline |
+| `Fiber` | FTTH/FTTP | 90-105% of nominal | 5ms baseline |
+| `Dsl` | ADSL/VDSL | 85-95% of nominal | 20ms baseline |
+| `FixedWireless` | WISP | 50-110% of nominal | 15ms baseline |
+| `CellularHome` | Fixed LTE/5G | 40-120% of nominal | 35ms baseline |
 
 ## Usage
 
-### Basic Configuration
+### Create Configuration from Profile
 
 ```csharp
 using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Sqm.Models;
 
-// Create configuration
 var config = new SqmConfiguration
 {
+    ConnectionType = ConnectionType.DocsisCable,
+    ConnectionName = "Primary WAN",
     Interface = "eth2",
-    MaxDownloadSpeed = 285,
-    MinDownloadSpeed = 190,
-    AbsoluteMaxDownloadSpeed = 280,
-    OverheadMultiplier = 1.05, // 5% overhead
-    PingHost = "40.134.217.121",
-    BaselineLatency = 17.9,
-    LatencyThreshold = 2.2,
-    LatencyDecrease = 0.97, // 3% decrease
-    LatencyIncrease = 1.04, // 4% increase
-    SpeedtestSchedule = new List<string> { "0 6 * * *", "30 18 * * *" },
-    PingAdjustmentInterval = 5
+    NominalDownloadSpeed = 300,
+    NominalUploadSpeed = 35,
+    PingHost = "1.1.1.1"
 };
 
-// Create manager
-var manager = new SqmManager(config);
+// Apply calculated parameters from connection profile
+config.ApplyProfileSettings();
+
+Console.WriteLine(config.GetParameterSummary());
+// Output:
+// Connection: DOCSIS Cable (Primary WAN)
+// Interface: eth2 (IFB: ifbeth2)
+// Nominal Speed: 300/35 Mbps (down/up)
+// Speed Range: 195-285 Mbps (floor-ceiling)
+// ...
 ```
 
-### Learning Mode
+### Generate Boot Script
 
 ```csharp
-// Start learning mode to collect baseline data
-manager.StartLearningMode();
+var manager = new SqmManager(config);
 
-// Check progress
-var progress = manager.GetLearningProgress();
-Console.WriteLine($"Learning progress: {progress:F1}%");
+// Get baseline from connection profile
+var profile = config.GetProfile();
+var baseline = profile.GetHourlyBaseline();
 
-// Stop learning mode when complete
-if (manager.IsLearningComplete())
-{
-    manager.StopLearningMode();
-}
+// Generate and save scripts
+manager.GenerateScriptsToDirectory("/output/path");
+// Creates: 20-sqm-primary-wan.sh
 ```
 
 ### Process Speedtest Results
 
 ```csharp
-// After running speedtest on device
 string speedtestJson = File.ReadAllText("speedtest-result.json");
-
-// Process and apply
 var effectiveRate = await manager.TriggerSpeedtest(speedtestJson);
 Console.WriteLine($"Effective rate: {effectiveRate} Mbps");
 ```
 
-### Monitor Latency and Adjust
+### Apply Latency-Based Adjustment
 
 ```csharp
-// Get current latency (from ping)
-double currentLatency = 19.5; // ms
+double currentLatency = 22.5; // ms
 double currentRate = 265; // Mbps
 
-// Calculate adjustment
 var (adjustedRate, reason) = manager.ApplyRateAdjustment(currentLatency, currentRate);
 Console.WriteLine($"Adjusted to {adjustedRate} Mbps: {reason}");
 ```
 
-### Generate Scripts for Deployment
+## Generated Script
 
-```csharp
-// Generate all scripts
-var scripts = manager.GenerateScripts();
+The `ScriptGenerator` creates a single self-contained boot script (`20-sqm-{name}.sh`) that:
 
-// Save to directory
-manager.GenerateScriptsToDirectory("/path/to/output");
+1. **Installs dependencies** - Ookla speedtest, bc, jq via apt-get
+2. **Creates /data/sqm/ directory** - Persistent storage for result files
+3. **Embeds scripts via heredoc** - Speedtest and ping adjustment scripts
+4. **Configures crontab** - Scheduled speedtests and ping adjustments
+5. **Schedules initial calibration** - First speedtest runs shortly after boot
 
-// Deploy to UniFi device:
-// 1. Copy scripts to device
-// 2. Run install.sh
+### Script Sections
+
+```
+Section 1: Install Dependencies (speedtest, bc, jq)
+Section 2: Create Directories (/data/sqm)
+Section 3: Create Speedtest Script (embedded via heredoc)
+Section 4: Create Ping Script (embedded via heredoc)
+Section 5: Configure Crontab (speedtest schedule + ping interval)
+Section 6: Schedule Initial Calibration (via systemd-run)
 ```
 
-### Get Status
+## Baseline Blending
 
-```csharp
-var status = manager.GetStatus();
-Console.WriteLine($"Current Rate: {status.CurrentRate} Mbps");
-Console.WriteLine($"Last Speedtest: {status.LastSpeedtest} Mbps at {status.LastSpeedtestTime}");
-Console.WriteLine($"Current Latency: {status.CurrentLatency} ms");
-Console.WriteLine($"Baseline Speed: {status.BaselineSpeed} Mbps");
-Console.WriteLine($"Learning Mode: {status.LearningModeActive} ({status.LearningModeProgress:F1}%)");
-```
+When processing speedtest results, measured speed is blended with historical baseline:
 
-## Baseline Learning Algorithm
+| Condition | DOCSIS | Starlink | Fiber |
+|-----------|--------|----------|-------|
+| Within 10% of baseline | 60/40 (baseline/measured) | 50/50 | 70/30 |
+| Below 10% of baseline | 80/20 | 70/30 | 85/15 |
 
-The system builds a 168-hour baseline table (7 days × 24 hours) to learn typical speeds for each hour of the week:
+This prevents temporary dips from over-correcting the rate.
 
-1. **Collection**: Speedtest results are collected and grouped by day-of-week and hour
-2. **Statistics**: For each hour, calculate mean, stddev, min, max, and median
-3. **Blending**: When processing new speedtests:
-   - If measured speed is within 10% of baseline: 60/40 blend (favor baseline)
-   - If measured speed is >10% below baseline: 80/20 blend (heavily favor baseline)
-4. **Overhead**: Apply 5-15% overhead multiplier to account for protocol overhead
-5. **Caps**: Apply minimum floor and maximum ceiling
+## Latency Adjustment Algorithm
 
-## Latency-Based Adjustment
+The ping script adjusts rates based on measured latency vs baseline:
 
-The ping monitor continuously adjusts bandwidth based on latency:
-
-### High Latency (exceeds baseline + threshold)
+**High Latency** (exceeds baseline + threshold):
 - Calculate deviation count: `(latency - baseline) / threshold`
 - Apply exponential decrease: `rate × 0.97^deviations`
-- Minimum rate: 180 Mbps
+- Minimum: floor speed from profile
 
-### Reduced Latency (below baseline - 0.4ms)
-- If rate < 92% of max: Apply 2× increase (`1.04²`)
+**Low Latency** (below baseline - 0.4ms):
+- If rate < 92% of max: Apply double increase
 - If rate < 94% of max: Normalize to 94%
-- Otherwise: Keep current rate
+- Otherwise: maintain current rate
 
-### Normal Latency (within 0.3ms of baseline)
-- If rate < 90% of max: Apply 4% increase
-- If rate < 92% of max: Normalize to 92%
-- Otherwise: Keep current rate
+**Normal Latency** (within baseline ± threshold):
+- Gradual increase toward optimal rate
 
-## Shell Script Generation
+## Deployment
 
-The ScriptGenerator creates deployment-ready scripts:
+1. Generate script via `SqmManager.GenerateScriptsToDirectory()`
+2. Copy to UniFi gateway: `scp 20-sqm-*.sh root@gateway:/data/on_boot.d/`
+3. Make executable: `chmod +x /data/on_boot.d/20-sqm-*.sh`
+4. Run manually or reboot to activate
 
-### Generated Files
+The script will:
+- Install Ookla speedtest CLI (removes UniFi's incompatible version)
+- Set up cron jobs for scheduled speedtests
+- Run initial calibration ~60 seconds after boot
+- Adjust TC classes on the IFB device
 
-1. **20-sqm-speedtest-setup.sh** - Boot script for speedtest setup
-   - Installs Ookla speedtest CLI
-   - Sets up cron jobs for scheduled speedtests
-   - Configures initial baseline run
+## Logs
 
-2. **21-sqm-ping-setup.sh** - Boot script for ping monitoring
-   - Sets up cron job for periodic latency checks
-   - Excludes speedtest times to avoid conflicts
-
-3. **sqm-speedtest-adjust.sh** - Speedtest execution and rate adjustment
-   - Runs speedtest on specified interface
-   - Blends with baseline
-   - Updates TC classes
-
-4. **sqm-ping-adjust.sh** - Latency monitoring and adjustment
-   - Pings target host
-   - Calculates rate adjustment
-   - Updates TC classes
-
-5. **install.sh** - Deployment script
-   - Copies all scripts to appropriate locations
-   - Sets permissions
-   - Runs initial setup
-
-6. **sqm-metrics-collector.sh** (optional) - InfluxDB metrics
-   - Collects current rate, latency, speedtest results
-   - Sends to InfluxDB for monitoring
-
-## InfluxDB Integration
-
-Enable metrics collection:
-
-```csharp
-config.InfluxDbEndpoint = "https://influxdb.example.com";
-config.InfluxDbToken = "your-token";
-config.InfluxDbOrg = "your-org";
-config.InfluxDbBucket = "sqm-metrics";
-```
-
-Metrics collected:
-- `current_rate`: Current TC rate in Mbps
-- `latency`: Current ping latency in ms
-- `speedtest_speed`: Last speedtest result in Mbps
-
-## Configuration Validation
-
-```csharp
-var errors = manager.ValidateConfiguration();
-if (errors.Any())
-{
-    foreach (var error in errors)
-    {
-        Console.WriteLine($"Error: {error}");
-    }
-}
-```
-
-## Deployment to UniFi Device
-
-1. Generate scripts:
-   ```csharp
-   manager.GenerateScriptsToDirectory("./sqm-scripts");
-   ```
-
-2. Copy to device:
-   ```bash
-   scp -r ./sqm-scripts/* root@192.168.1.1:/tmp/
-   ```
-
-3. Install on device:
-   ```bash
-   ssh root@192.168.1.1
-   cd /tmp
-   chmod +x install.sh
-   ./install.sh
-   ```
-
-4. Monitor logs:
-   ```bash
-   tail -f /var/log/sqm-speedtest-adjust.log
-   tail -f /var/log/sqm-ping-adjust.log
-   ```
-
-## Advanced Features
-
-### Custom Baseline Import/Export
-
-```csharp
-// Export baseline for backup
-var baseline = manager.ExportBaselineForScript();
-File.WriteAllText("baseline.json", JsonSerializer.Serialize(baseline));
-
-// Import baseline from file
-var baselineData = JsonSerializer.Deserialize<Dictionary<string, string>>(
-    File.ReadAllText("baseline.json")
-);
-var calculator = new BaselineCalculator();
-calculator.ImportFromShellFormat(baselineData);
-```
-
-### Manual Rate Bounds
-
-```csharp
-var (minRate, optimalRate, maxRate) = manager.GetRateBounds();
-Console.WriteLine($"Min: {minRate}, Optimal: {optimalRate}, Max: {maxRate}");
-```
-
-## Architecture
-
-```
-SqmManager (Orchestrator)
-├── BaselineCalculator (168-hour learning)
-├── SpeedtestIntegration (Ookla CLI parser)
-├── LatencyMonitor (Ping-based adjustment)
-└── ScriptGenerator (Shell script templates)
-```
+- `/var/log/sqm-{name}.log` - Boot script and adjustment logs
+- `/data/sqm/{name}-result.txt` - Last speedtest result for ping script
 
 ## Dependencies
 
-- .NET 8.0
-- System.Text.Json (for speedtest JSON parsing)
+- .NET 10.0
 
 ## Device Requirements
 
 - UniFi Cloud Gateway or Dream Machine
-- Debian-based OS (for apt-get)
-- `tc` (traffic control) command
-- `jq` (JSON parsing in shell)
-- `bc` (bash calculator)
-- Internet access for Ookla speedtest CLI installation
+- SSH access with root
+- `udm-boot` package (for /data/on_boot.d/ support)
 
 ## License
 
