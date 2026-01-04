@@ -1392,6 +1392,9 @@
         if (!ConnectionService.IsConnected)
             return;
 
+        // Invalidate cache to get fresh device list
+        ConnectionService.InvalidateDeviceCache();
+
         loadingDiscovered = true;
         StateHasChanged();
 
