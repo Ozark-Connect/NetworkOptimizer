@@ -102,13 +102,13 @@ docker-compose up -d
 ## Client Speed Testing
 
 ### Browser-Based (OpenSpeedTest™)
-Access at: **http://localhost:3005**
+Access at: **http://localhost:3005** (port configurable via `OPENSPEEDTEST_PORT`)
 
-Configure result reporting in `.env`:
+Configure in `.env` (also enforces canonical URL via 302 redirect):
 ```env
-HOST_IP=192.168.1.100       # or
-HOST_NAME=nas               # or
-REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+HOST_IP=192.168.1.100       # For path analysis (if auto-detect fails)
+HOST_NAME=nas               # Canonical URL + friendlier URLs (needs DNS)
+REVERSE_PROXIED_HOST_NAME=optimizer.example.com  # If behind proxy (https)
 ```
 
 To disable: comment out `openspeedtest` service in `docker-compose.yml`

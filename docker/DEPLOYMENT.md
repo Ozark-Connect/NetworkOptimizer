@@ -249,6 +249,12 @@ network-optimizer             Up (healthy)
 
 Use nginx, Caddy, or Traefik for SSL termination.
 
+**If the reverse proxy is on the same host**, add to your `.env`:
+```env
+BIND_LOCALHOST_ONLY=true
+```
+This binds the app to `127.0.0.1:8042` instead of all interfaces, so only the local proxy can access it.
+
 #### Nginx Example
 
 ```nginx
@@ -654,7 +660,7 @@ Two methods are available:
 
 | Method | Best For | Port |
 |--------|----------|------|
-| **OpenSpeedTest™** | Browser-based testing from any device | 3005 |
+| **OpenSpeedTest™** | Browser-based testing from any device | 3005 (configurable) |
 | **iperf3 Server** | CLI testing with iperf3 clients | 5201 |
 
 Results from both methods are stored in Network Optimizer and visible in the Client Speed Test page.
@@ -663,30 +669,34 @@ Results from both methods are stored in Network Optimizer and visible in the Cli
 
 ### OpenSpeedTest™ (Browser-Based)
 
-Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`.
+Bundled as part of the Docker Compose stack. Access at `http://your-server:3005` (port configurable via `OPENSPEEDTEST_PORT`).
 
 **Configuration:**
 
-Set one of these environment variables in `.env` to enable result reporting:
+Set these environment variables in `.env`:
 
 ```env
-# Option 1: Direct access (simplest)
+# Server IP for path analysis (only needed if auto-detection fails, e.g., bridge networking)
 HOST_IP=192.168.1.100
 
-# Option 2: Hostname-based
+# Hostname for canonical URL enforcement and friendlier user-facing URLs
+# Requires DNS resolution (can be local DNS via router/Pi-hole)
 HOST_NAME=nas
 
-# Option 3: Behind reverse proxy (uses HTTPS)
+# If app/API is behind a reverse proxy with HTTPS (takes priority for canonical URL)
+# Only affects app/API URL, not the OpenSpeedTest container URL
 REVERSE_PROXIED_HOST_NAME=optimizer.example.com
 ```
 
-The API URL is constructed automatically using this priority:
-1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/speedtest/results`
-2. `HOST_NAME` → `http://hostname:8042/api/speedtest/results`
-3. `HOST_IP` → `http://ip:8042/api/speedtest/results`
+These settings enforce a canonical URL via 302 redirect. Priority: `REVERSE_PROXIED_HOST_NAME` > `HOST_NAME` > `HOST_IP`. If none set, any Host header is accepted. `HOST_IP` is only required for speed test path analysis when the server IP can't be auto-detected.
+
+The API URL for result reporting is constructed using this priority:
+1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/public/speedtest/results`
+2. `HOST_NAME` → `http://hostname:8042/api/public/speedtest/results`
+3. `HOST_IP` → `http://ip:8042/api/public/speedtest/results`
 
 **Usage:**
-1. Open `http://your-server:3005` from any device on your network
+1. Open `http://your-server:3005` (or your configured port) from any device on your network
 2. Run the speed test
 3. Results automatically appear in Network Optimizer's Client Speed Test page
 
@@ -733,7 +743,7 @@ docker ps | grep -E "3000|3005"
 | Port | Service | Resolution |
 |------|---------|------------|
 | 5201 | Existing iperf3 server | Stop: `sudo systemctl stop iperf3` |
-| 3005 | OpenSpeedTest port conflict | [Open an issue](https://github.com/Ozark-Connect/NetworkOptimizer/issues) for port remapping support |
+| 3005 | OpenSpeedTest port conflict | Set `OPENSPEEDTEST_PORT=3006` (or another free port) in `.env` |
 
 **Container name conflicts:**
 

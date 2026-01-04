@@ -192,17 +192,18 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
     corsOriginsList.AddRange(corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 }
 
-// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest on port 3005)
+// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
+var openSpeedTestPort = builder.Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
 if (!string.IsNullOrEmpty(hostIp))
 {
-    corsOriginsList.Add($"http://{hostIp}:3005");
+    corsOriginsList.Add($"http://{hostIp}:{openSpeedTestPort}");
 }
 if (!string.IsNullOrEmpty(hostName))
 {
-    corsOriginsList.Add($"http://{hostName}:3005");
+    corsOriginsList.Add($"http://{hostName}:{openSpeedTestPort}");
 }
 // Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
-// OpenSpeedTest still runs on port 3005, even when API is behind reverse proxy
+// OpenSpeedTest runs on its own port, even when API is behind reverse proxy
 
 builder.Services.AddCors(options =>
 {
@@ -288,6 +289,48 @@ app.Services.GetRequiredService<NetworkOptimizer.Storage.Services.ICredentialPro
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
+}
+
+// Host enforcement: redirect to canonical host if configured
+// Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http:8042) > HOST_IP (http:8042)
+// If none configured, accept any host
+var canonicalHost = builder.Configuration["REVERSE_PROXIED_HOST_NAME"];
+var canonicalScheme = "https";
+var canonicalPort = (string?)null; // No port for reverse proxy (443 implied)
+
+if (string.IsNullOrEmpty(canonicalHost))
+{
+    canonicalHost = builder.Configuration["HOST_NAME"];
+    canonicalScheme = "http";
+    canonicalPort = "8042";
+}
+if (string.IsNullOrEmpty(canonicalHost))
+{
+    canonicalHost = builder.Configuration["HOST_IP"];
+    canonicalScheme = "http";
+    canonicalPort = "8042";
+}
+
+if (!string.IsNullOrEmpty(canonicalHost))
+{
+    app.Use(async (context, next) =>
+    {
+        var requestHost = context.Request.Host.Host;
+
+        // Check if host matches (case-insensitive)
+        if (!string.Equals(requestHost, canonicalHost, StringComparison.OrdinalIgnoreCase))
+        {
+            // Build redirect URL
+            var port = canonicalPort != null ? $":{canonicalPort}" : "";
+            var redirectUrl = $"{canonicalScheme}://{canonicalHost}{port}{context.Request.Path}{context.Request.QueryString}";
+
+            // 302 redirect (not 301 to avoid browser caching)
+            context.Response.Redirect(redirectUrl, permanent: false);
+            return;
+        }
+
+        await next();
+    });
 }
 
 // Only use HTTPS redirection if not in Docker/container (check for DOTNET_RUNNING_IN_CONTAINER)

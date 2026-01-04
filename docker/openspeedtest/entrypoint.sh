@@ -58,6 +58,29 @@ if [ -f "$NGINX_CONF" ]; then
     # Change Cache-Control public to no-cache
     sed -i 's/add_header Cache-Control public;/add_header Cache-Control "no-cache, no-store, must-revalidate";/' "$NGINX_CONF"
     echo "Disabled aggressive caching"
+
+    # Enforce canonical host via 302 redirect (same priority as UI display: HOST_NAME > HOST_IP)
+    CANONICAL_HOST=""
+    if [ -n "$HOST_NAME" ]; then
+        CANONICAL_HOST="$HOST_NAME"
+    elif [ -n "$HOST_IP" ]; then
+        CANONICAL_HOST="$HOST_IP"
+    fi
+
+    # External port (default 3005, the mapped port in docker-compose)
+    CANONICAL_PORT="${OPENSPEEDTEST_PORT:-3005}"
+
+    if [ -n "$CANONICAL_HOST" ]; then
+        echo "Enforcing canonical host: $CANONICAL_HOST:$CANONICAL_PORT"
+        # Add redirect rule inside the server block (after root directive)
+        # This redirects any request where Host doesn't match the configured host
+        sed -i "/root \/usr\/share\/nginx\/html/a\\
+    # Enforce canonical host\\
+    if (\$host != \"$CANONICAL_HOST\") {\\
+        return 302 \$scheme://$CANONICAL_HOST:$CANONICAL_PORT\$request_uri;\\
+    }" "$NGINX_CONF"
+        echo "Added host redirect rule"
+    fi
 fi
 
 # Run the original entrypoint (OpenSpeedTest's nginx setup)

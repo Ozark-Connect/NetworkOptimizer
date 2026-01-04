@@ -13,7 +13,8 @@ services:
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-America/Chicago}
-      - ASPNETCORE_URLS=http://127.0.0.1:8042
+      # Bind to localhost only (for reverse proxy) or all interfaces (direct access)
+      - BIND_LOCALHOST_ONLY=${BIND_LOCALHOST_ONLY:-false}
       - APP_PASSWORD=${APP_PASSWORD:-}
       - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
       # Host IP/name for path analysis and CORS (required for client speed tests)
@@ -21,6 +22,8 @@ services:
       - HOST_NAME=${HOST_NAME:-}
       # Reverse proxy hostname (e.g., optimizer.example.com) - overrides HOST_NAME for API URLs
       - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      # OpenSpeedTest external port (for UI display and CORS)
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
       # iperf3 server mode - enable to accept client-initiated speed tests on port 5201
       - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
       # Logging (Trace, Debug, Information, Warning, Error, Critical)
@@ -48,7 +51,7 @@ services:
     container_name: openspeedtest
     restart: unless-stopped
     ports:
-      - "3005:3000"
+      - "${OPENSPEEDTEST_PORT:-3005}:3000"
     environment:
       - TZ=${TZ:-America/Chicago}
       # URL where browser POSTs results (constructed by entrypoint if not set)
@@ -58,6 +61,8 @@ services:
       - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
       - HOST_NAME=${HOST_NAME:-}
       - HOST_IP=${HOST_IP:-}
+      # External port for host enforcement redirect (default 3005)
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
     logging:
       driver: "json-file"
       options:

@@ -554,7 +554,7 @@
     private string? openSpeedTestUrl;
     private bool iperf3ServerEnabled;
     private bool openSpeedTestAvailable;
-    private string serverHost = "localhost";
+    private string serverHost = "<server IP>";
 
     // OpenSpeedTest health check cache
     private static DateTime _lastHealthCheck = DateTime.MinValue;
@@ -581,14 +581,15 @@
         // Construct OpenSpeedTest URL from HOST_NAME or HOST_IP
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
+        var openSpeedTestPort = Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
         if (!string.IsNullOrEmpty(hostName))
         {
-            openSpeedTestUrl = $"http://{hostName}:3005";
+            openSpeedTestUrl = $"http://{hostName}:{openSpeedTestPort}";
             serverHost = hostName;
         }
         else if (!string.IsNullOrEmpty(hostIp))
         {
-            openSpeedTestUrl = $"http://{hostIp}:3005";
+            openSpeedTestUrl = $"http://{hostIp}:{openSpeedTestPort}";
             serverHost = hostIp;
         }
 
