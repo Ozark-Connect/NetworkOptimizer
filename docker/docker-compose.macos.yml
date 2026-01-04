@@ -27,6 +27,9 @@ services:
       - TZ=${TZ:-America/Chicago}
       - APP_PASSWORD=${APP_PASSWORD:-}
       - HOST_IP=${HOST_IP:-}              # Override if auto-detection fails (rarely needed)
+      # Logging configuration (LOG_LEVEL: Trace, Debug, Information, Warning, Error, Critical)
+      - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
+      - Logging__LogLevel__NetworkOptimizer=${LOG_LEVEL:-Information}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
