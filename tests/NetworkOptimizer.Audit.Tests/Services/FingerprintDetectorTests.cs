@@ -711,11 +711,11 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_WithDatabaseLookup_InfersFromName()
+    public void Detect_WithDatabaseLookup_UsesDevTypeId()
     {
-        // Test database lookup path where DevIdOverride leads to name inference
+        // Test database lookup path where DevIdOverride leads to dev_type_id mapping
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Apple TV 4K" };
+        database.DevIds["12345"] = new FingerprintDeviceEntry { Name = "Apple TV 4K", DevTypeId = "5" }; // 5 = IPTV/Streaming
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 12345 };
@@ -724,14 +724,14 @@ public class FingerprintDetectorTests
 
         result.Category.Should().Be(ClientDeviceCategory.StreamingDevice);
         result.Source.Should().Be(DetectionSource.UniFiFingerprint);
-        result.Metadata.Should().ContainKey("inferred_from_name");
+        result.Metadata.Should().ContainKey("dev_type_id");
     }
 
     [Fact]
-    public void Detect_DevIdOverrideCameraName_ReturnsCamera()
+    public void Detect_DevIdOverrideCamera_ReturnsCamera()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["54321"] = new FingerprintDeviceEntry { Name = "Ring Doorbell Pro" };
+        database.DevIds["54321"] = new FingerprintDeviceEntry { Name = "Ring Doorbell Pro", DevTypeId = "9" }; // 9 = Camera
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 54321 };
@@ -742,10 +742,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideSmartHubName_ReturnsSmartHub()
+    public void Detect_DevIdOverrideSmartHub_ReturnsSmartHub()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["11111"] = new FingerprintDeviceEntry { Name = "IKEA Dirigera Gateway" };
+        database.DevIds["11111"] = new FingerprintDeviceEntry { Name = "IKEA Dirigera Gateway", DevTypeId = "144" }; // 144 = SmartHub
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 11111 };
@@ -756,10 +756,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideSpeakerName_ReturnsSmartSpeaker()
+    public void Detect_DevIdOverrideSpeaker_ReturnsSmartSpeaker()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["22222"] = new FingerprintDeviceEntry { Name = "Amazon Echo Dot" };
+        database.DevIds["22222"] = new FingerprintDeviceEntry { Name = "Amazon Echo Dot", DevTypeId = "37" }; // 37 = SmartSpeaker
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 22222 };
@@ -770,10 +770,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideLightingName_ReturnsSmartLighting()
+    public void Detect_DevIdOverrideLighting_ReturnsSmartLighting()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["33333"] = new FingerprintDeviceEntry { Name = "Philips Hue Bulb" };
+        database.DevIds["33333"] = new FingerprintDeviceEntry { Name = "Philips Hue Bulb", DevTypeId = "35" }; // 35 = SmartLighting
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 33333 };
@@ -784,10 +784,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideThermostatName_ReturnsSmartThermostat()
+    public void Detect_DevIdOverrideThermostat_ReturnsSmartThermostat()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["44444"] = new FingerprintDeviceEntry { Name = "Nest Thermostat" };
+        database.DevIds["44444"] = new FingerprintDeviceEntry { Name = "Nest Thermostat", DevTypeId = "63" }; // 63 = SmartThermostat
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 44444 };
@@ -798,10 +798,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideLockName_ReturnsSmartLock()
+    public void Detect_DevIdOverrideLock_ReturnsSmartLock()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["55555"] = new FingerprintDeviceEntry { Name = "August Smart Lock" };
+        database.DevIds["55555"] = new FingerprintDeviceEntry { Name = "August Smart Lock", DevTypeId = "133" }; // 133 = SmartLock
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 55555 };
@@ -812,10 +812,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideVacuumName_ReturnsRoboticVacuum()
+    public void Detect_DevIdOverrideVacuum_ReturnsRoboticVacuum()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["66666"] = new FingerprintDeviceEntry { Name = "iRobot Roomba" };
+        database.DevIds["66666"] = new FingerprintDeviceEntry { Name = "iRobot Roomba", DevTypeId = "41" }; // 41 = RoboticVacuum
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 66666 };
@@ -826,10 +826,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideGameConsoleName_ReturnsGameConsole()
+    public void Detect_DevIdOverrideGameConsole_ReturnsGameConsole()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["77777"] = new FingerprintDeviceEntry { Name = "PlayStation 5" };
+        database.DevIds["77777"] = new FingerprintDeviceEntry { Name = "PlayStation 5", DevTypeId = "17" }; // 17 = GameConsole
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 77777 };
@@ -840,10 +840,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverridePrinterName_ReturnsPrinter()
+    public void Detect_DevIdOverridePrinter_ReturnsPrinter()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["88888"] = new FingerprintDeviceEntry { Name = "HP LaserJet Printer" };
+        database.DevIds["88888"] = new FingerprintDeviceEntry { Name = "HP LaserJet Printer", DevTypeId = "11" }; // 11 = Printer
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 88888 };
@@ -854,10 +854,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideNasName_ReturnsNas()
+    public void Detect_DevIdOverrideNas_ReturnsNas()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["99999"] = new FingerprintDeviceEntry { Name = "Synology NAS DS920+" };
+        database.DevIds["99999"] = new FingerprintDeviceEntry { Name = "Synology NAS DS920+", DevTypeId = "18" }; // 18 = NAS
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 99999 };
@@ -868,10 +868,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideSmartPlugName_ReturnsSmartPlug()
+    public void Detect_DevIdOverrideSmartPlug_ReturnsSmartPlug()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["10101"] = new FingerprintDeviceEntry { Name = "Wemo Smart Plug" };
+        database.DevIds["10101"] = new FingerprintDeviceEntry { Name = "Wemo Smart Plug", DevTypeId = "42" }; // 42 = SmartPlug
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 10101 };
@@ -882,10 +882,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideSmartTvName_ReturnsSmartTV()
+    public void Detect_DevIdOverrideSmartTv_ReturnsSmartTV()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["20202"] = new FingerprintDeviceEntry { Name = "Samsung Smart TV" };
+        database.DevIds["20202"] = new FingerprintDeviceEntry { Name = "Samsung Smart TV", DevTypeId = "31" }; // 31 = SmartTV
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 20202 };
@@ -896,10 +896,10 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideVoIPName_ReturnsVoIP()
+    public void Detect_DevIdOverrideVoIP_ReturnsVoIP()
     {
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["30303"] = new FingerprintDeviceEntry { Name = "Cisco VoIP Phone" };
+        database.DevIds["30303"] = new FingerprintDeviceEntry { Name = "Cisco VoIP Phone", DevTypeId = "3" }; // 3 = VoIP
 
         var detector = new FingerprintDetector(database);
         var client = new UniFiClientResponse { DevIdOverride = 30303 };
@@ -910,22 +910,24 @@ public class FingerprintDetectorTests
     }
 
     [Fact]
-    public void Detect_DevIdOverrideEmptyName_ReturnsUnknown()
+    public void Detect_DevIdOverrideNoDevTypeId_FallsBackToDevCat()
     {
+        // Entry without dev_type_id should fall back to client's dev_cat
         var database = new UniFiFingerprintDatabase();
-        database.DevIds["40404"] = new FingerprintDeviceEntry { Name = "" };
+        database.DevIds["40404"] = new FingerprintDeviceEntry { Name = "Unknown Device" }; // No DevTypeId
 
         var detector = new FingerprintDetector(database);
-        var client = new UniFiClientResponse { DevIdOverride = 40404 };
+        var client = new UniFiClientResponse { DevIdOverride = 40404, DevCat = 9 }; // 9 = Camera
 
         var result = detector.Detect(client);
 
-        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
     }
 
     [Fact]
-    public void Detect_DevIdOverrideUnknownName_ReturnsUnknown()
+    public void Detect_DevIdOverrideUnmappedDevTypeId_FallsBackToDevCat()
     {
+        // Entry with unmapped dev_type_id should fall back to client's dev_cat
         var database = new UniFiFingerprintDatabase();
         database.DevIds["50505"] = new FingerprintDeviceEntry { Name = "Some Random Device" };
 

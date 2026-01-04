@@ -148,7 +148,7 @@ public class DeviceTypeDetectionServiceTests
             Mac = "aa:bb:cc:dd:ee:ff",
             Name = "Front Door",
             Oui = "Ring Inc",
-            DevCat = 4 // Camera fingerprint
+            DevCat = 9 // Camera fingerprint (9 = IP Network Camera)
         };
 
         // Act

@@ -3262,21 +3262,21 @@ td .btn + .btn {
 
 /* Switch port table columns: Port, Name, Link, PoE, Port Sec, Forward, Native VLAN, Status */
 .port-table th:nth-child(1),
-.port-table td:nth-child(1) { width: 50px; }  /* Port */
+.port-table td:nth-child(1) { width: 5%; }   /* Port */
 .port-table th:nth-child(2),
-.port-table td:nth-child(2) { width: 140px; } /* Name */
+.port-table td:nth-child(2) { width: 18%; }  /* Name */
 .port-table th:nth-child(3),
-.port-table td:nth-child(3) { width: 60px; }  /* Link */
+.port-table td:nth-child(3) { width: 8%; }   /* Link */
 .port-table th:nth-child(4),
-.port-table td:nth-child(4) { width: 45px; }  /* PoE */
+.port-table td:nth-child(4) { width: 6%; }   /* PoE */
 .port-table th:nth-child(5),
-.port-table td:nth-child(5) { width: 70px; }  /* Port Sec */
+.port-table td:nth-child(5) { width: 9%; }   /* Port Sec */
 .port-table th:nth-child(6),
-.port-table td:nth-child(6) { width: 75px; }  /* Forward */
+.port-table td:nth-child(6) { width: 10%; }  /* Forward */
 .port-table th:nth-child(7),
-.port-table td:nth-child(7) { width: auto; }  /* Native VLAN - flexible */
+.port-table td:nth-child(7) { width: 28%; }  /* Native VLAN */
 .port-table th:nth-child(8),
-.port-table td:nth-child(8) { width: 65px; }  /* Status */
+.port-table td:nth-child(8) { width: 16%; }  /* Status */
 
 /* Wireless client table - fixed column widths */
 .wireless-client-table {
