@@ -77,6 +77,13 @@
 
 ## General
 
+### Replace Severity String Constants with Enums
+- Current: Severity comparisons use string literals like `"Critical"`, `"Recommended"`, `"Informational"`
+- Example: `i.Severity == "Critical"` scattered throughout codebase
+- Target: Use `AuditSeverity` enum consistently from backend to frontend
+- Benefits: Type safety, refactoring support, no string typos
+- Affected areas: AuditService, AlertsList, Audit.razor filtering/sorting
+
 ### ~~Unify Device Type System~~ (FIXED)
 - ~~Multiple competing device type systems need consolidation~~
 - FIXED: Consolidated to single `DeviceType` enum in `NetworkOptimizer.Core.Enums`
