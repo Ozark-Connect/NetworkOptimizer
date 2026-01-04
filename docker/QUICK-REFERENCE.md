@@ -101,7 +101,7 @@ docker-compose up -d
 
 ## Client Speed Testing
 
-### Browser-Based (OpenSpeedTest)
+### Browser-Based (OpenSpeedTest™)
 Access at: **http://localhost:3005**
 
 Configure result reporting in `.env`:

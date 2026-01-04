@@ -13,7 +13,7 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 **Use Docker instead if:**
 - You prefer containerized deployments
 - You need easy updates via image pulls
-- You want bundled OpenSpeedTest for browser-based client speed testing
+- You want bundled OpenSpeedTest™ for browser-based client speed testing
 - Your network speeds are under 2 Gbps (except macOS - see below)
 
 **macOS note:** Docker Desktop's virtualization limits network throughput to ~1.8 Gbps. If you need accurate multi-gigabit speed tests, use native deployment. If browser-based client speed testing (OpenSpeedTest) is more important than raw speed test accuracy, Docker may be acceptable.
@@ -490,7 +490,7 @@ Restart-Service NetworkOptimizer
 
 ## Client Speed Testing (Native Limitation)
 
-**Docker Advantage:** Docker deployment includes bundled OpenSpeedTest for browser-based speed testing from any device (phones, tablets, laptops). This is not available with native deployment.
+**Docker Advantage:** Docker deployment includes bundled OpenSpeedTest™ for browser-based speed testing from any device (phones, tablets, laptops). This is not available with native deployment.
 
 Native deployments can run iperf3 server mode for CLI-based client speed testing, but this requires iperf3 installed on client devices.
 

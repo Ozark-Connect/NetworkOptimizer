@@ -654,14 +654,14 @@ Two methods are available:
 
 | Method | Best For | Port |
 |--------|----------|------|
-| **OpenSpeedTest** | Browser-based testing from any device | 3005 |
+| **OpenSpeedTest™** | Browser-based testing from any device | 3005 |
 | **iperf3 Server** | CLI testing with iperf3 clients | 5201 |
 
 Results from both methods are stored in Network Optimizer and visible in the Client Speed Test page.
 
 **Why separate containers?** OpenSpeedTest runs as its own container (not proxied through Network Optimizer) for performance reasons. Speed tests can push massive bandwidth (multi-gigabit to 100 Gbps on high-end networks), and routing that traffic through a reverse proxy or the .NET application would add overhead and reduce accuracy. The only data sent to Network Optimizer is the small JSON result payload after the test completes.
 
-### OpenSpeedTest (Browser-Based)
+### OpenSpeedTest™ (Browser-Based)
 
 Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`.
 
