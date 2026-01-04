@@ -43,7 +43,7 @@
                             <span class="form-help">Opens in a new tab and auto-starts</span>
                         </div>
                         <div class="url-copy-row">
-                            <code class="url-display">@(openSpeedTestUrl)?Run</code>
+                            <code class="url-display">@openSpeedTestUrl</code>
                             <button class="btn-icon" title="Copy URL" @onclick="CopySpeedTestUrl">
                                 @if (urlCopied)
                                 {
@@ -586,7 +586,7 @@
     {
         if (!string.IsNullOrEmpty(openSpeedTestUrl))
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", $"{openSpeedTestUrl}?Run");
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", openSpeedTestUrl);
             urlCopied = true;
             StateHasChanged();
 
