@@ -18,23 +18,27 @@ else
     SAVE_DATA_URL=""
 fi
 
-# Find and patch the main JavaScript file
-# OpenSpeedTest uses /usr/share/nginx/html
-JS_FILE=$(find /usr/share/nginx/html -name "app-*.js" -o -name "app-*.min.js" 2>/dev/null | head -1)
+# Patch index.html where saveData and saveDataURL are defined
+HTML_FILE="/usr/share/nginx/html/index.html"
 
-if [ -n "$JS_FILE" ] && [ -n "$SAVE_DATA_URL" ]; then
+if [ -f "$HTML_FILE" ] && [ -n "$SAVE_DATA_URL" ]; then
     echo "Patching OpenSpeedTest to send results to: $SAVE_DATA_URL"
 
-    # Enable saveData and set the URL
-    sed -i 's/saveData\s*=\s*false/saveData = true/' "$JS_FILE"
-    sed -i 's/saveData\s*=\s*!1/saveData = !0/' "$JS_FILE"  # Minified version
+    # Enable saveData (change false to true)
+    sed -i 's/var saveData = false;/var saveData = true;/' "$HTML_FILE"
 
     # Set the save URL
-    sed -i "s|saveDataURL\s*=\s*\"[^\"]*\"|saveDataURL = \"$SAVE_DATA_URL\"|" "$JS_FILE"
+    sed -i "s|var saveDataURL = \"[^\"]*\";|var saveDataURL = \"$SAVE_DATA_URL\";|" "$HTML_FILE"
 
-    echo "OpenSpeedTest patched successfully"
-elif [ -z "$JS_FILE" ]; then
-    echo "Warning: Could not find OpenSpeedTest JS file to patch"
+    # Verify the patch was applied
+    if grep -q "saveData = true" "$HTML_FILE" && grep -q "$SAVE_DATA_URL" "$HTML_FILE"; then
+        echo "OpenSpeedTest patched successfully"
+    else
+        echo "Warning: Patch may not have been applied correctly"
+        grep "saveData" "$HTML_FILE"
+    fi
+elif [ ! -f "$HTML_FILE" ]; then
+    echo "Warning: Could not find OpenSpeedTest index.html to patch"
 elif [ -z "$SAVE_DATA_URL" ]; then
     echo "Warning: No save URL configured, results will not be reported"
 fi
