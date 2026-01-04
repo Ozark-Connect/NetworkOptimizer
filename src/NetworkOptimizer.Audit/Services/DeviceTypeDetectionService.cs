@@ -694,10 +694,26 @@ public class DeviceTypeDetectionService
         if (_clientHistoryByMac != null &&
             _clientHistoryByMac.TryGetValue(macAddress.ToLowerInvariant(), out var historyClient))
         {
+            var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname;
             _logger?.LogDebug("[Detection] Found MAC {Mac} in client history: {Name}",
-                macAddress, historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname);
+                macAddress, displayName);
 
-            // Try fingerprint detection first
+            // Priority 0: Check for obvious name overrides BEFORE fingerprint
+            // (same logic as DetectDeviceType - name overrides wrong fingerprints)
+            var nameOverride = CheckObviousNameOverride(historyClient.Name, historyClient.Hostname);
+            if (nameOverride == null && !string.IsNullOrEmpty(displayName))
+            {
+                // Also check DisplayName which may have user's naming convention
+                nameOverride = CheckObviousNameOverride(displayName, null);
+            }
+            if (nameOverride != null)
+            {
+                _logger?.LogDebug("[Detection] Client history name override: {Category} (name clearly indicates device type)",
+                    nameOverride.Category);
+                return nameOverride;
+            }
+
+            // Try fingerprint detection
             if (historyClient.Fingerprint != null)
             {
                 // Create a pseudo-client with the fingerprint data to use the existing detector
@@ -721,8 +737,7 @@ public class DeviceTypeDetectionService
                 }
             }
 
-            // Try name-based detection from history
-            var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname;
+            // Try name-based detection from history (displayName already set above)
             if (!string.IsNullOrEmpty(displayName))
             {
                 var nameResult = _namePatternDetector.Detect(displayName);
