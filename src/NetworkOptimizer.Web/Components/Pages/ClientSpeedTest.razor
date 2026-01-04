@@ -3,6 +3,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Components.Shared
 @inject ClientSpeedTestService ClientSpeedTestService
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
@@ -119,15 +120,36 @@
                                 <th>Time</th>
                                 <th>Device</th>
                                 <th>Source</th>
-                                <th>Download</th>
-                                <th>Upload</th>
+                                <th>
+                                    <span class="tooltip-wrapper tooltip-bottom">
+                                        ↓ Mbps
+                                        <span class="tooltip-icon">?</span>
+                                        <span class="tooltip-content">
+                                            <strong>Download (To Device)</strong><br />
+                                            Data transferred to the client device.
+                                        </span>
+                                    </span>
+                                </th>
+                                <th>
+                                    <span class="tooltip-wrapper tooltip-bottom">
+                                        ↑ Mbps
+                                        <span class="tooltip-icon">?</span>
+                                        <span class="tooltip-content">
+                                            <strong>Upload (From Device)</strong><br />
+                                            Data transferred from the client device.
+                                        </span>
+                                    </span>
+                                </th>
                                 <th>Ping</th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var result in pagedHistory)
                             {
-                                <tr>
+                                var isExpanded = expandedHistoryId == result.Id;
+                                <tr class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
+                                    @onclick="@(() => ToggleHistoryExpand(result.Id))">
                                     <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     <td>
                                         @if (!string.IsNullOrEmpty(result.DeviceName))
@@ -147,11 +169,11 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
+                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
                                         <span class="speed-unit">Mbps</span>
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
+                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
                                         <span class="speed-unit">Mbps</span>
                                     </td>
                                     <td>
@@ -163,6 +185,20 @@
                                         {
                                             <span class="text-muted">-</span>
                                         }
+                                    </td>
+                                    <td class="expand-chevron">
+                                        <span>@(isExpanded ? "▲" : "▼")</span>
+                                    </td>
+                                </tr>
+                                <tr class="history-details-row">
+                                    <td colspan="7">
+                                        <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                                            <div class="expand-content">
+                                                <div class="history-details">
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -354,6 +390,50 @@
         font-size: 0.875rem;
         color: var(--text-secondary);
     }
+
+    /* Expandable rows */
+    .history-row-clickable {
+        cursor: pointer;
+    }
+
+    .history-row-clickable:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .history-row-expanded {
+        background: var(--bg-tertiary);
+    }
+
+    .expand-chevron {
+        text-align: center;
+        color: var(--text-muted);
+        width: 2rem;
+    }
+
+    .history-details-row td {
+        padding: 0 !important;
+        border: none !important;
+    }
+
+    .expand-wrapper {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+    }
+
+    .expand-wrapper.expanded {
+        max-height: 1000px;
+    }
+
+    .expand-content {
+        padding: 1rem;
+        background: var(--bg-primary);
+        border-top: 1px solid var(--border-color);
+    }
+
+    .history-details {
+        max-width: 800px;
+    }
 </style>
 
 @code {
@@ -371,6 +451,9 @@
     private int historyPageSize = 15;
     private int historyTotalPages => (int)Math.Ceiling(testHistory.Count / (double)historyPageSize);
     private IEnumerable<Iperf3Result> pagedHistory => testHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+
+    // Expandable rows
+    private int? expandedHistoryId = null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -443,6 +526,11 @@
             SpeedTestDirection.ClientToServer => "badge-iperf3",
             _ => "badge-secondary"
         };
+    }
+
+    private void ToggleHistoryExpand(int resultId)
+    {
+        expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
     }
 
     public void Dispose()

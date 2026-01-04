@@ -48,15 +48,18 @@ public class ClientSpeedTestService
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
 
+        // Store from SERVER's perspective (consistent with SSH-based tests):
+        // - DownloadBitsPerSecond = data server received FROM client = client's upload
+        // - UploadBitsPerSecond = data server sent TO client = client's download
         var result = new Iperf3Result
         {
             Direction = SpeedTestDirection.BrowserToServer,
             DeviceHost = clientIp,
             LocalIp = serverIp,
-            DownloadBitsPerSecond = downloadMbps * 1_000_000.0,
-            UploadBitsPerSecond = uploadMbps * 1_000_000.0,
-            DownloadBytes = (long)((downloadDataMb ?? 0) * 1_000_000),
-            UploadBytes = (long)((uploadDataMb ?? 0) * 1_000_000),
+            DownloadBitsPerSecond = uploadMbps * 1_000_000.0,  // Client upload = server download
+            UploadBitsPerSecond = downloadMbps * 1_000_000.0,  // Client download = server upload
+            DownloadBytes = (long)((uploadDataMb ?? 0) * 1_048_576),  // MB to bytes
+            UploadBytes = (long)((downloadDataMb ?? 0) * 1_048_576),  // MB to bytes
             PingMs = pingMs,
             JitterMs = jitterMs,
             UserAgent = userAgent,
