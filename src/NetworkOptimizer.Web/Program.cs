@@ -205,13 +205,8 @@ builder.Services.AddCors(options =>
                   .AllowAnyMethod()
                   .AllowAnyHeader();
         }
-        else
-        {
-            // Fallback: allow any origin if no hosts configured
-            policy.AllowAnyOrigin()
-                  .AllowAnyMethod()
-                  .AllowAnyHeader();
-        }
+        // If no origins configured, CORS is effectively disabled (no origins allowed)
+        // Configure HOST_IP or HOST_NAME in .env to enable OpenSpeedTest result reporting
     });
 });
 
@@ -442,7 +437,7 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 });
 
 // Client Speed Test API endpoints (for browser-based and iperf3 client tests)
-app.MapPost("/api/speedtest/result", async (HttpContext context, ClientSpeedTestService service) =>
+app.MapPost("/api/speedtest/results", async (HttpContext context, ClientSpeedTestService service) =>
 {
     // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
     var query = context.Request.Query;

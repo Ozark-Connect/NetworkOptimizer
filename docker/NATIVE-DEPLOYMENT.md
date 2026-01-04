@@ -13,7 +13,10 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 **Use Docker instead if:**
 - You prefer containerized deployments
 - You need easy updates via image pulls
-- Your network speeds are under 1 Gbps
+- You want bundled OpenSpeedTest for browser-based client speed testing
+- Your network speeds are under 2 Gbps (except macOS - see below)
+
+**macOS note:** Docker Desktop's virtualization limits network throughput to ~1.8 Gbps. If you need accurate multi-gigabit speed tests, use native deployment. If browser-based client speed testing (OpenSpeedTest) is more important than raw speed test accuracy, Docker may be acceptable.
 
 ## Platform-Specific Instructions
 
@@ -466,6 +469,45 @@ Restart-Service NetworkOptimizer
 - **Credentials:** `%LOCALAPPDATA%\NetworkOptimizer\.credential_key`
 
 ---
+
+## Client Speed Testing (Native Limitation)
+
+**Docker Advantage:** Docker deployment includes bundled OpenSpeedTest for browser-based speed testing from any device (phones, tablets, laptops). This is not available with native deployment.
+
+Native deployments can run iperf3 server mode for CLI-based client speed testing, but this requires iperf3 installed on client devices.
+
+### Enable iperf3 Server Mode
+
+Add to your startup script:
+```bash
+export Iperf3Server__Enabled=true
+```
+
+### Port Conflicts
+
+If you already have an iperf3 server running:
+```bash
+# Linux - stop existing service
+sudo systemctl stop iperf3
+
+# Check if port 5201 is in use
+sudo ss -tlnp | grep 5201
+```
+
+### Testing from Clients
+
+From any device with iperf3 installed:
+```bash
+# Download test
+iperf3 -c your-server-ip
+
+# Upload test
+iperf3 -c your-server-ip -R
+```
+
+Results appear in Network Optimizer's Client Speed Test page.
+
+**Note:** OpenSpeedTest (browser-based) is only available with Docker deployment. For native deployments, use iperf3 clients or run a separate OpenSpeedTest instance and configure it to POST to `http://your-server:8042/api/speedtest/results`.
 
 ## Firewall Configuration
 

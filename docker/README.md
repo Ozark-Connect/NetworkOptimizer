@@ -53,11 +53,16 @@ Access at http://localhost:8042 (wait ~60 seconds for startup)
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                   Network Optimizer                       │  │
-│  │                                                           │  │
 │  │  - Blazor Web UI :8042                                    │  │
+│  │  - iperf3 Server :5201 (optional)                         │  │
 │  │  - SQLite Database (persistent in ./data)                 │  │
 │  │  - Security Auditing, SQM, Speed Tests                    │  │
-│  │                                                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                   OpenSpeedTest                           │  │
+│  │  - Browser-based speed test :3005                         │  │
+│  │  - Results sent to Network Optimizer API                  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -79,6 +84,16 @@ The main application providing:
 - `./data` → `/app/data` - SQLite database, configurations
 - `./ssh-keys` → `/app/ssh-keys` - SSH keys for agent deployment (optional)
 - `./logs` → `/app/logs` - Application logs
+
+### OpenSpeedTest (Port 3005)
+
+Browser-based speed testing from any device. Results are automatically sent to Network Optimizer.
+
+**Configuration:** Set `HOST_IP` or `HOST_NAME` in `.env` to enable result reporting.
+
+**To disable:** Comment out the `openspeedtest` service in `docker-compose.yml`.
+
+See [Client Speed Testing](DEPLOYMENT.md#client-speed-testing-optional) for full setup details.
 
 ## Admin Authentication
 

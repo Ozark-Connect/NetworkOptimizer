@@ -644,6 +644,122 @@ Once SSH is enabled in UniFi, enter the same credentials in Network Optimizer:
 
 For custom devices (non-UniFi equipment), you can configure per-device SSH credentials in the LAN Speed Testing section.
 
+## Client Speed Testing (Optional)
+
+Enable speed testing from any device on your LAN (phones, tablets, laptops, IoT devices) without requiring SSH access.
+
+### Overview
+
+Two methods are available:
+
+| Method | Best For | Port |
+|--------|----------|------|
+| **OpenSpeedTest** | Browser-based testing from any device | 3005 |
+| **iperf3 Server** | CLI testing with iperf3 clients | 5201 |
+
+Results from both methods are stored in Network Optimizer and visible in the Client Speed Test page.
+
+**Why separate containers?** OpenSpeedTest runs as its own container (not proxied through Network Optimizer) for performance reasons. Speed tests can push massive bandwidth (multi-gigabit to 100 Gbps on high-end networks), and routing that traffic through a reverse proxy or the .NET application would add overhead and reduce accuracy. The only data sent to Network Optimizer is the small JSON result payload after the test completes.
+
+### OpenSpeedTest (Browser-Based)
+
+Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`.
+
+**Configuration:**
+
+Set one of these environment variables in `.env` to enable result reporting:
+
+```env
+# Option 1: Direct access (simplest)
+HOST_IP=192.168.1.100
+
+# Option 2: Hostname-based
+HOST_NAME=nas
+
+# Option 3: Behind reverse proxy (uses HTTPS)
+REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+```
+
+The API URL is constructed automatically using this priority:
+1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/speedtest/results`
+2. `HOST_NAME` → `http://hostname:8042/api/speedtest/results`
+3. `HOST_IP` → `http://ip:8042/api/speedtest/results`
+
+**Usage:**
+1. Open `http://your-server:3005` from any device on your network
+2. Run the speed test
+3. Results automatically appear in Network Optimizer's Client Speed Test page
+
+### iperf3 Server Mode
+
+Run iperf3 as a server inside the Network Optimizer container for CLI-based testing.
+
+**Enable in `.env`:**
+```env
+IPERF3_SERVER_ENABLED=true
+```
+
+**Usage from client devices:**
+```bash
+# Download test (server to client)
+iperf3 -c your-server
+
+# Upload test (client to server)
+iperf3 -c your-server -R
+
+# Both directions
+iperf3 -c your-server && iperf3 -c your-server -R
+```
+
+Results are captured automatically and stored with client IP identification.
+
+### Port Conflicts
+
+**Before enabling these features, check for existing services using the same ports:**
+
+```bash
+# Check for iperf3 server already running
+sudo netstat -tlnp | grep 5201
+# or
+sudo ss -tlnp | grep 5201
+
+# Check for existing OpenSpeedTest or other services on port 3005
+sudo netstat -tlnp | grep 3005
+docker ps | grep -E "3000|3005"
+```
+
+**Common conflicts:**
+
+| Port | Service | Resolution |
+|------|---------|------------|
+| 5201 | Existing iperf3 server | Stop: `sudo systemctl stop iperf3` |
+| 3005 | Existing OpenSpeedTest container | Stop: `docker stop openspeedtest && docker rm openspeedtest` |
+| 3005 | Other web services | Change port in docker-compose.yml: `"3006:3000"` |
+
+**Container name conflicts:**
+
+The bundled OpenSpeedTest uses container name `openspeedtest`. If you have an existing container with this name:
+
+```bash
+# Remove existing container
+docker stop openspeedtest && docker rm openspeedtest
+
+# Then start the Network Optimizer stack
+docker compose up -d
+```
+
+### Disabling Optional Services
+
+To disable client speed testing components:
+
+```env
+# Disable iperf3 server (default)
+IPERF3_SERVER_ENABLED=false
+
+# To completely disable OpenSpeedTest, comment it out in docker-compose.yml
+# or use a custom override file
+```
+
 ## Next Steps
 
 After deployment:
@@ -652,5 +768,6 @@ After deployment:
 3. Configure SSH access for gateway and devices (see above)
 4. Run security audit
 5. Configure SQM settings (if applicable)
+6. Set up client speed testing (optional, see above)
 
 See main documentation for feature guides.

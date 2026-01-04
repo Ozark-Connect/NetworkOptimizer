@@ -99,6 +99,32 @@ rm -rf data/
 docker-compose up -d
 ```
 
+## Client Speed Testing
+
+### Browser-Based (OpenSpeedTest)
+Access at: **http://localhost:3005**
+
+Configure result reporting in `.env`:
+```env
+HOST_IP=192.168.1.100       # or
+HOST_NAME=nas               # or
+REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+```
+
+To disable: comment out `openspeedtest` service in `docker-compose.yml`
+
+### CLI-Based (iperf3)
+Enable in `.env`:
+```env
+IPERF3_SERVER_ENABLED=true
+```
+
+Test from clients:
+```bash
+iperf3 -c your-server      # Download
+iperf3 -c your-server -R   # Upload
+```
+
 ## Important Files
 
 | File | Purpose |
