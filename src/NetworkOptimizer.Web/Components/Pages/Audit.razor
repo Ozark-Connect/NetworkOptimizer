@@ -645,6 +645,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Wait for auto-connect to complete (if credentials are saved)
+        // This prevents the "Not Connected" banner from flashing after page reload
+        await ConnectionService.WaitForConnectionAsync();
+
         // Load previous audit results from database/cache
         var previousResult = await AuditService.LoadLastAuditFromDatabaseAsync();
         if (previousResult != null)
