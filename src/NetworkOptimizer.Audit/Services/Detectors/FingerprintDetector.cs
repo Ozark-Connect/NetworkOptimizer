@@ -154,6 +154,10 @@ public class FingerprintDetector
         { 130, ClientDeviceCategory.IoTGeneric },   // Irrigation Controller
         { 45, ClientDeviceCategory.SmartSensor },   // Wearable devices
         { 36, ClientDeviceCategory.SmartSensor },   // Smart Watch
+
+        // Miscellaneous/Generic (low confidence - rely on dev_id_override lookup)
+        { 4, ClientDeviceCategory.IoTGeneric },     // Miscellaneous
+        { 49, ClientDeviceCategory.IoTGeneric },    // Network & Peripheral
     };
 
     public FingerprintDetector(UniFiFingerprintDatabase? database = null)
