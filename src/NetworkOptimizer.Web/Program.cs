@@ -169,16 +169,48 @@ builder.Services.AddHttpClient("TcMonitor", client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 
-// TODO(agent-infrastructure): CORS for agent API endpoints - enable when agents are implemented
-// builder.Services.AddCors(options =>
-// {
-//     options.AddDefaultPolicy(policy =>
-//     {
-//         policy.AllowAnyOrigin()
-//               .AllowAnyMethod()
-//               .AllowAnyHeader();
-//     });
-// });
+// CORS for client speed test endpoint (OpenSpeedTest sends results from browser)
+// Auto-construct allowed origins from HOST_IP/HOST_NAME, or use CORS_ORIGINS if set
+var corsOriginsList = new List<string>();
+var hostIp = builder.Configuration["HOST_IP"];
+var hostName = builder.Configuration["HOST_NAME"];
+var corsOriginsConfig = builder.Configuration["CORS_ORIGINS"];
+
+// Add origins from config
+if (!string.IsNullOrEmpty(corsOriginsConfig))
+{
+    corsOriginsList.AddRange(corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+}
+
+// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest on port 3005)
+if (!string.IsNullOrEmpty(hostIp))
+{
+    corsOriginsList.Add($"http://{hostIp}:3005");
+}
+if (!string.IsNullOrEmpty(hostName))
+{
+    corsOriginsList.Add($"http://{hostName}:3005");
+}
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("SpeedTestCors", policy =>
+    {
+        if (corsOriginsList.Count > 0)
+        {
+            policy.WithOrigins(corsOriginsList.ToArray())
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else
+        {
+            // Fallback: allow any origin if no hosts configured
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+    });
+});
 
 var app = builder.Build();
 
@@ -341,7 +373,7 @@ app.UseStaticFiles(new StaticFileOptions
     ContentTypeProvider = contentTypeProvider
 });
 app.UseAntiforgery();
-// app.UseCors(); // TODO(agent-infrastructure): Enable when agents are implemented
+app.UseCors(); // Required for OpenSpeedTest to POST results
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
@@ -462,7 +494,7 @@ app.MapPost("/api/speedtest/result", async (HttpContext context, ClientSpeedTest
         download = result.DownloadMbps,
         upload = result.UploadMbps
     });
-});
+}).RequireCors("SpeedTestCors");
 
 app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, int count = 50) =>
 {

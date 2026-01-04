@@ -16,8 +16,9 @@ services:
       - ASPNETCORE_URLS=http://127.0.0.1:8042
       - APP_PASSWORD=${APP_PASSWORD:-}
       - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
-      # Override for path analysis if auto-detection from iperf3 fails (rarely needed)
+      # Host IP/name for path analysis and CORS (required for client speed tests)
       - HOST_IP=${HOST_IP:-}
+      - HOST_NAME=${HOST_NAME:-}
       # iperf3 server mode - enable to accept client-initiated speed tests on port 5201
       - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
       # Logging (Trace, Debug, Information, Warning, Error, Critical)
@@ -34,6 +35,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # OpenSpeedTest - browser-based speed test that sends results to Network Optimizer
+  # Requires HOST_IP or HOST_NAME to be set in .env for result reporting
+  openspeedtest:
+    build:
+      context: openspeedtest
+      dockerfile: Dockerfile
+    image: ozark-connect/openspeedtest:latest
+    container_name: openspeedtest
+    restart: unless-stopped
+    ports:
+      - "3005:3000"
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      # URL where browser POSTs results - uses HOST_IP if set, otherwise HOST_NAME
+      # The URL must be reachable from client devices (not localhost)
+      - OPENSPEEDTEST_SAVE_URL=${OPENSPEEDTEST_SAVE_URL:-http://${HOST_IP:-${HOST_NAME:-localhost}}:8042/api/speedtest/result?}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 # Production config - host network mode, localhost only (behind Caddy)
 # For local dev with InfluxDB/Grafana, use docker-compose.local.yml
