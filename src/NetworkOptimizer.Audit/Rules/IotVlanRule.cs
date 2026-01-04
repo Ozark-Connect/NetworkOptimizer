@@ -103,11 +103,11 @@ public class IotVlanRule : AuditRuleBase
         }
         else
         {
-            // Active port: use connected client name if available
-            var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname ?? port.Name;
-            deviceName = clientName != null && clientName != port.Name
+            // Active port: use connected client name if available, fall back to detected category
+            var clientName = port.ConnectedClient?.Name ?? port.ConnectedClient?.Hostname;
+            deviceName = !string.IsNullOrEmpty(clientName)
                 ? $"{clientName} on {port.Switch.Name}"
-                : $"{port.Name ?? $"Port {port.PortIndex}"} on {port.Switch.Name}";
+                : $"{detection.CategoryName} on {port.Switch.Name}";
         }
 
         var message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated";
