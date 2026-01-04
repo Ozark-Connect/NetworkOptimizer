@@ -28,6 +28,11 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private DateTime _cacheTime = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
+    // Device discovery cache (30 second TTL for dashboard responsiveness)
+    private List<DiscoveredDevice>? _cachedDevices;
+    private DateTime _deviceCacheTime = DateTime.MinValue;
+    private static readonly TimeSpan DeviceCacheDuration = TimeSpan.FromSeconds(30);
+
     // Lazy initialization for async config loading
     private Task? _initializationTask;
     private readonly object _initLock = new();
@@ -550,9 +555,31 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             return new List<DiscoveredDevice>();
         }
 
+        // Return cached devices if still fresh
+        if (_cachedDevices != null && DateTime.UtcNow - _deviceCacheTime < DeviceCacheDuration)
+        {
+            _logger.LogDebug("Returning cached device list ({Count} devices)", _cachedDevices.Count);
+            return _cachedDevices;
+        }
+
         var discoveryLogger = _loggerFactory.CreateLogger<UniFiDiscovery>();
         var discovery = new UniFiDiscovery(_client, discoveryLogger);
-        return await discovery.DiscoverDevicesAsync(cancellationToken);
+        var devices = await discovery.DiscoverDevicesAsync(cancellationToken);
+
+        // Cache the result
+        _cachedDevices = devices;
+        _deviceCacheTime = DateTime.UtcNow;
+
+        return devices;
+    }
+
+    /// <summary>
+    /// Invalidates the device cache, forcing a fresh fetch on next request.
+    /// </summary>
+    public void InvalidateDeviceCache()
+    {
+        _cachedDevices = null;
+        _deviceCacheTime = DateTime.MinValue;
     }
 
     /// <summary>
