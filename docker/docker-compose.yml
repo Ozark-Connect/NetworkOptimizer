@@ -18,9 +18,9 @@ services:
       - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
       # Override for path analysis if auto-detection from iperf3 fails (rarely needed)
       - HOST_IP=${HOST_IP:-}
-      # Logging configuration (LOG_LEVEL: Trace, Debug, Information, Warning, Error, Critical)
+      # Logging (Trace, Debug, Information, Warning, Error, Critical)
       - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
-      - Logging__LogLevel__NetworkOptimizer=${LOG_LEVEL:-Information}
+      - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
       # Point to existing InfluxDB if desired (optional)
       # - INFLUXDB_URL=http://localhost:8086
       # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}

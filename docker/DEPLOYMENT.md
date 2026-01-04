@@ -443,6 +443,44 @@ Apply with:
 docker-compose up -d
 ```
 
+### Logging Configuration
+
+Control log verbosity via environment variables in `.env`:
+
+```env
+# General framework logging (Microsoft, EF Core, ASP.NET, etc.)
+LOG_LEVEL=Information
+
+# Network Optimizer application logging
+APP_LOG_LEVEL=Debug
+```
+
+**Log Levels (least to most verbose):** Critical, Error, Warning, Information, Debug, Trace
+
+**Common configurations:**
+
+| Scenario | LOG_LEVEL | APP_LOG_LEVEL |
+|----------|-----------|---------------|
+| Production (default) | Information | Information |
+| Debugging app issues | Information | Debug |
+| Full diagnostics | Debug | Debug |
+
+After changing `.env`, recreate the container to apply:
+```bash
+docker compose down && docker compose up -d
+```
+
+**Note:** `docker compose restart` does NOT reload environment variables. You must recreate the container.
+
+View logs:
+```bash
+# Follow logs
+docker compose logs -f network-optimizer
+
+# Last 100 lines
+docker compose logs --tail=100 network-optimizer
+```
+
 ## Upgrade Procedure
 
 Currently, Network Optimizer is deployed by building from source. Pre-built images will be published in a future release.
