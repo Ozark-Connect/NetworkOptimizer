@@ -30,6 +30,13 @@ if [ -f "$HTML_FILE" ] && [ -n "$SAVE_DATA_URL" ]; then
     # Set the save URL
     sed -i "s|var saveDataURL = \"[^\"]*\";|var saveDataURL = \"$SAVE_DATA_URL\";|" "$HTML_FILE"
 
+    # Fix missing OpenSpeedTestdb variable (bug in OpenSpeedTest - referenced but never defined)
+    # Add it right after saveDataURL definition
+    if ! grep -q "var OpenSpeedTestdb" "$HTML_FILE"; then
+        sed -i 's|var saveDataURL = |var OpenSpeedTestdb = ""; var saveDataURL = |' "$HTML_FILE"
+        echo "Added missing OpenSpeedTestdb variable"
+    fi
+
     # Verify the patch was applied
     if grep -q "saveData = true" "$HTML_FILE" && grep -q "$SAVE_DATA_URL" "$HTML_FILE"; then
         echo "OpenSpeedTest patched successfully"
