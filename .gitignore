@@ -23,6 +23,7 @@ docker/logs/
 *.env
 !*.env.example
 docker/.env
+ssh-keys/
 
 # OS files
 .DS_Store
