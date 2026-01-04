@@ -651,6 +651,13 @@ public class AuditService
             if (!ShouldInclude(category, options))
                 continue;
 
+            // Extract configurable setting from metadata if present
+            string? configurableSetting = null;
+            if (issue.Metadata?.TryGetValue("configurable_setting", out var settingObj) == true)
+            {
+                configurableSetting = settingObj?.ToString();
+            }
+
             issues.Add(new AuditIssue
             {
                 Severity = ConvertSeverity(issue.Severity),
@@ -672,7 +679,9 @@ public class AuditService
                 ClientName = issue.ClientName,
                 ClientMac = issue.ClientMac,
                 AccessPoint = issue.AccessPoint,
-                WifiBand = issue.WifiBand
+                WifiBand = issue.WifiBand,
+                // Settings link
+                ConfigurableSetting = configurableSetting
             });
         }
 
@@ -1150,6 +1159,11 @@ public class AuditIssue
     public string? ClientMac { get; set; }
     public string? AccessPoint { get; set; }
     public string? WifiBand { get; set; }
+    /// <summary>
+    /// Settings key for configurable device allowances (e.g., "printers", "streaming-devices")
+    /// If set, UI shows a link to configure this setting
+    /// </summary>
+    public string? ConfigurableSetting { get; set; }
 }
 
 public class AuditSummary

@@ -232,6 +232,20 @@ public static class VlanPlacementChecker
             metadata["is_low_risk_device"] = isLowRisk.Value;
         }
 
+        // Add configurable settings link for device types that have user-configurable allowances
+        var settingsKey = detection.Category switch
+        {
+            ClientDeviceCategory.StreamingDevice => "streaming-devices",
+            ClientDeviceCategory.SmartTV => "smart-tvs",
+            ClientDeviceCategory.Printer => "printers",
+            _ => null
+        };
+
+        if (settingsKey != null)
+        {
+            metadata["configurable_setting"] = settingsKey;
+        }
+
         return metadata;
     }
 }

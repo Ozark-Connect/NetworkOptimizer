@@ -1702,6 +1702,25 @@ td .btn + .btn {
     opacity: 1;
 }
 
+.issue-settings-link {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.5rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+    transition: all 0.2s ease;
+}
+
+.issue-settings-link:hover {
+    color: var(--primary-color);
+    opacity: 1;
+}
+
+.issue-settings-link .settings-icon {
+    width: 14px;
+    height: 14px;
+}
+
 .issue-title {
     font-weight: 600;
     color: var(--text-primary);
