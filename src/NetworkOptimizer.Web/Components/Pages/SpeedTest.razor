@@ -256,6 +256,7 @@
             }
             else if (discoveredDevices.Count > 0)
             {
+                <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -311,6 +312,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
             }
             else if (!loadingDiscovered)
             {
@@ -360,6 +362,7 @@
 
             @if (devices.Count > 0)
             {
+                <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -413,6 +416,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
             }
             else if (!showAddDevice)
             {
@@ -575,6 +579,7 @@
         <div class="card-body">
             @if (testHistory.Count > 0)
             {
+                <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -683,6 +688,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
                 @if (historyTotalPages > 1)
                 {
                     <div class="pagination">

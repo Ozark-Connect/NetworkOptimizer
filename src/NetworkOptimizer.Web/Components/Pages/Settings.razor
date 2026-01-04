@@ -494,6 +494,7 @@
             }
             else if (discoveredModems.Count > 0)
             {
+                <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -542,6 +543,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
             }
             else if (ConnectionService.IsConnected && !loadingDiscoveredModems)
             {
@@ -552,6 +554,7 @@
             <h4 style="margin-top: 1.5rem;">Configured Modems</h4>
             @if (modemConfigs.Count > 0)
             {
+                <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -588,6 +591,7 @@
                         }
                     </tbody>
                 </table>
+                </div>
             }
             else
             {
@@ -984,13 +988,13 @@
                 <div class="action-item">
                     <h4>Export Configuration</h4>
                     <p>Export all settings and configuration to a JSON file</p>
-                    <button class="btn btn-secondary" @onclick="ExportConfig">Export Config</button>
+                    <button class="btn btn-secondary" disabled title="Coming soon">Export Config</button>
                 </div>
 
                 <div class="action-item">
                     <h4>Import Configuration</h4>
                     <p>Import settings from a previously exported JSON file</p>
-                    <button class="btn btn-secondary" @onclick="ImportConfig">Import Config</button>
+                    <button class="btn btn-secondary" disabled title="Coming soon">Import Config</button>
                 </div>
 
                 <div class="action-item">

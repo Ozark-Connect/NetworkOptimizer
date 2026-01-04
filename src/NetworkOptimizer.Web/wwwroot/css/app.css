@@ -990,9 +990,18 @@ a.stat-card-link:active {
     /* Styles for table */
 }
 
+/* Table responsive wrapper - enables horizontal scroll on mobile */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -1rem;
+    padding: 0 1rem;
+}
+
 .data-table {
     width: 100%;
     border-collapse: collapse;
+    min-width: 500px; /* Ensures table doesn't compress too much */
 }
 
 .data-table thead {
@@ -1876,6 +1885,17 @@ td .btn + .btn {
     .app-footer {
         padding: 0.75rem;
         font-size: 0.7rem;
+    }
+
+    /* Issue counts - reduce padding and allow wrap on mobile */
+    .issue-counts {
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .issue-count {
+        padding: 0.75rem 1rem;
+        min-width: 70px;
     }
 }
 

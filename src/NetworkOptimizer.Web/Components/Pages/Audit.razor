@@ -287,6 +287,7 @@
                     <h2 class="card-title">Network Reference</h2>
                 </div>
                 <div class="card-body">
+                    <div class="table-responsive">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -308,6 +309,7 @@
                             }
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         }
@@ -320,6 +322,7 @@
                     <h2 class="card-title">DNS Security</h2>
                 </div>
                 <div class="card-body">
+                    <div class="table-responsive">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -373,6 +376,7 @@
                             </tr>
                         </tbody>
                     </table>
+                    </div>
                     <div class="dns-summary @GetDnsProtectionClass()">
                         <strong>Overall:</strong> @GetDnsProtectionSummary()
                     </div>
@@ -476,6 +480,7 @@
                                 <DeviceIcon Model="@apModel" Size="lg" />
                                 @ap.Key <span class="client-count">(@ap.Count() clients)</span>
                             </h3>
+                            <div class="table-responsive">
                             <table class="data-table">
                                 <thead>
                                     <tr>
@@ -502,6 +507,7 @@
                                     }
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     }
                 </div>
@@ -525,6 +531,7 @@
                             <h3 class="ap-title">
                                 @group.Key <span class="client-count">(@group.Count() clients)</span>
                             </h3>
+                            <div class="table-responsive">
                             <table class="data-table">
                                 <thead>
                                     <tr>
@@ -558,6 +565,7 @@
                                     }
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     }
                 </div>
@@ -572,6 +580,7 @@
                     <h2 class="card-title">Port Security Coverage Summary</h2>
                 </div>
                 <div class="card-body">
+                    <div class="table-responsive">
                     <table class="data-table">
                         <thead>
                             <tr>
@@ -601,6 +610,7 @@
                             }
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         }
