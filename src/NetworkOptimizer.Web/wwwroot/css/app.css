@@ -774,7 +774,8 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.summary-value.warning {
+.summary-value.warning,
+.summary-value.recommended {
     color: var(--warning-color);
 }
 
@@ -913,7 +914,8 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
-.alert-item.alert-warning {
+.alert-item.alert-warning,
+.alert-item.alert-recommended {
     border-left-color: var(--warning-color);
 }
 
@@ -932,7 +934,8 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.alert-item.alert-warning .alert-icon {
+.alert-item.alert-warning .alert-icon,
+.alert-item.alert-recommended .alert-icon {
     color: var(--warning-color);
 }
 
@@ -1706,15 +1709,16 @@ td .btn + .btn {
 }
 
 .issue-settings-icon {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     margin-left: 0.5rem;
     background: transparent;
+    text-decoration: none;
 }
 
 .issue-settings-icon svg {
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
 }
 
 .issue-title {
