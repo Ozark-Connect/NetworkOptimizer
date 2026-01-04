@@ -71,6 +71,11 @@ builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}")
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
+// Also register DbContextFactory for singletons that need database access (ClientSpeedTestService)
+builder.Services.AddDbContextFactory<NetworkOptimizerDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}")
+           .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
+
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
@@ -94,6 +99,10 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 
 // Register Client Speed Test service (singleton - receives browser/iperf3 client results)
 builder.Services.AddSingleton<ClientSpeedTestService>();
+
+// Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
+// Enable via environment variable: Iperf3Server__Enabled=true
+builder.Services.AddHostedService<Iperf3ServerService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();

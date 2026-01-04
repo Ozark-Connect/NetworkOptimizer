@@ -1,0 +1,432 @@
+@page "/client-speedtest"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@inject ClientSpeedTestService ClientSpeedTestService
+@inject NavigationManager NavigationManager
+@inject IConfiguration Configuration
+
+<PageTitle>Client Speed Test - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Client Speed Test</h1>
+    <p class="page-description">Test LAN speed from any device - phones, tablets, laptops</p>
+</div>
+
+<div class="client-speedtest-container">
+    <!-- Test Instructions -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Run a Speed Test</h2>
+        </div>
+        <div class="card-body">
+            <div class="test-options">
+                <!-- OpenSpeedTest Option -->
+                <div class="test-option">
+                    <div class="test-option-header">
+                        <h3>Browser Speed Test</h3>
+                        <span class="badge badge-primary">Recommended</span>
+                    </div>
+                    <p>Run a speed test directly from any web browser. Works on all devices.</p>
+
+                    @if (!string.IsNullOrEmpty(openSpeedTestUrl))
+                    {
+                        <div class="test-option-actions">
+                            <a href="@openSpeedTestUrl" target="_blank" class="btn btn-primary">
+                                Open Speed Test
+                            </a>
+                            <span class="form-help">Opens in a new tab</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            <strong>Setup Required:</strong> Configure OpenSpeedTest URL in settings.
+                            <br />
+                            <span class="form-help">
+                                Set <code>OpenSpeedTest__Url</code> environment variable to your OpenSpeedTest instance URL.
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                <!-- iperf3 Option -->
+                <div class="test-option">
+                    <div class="test-option-header">
+                        <h3>iperf3 Client</h3>
+                        <span class="badge badge-secondary">Advanced</span>
+                    </div>
+                    <p>Use the iperf3 command-line tool for precise measurements.</p>
+
+                    @if (iperf3ServerEnabled)
+                    {
+                        <div class="code-block">
+                            <code>
+                                <span class="code-comment"># Test upload speed (client to server)</span><br />
+                                iperf3 -c @serverHost -p 5201<br />
+                                <br />
+                                <span class="code-comment"># Test download speed (server to client)</span><br />
+                                iperf3 -c @serverHost -p 5201 -R<br />
+                                <br />
+                                <span class="code-comment"># Full bidirectional test</span><br />
+                                iperf3 -c @serverHost -p 5201 --bidir
+                            </code>
+                        </div>
+                        <p class="form-help">
+                            Install iperf3: <code>apt install iperf3</code> (Linux), <code>brew install iperf3</code> (Mac),
+                            or download from <a href="https://iperf.fr/iperf-download.php" target="_blank">iperf.fr</a> (Windows)
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            <strong>Server Not Running:</strong> iperf3 server mode is disabled.
+                            <br />
+                            <span class="form-help">
+                                Set <code>IPERF3_SERVER_ENABLED=true</code> in your environment to enable.
+                            </span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test History -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Test History</h2>
+            <div class="header-actions">
+                <button class="btn btn-sm btn-secondary" @onclick="LoadHistory" disabled="@loading">
+                    @if (loading)
+                    {
+                        <span class="spinner"></span>
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (testHistory.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Device</th>
+                                <th>Source</th>
+                                <th>Download</th>
+                                <th>Upload</th>
+                                <th>Ping</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var result in pagedHistory)
+                            {
+                                <tr>
+                                    <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(result.ClientName))
+                                        {
+                                            <span>@result.ClientName</span>
+                                            <br />
+                                            <code class="text-muted">@result.ClientIp</code>
+                                        }
+                                        else
+                                        {
+                                            <code>@result.ClientIp</code>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetSourceBadgeClass(result.Source)">
+                                            @GetSourceLabel(result.Source)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
+                                        <span class="speed-unit">Mbps</span>
+                                    </td>
+                                    <td>
+                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
+                                        <span class="speed-unit">Mbps</span>
+                                    </td>
+                                    <td>
+                                        @if (result.PingMs.HasValue)
+                                        {
+                                            <span>@result.PingMs.Value.ToString("F0") ms</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (historyTotalPages > 1)
+                {
+                    <div class="pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => historyPage--">Prev</button>
+                        <span class="pagination-info">Page @historyPage of @historyTotalPages</span>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => historyPage++">Next</button>
+                    </div>
+                }
+            }
+            else if (!loading)
+            {
+                <div class="empty-state">
+                    <p>No client speed tests recorded yet.</p>
+                    <p class="form-help">Run a speed test from any device to see results here.</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- How it Works -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">How it Works</h2>
+        </div>
+        <div class="card-body">
+            <div class="info-section">
+                <h4>Browser Speed Test (OpenSpeedTest)</h4>
+                <ol>
+                    <li>Open the speed test page from any device on your LAN</li>
+                    <li>Click Start to run the test</li>
+                    <li>Results are automatically sent to this server</li>
+                    <li>Device is identified by IP address and matched to UniFi client list</li>
+                </ol>
+
+                <h4 style="margin-top: 1.5rem;">iperf3 Client</h4>
+                <ol>
+                    <li>Install iperf3 on your device</li>
+                    <li>Run the command to connect to this server on port 5201</li>
+                    <li>Server automatically captures and records results</li>
+                    <li>Device is identified by the connecting IP address</li>
+                </ol>
+
+                <p class="form-help">
+                    <strong>Note:</strong> This tests the LAN speed between client devices and the Network Optimizer server.
+                    It's useful for identifying wireless bottlenecks, cable issues, or switch problems.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .client-speedtest-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .test-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .test-option {
+        background: var(--bg-tertiary);
+        border-radius: var(--border-radius);
+        padding: 1.25rem;
+    }
+
+    .test-option-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .test-option-header h3 {
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .test-option p {
+        margin: 0 0 1rem;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .test-option-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .badge-primary {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .badge-secondary {
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+    }
+
+    .badge-openspeedtest {
+        background: #0ea5e9;
+        color: white;
+    }
+
+    .badge-iperf3 {
+        background: #22c55e;
+        color: white;
+    }
+
+    .code-block {
+        background: var(--bg-primary);
+        border-radius: var(--border-radius);
+        padding: 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        overflow-x: auto;
+        margin-bottom: 1rem;
+    }
+
+    .code-block code {
+        color: var(--text-primary);
+    }
+
+    .code-comment {
+        color: var(--text-muted);
+    }
+
+    .speed-value {
+        font-weight: 600;
+        font-size: 1rem;
+    }
+
+    .speed-unit {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-left: 0.25rem;
+    }
+
+    .text-muted {
+        color: var(--text-muted);
+    }
+
+    .info-section h4 {
+        font-size: 0.9375rem;
+        margin: 0 0 0.75rem;
+    }
+
+    .info-section ol {
+        margin: 0 0 1rem;
+        padding-left: 1.5rem;
+    }
+
+    .info-section li {
+        margin-bottom: 0.375rem;
+        font-size: 0.875rem;
+    }
+
+    .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border-color);
+    }
+
+    .pagination-info {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+</style>
+
+@code {
+    private List<ClientSpeedTestResult> testHistory = new();
+    private bool loading = false;
+
+    // Configuration
+    private string? openSpeedTestUrl;
+    private bool iperf3ServerEnabled;
+    private string serverHost = "localhost";
+
+    // Pagination
+    private int historyPage = 1;
+    private int historyPageSize = 15;
+    private int historyTotalPages => (int)Math.Ceiling(testHistory.Count / (double)historyPageSize);
+    private IEnumerable<ClientSpeedTestResult> pagedHistory => testHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load configuration
+        openSpeedTestUrl = Configuration["OpenSpeedTest:Url"];
+        iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
+
+        // Try to get server host from configuration
+        var hostIp = Configuration["HOST_IP"];
+        if (!string.IsNullOrEmpty(hostIp))
+        {
+            serverHost = hostIp;
+        }
+
+        await LoadHistory();
+    }
+
+    private async Task LoadHistory()
+    {
+        loading = true;
+        StateHasChanged();
+
+        try
+        {
+            testHistory = await ClientSpeedTestService.GetResultsAsync(100);
+            historyPage = 1;
+        }
+        catch (Exception)
+        {
+            // History load errors are not critical
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string GetSourceLabel(ClientSpeedTestSource source)
+    {
+        return source switch
+        {
+            ClientSpeedTestSource.OpenSpeedTest => "Browser",
+            ClientSpeedTestSource.Iperf3Client => "iperf3",
+            ClientSpeedTestSource.Manual => "Manual",
+            _ => "Unknown"
+        };
+    }
+
+    private static string GetSourceBadgeClass(ClientSpeedTestSource source)
+    {
+        return source switch
+        {
+            ClientSpeedTestSource.OpenSpeedTest => "badge-openspeedtest",
+            ClientSpeedTestSource.Iperf3Client => "badge-iperf3",
+            _ => "badge-secondary"
+        };
+    }
+}

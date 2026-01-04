@@ -21,6 +21,9 @@
 <div class="page-header">
     <h1>LAN Speed Test</h1>
     <p class="page-description">Test network bandwidth using iperf3</p>
+    <a href="/client-speedtest" class="client-speedtest-link">
+        Test from phones, tablets & other devices →
+    </a>
     @if (localIperf3Status != null && localIperf3Status.IsAvailable)
     {
         <div class="iperf3-version-badge">
@@ -808,6 +811,24 @@
     .analyze-hint {
         font-size: 0.8rem;
         color: var(--text-muted);
+    }
+
+    /* Client speed test link */
+    .client-speedtest-link {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-radius: var(--border-radius);
+        color: var(--accent-color);
+        text-decoration: none;
+        font-size: 0.875rem;
+        transition: background-color 0.15s ease;
+    }
+
+    .client-speedtest-link:hover {
+        background: var(--bg-secondary);
+        text-decoration: none;
     }
 
     /* iperf3 version badge */
