@@ -216,6 +216,7 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.SmartLighting => true,
         ClientDeviceCategory.SmartPlug => true,
         ClientDeviceCategory.SmartSpeaker => true,
+        ClientDeviceCategory.SmartAppliance => true,
         ClientDeviceCategory.RoboticVacuum => true,
         _ => false
     };
