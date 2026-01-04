@@ -13,7 +13,8 @@ services:
       - ./logs:/app/logs              # Application logs
     environment:
       - TZ=${TZ:-America/Chicago}
-      - ASPNETCORE_URLS=http://127.0.0.1:8042
+      # Bind to localhost only (for reverse proxy) or all interfaces (direct access)
+      - BIND_LOCALHOST_ONLY=${BIND_LOCALHOST_ONLY:-false}
       - APP_PASSWORD=${APP_PASSWORD:-}
       - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
       # Host IP/name for path analysis and CORS (required for client speed tests)
