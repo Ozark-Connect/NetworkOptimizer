@@ -24,6 +24,7 @@
     @if (localIperf3Status != null && localIperf3Status.IsAvailable)
     {
         <div class="iperf3-version-badge">
+            <span class="version-label">Server iperf3:</span>
             <span class="status-badge status-connected">@localIperf3Status.Version</span>
         </div>
     }
@@ -849,6 +850,14 @@
     /* iperf3 version badge */
     .iperf3-version-badge {
         margin-top: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .iperf3-version-badge .version-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
     }
 
     .iperf3-version-badge .status-badge {
