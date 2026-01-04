@@ -19,6 +19,12 @@ public class AgentRepository : IAgentRepository
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// Saves a new agent configuration.
+    /// </summary>
+    /// <param name="config">The agent configuration to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>1 on success.</returns>
     public async Task<int> SaveAgentConfigAsync(AgentConfiguration config, CancellationToken cancellationToken = default)
     {
         try
@@ -37,6 +43,12 @@ public class AgentRepository : IAgentRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves an agent configuration by agent ID.
+    /// </summary>
+    /// <param name="agentId">The unique agent identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The agent configuration, or null if not found.</returns>
     public async Task<AgentConfiguration?> GetAgentConfigAsync(
         string agentId,
         CancellationToken cancellationToken = default)
@@ -54,6 +66,11 @@ public class AgentRepository : IAgentRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves all agent configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of agent configurations ordered by name.</returns>
     public async Task<List<AgentConfiguration>> GetAllAgentConfigsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -70,6 +87,11 @@ public class AgentRepository : IAgentRepository
         }
     }
 
+    /// <summary>
+    /// Updates an existing agent configuration.
+    /// </summary>
+    /// <param name="config">The agent configuration with updated values.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task UpdateAgentConfigAsync(AgentConfiguration config, CancellationToken cancellationToken = default)
     {
         try
@@ -86,6 +108,11 @@ public class AgentRepository : IAgentRepository
         }
     }
 
+    /// <summary>
+    /// Deletes an agent configuration by agent ID.
+    /// </summary>
+    /// <param name="agentId">The agent ID to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteAgentConfigAsync(string agentId, CancellationToken cancellationToken = default)
     {
         try

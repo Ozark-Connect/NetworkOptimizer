@@ -19,6 +19,11 @@ public class ModemRepository : IModemRepository
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// Retrieves all modem configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of modem configurations ordered by name.</returns>
     public async Task<List<ModemConfiguration>> GetModemConfigurationsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -35,6 +40,11 @@ public class ModemRepository : IModemRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves only enabled modem configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of enabled modem configurations ordered by name.</returns>
     public async Task<List<ModemConfiguration>> GetEnabledModemConfigurationsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -52,6 +62,12 @@ public class ModemRepository : IModemRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves a specific modem configuration by ID.
+    /// </summary>
+    /// <param name="id">The modem configuration ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The modem configuration, or null if not found.</returns>
     public async Task<ModemConfiguration?> GetModemConfigurationAsync(int id, CancellationToken cancellationToken = default)
     {
         try
@@ -67,6 +83,11 @@ public class ModemRepository : IModemRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates a modem configuration.
+    /// </summary>
+    /// <param name="config">The modem configuration to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveModemConfigurationAsync(ModemConfiguration config, CancellationToken cancellationToken = default)
     {
         try
@@ -109,6 +130,11 @@ public class ModemRepository : IModemRepository
         }
     }
 
+    /// <summary>
+    /// Deletes a modem configuration by ID.
+    /// </summary>
+    /// <param name="id">The modem configuration ID to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteModemConfigurationAsync(int id, CancellationToken cancellationToken = default)
     {
         try

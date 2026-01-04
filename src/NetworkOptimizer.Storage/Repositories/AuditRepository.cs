@@ -21,6 +21,12 @@ public class AuditRepository : IAuditRepository
 
     #region Audit Results
 
+    /// <summary>
+    /// Saves a new audit result.
+    /// </summary>
+    /// <param name="audit">The audit result to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ID of the saved audit.</returns>
     public async Task<int> SaveAuditResultAsync(AuditResult audit, CancellationToken cancellationToken = default)
     {
         try
@@ -41,6 +47,12 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves an audit result by ID.
+    /// </summary>
+    /// <param name="auditId">The audit ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The audit result, or null if not found.</returns>
     public async Task<AuditResult?> GetAuditResultAsync(int auditId, CancellationToken cancellationToken = default)
     {
         try
@@ -56,6 +68,11 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves the most recent audit result.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The latest audit result, or null if none exist.</returns>
     public async Task<AuditResult?> GetLatestAuditResultAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -72,6 +89,13 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves audit history, optionally filtered by device.
+    /// </summary>
+    /// <param name="deviceId">Optional device ID to filter by.</param>
+    /// <param name="limit">Maximum number of results to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of audit results ordered by date descending.</returns>
     public async Task<List<AuditResult>> GetAuditHistoryAsync(
         string? deviceId = null,
         int limit = 100,
@@ -98,6 +122,11 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Deletes audit results older than the specified date.
+    /// </summary>
+    /// <param name="olderThan">Delete audits before this date.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteOldAuditsAsync(DateTime olderThan, CancellationToken cancellationToken = default)
     {
         try
@@ -120,6 +149,10 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Clears all audit results from the database.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task ClearAllAuditsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -143,6 +176,11 @@ public class AuditRepository : IAuditRepository
 
     #region Dismissed Issues
 
+    /// <summary>
+    /// Retrieves all dismissed audit issues.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of dismissed issues ordered by dismissal date descending.</returns>
     public async Task<List<DismissedIssue>> GetDismissedIssuesAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -159,6 +197,11 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Saves a dismissed issue record.
+    /// </summary>
+    /// <param name="issue">The dismissed issue to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveDismissedIssueAsync(DismissedIssue issue, CancellationToken cancellationToken = default)
     {
         try
@@ -175,6 +218,11 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Deletes a dismissed issue, restoring it to the active issues list.
+    /// </summary>
+    /// <param name="issueKey">The unique issue key to restore.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteDismissedIssueAsync(string issueKey, CancellationToken cancellationToken = default)
     {
         try
@@ -195,6 +243,10 @@ public class AuditRepository : IAuditRepository
         }
     }
 
+    /// <summary>
+    /// Clears all dismissed issues, restoring them to active status.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task ClearAllDismissedIssuesAsync(CancellationToken cancellationToken = default)
     {
         try

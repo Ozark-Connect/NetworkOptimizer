@@ -19,6 +19,12 @@ public class SqmRepository : ISqmRepository
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// Saves a new SQM baseline measurement.
+    /// </summary>
+    /// <param name="baseline">The baseline to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ID of the saved baseline.</returns>
     public async Task<int> SaveSqmBaselineAsync(SqmBaseline baseline, CancellationToken cancellationToken = default)
     {
         try
@@ -45,6 +51,13 @@ public class SqmRepository : ISqmRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves an SQM baseline for a specific device and interface.
+    /// </summary>
+    /// <param name="deviceId">The device identifier.</param>
+    /// <param name="interfaceId">The interface identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The baseline, or null if not found.</returns>
     public async Task<SqmBaseline?> GetSqmBaselineAsync(
         string deviceId,
         string interfaceId,
@@ -69,6 +82,12 @@ public class SqmRepository : ISqmRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves all SQM baselines, optionally filtered by device.
+    /// </summary>
+    /// <param name="deviceId">Optional device ID to filter by.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of baselines ordered by update time descending.</returns>
     public async Task<List<SqmBaseline>> GetAllSqmBaselinesAsync(
         string? deviceId = null,
         CancellationToken cancellationToken = default)
@@ -93,6 +112,11 @@ public class SqmRepository : ISqmRepository
         }
     }
 
+    /// <summary>
+    /// Updates an existing SQM baseline.
+    /// </summary>
+    /// <param name="baseline">The baseline with updated values.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task UpdateSqmBaselineAsync(SqmBaseline baseline, CancellationToken cancellationToken = default)
     {
         try
@@ -116,6 +140,11 @@ public class SqmRepository : ISqmRepository
         }
     }
 
+    /// <summary>
+    /// Deletes an SQM baseline by ID.
+    /// </summary>
+    /// <param name="baselineId">The baseline ID to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteSqmBaselineAsync(int baselineId, CancellationToken cancellationToken = default)
     {
         try

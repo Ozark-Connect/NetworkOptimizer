@@ -21,6 +21,12 @@ public class SettingsRepository : ISettingsRepository
 
     #region System Settings
 
+    /// <summary>
+    /// Retrieves a system setting value by key.
+    /// </summary>
+    /// <param name="key">The setting key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The setting value, or null if not found.</returns>
     public async Task<string?> GetSystemSettingAsync(string key, CancellationToken cancellationToken = default)
     {
         try
@@ -37,6 +43,12 @@ public class SettingsRepository : ISettingsRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates a system setting.
+    /// </summary>
+    /// <param name="key">The setting key.</param>
+    /// <param name="value">The setting value.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveSystemSettingAsync(string key, string? value, CancellationToken cancellationToken = default)
     {
         try
@@ -73,6 +85,12 @@ public class SettingsRepository : ISettingsRepository
 
     #region License Information
 
+    /// <summary>
+    /// Saves a new license record.
+    /// </summary>
+    /// <param name="license">The license information to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ID of the saved license.</returns>
     public async Task<int> SaveLicenseAsync(LicenseInfo license, CancellationToken cancellationToken = default)
     {
         try
@@ -91,6 +109,11 @@ public class SettingsRepository : ISettingsRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves the current active license.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The active license, or null if none exists.</returns>
     public async Task<LicenseInfo?> GetLicenseAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -108,6 +131,11 @@ public class SettingsRepository : ISettingsRepository
         }
     }
 
+    /// <summary>
+    /// Updates an existing license record.
+    /// </summary>
+    /// <param name="license">The license with updated values.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task UpdateLicenseAsync(LicenseInfo license, CancellationToken cancellationToken = default)
     {
         try
@@ -128,6 +156,11 @@ public class SettingsRepository : ISettingsRepository
 
     #region Admin Settings
 
+    /// <summary>
+    /// Retrieves the admin authentication settings.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The admin settings, or null if not configured.</returns>
     public async Task<AdminSettings?> GetAdminSettingsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -143,6 +176,11 @@ public class SettingsRepository : ISettingsRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates the admin authentication settings.
+    /// </summary>
+    /// <param name="settings">The admin settings to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveAdminSettingsAsync(AdminSettings settings, CancellationToken cancellationToken = default)
     {
         try

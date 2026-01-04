@@ -21,6 +21,11 @@ public class SpeedTestRepository : ISpeedTestRepository
 
     #region Gateway SSH Settings
 
+    /// <summary>
+    /// Retrieves the gateway SSH connection settings.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The gateway SSH settings, or null if not configured.</returns>
     public async Task<GatewaySshSettings?> GetGatewaySshSettingsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -36,6 +41,11 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates the gateway SSH connection settings.
+    /// </summary>
+    /// <param name="settings">The gateway SSH settings to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveGatewaySshSettingsAsync(GatewaySshSettings settings, CancellationToken cancellationToken = default)
     {
         try
@@ -76,6 +86,11 @@ public class SpeedTestRepository : ISpeedTestRepository
 
     #region Iperf3 Results
 
+    /// <summary>
+    /// Saves an iperf3 speed test result.
+    /// </summary>
+    /// <param name="result">The test result to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveIperf3ResultAsync(Iperf3Result result, CancellationToken cancellationToken = default)
     {
         try
@@ -92,6 +107,12 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves the most recent iperf3 test results.
+    /// </summary>
+    /// <param name="count">Maximum number of results to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of recent results ordered by time descending.</returns>
     public async Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, CancellationToken cancellationToken = default)
     {
         try
@@ -109,6 +130,13 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves iperf3 test results for a specific device.
+    /// </summary>
+    /// <param name="deviceHost">The device host to filter by.</param>
+    /// <param name="count">Maximum number of results to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of results for the device ordered by time descending.</returns>
     public async Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(string deviceHost, int count = 50, CancellationToken cancellationToken = default)
     {
         try
@@ -127,6 +155,10 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Clears all iperf3 test history.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -150,6 +182,12 @@ public class SpeedTestRepository : ISpeedTestRepository
 
     #region SQM WAN Configuration
 
+    /// <summary>
+    /// Retrieves an SQM WAN configuration by WAN number.
+    /// </summary>
+    /// <param name="wanNumber">The WAN number (1, 2, etc.).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The WAN configuration, or null if not found.</returns>
     public async Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default)
     {
         try
@@ -165,6 +203,11 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves all SQM WAN configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of WAN configurations ordered by WAN number.</returns>
     public async Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -181,6 +224,11 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates an SQM WAN configuration.
+    /// </summary>
+    /// <param name="config">The WAN configuration to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default)
     {
         try

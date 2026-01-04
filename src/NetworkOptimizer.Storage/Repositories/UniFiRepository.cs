@@ -21,6 +21,11 @@ public class UniFiRepository : IUniFiRepository
 
     #region Connection Settings
 
+    /// <summary>
+    /// Retrieves the UniFi controller connection settings.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The connection settings, or null if not configured.</returns>
     public async Task<UniFiConnectionSettings?> GetUniFiConnectionSettingsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -36,6 +41,11 @@ public class UniFiRepository : IUniFiRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates the UniFi controller connection settings.
+    /// </summary>
+    /// <param name="settings">The connection settings to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveUniFiConnectionSettingsAsync(UniFiConnectionSettings settings, CancellationToken cancellationToken = default)
     {
         try
@@ -74,6 +84,11 @@ public class UniFiRepository : IUniFiRepository
 
     #region SSH Settings
 
+    /// <summary>
+    /// Retrieves the UniFi device SSH settings.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The SSH settings, or null if not configured.</returns>
     public async Task<UniFiSshSettings?> GetUniFiSshSettingsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -89,6 +104,11 @@ public class UniFiRepository : IUniFiRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates the UniFi device SSH settings.
+    /// </summary>
+    /// <param name="settings">The SSH settings to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveUniFiSshSettingsAsync(UniFiSshSettings settings, CancellationToken cancellationToken = default)
     {
         try
@@ -126,6 +146,11 @@ public class UniFiRepository : IUniFiRepository
 
     #region Device SSH Configurations
 
+    /// <summary>
+    /// Retrieves all device-specific SSH configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A list of device SSH configurations ordered by name.</returns>
     public async Task<List<DeviceSshConfiguration>> GetDeviceSshConfigurationsAsync(CancellationToken cancellationToken = default)
     {
         try
@@ -142,6 +167,12 @@ public class UniFiRepository : IUniFiRepository
         }
     }
 
+    /// <summary>
+    /// Retrieves a specific device SSH configuration by ID.
+    /// </summary>
+    /// <param name="id">The configuration ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The device configuration, or null if not found.</returns>
     public async Task<DeviceSshConfiguration?> GetDeviceSshConfigurationAsync(int id, CancellationToken cancellationToken = default)
     {
         try
@@ -157,6 +188,11 @@ public class UniFiRepository : IUniFiRepository
         }
     }
 
+    /// <summary>
+    /// Saves or updates a device-specific SSH configuration.
+    /// </summary>
+    /// <param name="config">The device configuration to save.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task SaveDeviceSshConfigurationAsync(DeviceSshConfiguration config, CancellationToken cancellationToken = default)
     {
         try
@@ -195,6 +231,11 @@ public class UniFiRepository : IUniFiRepository
         }
     }
 
+    /// <summary>
+    /// Deletes a device SSH configuration by ID.
+    /// </summary>
+    /// <param name="id">The configuration ID to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DeleteDeviceSshConfigurationAsync(int id, CancellationToken cancellationToken = default)
     {
         try
