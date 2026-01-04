@@ -317,11 +317,19 @@ app.Use(async (context, next) =>
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
     // Only these paths are public (no auth required)
-    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health", "/api/speedtest/results" };
+    var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health" };
+    var publicPrefixes = new[] { "/api/public/" };  // All /api/public/* endpoints are anonymous
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
     // Allow public endpoints
     if (publicPaths.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)))
+    {
+        await next();
+        return;
+    }
+
+    // Allow public API prefixes (e.g., /api/public/*)
+    if (publicPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
     {
         await next();
         return;
@@ -436,8 +444,8 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
     return Results.Ok(results);
 });
 
-// Client Speed Test API endpoints (for browser-based and iperf3 client tests)
-app.MapPost("/api/speedtest/results", async (HttpContext context, ClientSpeedTestService service) =>
+// Public endpoint for external clients (OpenSpeedTest, iperf3) to submit results
+app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientSpeedTestService service) =>
 {
     // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
     var query = context.Request.Query;
@@ -494,6 +502,7 @@ app.MapPost("/api/speedtest/results", async (HttpContext context, ClientSpeedTes
     });
 }).RequireCors("SpeedTestCors");
 
+// Authenticated endpoints for viewing client speed test results
 app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, int count = 50) =>
 {
     if (count < 1) count = 1;
