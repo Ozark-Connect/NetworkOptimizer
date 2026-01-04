@@ -2,6 +2,34 @@
 
 ## LAN Speed Test
 
+### 🔥 Non-SSH Device Speed Testing (HIGH PRIORITY)
+Current limitation: LAN speed tests require SSH access to target devices (UniFi equipment only).
+
+**Goal:** Enable speed testing from any device (phones, tablets, laptops, IoT) without SSH.
+
+**Approach Options:**
+
+1. **Server-side iperf3 monitoring**
+   - Run `iperf3 -s` on the Network Optimizer server
+   - Monitor stdout for incoming test results
+   - Build lightweight clients:
+     - iOS app
+     - Android app
+     - Web client (simplest, works everywhere)
+   - Server captures results and associates with device
+
+2. **Branded OpenSpeedTest integration** (preferred)
+   - Host a branded OpenSpeedTest instance
+   - User runs browser-based speed test from any device
+   - After test completes, import/correlate results into Network Optimizer
+   - Benefits: No app install, works on any device with a browser
+   - Challenge: Correlating browser client to network device identity
+
+**Implementation considerations:**
+- Device identification (MAC discovery, user selection, or cookie-based)
+- Result storage and historical tracking
+- Integration with existing path analysis
+
 ### ~~Retransmit Analysis~~ (FIXED)
 - ~~Flag high retransmit counts as a separate insight~~
 - ~~Example: "High packet loss detected on return path" when retransmits are asymmetric~~
