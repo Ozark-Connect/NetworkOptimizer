@@ -74,23 +74,10 @@ public class DashboardService : IDashboardService
                 data.ApCount = devices.Count(d => d.Type == DeviceType.AccessPoint);
             }
 
-            // Get client count (in try/catch since client API can have parsing issues)
-            try
-            {
-                var clients = await _connectionService.Client.GetClientsAsync();
-                data.ClientCount = clients?.Count ?? 0;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to get client count, continuing without it");
-                data.ClientCount = 0;
-            }
-
             data.ConnectionStatus = "Connected";
             data.ControllerType = _connectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
 
-            _logger.LogInformation("Dashboard loaded: {DeviceCount} devices, {ClientCount} clients",
-                data.DeviceCount, data.ClientCount);
+            _logger.LogInformation("Dashboard loaded: {DeviceCount} devices", data.DeviceCount);
         }
         catch (Exception ex)
         {
