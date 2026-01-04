@@ -94,7 +94,9 @@ public class NetworkOptimizerDbContext : DbContext
             entity.ToTable("Iperf3Results");
             entity.HasIndex(e => e.DeviceHost);
             entity.HasIndex(e => e.TestTime);
+            entity.HasIndex(e => e.Direction);
             entity.HasIndex(e => new { e.DeviceHost, e.TestTime });
+            entity.Property(e => e.Direction).HasConversion<int>();
         });
 
         // UniFiSshSettings configuration (singleton - only one row)

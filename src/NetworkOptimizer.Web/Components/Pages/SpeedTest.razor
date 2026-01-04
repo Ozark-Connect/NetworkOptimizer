@@ -24,9 +24,28 @@
     @if (localIperf3Status != null && localIperf3Status.IsAvailable)
     {
         <div class="iperf3-version-badge">
+            <span class="version-label">Server iperf3 version:</span>
             <span class="status-badge status-connected">@localIperf3Status.Version</span>
         </div>
     }
+</div>
+
+<!-- Client Speed Test Promotion -->
+<div class="card client-speedtest-card">
+    <div class="card-body">
+        <div class="client-speedtest-promo">
+            <div class="promo-content">
+                <h3>Test from Any Device</h3>
+                <p>
+                    Run speed tests from phones, tablets, laptops, or any device on your network...
+                    no SSH required, just open a browser or use iperf3.
+                </p>
+            </div>
+            <a href="/client-speedtest" class="btn btn-primary">
+                Client Speed Test →
+            </a>
+        </div>
+    </div>
 </div>
 
 @if (localIperf3Status != null && !localIperf3Status.IsAvailable)
@@ -810,9 +829,35 @@
         color: var(--text-muted);
     }
 
+    /* Client speed test link */
+    .client-speedtest-link {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        background: var(--bg-tertiary);
+        border-radius: var(--border-radius);
+        color: var(--accent-color);
+        text-decoration: none;
+        font-size: 0.875rem;
+        transition: background-color 0.15s ease;
+    }
+
+    .client-speedtest-link:hover {
+        background: var(--bg-secondary);
+        text-decoration: none;
+    }
+
     /* iperf3 version badge */
     .iperf3-version-badge {
-        margin-top: 0.5rem;
+        margin-top: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .iperf3-version-badge .version-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
     }
 
     .iperf3-version-badge .status-badge {
@@ -876,6 +921,56 @@
         background: rgba(0, 0, 0, 0.1);
         padding: 0.125rem 0.375rem;
         border-radius: 4px;
+    }
+
+    /* Client speed test promotion card */
+    .client-speedtest-card {
+        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+        border: 1px solid var(--accent-color);
+        margin-bottom: 1.5rem;
+    }
+
+    .client-speedtest-promo {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+    }
+
+    .promo-content {
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .promo-content h3 {
+        margin: 0 0 0.5rem 0;
+        font-size: 1.125rem;
+        color: var(--accent-color);
+    }
+
+    .promo-content p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+    }
+
+    .client-speedtest-promo .btn {
+        flex-shrink: 0;
+        white-space: nowrap;
+        margin-right: 2rem;
+    }
+
+    @@media (max-width: 768px) {
+        .client-speedtest-promo {
+            flex-direction: column;
+            align-items: stretch;
+            text-align: center;
+        }
+
+        .client-speedtest-promo .btn {
+            align-self: center;
+            margin-right: 0;
+        }
     }
 
     /* Locked out state */

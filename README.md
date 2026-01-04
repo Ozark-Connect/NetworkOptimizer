@@ -26,6 +26,10 @@ Network Optimizer handles this automatically. It supports dual-WAN with independ
 
 Ever wonder if that new switch is actually delivering gigabit speeds? Or whether the cable run to the shop is the bottleneck? Network Optimizer runs iperf3 tests between your gateway and network devices, auto-discovers UniFi equipment from your controller, supports custom devices with per-device SSH credentials, and correlates results with hop count and infrastructure path. Test history lets you track performance over time.
 
+### Client Speed Testing
+
+Test LAN speeds from any device without SSH access. Open a browser on your phone, tablet, or laptop and run a speed test; results are automatically recorded with device identification. For CLI users, the bundled iperf3 server accepts client connections and logs results. See [Client Speed Testing](docker/DEPLOYMENT.md#client-speed-testing-optional) in the deployment guide.
+
 ### Cellular Modem Monitoring
 
 If you're running a U-LTE or U5G-Max for backup (or primary) connectivity, you can monitor signal quality from the dashboard: RSSI, RSRP, RSRQ, SINR, cell tower info, and connection status.

@@ -26,9 +26,11 @@ Current limitation: LAN speed tests require SSH access to target devices (UniFi 
    - Challenge: Correlating browser client to network device identity
 
 **Implementation considerations:**
-- Device identification (MAC discovery, user selection, or cookie-based)
+- Device identification via source IP (sufficient - can correlate to UniFi client list)
 - Result storage and historical tracking
 - Integration with existing path analysis
+
+**Status:** In Progress - implementing both approaches
 
 ### ~~Retransmit Analysis~~ (FIXED)
 - ~~Flag high retransmit counts as a separate insight~~
@@ -104,6 +106,13 @@ Current limitation: LAN speed tests require SSH access to target devices (UniFi 
 - Consider: Ubuntu Server base, auto-updates, web-based initial setup
 
 ## General
+
+### Database Normalization Review
+- Review SQLite schema for proper normal form (1NF, 2NF, 3NF)
+- Ensure proper use of primary keys, foreign keys, and indices
+- Audit table relationships and consider splitting denormalized data
+- JSON columns are intentional for flexible nested data (e.g., PathAnalysisJson, RawJson)
+- Consider: Separate Clients table with FK references instead of storing ClientMac/ClientName inline
 
 ### Replace Severity String Constants with Enums
 - Current: Severity comparisons use string literals like `"Critical"`, `"Recommended"`, `"Informational"`

@@ -7,12 +7,30 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
+/// Direction of the speed test - who initiated it
+/// </summary>
+public enum SpeedTestDirection
+{
+    /// <summary>Server-initiated: Network Optimizer SSHs to device and runs iperf3 client</summary>
+    ServerToDevice = 0,
+
+    /// <summary>Client-initiated: External device runs iperf3 client to our server</summary>
+    ClientToServer = 1,
+
+    /// <summary>Browser-based: OpenSpeedTest or similar browser speed test</summary>
+    BrowserToServer = 2
+}
+
+/// <summary>
 /// Stores results from an iperf3 speed test to a UniFi device
 /// </summary>
 public class Iperf3Result
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Test direction - who initiated the test</summary>
+    public SpeedTestDirection Direction { get; set; } = SpeedTestDirection.ServerToDevice;
 
     /// <summary>Device hostname or IP that was tested</summary>
     [Required]
@@ -69,6 +87,21 @@ public class Iperf3Result
     /// <summary>Error message if test failed</summary>
     [MaxLength(2000)]
     public string? ErrorMessage { get; set; }
+
+    // Browser speed test fields (OpenSpeedTest)
+    /// <summary>Ping/latency in milliseconds (browser tests only)</summary>
+    public double? PingMs { get; set; }
+
+    /// <summary>Jitter in milliseconds (browser tests only)</summary>
+    public double? JitterMs { get; set; }
+
+    /// <summary>User agent string (browser tests only)</summary>
+    [MaxLength(500)]
+    public string? UserAgent { get; set; }
+
+    /// <summary>Client MAC address (if resolved from UniFi)</summary>
+    [MaxLength(17)]
+    public string? ClientMac { get; set; }
 
     /// <summary>Raw iperf3 JSON output for upload test</summary>
     public string? RawUploadJson { get; set; }

@@ -71,6 +71,11 @@ builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}")
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
+// Also register DbContextFactory for singletons that need database access (ClientSpeedTestService)
+builder.Services.AddDbContextFactory<NetworkOptimizerDbContext>(options =>
+    options.UseSqlite($"Data Source={dbPath}")
+           .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
+
 // Register repository pattern (scoped - same lifetime as DbContext)
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAuditRepository, NetworkOptimizer.Storage.Repositories.AuditRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISettingsRepository, NetworkOptimizer.Storage.Repositories.SettingsRepository>();
@@ -91,6 +96,13 @@ builder.Services.AddSingleton<Iperf3SpeedTestService>();
 
 // Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
 builder.Services.AddSingleton<GatewaySpeedTestService>();
+
+// Register Client Speed Test service (singleton - receives browser/iperf3 client results)
+builder.Services.AddSingleton<ClientSpeedTestService>();
+
+// Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
+// Enable via environment variable: Iperf3Server__Enabled=true
+builder.Services.AddHostedService<Iperf3ServerService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -157,16 +169,46 @@ builder.Services.AddHttpClient("TcMonitor", client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 
-// TODO(agent-infrastructure): CORS for agent API endpoints - enable when agents are implemented
-// builder.Services.AddCors(options =>
-// {
-//     options.AddDefaultPolicy(policy =>
-//     {
-//         policy.AllowAnyOrigin()
-//               .AllowAnyMethod()
-//               .AllowAnyHeader();
-//     });
-// });
+// CORS for client speed test endpoint (OpenSpeedTest sends results from browser)
+// Auto-construct allowed origins from HOST_IP/HOST_NAME, or use CORS_ORIGINS if set
+var corsOriginsList = new List<string>();
+var hostIp = builder.Configuration["HOST_IP"];
+var hostName = builder.Configuration["HOST_NAME"];
+var reverseProxiedHostName = builder.Configuration["REVERSE_PROXIED_HOST_NAME"];
+var corsOriginsConfig = builder.Configuration["CORS_ORIGINS"];
+
+// Add origins from config
+if (!string.IsNullOrEmpty(corsOriginsConfig))
+{
+    corsOriginsList.AddRange(corsOriginsConfig.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+}
+
+// Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest on port 3005)
+if (!string.IsNullOrEmpty(hostIp))
+{
+    corsOriginsList.Add($"http://{hostIp}:3005");
+}
+if (!string.IsNullOrEmpty(hostName))
+{
+    corsOriginsList.Add($"http://{hostName}:3005");
+}
+// Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
+// OpenSpeedTest still runs on port 3005, even when API is behind reverse proxy
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("SpeedTestCors", policy =>
+    {
+        if (corsOriginsList.Count > 0)
+        {
+            policy.WithOrigins(corsOriginsList.ToArray())
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        // If no origins configured, CORS is effectively disabled (no origins allowed)
+        // Configure HOST_IP or HOST_NAME in .env to enable OpenSpeedTest result reporting
+    });
+});
 
 var app = builder.Build();
 
@@ -276,10 +318,18 @@ app.Use(async (context, next) =>
 
     // Only these paths are public (no auth required)
     var publicPaths = new[] { "/login", "/api/auth/set-cookie", "/api/auth/logout", "/api/health" };
+    var publicPrefixes = new[] { "/api/public/" };  // All /api/public/* endpoints are anonymous
     var staticPaths = new[] { "/_blazor", "/_framework", "/css", "/js", "/images", "/_content", "/downloads" };
 
     // Allow public endpoints
     if (publicPaths.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)))
+    {
+        await next();
+        return;
+    }
+
+    // Allow public API prefixes (e.g., /api/public/*)
+    if (publicPrefixes.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
     {
         await next();
         return;
@@ -329,7 +379,7 @@ app.UseStaticFiles(new StaticFileOptions
     ContentTypeProvider = contentTypeProvider
 });
 app.UseAntiforgery();
-// app.UseCors(); // TODO(agent-infrastructure): Enable when agents are implemented
+app.UseCors(); // Required for OpenSpeedTest to POST results
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
@@ -392,6 +442,82 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 
     var results = await service.GetResultsForDeviceAsync(deviceHost, count);
     return Results.Ok(results);
+});
+
+// Public endpoint for external clients (OpenSpeedTest, iperf3) to submit results
+app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientSpeedTestService service) =>
+{
+    // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
+    var query = context.Request.Query;
+
+    // Also check form data for POST body
+    IFormCollection? form = null;
+    if (context.Request.HasFormContentType)
+    {
+        form = await context.Request.ReadFormAsync();
+    }
+
+    // Helper to get value from query or form
+    string? GetValue(string key) =>
+        query.TryGetValue(key, out var qv) ? qv.ToString() :
+        form?.TryGetValue(key, out var fv) == true ? fv.ToString() : null;
+
+    var downloadStr = GetValue("d");
+    var uploadStr = GetValue("u");
+
+    if (string.IsNullOrEmpty(downloadStr) || string.IsNullOrEmpty(uploadStr))
+    {
+        return Results.BadRequest(new { error = "Missing required parameters: d (download) and u (upload)" });
+    }
+
+    if (!double.TryParse(downloadStr, out var download) || !double.TryParse(uploadStr, out var upload))
+    {
+        return Results.BadRequest(new { error = "Invalid speed values" });
+    }
+
+    double? ping = double.TryParse(GetValue("p"), out var p) ? p : null;
+    double? jitter = double.TryParse(GetValue("j"), out var j) ? j : null;
+    double? downloadData = double.TryParse(GetValue("dd"), out var dd) ? dd : null;
+    double? uploadData = double.TryParse(GetValue("ud"), out var ud) ? ud : null;
+    var userAgent = GetValue("ua") ?? context.Request.Headers.UserAgent.ToString();
+
+    // Get client IP (handle proxies)
+    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(forwardedFor))
+    {
+        clientIp = forwardedFor.Split(',')[0].Trim();
+    }
+
+    var result = await service.RecordOpenSpeedTestResultAsync(
+        clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent);
+
+    return Results.Ok(new {
+        success = true,
+        id = result.Id,
+        clientIp = result.DeviceHost,
+        clientName = result.DeviceName,
+        download = result.DownloadMbps,
+        upload = result.UploadMbps
+    });
+}).RequireCors("SpeedTestCors");
+
+// Authenticated endpoint for viewing client speed test results
+app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, string? ip = null, string? mac = null, int count = 50) =>
+{
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+
+    // Filter by IP if provided
+    if (!string.IsNullOrWhiteSpace(ip))
+        return Results.Ok(await service.GetResultsByIpAsync(ip, count));
+
+    // Filter by MAC if provided
+    if (!string.IsNullOrWhiteSpace(mac))
+        return Results.Ok(await service.GetResultsByMacAsync(mac, count));
+
+    // Return all results
+    return Results.Ok(await service.GetResultsAsync(count));
 });
 
 // Auth API endpoints

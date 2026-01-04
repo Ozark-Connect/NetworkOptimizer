@@ -82,6 +82,7 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 
 # Expose ports
 EXPOSE 8080
+EXPOSE 5201
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
