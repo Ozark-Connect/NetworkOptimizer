@@ -91,6 +91,22 @@ public class UniFiProtectDeviceResponse
     public bool IsSensor => Model.Contains("Sensor", StringComparison.OrdinalIgnoreCase) ||
                             Model.Equals("AI Key", StringComparison.OrdinalIgnoreCase);
 
+    // Known camera model patterns
+    private static readonly string[] CameraPatterns =
+    [
+        "G3", "G4", "G5", "G6",  // UniFi Protect camera generations
+        "Bullet", "Dome", "Flex", "Instant", "Pro", "PTZ", "Turret",
+        "AI Turret", "AI Bullet", "AI Dome", "AI Pro",
+        "UVC"  // Legacy UniFi Video Camera prefix
+    ];
+
+    // Exclude non-camera models
+    private static readonly string[] ExcludePatterns =
+    [
+        "AI Key", "SuperLink", "Gateway", "NVR", "UNVR", "Cloud Key",
+        "Sensor", "Chime", "Bridge", "Hub"
+    ];
+
     /// <summary>
     /// Determine if a model name represents a camera
     /// </summary>
@@ -99,31 +115,15 @@ public class UniFiProtectDeviceResponse
         if (string.IsNullOrEmpty(model))
             return false;
 
-        // Known camera model patterns
-        var cameraPatterns = new[]
-        {
-            "G3", "G4", "G5", "G6",  // UniFi Protect camera generations
-            "Bullet", "Dome", "Flex", "Instant", "Pro", "PTZ", "Turret",
-            "AI Turret", "AI Bullet", "AI Dome", "AI Pro",
-            "UVC"  // Legacy UniFi Video Camera prefix
-        };
-
-        // Exclude non-camera models
-        var excludePatterns = new[]
-        {
-            "AI Key", "SuperLink", "Gateway", "NVR", "UNVR", "Cloud Key",
-            "Sensor", "Chime", "Bridge", "Hub"
-        };
-
         // Check exclusions first
-        foreach (var exclude in excludePatterns)
+        foreach (var exclude in ExcludePatterns)
         {
             if (model.Contains(exclude, StringComparison.OrdinalIgnoreCase))
                 return false;
         }
 
         // Check if it matches camera patterns
-        foreach (var pattern in cameraPatterns)
+        foreach (var pattern in CameraPatterns)
         {
             if (model.Contains(pattern, StringComparison.OrdinalIgnoreCase))
                 return true;
