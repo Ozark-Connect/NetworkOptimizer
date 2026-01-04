@@ -508,6 +508,78 @@ public class UniFiApiClient : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// GET /proxy/network/v2/api/site/{site}/device - Get all device types including Protect devices
+    /// This v2 API returns network_devices, protect_devices, access_devices, etc.
+    /// Only available on UniFi OS controllers (UDM, UCG, etc.)
+    /// </summary>
+    public async Task<UniFiAllDevicesResponse?> GetAllDevicesV2Async(CancellationToken cancellationToken = default)
+    {
+        if (!_isUniFiOs)
+        {
+            _logger.LogDebug("V2 device API not available on standalone controllers");
+            return null;
+        }
+
+        _logger.LogDebug("Fetching all device types (v2 API) from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var url = $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/device";
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<UniFiAllDevicesResponse>(cancellationToken: cancellationToken);
+                if (result != null)
+                {
+                    var protectCount = result.ProtectDevices?.Count ?? 0;
+                    var networkCount = result.NetworkDevices?.Count ?? 0;
+                    _logger.LogInformation("Retrieved {NetworkCount} network devices and {ProtectCount} Protect devices (v2 API)",
+                        networkCount, protectCount);
+                }
+                return result;
+            }
+
+            _logger.LogWarning("Failed to retrieve devices from v2 API: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
+    /// Get UniFi Protect devices (cameras, doorbells, NVRs, sensors)
+    /// Returns a set of MAC addresses that are Protect camera devices
+    /// </summary>
+    public async Task<HashSet<string>> GetProtectCameraMacsAsync(CancellationToken cancellationToken = default)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var allDevices = await GetAllDevicesV2Async(cancellationToken);
+        if (allDevices?.ProtectDevices == null)
+        {
+            return result;
+        }
+
+        foreach (var device in allDevices.ProtectDevices)
+        {
+            if (device.IsCamera || device.IsDoorbell)
+            {
+                result.Add(device.Mac.ToLowerInvariant());
+                _logger.LogDebug("Found Protect camera: {Name} ({Model}) - MAC: {Mac}",
+                    device.Name, device.Model, device.Mac);
+            }
+        }
+
+        _logger.LogInformation("Found {Count} Protect cameras/doorbells", result.Count);
+        return result;
+    }
+
     #endregion
 
     #region Client Management APIs

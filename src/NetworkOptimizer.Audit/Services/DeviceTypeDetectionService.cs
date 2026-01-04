@@ -36,6 +36,9 @@ public class DeviceTypeDetectionService
     // Client history lookup for enhanced offline device detection
     private Dictionary<string, UniFiClientHistoryResponse>? _clientHistoryByMac;
 
+    // UniFi Protect camera MACs (highest priority detection)
+    private HashSet<string>? _protectCameraMacs;
+
     public DeviceTypeDetectionService(
         ILogger<DeviceTypeDetectionService>? logger = null,
         UniFiFingerprintDatabase? fingerprintDb = null,
@@ -68,6 +71,19 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
+    /// Set known UniFi Protect camera MAC addresses.
+    /// These are detected with 100% confidence as cameras, bypassing all other detection methods.
+    /// </summary>
+    public void SetProtectCameraMacs(HashSet<string>? protectCameraMacs)
+    {
+        _protectCameraMacs = protectCameraMacs;
+        if (protectCameraMacs != null && protectCameraMacs.Count > 0)
+        {
+            _logger?.LogInformation("Loaded {Count} UniFi Protect camera MACs for priority detection", protectCameraMacs.Count);
+        }
+    }
+
+    /// <summary>
     /// Detect device type from all available signals
     /// </summary>
     /// <param name="client">UniFi client response (optional - for fingerprint and MAC)</param>
@@ -85,6 +101,28 @@ public class DeviceTypeDetectionService
 
         _logger?.LogDebug("[Detection] Starting detection for '{DisplayName}' (MAC: {Mac})",
             displayName, mac);
+
+        // Priority -1: UniFi Protect camera (100% confidence from controller API)
+        if (_protectCameraMacs != null && !string.IsNullOrEmpty(client?.Mac) &&
+            _protectCameraMacs.Contains(client.Mac.ToLowerInvariant()))
+        {
+            _logger?.LogDebug("[Detection] '{DisplayName}': UniFi Protect camera (confirmed by controller)",
+                displayName);
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Camera,
+                Source = DetectionSource.UniFiFingerprint,
+                ConfidenceScore = 100,
+                VendorName = "Ubiquiti",
+                ProductName = "UniFi Protect Camera",
+                RecommendedNetwork = NetworkPurpose.Security,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["detection_method"] = "unifi_protect_api",
+                    ["mac"] = client.Mac
+                }
+            };
+        }
 
         // Priority 0: Check for obvious name keywords that should OVERRIDE fingerprint
         // This handles cases where vendor fingerprint is wrong (e.g., Cync plugs detected as cameras)

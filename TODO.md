@@ -66,3 +66,52 @@
   - Extension methods: `ToDisplayName()`, `IsGateway()`, `IsUniFiNetworkDevice()`, `FromUniFiApiType()`
   - Stored as string in database via EF Core conversion for backwards compatibility
   - Deleted redundant `DeviceTypes` string constants and `UniFiDeviceTypes` helper class
+
+## UniFi Device Classification (v2 API)
+
+The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns multiple device arrays for improved device classification and VLAN security auditing.
+
+### Device Arrays from v2 API
+
+| Array | Description | VLAN Recommendation | Status |
+|-------|-------------|---------------------|--------|
+| `network_devices` | APs, Switches, Gateways | Management VLAN | Existing |
+| `protect_devices` | Cameras, Doorbells, NVRs, Sensors | Security VLAN | **In Progress** |
+| `access_devices` | Door locks, readers | Security VLAN | TODO |
+| `connect_devices` | EV chargers, other Connect devices | IoT VLAN | TODO |
+| `talk_devices` | Intercoms, phones | IoT/VoIP VLAN | TODO |
+| `led_devices` | LED controllers, lighting | IoT VLAN | TODO |
+
+### Phase 1: Protect Devices (Current)
+- [x] Create `UniFiProtectDeviceResponse` model
+- [x] Add `GetAllDevicesV2Async()` API method
+- [x] Add `GetProtectCameraMacsAsync()` helper
+- [x] Update `DeviceTypeDetectionService` to check Protect MACs first
+- [ ] Wire up in audit engine to fetch and use Protect MACs
+- [ ] Test camera detection with 100% confidence
+
+### Phase 2: Access Devices (Door Access)
+- [ ] Parse `access_devices` array
+- [ ] Identify door locks, card readers, intercoms
+- [ ] Map to `ClientDeviceCategory.SmartLock` or new `AccessControl` category
+- [ ] Recommend Security VLAN placement
+
+### Phase 3: Connect Devices (EV Chargers, etc.)
+- [ ] Parse `connect_devices` array
+- [ ] Identify EV chargers, power devices
+- [ ] Map to `ClientDeviceCategory.SmartPlug` or new `EVCharger` category
+- [ ] Recommend IoT VLAN placement
+
+### Phase 4: Talk Devices (Intercoms/Phones)
+- [ ] Parse `talk_devices` array
+- [ ] Identify intercoms, VoIP phones
+- [ ] Map to `ClientDeviceCategory.VoIP` or `SmartSpeaker`
+- [ ] Consider VoIP VLAN vs IoT VLAN recommendation
+
+### Phase 5: LED Devices
+- [ ] Parse `led_devices` array
+- [ ] Identify LED controllers, smart lighting
+- [ ] Map to `ClientDeviceCategory.SmartLighting`
+- [ ] Recommend IoT VLAN placement
+
+**Note:** The v2 API is only available on UniFi OS controllers (UDM, UCG, etc.). Device classification from the controller API is 100% confidence since the controller knows its own devices.

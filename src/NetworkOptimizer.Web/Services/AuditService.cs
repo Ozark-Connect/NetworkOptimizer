@@ -566,6 +566,21 @@ public class AuditService
 
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
+            // Fetch UniFi Protect camera MACs for 100% confidence detection
+            HashSet<string>? protectCameraMacs = null;
+            try
+            {
+                protectCameraMacs = await _connectionService.Client.GetProtectCameraMacsAsync();
+                if (protectCameraMacs.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} UniFi Protect cameras for priority detection", protectCameraMacs.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch UniFi Protect cameras (v2 API may not be available)");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -576,7 +591,7 @@ public class AuditService
             };
 
             // Run the audit engine with all available data for comprehensive analysis
-            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, clientHistory, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, "Network Audit");
+            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, clientHistory, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, protectCameraMacs, "Network Audit");
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
