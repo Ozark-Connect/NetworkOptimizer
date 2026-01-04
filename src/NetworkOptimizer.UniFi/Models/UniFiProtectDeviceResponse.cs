@@ -86,10 +86,20 @@ public class UniFiProtectDeviceResponse
                          Model.Contains("Cloud Key", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Check if this is a sensor device (not a camera)
+    /// Check if this is a video processing device (AI Key, etc.)
+    /// These should be on the same VLAN as cameras for video analysis
     /// </summary>
-    public bool IsSensor => Model.Contains("Sensor", StringComparison.OrdinalIgnoreCase) ||
-                            Model.Equals("AI Key", StringComparison.OrdinalIgnoreCase);
+    public bool IsVideoProcessor => Model.Equals("AI Key", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Check if this is a sensor device (not a camera or video processor)
+    /// </summary>
+    public bool IsSensor => Model.Contains("Sensor", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Check if this device should be on the Security VLAN (cameras, doorbells, NVRs, AI processors)
+    /// </summary>
+    public bool RequiresSecurityVlan => IsCamera || IsDoorbell || IsNvr || IsVideoProcessor;
 
     // Known camera model patterns
     private static readonly string[] CameraPatterns =

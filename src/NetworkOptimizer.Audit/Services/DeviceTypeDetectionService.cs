@@ -71,15 +71,16 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
-    /// Set known UniFi Protect camera MAC addresses.
-    /// These are detected with 100% confidence as cameras, bypassing all other detection methods.
+    /// Set known UniFi Protect device MAC addresses that require Security VLAN.
+    /// Includes cameras, doorbells, NVRs, and AI processors.
+    /// These are detected with 100% confidence, bypassing all other detection methods.
     /// </summary>
     public void SetProtectCameraMacs(HashSet<string>? protectCameraMacs)
     {
         _protectCameraMacs = protectCameraMacs;
         if (protectCameraMacs != null && protectCameraMacs.Count > 0)
         {
-            _logger?.LogInformation("Loaded {Count} UniFi Protect camera MACs for priority detection", protectCameraMacs.Count);
+            _logger?.LogInformation("Loaded {Count} UniFi Protect device MACs for priority detection", protectCameraMacs.Count);
         }
     }
 
@@ -102,19 +103,20 @@ public class DeviceTypeDetectionService
         _logger?.LogDebug("[Detection] Starting detection for '{DisplayName}' (MAC: {Mac})",
             displayName, mac);
 
-        // Priority -1: UniFi Protect camera (100% confidence from controller API)
+        // Priority -1: UniFi Protect device (100% confidence from controller API)
+        // Includes cameras, doorbells, NVRs, and AI processors - all require Security VLAN
         if (_protectCameraMacs != null && !string.IsNullOrEmpty(client?.Mac) &&
             _protectCameraMacs.Contains(client.Mac.ToLowerInvariant()))
         {
-            _logger?.LogDebug("[Detection] '{DisplayName}': UniFi Protect camera (confirmed by controller)",
+            _logger?.LogDebug("[Detection] '{DisplayName}': UniFi Protect device (confirmed by controller)",
                 displayName);
             return new DeviceDetectionResult
             {
-                Category = ClientDeviceCategory.Camera,
+                Category = ClientDeviceCategory.Camera,  // All Protect security devices use Camera category for VLAN rules
                 Source = DetectionSource.UniFiFingerprint,
                 ConfidenceScore = 100,
                 VendorName = "Ubiquiti",
-                ProductName = "UniFi Protect Camera",
+                ProductName = "UniFi Protect",
                 RecommendedNetwork = NetworkPurpose.Security,
                 Metadata = new Dictionary<string, object>
                 {

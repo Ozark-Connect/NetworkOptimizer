@@ -553,8 +553,8 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// Get UniFi Protect devices (cameras, doorbells, NVRs, sensors)
-    /// Returns a set of MAC addresses that are Protect camera devices
+    /// Get UniFi Protect devices that require Security VLAN placement
+    /// Returns a set of MAC addresses for cameras, doorbells, NVRs, and AI processors
     /// </summary>
     public async Task<HashSet<string>> GetProtectCameraMacsAsync(CancellationToken cancellationToken = default)
     {
@@ -568,15 +568,19 @@ public class UniFiApiClient : IDisposable
 
         foreach (var device in allDevices.ProtectDevices)
         {
-            if (device.IsCamera || device.IsDoorbell)
+            if (device.RequiresSecurityVlan)
             {
                 result.Add(device.Mac.ToLowerInvariant());
-                _logger.LogDebug("Found Protect camera: {Name} ({Model}) - MAC: {Mac}",
-                    device.Name, device.Model, device.Mac);
+                var deviceType = device.IsCamera ? "camera" :
+                                 device.IsDoorbell ? "doorbell" :
+                                 device.IsNvr ? "NVR" :
+                                 device.IsVideoProcessor ? "AI processor" : "device";
+                _logger.LogDebug("Found Protect {DeviceType}: {Name} ({Model}) - MAC: {Mac}",
+                    deviceType, device.Name, device.Model, device.Mac);
             }
         }
 
-        _logger.LogInformation("Found {Count} Protect cameras/doorbells", result.Count);
+        _logger.LogInformation("Found {Count} Protect devices requiring Security VLAN", result.Count);
         return result;
     }
 
