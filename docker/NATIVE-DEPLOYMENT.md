@@ -96,6 +96,12 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export TZ="America/Chicago"  # Change to your timezone
 export ASPNETCORE_URLS="http://0.0.0.0:8042"
 
+# Host IP - required for iperf3 client result tracking
+export HOST_IP="192.168.1.100"  # Change to this Mac's IP address
+
+# Enable iperf3 server for client speed testing (port 5201)
+export Iperf3Server__Enabled=true
+
 # Optional: Set admin password (otherwise auto-generated on first run)
 # export APP_PASSWORD="your-secure-password"
 
@@ -297,6 +303,12 @@ cd "$(dirname "$0")"
 export TZ="America/Chicago"  # Change to your timezone
 export ASPNETCORE_URLS="http://0.0.0.0:8042"
 
+# Host IP - required for iperf3 client result tracking
+export HOST_IP="192.168.1.100"  # Change to this server's IP address
+
+# Enable iperf3 server for client speed testing (port 5201)
+export Iperf3Server__Enabled=true
+
 # Optional: Set admin password
 # export APP_PASSWORD="your-secure-password"
 
@@ -418,6 +430,12 @@ cd /d "%~dp0"
 
 set TZ=America/Chicago
 set ASPNETCORE_URLS=http://0.0.0.0:8042
+
+REM Host IP - required for iperf3 client result tracking
+set HOST_IP=192.168.1.100
+
+REM Enable iperf3 server for client speed testing (port 5201)
+set Iperf3Server__Enabled=true
 
 REM Optional: Set admin password
 REM set APP_PASSWORD=your-secure-password

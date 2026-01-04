@@ -8,6 +8,7 @@
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
 @inject IJSRuntime JS
+@inject IHttpClientFactory HttpClientFactory
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -40,7 +41,7 @@
                     </div>
                     <p>Run a speed test directly from any web browser. Works on all devices.</p>
 
-                    @if (!string.IsNullOrEmpty(openSpeedTestUrl))
+                    @if (openSpeedTestAvailable)
                     {
                         <div class="test-option-actions">
                             <a href="@(openSpeedTestUrl)?Run" target="_blank" class="btn btn-primary">
@@ -66,10 +67,16 @@
                             Firefox limits performance, especially on uploads.
                         </p>
                     }
-                    else
+                    else if (string.IsNullOrEmpty(openSpeedTestUrl))
                     {
                         <div class="alert alert-warning">
                             <strong>Configuration Required:</strong> Set <code>HOST_IP</code> or <code>HOST_NAME</code> in your environment to enable browser speed testing.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            <strong>Not Available:</strong> OpenSpeedTest is not running. This feature requires Docker deployment. Use iperf3 for native installs.
                         </div>
                     }
                 </div>
@@ -524,7 +531,13 @@
     // Configuration
     private string? openSpeedTestUrl;
     private bool iperf3ServerEnabled;
+    private bool openSpeedTestAvailable;
     private string serverHost = "localhost";
+
+    // OpenSpeedTest health check cache
+    private static DateTime _lastHealthCheck = DateTime.MinValue;
+    private static bool _lastHealthResult = false;
+    private static readonly TimeSpan HealthCheckCacheDuration = TimeSpan.FromSeconds(30);
 
     // Pagination
     private int historyPage = 1;
@@ -555,6 +568,12 @@
         {
             openSpeedTestUrl = $"http://{hostIp}:3005";
             serverHost = hostIp;
+        }
+
+        // Check if OpenSpeedTest is actually reachable
+        if (!string.IsNullOrEmpty(openSpeedTestUrl))
+        {
+            openSpeedTestAvailable = await CheckOpenSpeedTestHealthAsync();
         }
 
         await LoadHistory();
@@ -589,6 +608,30 @@
             loading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task<bool> CheckOpenSpeedTestHealthAsync()
+    {
+        // Return cached result if still valid
+        if (DateTime.UtcNow - _lastHealthCheck < HealthCheckCacheDuration)
+        {
+            return _lastHealthResult;
+        }
+
+        try
+        {
+            using var client = HttpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(2);
+            var response = await client.GetAsync(openSpeedTestUrl);
+            _lastHealthResult = response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            _lastHealthResult = false;
+        }
+
+        _lastHealthCheck = DateTime.UtcNow;
+        return _lastHealthResult;
     }
 
     private static string GetSourceLabel(SpeedTestDirection direction)
