@@ -101,6 +101,8 @@
             var activeIssues = await AuditService.GetActiveIssuesAsync();
             var actionableIssues = activeIssues
                 .Where(i => i.Severity == "Critical" || i.Severity == "Recommended")
+                .OrderBy(i => i.Severity == "Critical" ? 0 : 1) // Critical first
+                .ThenBy(i => i.Category) // Then by category for grouping
                 .ToList();
 
             if (actionableIssues.Any())
