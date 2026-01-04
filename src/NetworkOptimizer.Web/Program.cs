@@ -92,6 +92,9 @@ builder.Services.AddSingleton<Iperf3SpeedTestService>();
 // Register Gateway Speed Test service (singleton - gateway iperf3 tests with separate SSH creds)
 builder.Services.AddSingleton<GatewaySpeedTestService>();
 
+// Register Client Speed Test service (singleton - receives browser/iperf3 client results)
+builder.Services.AddSingleton<ClientSpeedTestService>();
+
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
 
@@ -392,6 +395,82 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
 
     var results = await service.GetResultsForDeviceAsync(deviceHost, count);
     return Results.Ok(results);
+});
+
+// Client Speed Test API endpoints (for browser-based and iperf3 client tests)
+app.MapPost("/api/speedtest/result", async (HttpContext context, ClientSpeedTestService service) =>
+{
+    // OpenSpeedTest sends data as URL query params: d, u, p, j, dd, ud, ua
+    var query = context.Request.Query;
+
+    // Also check form data for POST body
+    IFormCollection? form = null;
+    if (context.Request.HasFormContentType)
+    {
+        form = await context.Request.ReadFormAsync();
+    }
+
+    // Helper to get value from query or form
+    string? GetValue(string key) =>
+        query.TryGetValue(key, out var qv) ? qv.ToString() :
+        form?.TryGetValue(key, out var fv) == true ? fv.ToString() : null;
+
+    var downloadStr = GetValue("d");
+    var uploadStr = GetValue("u");
+
+    if (string.IsNullOrEmpty(downloadStr) || string.IsNullOrEmpty(uploadStr))
+    {
+        return Results.BadRequest(new { error = "Missing required parameters: d (download) and u (upload)" });
+    }
+
+    if (!double.TryParse(downloadStr, out var download) || !double.TryParse(uploadStr, out var upload))
+    {
+        return Results.BadRequest(new { error = "Invalid speed values" });
+    }
+
+    double? ping = double.TryParse(GetValue("p"), out var p) ? p : null;
+    double? jitter = double.TryParse(GetValue("j"), out var j) ? j : null;
+    double? downloadData = double.TryParse(GetValue("dd"), out var dd) ? dd : null;
+    double? uploadData = double.TryParse(GetValue("ud"), out var ud) ? ud : null;
+    var userAgent = GetValue("ua") ?? context.Request.Headers.UserAgent.ToString();
+
+    // Get client IP (handle proxies)
+    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(forwardedFor))
+    {
+        clientIp = forwardedFor.Split(',')[0].Trim();
+    }
+
+    var result = await service.RecordOpenSpeedTestResultAsync(
+        clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent);
+
+    return Results.Ok(new {
+        success = true,
+        id = result.Id,
+        clientIp = result.ClientIp,
+        clientName = result.ClientName,
+        download = result.DownloadMbps,
+        upload = result.UploadMbps
+    });
+});
+
+app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, int count = 50) =>
+{
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+    return Results.Ok(await service.GetResultsAsync(count));
+});
+
+app.MapGet("/api/speedtest/results/ip/{clientIp}", async (string clientIp, ClientSpeedTestService service, int count = 20) =>
+{
+    if (string.IsNullOrWhiteSpace(clientIp))
+        return Results.BadRequest(new { error = "Invalid client IP" });
+
+    if (count < 1) count = 1;
+    if (count > 1000) count = 1000;
+
+    return Results.Ok(await service.GetResultsByIpAsync(clientIp, count));
 });
 
 // Auth API endpoints

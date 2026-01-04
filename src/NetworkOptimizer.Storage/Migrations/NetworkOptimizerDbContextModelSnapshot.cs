@@ -782,6 +782,92 @@ namespace NetworkOptimizer.Storage.Migrations
 
                     b.ToTable("AdminSettings", (string)null);
                 });
+
+            modelBuilder.Entity("NetworkOptimizer.Storage.Models.ClientSpeedTestResult", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ClientIp")
+                        .IsRequired()
+                        .HasMaxLength(45)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClientMac")
+                        .HasMaxLength(17)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("DownloadDataMb")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("DownloadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("DownloadRetransmits")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("JitterMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("ParallelStreams")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("PingMs")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("RawJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Success")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("TestTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("UploadDataMb")
+                        .HasColumnType("REAL");
+
+                    b.Property<double>("UploadMbps")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("UploadRetransmits")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientIp");
+
+                    b.HasIndex("ClientMac");
+
+                    b.HasIndex("Source");
+
+                    b.HasIndex("TestTime");
+
+                    b.HasIndex("ClientIp", "TestTime");
+
+                    b.ToTable("ClientSpeedTestResults", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }
