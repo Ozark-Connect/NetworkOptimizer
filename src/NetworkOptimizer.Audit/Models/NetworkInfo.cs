@@ -36,6 +36,11 @@ public enum NetworkPurpose
     Management,
 
     /// <summary>
+    /// Printer/scanner network
+    /// </summary>
+    Printer,
+
+    /// <summary>
     /// Unknown or unclassified network
     /// </summary>
     Unknown
@@ -57,6 +62,7 @@ public static class NetworkPurposeExtensions
         NetworkPurpose.Security => "Security",
         NetworkPurpose.Guest => "Guest",
         NetworkPurpose.Management => "Management",
+        NetworkPurpose.Printer => "Printer",
         NetworkPurpose.Unknown => "Unclassified",
         _ => purpose.ToString()
     };

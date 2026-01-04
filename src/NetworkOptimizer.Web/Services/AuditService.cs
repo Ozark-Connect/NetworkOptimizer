@@ -16,7 +16,7 @@ public class AuditService
 {
     // Severity level constants for consistent string comparisons
     private const string SeverityCritical = "Critical";
-    private const string SeverityWarning = "Warning";
+    private const string SeverityRecommended = "Recommended";
     private const string SeverityInfo = "Info";
 
     // Cache keys for IMemoryCache
@@ -136,15 +136,18 @@ public class AuditService
             var allStreaming = await _settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
             var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
+            var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
             options.AllowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
             options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
+            // Printers default to true (allowed) if not set
+            options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
 
-            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}",
+            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
-                options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork);
+                options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork, options.AllowPrintersOnMainNetwork);
         }
         catch (Exception ex)
         {
@@ -247,10 +250,10 @@ public class AuditService
         GetActiveIssues().Count(i => i.Severity == SeverityCritical);
 
     /// <summary>
-    /// Get count of active warning issues
+    /// Get count of active recommended issues
     /// </summary>
-    public int ActiveWarningCount =>
-        GetActiveIssues().Count(i => i.Severity == SeverityWarning);
+    public int ActiveRecommendedCount =>
+        GetActiveIssues().Count(i => i.Severity == SeverityRecommended);
 
     /// <summary>
     /// Clear all dismissed issues (removes from database too)
@@ -381,7 +384,7 @@ public class AuditService
             {
                 Score = cachedResult.Score,
                 CriticalCount = activeIssues.Count(i => i.Severity == SeverityCritical),
-                WarningCount = activeIssues.Count(i => i.Severity == SeverityWarning),
+                WarningCount = activeIssues.Count(i => i.Severity == SeverityRecommended),
                 LastAuditTime = cachedTime.Value,
                 RecentIssues = activeIssues.Take(5).ToList()
             };
@@ -590,7 +593,8 @@ public class AuditService
                 AllowAppleStreamingOnMainNetwork = options.AllowAppleStreamingOnMainNetwork,
                 AllowAllStreamingOnMainNetwork = options.AllowAllStreamingOnMainNetwork,
                 AllowNameBrandTVsOnMainNetwork = options.AllowNameBrandTVsOnMainNetwork,
-                AllowAllTVsOnMainNetwork = options.AllowAllTVsOnMainNetwork
+                AllowAllTVsOnMainNetwork = options.AllowAllTVsOnMainNetwork,
+                AllowPrintersOnMainNetwork = options.AllowPrintersOnMainNetwork
             };
 
             // Run the audit engine with all available data for comprehensive analysis
@@ -647,6 +651,13 @@ public class AuditService
             if (!ShouldInclude(category, options))
                 continue;
 
+            // Extract configurable setting from metadata if present
+            string? configurableSetting = null;
+            if (issue.Metadata?.TryGetValue("configurable_setting", out var settingObj) == true)
+            {
+                configurableSetting = settingObj?.ToString();
+            }
+
             issues.Add(new AuditIssue
             {
                 Severity = ConvertSeverity(issue.Severity),
@@ -668,7 +679,9 @@ public class AuditService
                 ClientName = issue.ClientName,
                 ClientMac = issue.ClientMac,
                 AccessPoint = issue.AccessPoint,
-                WifiBand = issue.WifiBand
+                WifiBand = issue.WifiBand,
+                // Settings link
+                ConfigurableSetting = configurableSetting
             });
         }
 
@@ -676,7 +689,7 @@ public class AuditService
         var severityCounts = issues.GroupBy(i => i.Severity)
             .ToDictionary(g => g.Key, g => g.Count());
         var criticalCount = severityCounts.GetValueOrDefault(SeverityCritical, 0);
-        var warningCount = severityCounts.GetValueOrDefault(SeverityWarning, 0);
+        var warningCount = severityCounts.GetValueOrDefault(SeverityRecommended, 0);
         var infoCount = severityCounts.GetValueOrDefault(SeverityInfo, 0);
 
         // Recalculate score based on FILTERED issues only (excluded features don't affect score)
@@ -906,7 +919,7 @@ public class AuditService
     private static string ConvertSeverity(AuditModels.AuditSeverity severity) => severity switch
     {
         AuditModels.AuditSeverity.Critical => "Critical",
-        AuditModels.AuditSeverity.Recommended => "Warning",
+        AuditModels.AuditSeverity.Recommended => "Recommended",
         AuditModels.AuditSeverity.Informational => "Info",
         _ => "Info"
     };
@@ -1056,6 +1069,7 @@ public class AuditOptions
     public bool AllowAllStreamingOnMainNetwork { get; set; } = false;
     public bool AllowNameBrandTVsOnMainNetwork { get; set; } = false;
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
+    public bool AllowPrintersOnMainNetwork { get; set; } = true;
 }
 
 public class AuditResult
@@ -1145,6 +1159,11 @@ public class AuditIssue
     public string? ClientMac { get; set; }
     public string? AccessPoint { get; set; }
     public string? WifiBand { get; set; }
+    /// <summary>
+    /// Settings key for configurable device allowances (e.g., "printers", "streaming-devices")
+    /// If set, UI shows a link to configure this setting
+    /// </summary>
+    public string? ConfigurableSetting { get; set; }
 }
 
 public class AuditSummary

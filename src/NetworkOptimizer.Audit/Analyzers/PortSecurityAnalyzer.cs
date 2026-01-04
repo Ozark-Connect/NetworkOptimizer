@@ -204,17 +204,22 @@ public class PortSecurityAnalyzer
                 continue;
 
             var key = (client.LastUplinkMac.ToLowerInvariant(), client.LastUplinkRemotePort.Value);
+            var clientName = client.DisplayName ?? client.Name ?? client.Hostname ?? client.Mac;
 
             // Keep the most recently seen client per port
             if (lookup.TryGetValue(key, out var existing))
             {
                 if (client.LastSeen > existing.LastSeen)
                 {
+                    _logger.LogDebug("Client history: {SwitchMac} port {Port} updated from '{OldName}' to '{NewName}'",
+                        client.LastUplinkMac, client.LastUplinkRemotePort, existing.DisplayName ?? existing.Name, clientName);
                     lookup[key] = client;
                 }
             }
             else
             {
+                _logger.LogDebug("Client history: {SwitchMac} port {Port} = '{ClientName}' (MAC: {Mac})",
+                    client.LastUplinkMac, client.LastUplinkRemotePort, clientName, client.Mac);
                 lookup[key] = client;
             }
         }
@@ -344,6 +349,13 @@ public class PortSecurityAnalyzer
             var key = (switchInfo.MacAddress.ToLowerInvariant(), portIdx);
             clientsByPort.TryGetValue(key, out connectedClient);
             historyByPort?.TryGetValue(key, out historicalClient);
+
+            if (historicalClient != null)
+            {
+                var histName = historicalClient.DisplayName ?? historicalClient.Name ?? historicalClient.Hostname;
+                _logger.LogDebug("Port {Switch} port {Port}: matched historical client '{Name}' (MAC: {Mac})",
+                    switchInfo.Name, portIdx, histName, historicalClient.Mac);
+            }
         }
 
         // Extract last_connection info for down ports

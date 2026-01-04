@@ -955,6 +955,14 @@
                 <small class="form-help">All Smart TVs on main/corporate VLANs will show as Info instead of Warning</small>
             </div>
 
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowPrintersOnMainNetwork" />
+                    <span>Allow printers on main network</span>
+                </label>
+                <small class="form-help">When unchecked, printers on main/corporate VLANs will trigger recommendations to move them to a Printer or IoT VLAN</small>
+            </div>
+
             <div class="action-buttons">
                 <button class="btn btn-success" @onclick="SaveAuditSettings" disabled="@savingAuditSettings">
                     @if (savingAuditSettings)
@@ -1111,6 +1119,7 @@
     private bool allowAllStreamingOnMainNetwork = false;
     private bool allowNameBrandTVsOnMainNetwork = false;
     private bool allowAllTVsOnMainNetwork = false;
+    private bool allowPrintersOnMainNetwork = true;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -2146,11 +2155,14 @@
             var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
             var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
+            var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
             allowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
             allowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
+            // Printers default to true if not set
+            allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
         }
         catch (Exception ex)
         {
@@ -2171,6 +2183,7 @@
             await SystemSettings.SetAsync("audit:allowAllStreamingOnMainNetwork", allowAllStreamingOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowNameBrandTVsOnMainNetwork", allowNameBrandTVsOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";

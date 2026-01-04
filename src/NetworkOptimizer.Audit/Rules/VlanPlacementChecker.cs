@@ -104,6 +104,77 @@ public static class VlanPlacementChecker
     }
 
     /// <summary>
+    /// Check if a printer is correctly placed on a Printer or IoT VLAN.
+    /// If a Printer VLAN exists, recommend that. Otherwise recommend IoT.
+    /// Respects AllowPrintersOnMainNetwork setting for severity.
+    /// </summary>
+    /// <param name="currentNetwork">The network the device is currently on</param>
+    /// <param name="allNetworks">All available networks</param>
+    /// <param name="defaultScoreImpact">Default score impact</param>
+    /// <param name="allowanceSettings">Settings for allowing devices on main network</param>
+    /// <returns>Placement result with recommendation</returns>
+    public static PlacementResult CheckPrinterPlacement(
+        NetworkInfo? currentNetwork,
+        List<NetworkInfo> allNetworks,
+        int defaultScoreImpact,
+        DeviceAllowanceSettings? allowanceSettings)
+    {
+        // Printers can be on Printer, IoT, or Security networks
+        var isCorrectlyPlaced = currentNetwork != null &&
+            (currentNetwork.Purpose == NetworkPurpose.Printer ||
+             currentNetwork.Purpose == NetworkPurpose.IoT ||
+             currentNetwork.Purpose == NetworkPurpose.Security);
+
+        // Find the best network to recommend
+        // Priority: Printer VLAN > IoT VLAN
+        var printerNetwork = allNetworks
+            .Where(n => n.Purpose == NetworkPurpose.Printer)
+            .OrderBy(n => n.VlanId)
+            .FirstOrDefault();
+
+        var iotNetwork = allNetworks
+            .Where(n => n.Purpose == NetworkPurpose.IoT)
+            .OrderBy(n => n.VlanId)
+            .FirstOrDefault();
+
+        NetworkInfo? recommendedNetwork;
+        string recommendedLabel;
+
+        if (printerNetwork != null)
+        {
+            recommendedNetwork = printerNetwork;
+            recommendedLabel = $"{printerNetwork.Name} ({printerNetwork.VlanId})";
+        }
+        else if (iotNetwork != null)
+        {
+            recommendedNetwork = iotNetwork;
+            recommendedLabel = $"{iotNetwork.Name} ({iotNetwork.VlanId})";
+        }
+        else
+        {
+            recommendedNetwork = null;
+            recommendedLabel = "Printer or IoT VLAN";
+        }
+
+        // Printers are low-risk but should still be segmented
+        // Check if user allows printers on main network
+        var isAllowed = allowanceSettings?.AllowPrintersOnMainNetwork ?? true;
+
+        // If allowed: Informational (no score impact)
+        // If not allowed: Recommended severity with score impact
+        var severity = isAllowed ? AuditSeverity.Informational : AuditSeverity.Recommended;
+        var scoreImpact = isAllowed ? ScoreConstants.InformationalImpact : defaultScoreImpact;
+
+        return new PlacementResult(
+            IsCorrectlyPlaced: isCorrectlyPlaced,
+            IsLowRisk: true, // Printers are always low-risk
+            RecommendedNetwork: recommendedNetwork,
+            RecommendedNetworkLabel: recommendedLabel,
+            Severity: severity,
+            ScoreImpact: scoreImpact);
+    }
+
+    /// <summary>
     /// Check if a camera/surveillance device is correctly placed on a Security VLAN.
     /// </summary>
     /// <param name="currentNetwork">The network the device is currently on</param>
@@ -159,6 +230,20 @@ public static class VlanPlacementChecker
         if (isLowRisk.HasValue)
         {
             metadata["is_low_risk_device"] = isLowRisk.Value;
+        }
+
+        // Add configurable settings link for device types that have user-configurable allowances
+        var settingsKey = detection.Category switch
+        {
+            ClientDeviceCategory.StreamingDevice => "streaming-devices",
+            ClientDeviceCategory.SmartTV => "smart-tvs",
+            ClientDeviceCategory.Printer => "printers",
+            _ => null
+        };
+
+        if (settingsKey != null)
+        {
+            metadata["configurable_setting"] = settingsKey;
         }
 
         return metadata;

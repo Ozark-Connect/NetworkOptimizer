@@ -18,8 +18,9 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
 
     public override AuditIssue? Evaluate(WirelessClientInfo client, List<NetworkInfo> networks)
     {
-        // Check if this is an IoT device category
-        if (!client.Detection.Category.IsIoT())
+        // Check if this is an IoT or Printer device category
+        var isPrinter = client.Detection.Category == ClientDeviceCategory.Printer;
+        if (!client.Detection.Category.IsIoT() && !isPrinter)
             return null;
 
         // Get the network this client is on
@@ -28,9 +29,11 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
             return null;
 
         // Check placement using shared logic (with device allowance settings)
-        var placement = VlanPlacementChecker.CheckIoTPlacement(
-            client.Detection.Category, network, networks, ScoreImpact,
-            AllowanceSettings, client.Detection.VendorName);
+        var placement = isPrinter
+            ? VlanPlacementChecker.CheckPrinterPlacement(network, networks, ScoreImpact, AllowanceSettings)
+            : VlanPlacementChecker.CheckIoTPlacement(
+                client.Detection.Category, network, networks, ScoreImpact,
+                AllowanceSettings, client.Detection.VendorName);
 
         if (placement.IsCorrectlyPlaced)
             return null;

@@ -774,7 +774,8 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.summary-value.warning {
+.summary-value.warning,
+.summary-value.recommended {
     color: var(--warning-color);
 }
 
@@ -913,7 +914,8 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
-.alert-item.alert-warning {
+.alert-item.alert-warning,
+.alert-item.alert-recommended {
     border-left-color: var(--warning-color);
 }
 
@@ -932,7 +934,8 @@ a.stat-card-link:active {
     color: var(--danger-color);
 }
 
-.alert-item.alert-warning .alert-icon {
+.alert-item.alert-warning .alert-icon,
+.alert-item.alert-recommended .alert-icon {
     color: var(--warning-color);
 }
 
@@ -1623,7 +1626,8 @@ td .btn + .btn {
     border-left-color: var(--danger-color);
 }
 
-.issue-item.issue-warning {
+.issue-item.issue-warning,
+.issue-item.issue-recommended {
     border-left-color: var(--warning-color);
 }
 
@@ -1642,7 +1646,8 @@ td .btn + .btn {
     color: var(--danger-color);
 }
 
-.issue-item.issue-warning .issue-icon {
+.issue-item.issue-warning .issue-icon,
+.issue-item.issue-recommended .issue-icon {
     color: var(--warning-color);
 }
 
@@ -1676,7 +1681,8 @@ td .btn + .btn {
     color: var(--danger-color);
 }
 
-.issue-warning .issue-severity {
+.issue-warning .issue-severity,
+.issue-recommended .issue-severity {
     background: rgba(245, 158, 11, 0.15);
     color: var(--warning-color);
 }
@@ -1700,6 +1706,19 @@ td .btn + .btn {
 
 .issue-action:hover {
     opacity: 1;
+}
+
+.issue-settings-icon {
+    width: 20px;
+    height: 20px;
+    margin-left: 0.5rem;
+    background: transparent;
+    text-decoration: none;
+}
+
+.issue-settings-icon svg {
+    width: 14px;
+    height: 14px;
 }
 
 .issue-title {
@@ -1882,6 +1901,20 @@ td .btn + .btn {
 
     .card-header {
         padding: 0.75rem 1rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    /* Filter tabs mobile - wrap below title, compact sizing */
+    .filter-tabs {
+        width: 100%;
+        gap: 0.25rem;
+        justify-content: flex-start;
+    }
+
+    .filter-tabs .tab {
+        padding: 0.35rem 0.5rem;
+        font-size: 0.8rem;
     }
 
     .card-body {
@@ -3172,7 +3205,8 @@ td .btn + .btn {
     color: var(--danger-color);
 }
 
-.issue-count.warning .count {
+.issue-count.warning .count,
+.issue-count.recommended .count {
     color: var(--warning-color);
 }
 

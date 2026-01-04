@@ -24,6 +24,7 @@ public class VlanAnalyzer
     private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
     // Note: "work" removed - it matches "network" which causes false positives
     private static readonly string[] CorporatePatterns = { "corporate", "office", "business", "enterprise" };
+    private static readonly string[] PrinterPatterns = { "print" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
     {
@@ -215,6 +216,9 @@ public class VlanAnalyzer
         // Word-boundary patterns for Security (e.g., "NoT" should not match "Hotspot")
         else if (SecurityWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Security;
+        // Printer networks before IoT (more specific)
+        else if (PrinterPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Printer;
         else if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.IoT;
         else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
@@ -389,6 +393,14 @@ public class VlanAnalyzer
     public NetworkInfo? FindSecurityNetwork(List<NetworkInfo> networks)
     {
         return networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Security);
+    }
+
+    /// <summary>
+    /// Find the first printer network in the list
+    /// </summary>
+    public NetworkInfo? FindPrinterNetwork(List<NetworkInfo> networks)
+    {
+        return networks.FirstOrDefault(n => n.Purpose == NetworkPurpose.Printer);
     }
 
     /// <summary>

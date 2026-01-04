@@ -28,6 +28,12 @@ public class DeviceAllowanceSettings
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
 
     /// <summary>
+    /// Allow printers on main network. When false, printers on main network
+    /// will be flagged as Informational (should move to IoT or Printer VLAN).
+    /// </summary>
+    public bool AllowPrintersOnMainNetwork { get; set; } = true;
+
+    /// <summary>
     /// Check if a streaming device should be allowed on main network based on vendor.
     /// </summary>
     public bool IsStreamingDeviceAllowed(string? vendor)

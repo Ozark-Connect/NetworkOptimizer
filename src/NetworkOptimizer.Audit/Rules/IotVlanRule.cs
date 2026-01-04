@@ -56,8 +56,9 @@ public class IotVlanRule : AuditRuleBase
             return null;
         }
 
-        // Check if this is an IoT device category
-        if (!detection.Category.IsIoT())
+        // Check if this is an IoT or Printer device category
+        var isPrinter = detection.Category == ClientDeviceCategory.Printer;
+        if (!detection.Category.IsIoT() && !isPrinter)
             return null;
 
         // Get the network this port is on
@@ -66,9 +67,11 @@ public class IotVlanRule : AuditRuleBase
             return null;
 
         // Check placement using shared logic (with device allowance settings)
-        var placement = VlanPlacementChecker.CheckIoTPlacement(
-            detection.Category, network, networks, ScoreImpact,
-            AllowanceSettings, detection.VendorName);
+        var placement = isPrinter
+            ? VlanPlacementChecker.CheckPrinterPlacement(network, networks, ScoreImpact, AllowanceSettings)
+            : VlanPlacementChecker.CheckIoTPlacement(
+                detection.Category, network, networks, ScoreImpact,
+                AllowanceSettings, detection.VendorName);
 
         if (placement.IsCorrectlyPlaced)
             return null;
