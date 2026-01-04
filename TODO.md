@@ -125,6 +125,12 @@ Current limitation: LAN speed tests require SSH access to target devices (UniFi 
   3. Support both patterns in app (check env var first, fall back to config)
 - Low priority but would improve consistency
 
+### Uniform Date/Time Formatting in UI
+- Audit all date/time displays across the UI for consistency
+- Standardize format (e.g., "Jan 4, 2026 3:45 PM" vs "2026-01-04 15:45:00")
+- Consider user timezone preferences
+- Affected areas: Speed test results, audit history, device last seen, logs
+
 ### Replace Severity String Constants with Enums
 - Current: Severity comparisons use string literals like `"Critical"`, `"Recommended"`, `"Informational"`
 - Example: `i.Severity == "Critical"` scattered throughout codebase
