@@ -151,13 +151,6 @@
                 <input type="password" class="form-control" @bind="adminConfirmPassword" @bind:event="oninput" @bind:after="OnAdminPasswordInput" placeholder="Confirm new password" autocomplete="new-password" />
             </div>
 
-            <div class="form-group">
-                <label class="form-check">
-                    <input type="checkbox" @bind="adminPasswordEnabled" />
-                    <span>Enable database password (overrides environment variable)</span>
-                </label>
-            </div>
-
             <div class="action-buttons">
                 <button class="btn btn-primary" @onclick="SaveAdminPassword" disabled="@savingAdminPassword">
                     @if (savingAdminPassword)
@@ -1098,7 +1091,6 @@
     private AdminPasswordSource adminPasswordSource = AdminPasswordSource.None;
     private string adminNewPassword = "";
     private string adminConfirmPassword = "";
-    private bool adminPasswordEnabled = false;
     private bool savingAdminPassword = false;
     private string adminPasswordMessage = "";
     private string adminPasswordMessageClass = "";
@@ -2037,8 +2029,6 @@
         try
         {
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
-            var settings = await AdminAuth.GetAdminSettingsAsync();
-            adminPasswordEnabled = settings?.Enabled ?? false;
         }
         catch (Exception ex)
         {
@@ -2061,10 +2051,10 @@
 
     private void OnAdminPasswordInput()
     {
-        // Auto-enable when user enters matching passwords
-        if (!string.IsNullOrEmpty(adminNewPassword) && adminNewPassword == adminConfirmPassword)
+        // Clear any previous error message when user types
+        if (!string.IsNullOrEmpty(adminPasswordMessage))
         {
-            adminPasswordEnabled = true;
+            adminPasswordMessage = "";
         }
     }
 
@@ -2086,9 +2076,9 @@
 
         try
         {
-            // If enabling without new password, keep existing; otherwise use new password
+            // Save new password (always enabled when setting a password)
             var passwordToSave = string.IsNullOrEmpty(adminNewPassword) ? null : adminNewPassword;
-            await AdminAuth.SaveAdminSettingsAsync(passwordToSave, adminPasswordEnabled);
+            await AdminAuth.SaveAdminSettingsAsync(passwordToSave, true);
 
             // Refresh the source
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
@@ -2120,7 +2110,6 @@
         {
             await AdminAuth.ClearDatabasePasswordAsync();
             adminPasswordSource = await AdminAuth.GetPasswordSourceAsync();
-            adminPasswordEnabled = false;
 
             if (adminPasswordSource == AdminPasswordSource.Environment)
             {
