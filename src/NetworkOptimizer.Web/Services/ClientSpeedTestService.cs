@@ -64,7 +64,8 @@ public class ClientSpeedTestService
             JitterMs = jitterMs,
             UserAgent = userAgent,
             TestTime = DateTime.UtcNow,
-            Success = true
+            Success = true,
+            ParallelStreams = 6  // OpenSpeedTest default: 6 parallel HTTP connections
         };
 
         // Try to look up client info from UniFi
