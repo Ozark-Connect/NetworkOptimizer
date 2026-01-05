@@ -53,6 +53,7 @@ brew install dotnet
 
 # Clone repository
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Build for your architecture
@@ -276,6 +277,7 @@ export PATH="$HOME/.dotnet:$PATH"
 
 # Clone and build
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Create installation directory
@@ -414,6 +416,7 @@ winget install Microsoft.DotNet.SDK.10
 
 # Clone repository
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer
 
 # Build

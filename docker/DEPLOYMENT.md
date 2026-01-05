@@ -34,6 +34,7 @@ sudo usermod -aG docker $USER
 
 # Clone repository
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd network-optimizer/docker
 
 # Configure environment (optional - defaults work out of the box)
@@ -186,6 +187,7 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 
 ```bash
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer/docker
 ```
 

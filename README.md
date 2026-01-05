@@ -76,6 +76,7 @@ Docker Desktop on macOS and Windows adds virtualization overhead that limits net
 
 ```bash
 git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
 cd NetworkOptimizer/docker
 cp .env.example .env
 docker compose up -d
