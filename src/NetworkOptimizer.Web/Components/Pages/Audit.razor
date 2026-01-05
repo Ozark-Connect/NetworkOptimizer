@@ -985,7 +985,7 @@
 
                 // Recommended improvements
                 RecommendedImprovements = issues
-                    .Where(i => i.Severity == "Warning")
+                    .Where(i => i.Severity == "Recommended")
                     .Select(i => new NetworkOptimizer.Reports.AuditIssue
                     {
                         Severity = NetworkOptimizer.Reports.IssueSeverity.Warning,

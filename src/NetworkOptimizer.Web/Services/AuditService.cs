@@ -663,7 +663,7 @@ public class AuditService
             {
                 Severity = ConvertSeverity(issue.Severity),
                 Category = category,
-                Title = GetIssueTitle(issue.Type, issue.Message),
+                Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity),
                 Description = issue.Message,
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
                 // Context fields
@@ -925,9 +925,12 @@ public class AuditService
         _ => "Info"
     };
 
-    private static string GetIssueTitle(string type, string message)
+    private static string GetIssueTitle(string type, string message, Audit.Models.AuditSeverity severity)
     {
         // Extract a short title from the issue type
+        // For informational IoT/Camera issues, use "Possibly" wording
+        var isInformational = severity == Audit.Models.AuditSeverity.Informational;
+
         return type switch
         {
             // Firewall rules
@@ -956,8 +959,10 @@ public class AuditService
             Audit.IssueTypes.IotNetworkNotIsolated => "IoT Network Not Isolated",
             Audit.IssueTypes.SecurityNetworkHasInternet => "Security Network Has Internet",
             Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
-            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" => "IoT Device on Wrong VLAN",
-            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" => "Camera on Wrong VLAN",
+            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" =>
+                isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN",
+            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" =>
+                isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN",
 
             // Port security
             Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
