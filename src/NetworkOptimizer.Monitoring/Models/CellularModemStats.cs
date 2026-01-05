@@ -86,6 +86,11 @@ public class CellularModemStats
     // Computed signal quality (0-100)
     public int SignalQuality => CalculateSignalQuality();
 
+    /// <summary>
+    /// Get the primary signal source (5G if it has data, otherwise LTE)
+    /// </summary>
+    public SignalInfo? PrimarySignal => Nr5g?.Rsrp.HasValue == true ? Nr5g : Lte;
+
     private CellularNetworkMode DetermineNetworkMode()
     {
         bool hasLte = Lte?.Rsrp.HasValue == true;
@@ -113,20 +118,48 @@ public class CellularModemStats
 
     private int CalculateSignalQuality()
     {
-        // Use 5G if available, otherwise LTE
-        var signal = Nr5g ?? Lte;
+        // Use 5G if it has actual data, otherwise LTE
+        var signal = PrimarySignal;
         if (signal == null) return 0;
 
-        // RSRP-based quality: -80 dBm = excellent, -120 dBm = poor
+        // Composite quality using RSRP, RSRQ, and SNR with weighted scoring
+        // RSRP: 50% weight (primary strength indicator)
+        // SNR:  30% weight (signal-to-noise, critical for throughput)
+        // RSRQ: 20% weight (reference signal quality)
+
+        double totalWeight = 0;
+        double weightedScore = 0;
+
+        // RSRP: -80 dBm (excellent) to -120 dBm (poor)
         if (signal.Rsrp.HasValue)
         {
             var rsrp = signal.Rsrp.Value;
-            if (rsrp >= -80) return 100;
-            if (rsrp <= -120) return 0;
-            return (int)((rsrp + 120) * 2.5); // Linear scale
+            var rsrpScore = Math.Clamp((rsrp + 120) * 2.5, 0, 100);
+            weightedScore += rsrpScore * 0.5;
+            totalWeight += 0.5;
         }
 
-        return 50; // Unknown
+        // SNR: 30 dB (excellent) to 0 dB (poor)
+        if (signal.Snr.HasValue)
+        {
+            var snr = signal.Snr.Value;
+            var snrScore = Math.Clamp(snr * (100.0 / 30.0), 0, 100);
+            weightedScore += snrScore * 0.3;
+            totalWeight += 0.3;
+        }
+
+        // RSRQ: -3 dB (excellent) to -20 dB (poor)
+        if (signal.Rsrq.HasValue)
+        {
+            var rsrq = signal.Rsrq.Value;
+            var rsrqScore = Math.Clamp((rsrq + 20) * (100.0 / 17.0), 0, 100);
+            weightedScore += rsrqScore * 0.2;
+            totalWeight += 0.2;
+        }
+
+        if (totalWeight == 0) return 0;
+
+        return (int)(weightedScore / totalWeight);
     }
 }
 
