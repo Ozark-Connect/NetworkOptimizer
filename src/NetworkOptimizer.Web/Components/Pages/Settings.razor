@@ -359,6 +359,7 @@
             <details class="setup-guide" open="@(gatewaySettings?.Enabled != true)">
                 <summary>How to Enable Gateway SSH</summary>
                 <div class="setup-guide-content">
+                    <p><strong>For Cloud Gateways (UCG, UDM, UDM Pro, etc.):</strong></p>
                     <ol>
                         <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
                         <li>Sign in to your controller</li>
@@ -367,6 +368,7 @@
                         <li>Enable <strong>SSH</strong> and set a secure password</li>
                     </ol>
                     <p>Use <code>root</code> as the username and the SSH password you set above.</p>
+                    <p><strong>For UXG (non-Cloud Gateway):</strong> Use the Device SSH credentials below, since the UXG is a separate device from your controller.</p>
                 </div>
             </details>
         </div>

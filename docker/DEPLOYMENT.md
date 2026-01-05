@@ -628,7 +628,7 @@ SSH access is **optional** for Security Audit but **required** for:
 
 #### Gateway SSH (Console SSH)
 
-Enables SSH access to the gateway/console itself (UCG, UDM, etc.):
+Enables SSH access to Cloud Gateways (UCG, UDM, UDM Pro, etc.):
 
 1. Open **UniFi Network**: `https://<gateway-ip>` or `https://unifi.ui.com`
 2. Sign in to your controller
@@ -637,6 +637,8 @@ Enables SSH access to the gateway/console itself (UCG, UDM, etc.):
 5. Enable **SSH** and set a secure password
 
 Use `root` as the username and the password you set above.
+
+**For UXG (non-Cloud Gateway):** Use the Device SSH credentials below, since the UXG is a separate device from your controller.
 
 #### Device SSH (UniFi Network 9.5+)
 
