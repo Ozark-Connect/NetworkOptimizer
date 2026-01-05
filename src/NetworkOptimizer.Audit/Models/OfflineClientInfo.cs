@@ -23,14 +23,15 @@ public class OfflineClientInfo
     public required DeviceDetectionResult Detection { get; init; }
 
     /// <summary>
-    /// Display name for the client (name, hostname, category, or MAC)
+    /// Display name for the client (name, hostname, product, category, or MAC)
     /// </summary>
     public string DisplayName =>
         !string.IsNullOrWhiteSpace(HistoryClient.DisplayName) ? HistoryClient.DisplayName :
         !string.IsNullOrWhiteSpace(HistoryClient.Name) ? HistoryClient.Name :
         !string.IsNullOrWhiteSpace(HistoryClient.Hostname) ? HistoryClient.Hostname :
-        (Detection.Category != Core.Enums.ClientDeviceCategory.Unknown ? Detection.CategoryName : null) ??
-        HistoryClient.Mac ?? "Unknown";
+        !string.IsNullOrWhiteSpace(Detection.ProductName) ? Detection.ProductName :
+        Detection.Category != Core.Enums.ClientDeviceCategory.Unknown ? Detection.CategoryName :
+        !string.IsNullOrWhiteSpace(HistoryClient.Mac) ? HistoryClient.Mac : "Unknown";
 
     /// <summary>
     /// MAC address of the client
