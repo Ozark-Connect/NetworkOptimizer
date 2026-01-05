@@ -1661,6 +1661,8 @@ select.form-control {
     display: flex;
     align-items: flex-start;
     padding-top: 0.125rem;
+    width: 24px;
+    height: 24px;
 }
 
 .issue-item.issue-critical .issue-icon {
@@ -2258,8 +2260,9 @@ select.form-control {
 
     .issue-type-chevron {
         grid-column: 3;
-        grid-row: 1 / -1;
+        grid-row: 2;
         align-self: center;
+        margin-top: -1.75rem;
     }
 
     /* Expanded items - full width context */
