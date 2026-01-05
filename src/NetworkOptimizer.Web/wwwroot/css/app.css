@@ -1938,8 +1938,6 @@ select.form-control {
 
 .issue-type-recommendation {
     padding: 0.75rem 1rem 0.75rem 3.5rem;
-    background: var(--bg-secondary);
-    border-radius: 0 0 var(--border-radius) var(--border-radius);
     font-size: 0.875rem;
     color: var(--text-secondary);
 }
