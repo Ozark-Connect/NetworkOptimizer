@@ -25,7 +25,11 @@ public class OfflineClientInfo
     /// <summary>
     /// Display name for the client (name, hostname, or MAC)
     /// </summary>
-    public string DisplayName => HistoryClient.DisplayName ?? HistoryClient.Name ?? HistoryClient.Hostname ?? HistoryClient.Mac ?? "Unknown";
+    public string DisplayName =>
+        !string.IsNullOrWhiteSpace(HistoryClient.DisplayName) ? HistoryClient.DisplayName :
+        !string.IsNullOrWhiteSpace(HistoryClient.Name) ? HistoryClient.Name :
+        !string.IsNullOrWhiteSpace(HistoryClient.Hostname) ? HistoryClient.Hostname :
+        HistoryClient.Mac ?? "Unknown";
 
     /// <summary>
     /// MAC address of the client

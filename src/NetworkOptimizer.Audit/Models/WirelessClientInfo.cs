@@ -45,7 +45,10 @@ public class WirelessClientInfo
     /// <summary>
     /// Display name for the client (name, hostname, or MAC)
     /// </summary>
-    public string DisplayName => Client.Name ?? Client.Hostname ?? Client.Mac ?? "Unknown";
+    public string DisplayName =>
+        !string.IsNullOrWhiteSpace(Client.Name) ? Client.Name :
+        !string.IsNullOrWhiteSpace(Client.Hostname) ? Client.Hostname :
+        Client.Mac ?? "Unknown";
 
     /// <summary>
     /// MAC address of the client
