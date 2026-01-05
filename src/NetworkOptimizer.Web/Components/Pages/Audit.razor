@@ -210,93 +210,83 @@
                     }
                     else
                     {
-                        @foreach (var categoryGroup in GetGroupedFilteredIssues())
+                        @foreach (var issueTypeGroup in GetGroupedFilteredIssues())
                         {
-                            var isExpanded = expandedCategories.Contains(categoryGroup.Key);
-                            var highestSeverity = GetCategoryHighestSeverity(categoryGroup);
-                            <div class="issue-category-group">
-                                <div class="issue-category-header issue-category-@highestSeverity @(isExpanded ? "expanded" : "")"
-                                     @onclick="() => ToggleCategory(categoryGroup.Key)">
-                                    <span class="category-chevron">@(isExpanded ? "▼" : "▶")</span>
-                                    <span class="category-name">@categoryGroup.Key</span>
-                                    <span class="category-count">(@categoryGroup.Count())</span>
-                                    <span class="category-severity-summary">@GetCategorySeveritySummary(categoryGroup)</span>
+                            var isExpanded = expandedIssueTypes.Contains(issueTypeGroup.Key);
+                            var highestSeverity = GetIssueTypeHighestSeverity(issueTypeGroup);
+                            var firstIssue = issueTypeGroup.First();
+                            <div class="issue-type-group">
+                                <div class="issue-type-header issue-type-@highestSeverity @(isExpanded ? "expanded" : "")"
+                                     @onclick="() => ToggleIssueType(issueTypeGroup.Key)">
+                                    <div class="issue-type-icon">
+                                        @((MarkupString)GetSeverityIcon(highestSeverity))
+                                    </div>
+                                    <span class="issue-type-chevron">@(isExpanded ? "▼" : "▶")</span>
+                                    <span class="issue-type-name">@issueTypeGroup.Key</span>
+                                    <span class="issue-type-count">(@issueTypeGroup.Count())</span>
+                                    @if (!string.IsNullOrEmpty(firstIssue.ConfigurableSetting))
+                                    {
+                                        <span class="tooltip-wrapper">
+                                            <a href="/settings#security-audit" class="tooltip-icon issue-settings-icon" @onclick:stopPropagation="true">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                                                </svg>
+                                            </a>
+                                            <span class="tooltip-content">
+                                                <strong>Configurable Alert</strong><br/>
+                                                You can adjust how this device type is treated when found on your main network(s).
+                                                <a href="/settings#security-audit">Configure in Settings →</a>
+                                            </span>
+                                        </span>
+                                    }
                                 </div>
                                 <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                     <div class="expand-content">
-                                        <div class="category-issues-list">
-                                            @foreach (var issue in categoryGroup)
+                                        <div class="issue-type-items-list">
+                                            @foreach (var issue in issueTypeGroup)
                                             {
-                                                <div class="issue-item issue-@issue.Severity.ToLower()">
-                                                    <div class="issue-icon">
-                                                        @((MarkupString)GetSeverityIcon(issue.Severity))
-                                                    </div>
-                                                    <div class="issue-body">
-                                                        <div class="issue-header">
-                                                            <span class="issue-severity">@issue.Severity</span>
-                                                            @if (!string.IsNullOrEmpty(issue.ConfigurableSetting))
+                                                var parsed = DisplayFormatters.ParseDeviceOnNetworkDevice(issue.DeviceName);
+                                                <div class="issue-type-item">
+                                                    <div class="issue-type-item-content">
+                                                        <div class="issue-type-item-details">
+                                                            @if (!string.IsNullOrEmpty(parsed.ClientName))
                                                             {
-                                                                <span class="tooltip-wrapper">
-                                                                    <a href="/settings#security-audit" class="tooltip-icon issue-settings-icon">
-                                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                                            <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
-                                                                        </svg>
-                                                                    </a>
-                                                                    <span class="tooltip-content">
-                                                                        <strong>Configurable Alert</strong><br/>
-                                                                        You can adjust how this device type is treated when found on your main network(s).
-                                                                        <a href="/settings#security-audit">Configure in Settings →</a>
-                                                                    </span>
-                                                                </span>
+                                                                <span class="detail-item"><strong>@parsed.ClientName</strong></span>
                                                             }
-                                                            <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                                Dismiss
-                                                            </button>
+                                                            @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
+                                                            {
+                                                                <span class="detail-item">on @DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType) @parsed.NetworkDeviceName</span>
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(issue.Port))
+                                                            {
+                                                                <span class="detail-item">Port @issue.Port</span>
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(issue.PortName))
+                                                            {
+                                                                <span class="detail-item">(@issue.PortName)</span>
+                                                            }
+                                                            @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
+                                                            {
+                                                                <span class="detail-item">@issue.WifiBand</span>
+                                                            }
+                                                            @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
+                                                            {
+                                                                <span class="detail-item detail-network">@issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                                            }
                                                         </div>
-                                                        <div class="issue-title">@issue.Title</div>
-                                                        <div class="issue-description">@issue.Description</div>
-
-                                                        @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
-                                                        {
-                                                            var parsed = DisplayFormatters.ParseDeviceOnNetworkDevice(issue.DeviceName);
-                                                            <div class="issue-context">
-                                                                @if (!string.IsNullOrEmpty(parsed.ClientName))
-                                                                {
-                                                                    <span class="context-item"><strong>Device:</strong> @parsed.ClientName</span>
-                                                                }
-                                                                @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
-                                                                {
-                                                                    <span class="context-item"><strong>@DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType)</strong> @parsed.NetworkDeviceName</span>
-                                                                }
-                                                                @if (!string.IsNullOrEmpty(issue.Port))
-                                                                {
-                                                                    <span class="context-item"><strong>Port:</strong> @issue.Port</span>
-                                                                }
-                                                                @if (!string.IsNullOrEmpty(issue.PortName))
-                                                                {
-                                                                    <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
-                                                                }
-                                                                @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
-                                                                {
-                                                                    <span class="context-item"><strong>Band:</strong> @issue.WifiBand</span>
-                                                                }
-                                                                @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
-                                                                {
-                                                                    <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
-                                                                }
-                                                            </div>
-                                                        }
-
-                                                        @if (!string.IsNullOrEmpty(issue.Recommendation))
-                                                        {
-                                                            <div class="issue-recommendation">
-                                                                <strong>Recommendation:</strong> @issue.Recommendation
-                                                            </div>
-                                                        }
+                                                        <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                            Dismiss
+                                                        </button>
                                                     </div>
                                                 </div>
                                             }
                                         </div>
+                                        @if (!string.IsNullOrEmpty(firstIssue.Recommendation))
+                                        {
+                                            <div class="issue-type-recommendation">
+                                                <strong>Recommendation:</strong> @firstIssue.Recommendation
+                                            </div>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -691,8 +681,8 @@
     private List<Services.AuditIssue> dismissedIssues = new();
     private Services.AuditResult? lastResult;
 
-    // Collapsible category state - starts collapsed by default
-    private HashSet<string> expandedCategories = new();
+    // Collapsible issue type state - starts collapsed by default
+    private HashSet<string> expandedIssueTypes = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -1056,38 +1046,34 @@
 
     private IEnumerable<IGrouping<string, Services.AuditIssue>> GetGroupedFilteredIssues()
     {
+        // Group by exact issue type (Title), so all "Missing MAC Restriction" issues are together
         return GetFilteredIssues()
-            .GroupBy(i => i.Category)
-            .OrderBy(g => GetCategorySortOrder(g.Key))
+            .GroupBy(i => i.Title)
+            .OrderBy(g => GetIssueTypeSeverityOrder(g))
             .ThenBy(g => g.Key);
     }
 
-    private int GetCategorySortOrder(string category)
+    private int GetIssueTypeSeverityOrder(IGrouping<string, Services.AuditIssue> group)
     {
-        // Sort categories by priority: VLAN Security first, then Firewall, etc.
-        return category switch
-        {
-            "VLAN Security" => 1,
-            "Firewall Rules" => 2,
-            "Port Security" => 3,
-            "DNS Security" => 4,
-            _ => 5
-        };
+        // Sort by highest severity in the group: Critical first, then Recommended, then Info
+        if (group.Any(i => i.Severity == "Critical")) return 1;
+        if (group.Any(i => i.Severity == "Recommended")) return 2;
+        return 3;
     }
 
-    private void ToggleCategory(string category)
+    private void ToggleIssueType(string issueType)
     {
-        if (expandedCategories.Contains(category))
-            expandedCategories.Remove(category);
+        if (expandedIssueTypes.Contains(issueType))
+            expandedIssueTypes.Remove(issueType);
         else
-            expandedCategories.Add(category);
+            expandedIssueTypes.Add(issueType);
     }
 
-    private string GetCategorySeveritySummary(IGrouping<string, Services.AuditIssue> categoryGroup)
+    private string GetIssueTypeSeveritySummary(IGrouping<string, Services.AuditIssue> issueGroup)
     {
-        var criticals = categoryGroup.Count(i => i.Severity == "Critical");
-        var recommended = categoryGroup.Count(i => i.Severity == "Recommended");
-        var infos = categoryGroup.Count(i => i.Severity == "Info" || i.Severity == "Informational");
+        var criticals = issueGroup.Count(i => i.Severity == "Critical");
+        var recommended = issueGroup.Count(i => i.Severity == "Recommended");
+        var infos = issueGroup.Count(i => i.Severity == "Info" || i.Severity == "Informational");
 
         var parts = new List<string>();
         if (criticals > 0) parts.Add($"{criticals} Critical");
@@ -1097,10 +1083,10 @@
         return string.Join(", ", parts);
     }
 
-    private string GetCategoryHighestSeverity(IGrouping<string, Services.AuditIssue> categoryGroup)
+    private string GetIssueTypeHighestSeverity(IGrouping<string, Services.AuditIssue> issueGroup)
     {
-        if (categoryGroup.Any(i => i.Severity == "Critical")) return "critical";
-        if (categoryGroup.Any(i => i.Severity == "Recommended")) return "recommended";
+        if (issueGroup.Any(i => i.Severity == "Critical")) return "critical";
+        if (issueGroup.Any(i => i.Severity == "Recommended")) return "recommended";
         return "info";
     }
 
