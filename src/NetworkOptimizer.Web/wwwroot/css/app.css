@@ -1810,15 +1810,16 @@ select.form-control {
     border-radius: var(--border-radius) var(--border-radius) 0 0;
 }
 
-.issue-type-critical {
+/* Issue type group severity colors - uses same classes as issue-item */
+.issue-type-group.issue-critical .issue-type-header {
     border-left-color: var(--danger-color);
 }
 
-.issue-type-recommended {
+.issue-type-group.issue-recommended .issue-type-header {
     border-left-color: var(--warning-color);
 }
 
-.issue-type-info {
+.issue-type-group.issue-info .issue-type-header {
     border-left-color: var(--info-color);
 }
 
@@ -1836,16 +1837,30 @@ select.form-control {
     height: 20px;
 }
 
-.issue-type-critical .issue-type-icon {
+.issue-type-group.issue-critical .issue-type-icon {
     color: var(--danger-color);
 }
 
-.issue-type-recommended .issue-type-icon {
+.issue-type-group.issue-recommended .issue-type-icon {
     color: var(--warning-color);
 }
 
-.issue-type-info .issue-type-icon {
+.issue-type-group.issue-info .issue-type-icon {
     color: var(--info-color);
+}
+
+.issue-type-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.issue-type-body .issue-title {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .issue-type-chevron {
