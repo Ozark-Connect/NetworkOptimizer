@@ -1853,8 +1853,8 @@ select.form-control {
 }
 
 .issue-type-icon svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
 }
 
 .issue-type-group.issue-critical .issue-type-icon {
