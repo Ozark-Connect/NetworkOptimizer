@@ -127,6 +127,11 @@ public class CameraVlanRule : AuditRuleBase
             {
                 deviceName = $"{clientName} on {port.Switch.Name}";
             }
+            else if (!string.IsNullOrEmpty(detection.ProductName))
+            {
+                // Use specific product name from detection (e.g., "G6 Pro Bullet" from Protect API)
+                deviceName = $"{detection.ProductName} on {port.Switch.Name}";
+            }
             else
             {
                 // Fall back to OUI (manufacturer) with MAC suffix, or detection vendor, or just MAC

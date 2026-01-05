@@ -126,6 +126,11 @@ public class IotVlanRule : AuditRuleBase
             {
                 deviceName = $"{clientName} on {port.Switch.Name}";
             }
+            else if (!string.IsNullOrEmpty(detection.ProductName))
+            {
+                // Use specific product name from detection (e.g., device name from API)
+                deviceName = $"{detection.ProductName} on {port.Switch.Name}";
+            }
             else
             {
                 // Fall back to OUI (manufacturer) with MAC suffix, or detection vendor, or just MAC

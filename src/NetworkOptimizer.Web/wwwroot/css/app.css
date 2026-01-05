@@ -1872,17 +1872,8 @@ select.form-control {
 .issue-type-items-list {
     display: flex;
     flex-direction: column;
-    background: var(--bg-tertiary);
-    border-top: 1px solid var(--border-color);
-}
-
-.issue-type-item {
-    padding: 0.5rem 1rem 0.5rem 3.5rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.issue-type-item:last-child {
-    border-bottom: none;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem 0.75rem 3.5rem;
 }
 
 .issue-type-item .issue-context {
@@ -1890,6 +1881,20 @@ select.form-control {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    margin: 0;
+}
+
+.issue-type-item .issue-context .context-item {
+    display: inline-flex;
+    gap: 0.25rem;
+}
+
+.issue-type-item .issue-context .context-item strong {
+    color: var(--text-muted);
 }
 
 .issue-type-item .issue-action {
