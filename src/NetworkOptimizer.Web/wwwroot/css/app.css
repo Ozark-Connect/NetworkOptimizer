@@ -1885,29 +1885,15 @@ select.form-control {
     border-bottom: none;
 }
 
-.issue-type-item-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.issue-type-item-details {
+.issue-type-item .issue-context {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.375rem;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
+    gap: 0.5rem 1rem;
 }
 
-.issue-type-item-details .detail-item {
-    white-space: nowrap;
-}
-
-.issue-type-item-details .detail-network {
-    color: var(--text-muted);
-    font-size: 0.8rem;
+.issue-type-item .issue-action {
+    margin-left: auto;
 }
 
 .issue-type-recommendation {

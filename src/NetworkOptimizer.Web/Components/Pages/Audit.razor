@@ -329,45 +329,47 @@
                                                                        !string.IsNullOrEmpty(parsed.NetworkDeviceName) ||
                                                                        !string.IsNullOrEmpty(issue.Port);
                                                     <div class="issue-type-item">
-                                                        <div class="issue-type-item-content">
-                                                            <div class="issue-type-item-details">
-                                                                @if (hasDeviceInfo)
+                                                        @if (hasDeviceInfo)
+                                                        {
+                                                            <div class="issue-context">
+                                                                @if (!string.IsNullOrEmpty(parsed.ClientName))
                                                                 {
-                                                                    @if (!string.IsNullOrEmpty(parsed.ClientName))
-                                                                    {
-                                                                        <span class="detail-item"><strong>@parsed.ClientName</strong></span>
-                                                                    }
-                                                                    @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
-                                                                    {
-                                                                        <span class="detail-item">on @DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType) @parsed.NetworkDeviceName</span>
-                                                                    }
-                                                                    @if (!string.IsNullOrEmpty(issue.Port))
-                                                                    {
-                                                                        <span class="detail-item">Port @issue.Port</span>
-                                                                    }
-                                                                    @if (!string.IsNullOrEmpty(issue.PortName))
-                                                                    {
-                                                                        <span class="detail-item">(@issue.PortName)</span>
-                                                                    }
-                                                                    @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
-                                                                    {
-                                                                        <span class="detail-item">@issue.WifiBand</span>
-                                                                    }
-                                                                    @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
-                                                                    {
-                                                                        <span class="detail-item detail-network">@issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
-                                                                    }
+                                                                    <span class="context-item"><strong>Device:</strong> @parsed.ClientName</span>
                                                                 }
-                                                                else
+                                                                @if (!string.IsNullOrEmpty(parsed.NetworkDeviceName))
                                                                 {
-                                                                    // No device info (e.g., firewall rules) - show description
-                                                                    <span class="detail-item">@issue.Description</span>
+                                                                    <span class="context-item"><strong>@DisplayFormatters.GetNetworkDeviceLabel(parsed.DeviceType)</strong> @parsed.NetworkDeviceName</span>
                                                                 }
+                                                                @if (!string.IsNullOrEmpty(issue.Port))
+                                                                {
+                                                                    <span class="context-item"><strong>Port:</strong> @issue.Port</span>
+                                                                }
+                                                                @if (!string.IsNullOrEmpty(issue.PortName))
+                                                                {
+                                                                    <span class="context-item"><strong>Port Name:</strong> @issue.PortName</span>
+                                                                }
+                                                                @if (issue.IsWireless && !string.IsNullOrEmpty(issue.WifiBand))
+                                                                {
+                                                                    <span class="context-item"><strong>Band:</strong> @issue.WifiBand</span>
+                                                                }
+                                                                @if (!string.IsNullOrEmpty(issue.CurrentNetwork))
+                                                                {
+                                                                    <span class="context-item"><strong>Network:</strong> @issue.CurrentNetwork@(issue.CurrentVlan.HasValue ? $" (VLAN {issue.CurrentVlan})" : "")</span>
+                                                                }
+                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                    Dismiss
+                                                                </button>
                                                             </div>
-                                                            <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
-                                                                Dismiss
-                                                            </button>
-                                                        </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="issue-context">
+                                                                <span class="context-item">@issue.Description</span>
+                                                                <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
+                                                                    Dismiss
+                                                                </button>
+                                                            </div>
+                                                        }
                                                     </div>
                                                 }
                                             </div>
