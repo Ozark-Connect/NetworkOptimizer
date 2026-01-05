@@ -626,27 +626,32 @@ SSH access is **optional** for Security Audit but **required** for:
 
 **Important:** Both SSH settings must be configured via the UniFi Network web interface. These options are not available in the iOS or Android UniFi apps.
 
-#### Console SSH (UniFi Network 9.5+)
+#### Gateway SSH (Console SSH)
 
-Enables SSH access to the controller/console itself (UCG, UDM, etc.):
+Enables SSH access to the gateway/console itself (UCG, UDM, etc.):
 
-1. Open **UniFi Network** in a web browser
-2. Go to **Settings** (gear icon)
-3. Navigate to **Control Plane** > **Console**
-4. Find **SSH** and enable it
-5. Set a password
+1. Open **UniFi Network**: `https://<gateway-ip>` or `https://unifi.ui.com`
+2. Sign in to your controller
+3. Click **Settings** at the bottom of the side menu
+4. Navigate to **Control Plane** → **Console**
+5. Enable **SSH** and set a secure password
+
+Use `root` as the username and the password you set above.
 
 #### Device SSH (UniFi Network 9.5+)
 
 Enables SSH access to adopted devices (switches, access points):
 
-1. Open **UniFi Network** in a web browser
-2. Go to **UniFi Devices** in the left sidebar
-3. Scroll to the bottom of the left-hand menu and click **Device Updates and Settings**
-4. Select **Device SSH Settings**
-5. Check **Device SSH Authentication**
-6. Set username and password
-7. Optionally add SSH keys (recommended for better security)
+1. Open **UniFi Network**: `https://<gateway-ip>` or `https://unifi.ui.com`
+2. Sign in to your controller
+3. Click **UniFi Devices** on the side menu
+4. In the left-hand filter menu, select **Device Updates and Settings** at the bottom
+5. Expand **Device SSH Settings** at the bottom
+6. Check **Device SSH Authentication**
+7. Set a username and secure password (optionally add SSH public keys)
+8. Save
+
+**Note:** This is a separate credential from Gateway SSH.
 
 ### Testing SSH Access
 

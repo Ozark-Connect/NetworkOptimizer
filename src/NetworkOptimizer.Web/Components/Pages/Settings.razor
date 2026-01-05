@@ -355,6 +355,20 @@
                     Last tested: @gatewaySettings.LastTestedAt?.ToString("g") - @gatewaySettings.LastTestResult
                 </div>
             }
+
+            <details class="setup-guide" open="@(gatewaySettings?.Enabled != true)">
+                <summary>How to Enable Gateway SSH</summary>
+                <div class="setup-guide-content">
+                    <ol>
+                        <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
+                        <li>Sign in to your controller</li>
+                        <li>Click <strong>Settings</strong> on the bottom portion of the side menu</li>
+                        <li>Navigate to <strong>Control Plane</strong> → <strong>Console</strong></li>
+                        <li>Enable <strong>SSH</strong> and set a secure password</li>
+                    </ol>
+                    <p>Use <code>root</code> as the username and the SSH password you set above.</p>
+                </div>
+            </details>
         </div>
     </div>
 
@@ -442,6 +456,23 @@
                     Last tested: @sshSettings.LastTestedAt?.ToString("g") - @sshSettings.LastTestResult
                 </div>
             }
+
+            <details class="setup-guide" open="@(sshSettings?.Enabled != true)">
+                <summary>How to Enable Device SSH</summary>
+                <div class="setup-guide-content">
+                    <ol>
+                        <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
+                        <li>Sign in to your controller</li>
+                        <li>Click <strong>UniFi Devices</strong> on the side menu</li>
+                        <li>In the left-hand filter menu, select <strong>Device Updates and Settings</strong> at the bottom</li>
+                        <li>Expand <strong>Device SSH Settings</strong> at the bottom</li>
+                        <li>Check <strong>Device SSH Authentication</strong></li>
+                        <li>Set a username and secure password (optionally add SSH public keys)</li>
+                        <li>Save</li>
+                    </ol>
+                    <p><strong>Note:</strong> This is a separate credential from Gateway SSH.</p>
+                </div>
+            </details>
         </div>
     </div>
 
