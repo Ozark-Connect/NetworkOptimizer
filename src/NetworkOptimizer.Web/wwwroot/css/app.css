@@ -2229,9 +2229,11 @@ select.form-control {
     /* Collapsible group header - match single item layout */
     .issue-type-header {
         display: grid;
-        grid-template-columns: auto 1fr auto;
+        grid-template-columns: auto 1fr;
         column-gap: 0.5rem;
         row-gap: 0.25rem;
+        position: relative;
+        padding-right: 2rem;
     }
 
     .issue-type-icon {
@@ -2259,10 +2261,10 @@ select.form-control {
     }
 
     .issue-type-chevron {
-        grid-column: 3;
-        grid-row: 2;
-        align-self: center;
-        margin-top: -1.75rem;
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
     }
 
     /* Expanded items - full width context */
