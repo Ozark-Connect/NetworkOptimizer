@@ -2283,6 +2283,10 @@ select.form-control {
     .issue-type-item .issue-context .context-item {
         width: 100%;
     }
+
+    .issue-type-item .issue-action {
+        margin-top: 0.5rem;
+    }
 }
 
 /* Utility Classes */
