@@ -3,8 +3,8 @@
 	xmlns:xlink="http://www.w3.org/1999/xlink"
     class="openSpeedtestApp">
 	<!-- Ozark Connect Logo -->
-	<symbol id="ozark-logo" viewBox="0 0 800 200">
-		<image href="assets/images/ozark-connect-logo.png" x="0" y="0" width="800" height="200" preserveAspectRatio="xMidYMid meet"/>
+	<symbol id="ozark-logo" viewBox="0 0 1400 1002">
+		<image href="assets/images/ozark-connect-logo.svg" x="0" y="0" width="1400" height="1002" preserveAspectRatio="xMidYMid meet"/>
 	</symbol>
 	<symbol id="logo" viewBox="0 0 262.79 50.38">
 		<a target="_blank" href="http://openspeedtest.com?ref=Self-Hosted-Intro&amp;run=5">
@@ -338,7 +338,7 @@
 					</use>
 				</g>
 				<g id="intro-Desk">
-					<use id="logo-Desk" xlink:href="#ozark-logo" x="20" y="120" width="250" height="80"></use>
+					<use id="logo-Desk" xlink:href="#ozark-logo" x="45" y="115" width="200" height="143"></use>
 					<use id="deskStart" class="deskStart" xlink:href="#mainGaugebg" x="10.28" y="36.11" width="273.94" height="245.39"></use>
 					<use xlink:href="#resultCard" class="Cards" x="307.4" y="31" width="278.1" height="85.5"></use>
 					<use xlink:href="#resultCard" class="Cards" x="307.4" y="228.5" width="278.1" height="85.5"></use>
@@ -440,7 +440,7 @@
 				<g id="intro-Mob">
 					<use id="nightmode-Mob"  class="darkmode" onclick="toggleSkin()" xlink:href="#dark" x="10" y="25" width="30" height="30"></use>
 					<use id="daymode-Mob"  class="darkmode" onclick="toggleSkin()" xlink:href="#light" x="10" y="25" width="30" height="30"></use>
-					<use id="logo-Mob" xlink:href="#ozark-logo" x="25" y="95" width="245" height="75"></use>
+					<use id="logo-Mob" xlink:href="#ozark-logo" x="48" y="90" width="200" height="143"></use>
 					<use id="deskStartMob" class="deskStart" xlink:href="#mainGaugebg" x="11.18" y="12" width="273.94" height="245.39"></use>
 					<use id="startButtonMob" class="startButton" xlink:href="#playButton" x="125" y="280" width="50.2" height="50.2">
 						<title id="title1">Click here to run a speed!</title>
