@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace NetworkOptimizer.Audit;
 
 /// <summary>
@@ -6,6 +8,9 @@ namespace NetworkOptimizer.Audit;
 /// </summary>
 public static class DeviceNameHints
 {
+    // Word boundary pattern for short keywords that could match within other words
+    private static readonly Regex ApWordBoundaryRegex = new(@"\bap\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>
     /// Keywords that suggest an IoT device
     /// </summary>
@@ -46,14 +51,20 @@ public static class DeviceNameHints
     }
 
     /// <summary>
-    /// Check if a port name suggests an access point
+    /// Check if a port name suggests an access point.
+    /// Uses word boundary matching for "ap" to avoid false positives like "application" or "laptop".
     /// </summary>
     public static bool IsAccessPointName(string? portName)
     {
         if (string.IsNullOrEmpty(portName))
             return false;
 
+        // Use word boundary regex for "ap" to avoid false positives
+        if (ApWordBoundaryRegex.IsMatch(portName))
+            return true;
+
+        // Check other hints with simple contains (they're long enough to be unambiguous)
         var nameLower = portName.ToLowerInvariant();
-        return AccessPointHints.Any(hint => nameLower.Contains(hint));
+        return nameLower.Contains("access point") || nameLower.Contains("wifi");
     }
 }

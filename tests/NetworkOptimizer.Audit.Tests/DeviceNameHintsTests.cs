@@ -125,7 +125,10 @@ public class DeviceNameHintsTests
     [InlineData("Smart TV")]
     [InlineData("Camera")]
     [InlineData("Printer")]
-    // Note: "Application Server" would return true due to "ap" substring - see bug note below
+    [InlineData("Application Server")]  // "ap" in middle of word - should NOT match
+    [InlineData("laptop")]              // "ap" in middle of word - should NOT match
+    [InlineData("Laptop-Work")]         // "ap" in middle of word - should NOT match
+    [InlineData("snapshot")]            // "ap" in middle of word - should NOT match
     public void IsAccessPointName_WithNonAPName_ReturnsFalse(string portName)
     {
         DeviceNameHints.IsAccessPointName(portName).Should().BeFalse();
@@ -139,8 +142,16 @@ public class DeviceNameHintsTests
         DeviceNameHints.IsAccessPointName("wifi").Should().BeTrue();
     }
 
-    // NOTE: Current implementation has false positives - "ap" matches "application", "laptop", etc.
-    // This is a known limitation. Tests above only cover expected/correct matches.
+    [Theory]
+    [InlineData("AP")]           // Standalone
+    [InlineData("AP-01")]        // With suffix
+    [InlineData("Office-AP")]    // With prefix
+    [InlineData("ap")]           // Lowercase standalone
+    [InlineData("My AP Here")]   // In middle as word
+    public void IsAccessPointName_WithWordBoundaryAP_ReturnsTrue(string portName)
+    {
+        DeviceNameHints.IsAccessPointName(portName).Should().BeTrue();
+    }
 
     #endregion
 }
