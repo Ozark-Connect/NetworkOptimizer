@@ -41,6 +41,7 @@ public class UniFiApiClient : IDisposable
     private bool _isAuthenticated = false;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
+    private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
     private string? _lastLoginError;
 
     /// <summary>
@@ -106,6 +107,57 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Detects whether this is a UniFi OS controller or standalone Network controller
+    /// by checking the login page endpoints.
+    /// - UniFi OS (UDM/UCG): GET /login returns 200 → use /api/auth/login
+    /// - Standalone Network: GET /login returns 404, /manage/account/login exists → use /api/login
+    /// </summary>
+    private async Task DetectLoginTypeAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Detecting login type (UniFi OS vs standalone Network controller)...");
+
+        try
+        {
+            // Try GET /login - UniFi OS returns 200, standalone returns 404
+            var response = await _httpClient!.GetAsync($"{_controllerUrl}/login", cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                // UniFi OS - use /api/auth/login
+                _useStandaloneLogin = false;
+                _logger.LogDebug("Detected UniFi OS login page - will use /api/auth/login");
+                return;
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                // Check for standalone Network controller login page
+                _logger.LogDebug("GET /login returned 404, checking for standalone Network controller...");
+
+                var manageResponse = await _httpClient!.GetAsync(
+                    $"{_controllerUrl}/manage/account/login",
+                    cancellationToken);
+
+                if (manageResponse.IsSuccessStatusCode)
+                {
+                    // Standalone Network controller - use /api/login
+                    _useStandaloneLogin = true;
+                    _logger.LogInformation("Detected standalone UniFi Network controller - will use /api/login");
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
+        }
+
+        // Default to UniFi OS (most common modern scenario)
+        _useStandaloneLogin = false;
+        _logger.LogDebug("Defaulting to UniFi OS login endpoint");
+    }
+
+    /// <summary>
     /// Authenticates with the UniFi controller using cookie-based auth (like a browser)
     /// </summary>
     public async Task<bool> LoginAsync(CancellationToken cancellationToken = default)
@@ -124,6 +176,9 @@ public class UniFiApiClient : IDisposable
             // Reset client to clear old cookies
             InitializeHttpClient();
 
+            // Detect which login endpoint to use
+            await DetectLoginTypeAsync(cancellationToken);
+
             var loginRequest = new UniFiLoginRequest
             {
                 Username = _username,
@@ -132,7 +187,13 @@ public class UniFiApiClient : IDisposable
                 Strict = true
             };
 
-            var loginUrl = $"{_controllerUrl}/api/auth/login";
+            // Use appropriate login endpoint based on controller type
+            var loginUrl = _useStandaloneLogin
+                ? $"{_controllerUrl}/api/login"
+                : $"{_controllerUrl}/api/auth/login";
+
+            _logger.LogDebug("Using login endpoint: {LoginUrl}", loginUrl);
+
             var content = new StringContent(
                 JsonSerializer.Serialize(loginRequest),
                 Encoding.UTF8,
@@ -386,6 +447,11 @@ public class UniFiApiClient : IDisposable
     /// Gets whether this is a UniFi OS device (UDM/UCG)
     /// </summary>
     public bool IsUniFiOs => _isUniFiOs;
+
+    /// <summary>
+    /// Gets whether this is a standalone Network controller (uses /api/login instead of /api/auth/login)
+    /// </summary>
+    public bool IsStandaloneNetworkController => _useStandaloneLogin;
 
     /// <summary>
     /// Executes an API call with automatic re-authentication on 401/403
