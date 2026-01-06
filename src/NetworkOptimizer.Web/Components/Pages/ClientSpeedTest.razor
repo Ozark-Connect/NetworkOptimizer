@@ -593,11 +593,8 @@
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
 
-        // Build health check URL (always internal HTTP - for server-side reachability check)
-        if (!string.IsNullOrEmpty(hostName))
-            openSpeedTestHealthCheckUrl = $"http://{hostName}:{openSpeedTestPort}";
-        else if (!string.IsNullOrEmpty(hostIp))
-            openSpeedTestHealthCheckUrl = $"http://{hostIp}:{openSpeedTestPort}";
+        // Build health check URL - always use localhost (most reliable with host networking)
+        openSpeedTestHealthCheckUrl = $"http://localhost:{openSpeedTestPort}";
 
         // Build display URL - prefer HTTPS when configured, else HTTP
         if (!string.IsNullOrEmpty(openSpeedTestHost))
