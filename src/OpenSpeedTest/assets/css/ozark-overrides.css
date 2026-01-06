@@ -36,27 +36,43 @@
     stroke: var(--ozark-primary) !important;
 }
 
-/* Download/Upload result cards */
+/* Download graph - solid blue */
 .line {
     fill: var(--ozark-primary) !important;
 }
 
+/* Upload graph - solid orange */
 .line2 {
     fill: var(--ozark-accent) !important;
 }
 
-/* Start button hover effect */
-#startBtn:hover {
+/* Override the graph symbols to not use gradient */
+#graphc1,
+#graphc2 {
+    fill: none !important;
+}
+
+/* Start button - solid blue instead of gradient */
+.startButton {
     fill: var(--ozark-primary) !important;
 }
 
-/* Override gradient definitions in SVG */
-svg linearGradient#gradient stop:first-child {
-    stop-color: var(--ozark-primary) !important;
+.startButton:hover {
+    fill: #0447a3 !important;
 }
 
-svg linearGradient#gradient stop:last-child {
-    stop-color: var(--ozark-accent) !important;
+/* Settings icon */
+.Startsettings {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Progress bar colors */
+.intro-Progress {
+    stroke: var(--ozark-primary) !important;
+}
+
+.progressElmstart {
+    stroke: var(--ozark-primary) !important;
 }
 
 /* Hide OpenSpeedTest logo and replace with Ozark Connect logo */
