@@ -686,8 +686,7 @@ public class AuditService
             .ToDictionary(g => g.Key, g => g.Count());
         var criticalCount = severityCounts.GetValueOrDefault(AuditModels.AuditSeverity.Critical, 0);
         var warningCount = severityCounts.GetValueOrDefault(AuditModels.AuditSeverity.Recommended, 0);
-        var infoCount = severityCounts.GetValueOrDefault(AuditModels.AuditSeverity.Informational, 0)
-                      + severityCounts.GetValueOrDefault(AuditModels.AuditSeverity.Info, 0);
+        var infoCount = severityCounts.GetValueOrDefault(AuditModels.AuditSeverity.Informational, 0);
 
         // Recalculate score based on FILTERED issues only (excluded features don't affect score)
         var score = CalculateFilteredScore(engineResult, options);

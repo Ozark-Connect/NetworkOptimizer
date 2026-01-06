@@ -6,11 +6,6 @@ namespace NetworkOptimizer.Audit.Models;
 public enum AuditSeverity
 {
     /// <summary>
-    /// Informational finding - no action required
-    /// </summary>
-    Info,
-
-    /// <summary>
     /// Informational finding - worth knowing but no immediate action required
     /// </summary>
     Informational,

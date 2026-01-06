@@ -405,7 +405,7 @@ public class FirewallRuleAnalyzerTests
         // Assert - These are informational issues with no score impact (too strict for most users)
         foreach (var issue in issues)
         {
-            issue.Severity.Should().Be(AuditSeverity.Info);
+            issue.Severity.Should().Be(AuditSeverity.Informational);
             issue.ScoreImpact.Should().Be(0);
         }
     }
@@ -524,7 +524,7 @@ public class FirewallRuleAnalyzerTests
         // Narrow exception before broad deny should be info-level exception pattern
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        issue!.Severity.Should().Be(AuditSeverity.Info);
+        issue!.Severity.Should().Be(AuditSeverity.Informational);
     }
 
     [Fact]
@@ -569,7 +569,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle();
         var issue = issues.First();
         issue.Type.Should().Be("DENY_SHADOWS_ALLOW");
-        issue.Severity.Should().Be(AuditSeverity.Info);
+        issue.Severity.Should().Be(AuditSeverity.Informational);
         issue.Message.Should().Contain("Allow Device Screen Streaming");
         issue.Message.Should().Contain("Block Access to Isolated VLANs");
     }
@@ -642,6 +642,22 @@ public class FirewallRuleAnalyzerTests
         var rules = new List<FirewallRule>
         {
             CreateFirewallRule("Allow All", action: "accept", enabled: false, sourceType: "any", destType: "any", protocol: "all")
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_PredefinedRule_Ignored()
+    {
+        // Predefined rules (UniFi built-in like "Allow All Traffic", "Allow Return Traffic")
+        // should be skipped since users can't change them
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow All Traffic", action: "accept", predefined: true, sourceType: "any", destType: "any", protocol: "all"),
+            CreateFirewallRule("Allow Return Traffic", action: "accept", predefined: true, sourceType: "any", destType: "any", protocol: "all")
         };
 
         var issues = _analyzer.DetectPermissiveRules(rules);

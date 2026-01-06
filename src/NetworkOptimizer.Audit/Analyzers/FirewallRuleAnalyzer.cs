@@ -83,7 +83,7 @@ public class FirewallRuleAnalyzer
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.AllowExceptionPattern,
-                                Severity = AuditSeverity.Info,
+                                Severity = AuditSeverity.Informational,
                                 Message = $"Allow rule '{earlierRule.Name}' creates an intentional exception to deny rule '{laterRule.Name}'",
                                 Metadata = new Dictionary<string, object>
                                 {
@@ -147,7 +147,7 @@ public class FirewallRuleAnalyzer
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.DenyShadowsAllow,
-                                Severity = AuditSeverity.Info,
+                                Severity = AuditSeverity.Informational,
                                 Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
                                 Metadata = new Dictionary<string, object>
                                 {
@@ -180,6 +180,11 @@ public class FirewallRuleAnalyzer
         foreach (var rule in rules)
         {
             if (!rule.Enabled)
+                continue;
+
+            // Skip predefined/system rules - these are UniFi built-in rules that users can't change
+            // Includes "Allow All Traffic", "Allow Return Traffic", auto-generated "(Return)" rules, etc.
+            if (rule.Predefined)
                 continue;
 
             // Check for any->any rules
@@ -302,73 +307,103 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find networks that should be isolated but DON'T have network_isolation_enabled
-        // (networks with isolation enabled are handled by UniFi's built-in "Isolated Networks" rule)
+        // Find networks by purpose (only those without system isolation enabled need manual firewall rules)
         var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
         var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled).ToList();
-        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
+        var securityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && !n.NetworkIsolationEnabled).ToList();
 
-        // Check if there are explicit deny rules between non-isolated IoT and Corporate
+        // Trusted networks that untrusted networks should be isolated FROM
+        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
+        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        var managementNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
+
+        // Combine trusted networks for easier iteration
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(managementNetworks).ToList();
+
+        // IoT should be isolated from: Corporate, Home, Management, Security
         foreach (var iot in iotNetworks)
         {
-            foreach (var corporate in corporateNetworks)
+            // Check against trusted networks
+            foreach (var trusted in trustedNetworks)
             {
-                var hasIsolationRule = rules.Any(r =>
-                    r.Enabled &&
-                    r.ActionType.IsBlockAction() &&
-                    (HasNetworkPair(r, iot.Id, corporate.Id) || HasNetworkPair(r, corporate.Id, iot.Id)));
+                CheckAndAddIsolationIssue(issues, rules, iot, trusted, "FW-ISOLATION-IOT");
+            }
 
-                if (!hasIsolationRule)
-                {
-                    issues.Add(new AuditIssue
-                    {
-                        Type = IssueTypes.MissingIsolation,
-                        Severity = AuditSeverity.Recommended,
-                        Message = $"No explicit isolation rule between {iot.Name} and {corporate.Name}",
-                        Metadata = new Dictionary<string, object>
-                        {
-                            { "network1", iot.Name },
-                            { "network2", corporate.Name },
-                            { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
-                        },
-                        RuleId = "FW-ISOLATION-001",
-                        ScoreImpact = 7
-                    });
-                }
+            // IoT should also be isolated from Security (cameras)
+            foreach (var security in securityNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, iot, security, "FW-ISOLATION-IOT-SEC");
             }
         }
 
-        // Similar check for non-isolated Guest networks
+        // Guest should be isolated from: Corporate, Home, Management, Security, IoT
         foreach (var guest in guestNetworks)
         {
-            foreach (var corporate in corporateNetworks)
+            // Check against trusted networks
+            foreach (var trusted in trustedNetworks)
             {
-                var hasIsolationRule = rules.Any(r =>
-                    r.Enabled &&
-                    r.ActionType.IsBlockAction() &&
-                    (HasNetworkPair(r, guest.Id, corporate.Id) || HasNetworkPair(r, corporate.Id, guest.Id)));
+                CheckAndAddIsolationIssue(issues, rules, guest, trusted, "FW-ISOLATION-GUEST");
+            }
 
-                if (!hasIsolationRule)
-                {
-                    issues.Add(new AuditIssue
-                    {
-                        Type = IssueTypes.MissingIsolation,
-                        Severity = AuditSeverity.Recommended,
-                        Message = $"No explicit isolation rule between {guest.Name} and {corporate.Name}",
-                        Metadata = new Dictionary<string, object>
-                        {
-                            { "network1", guest.Name },
-                            { "network2", corporate.Name },
-                            { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
-                        },
-                        RuleId = "FW-ISOLATION-002",
-                        ScoreImpact = 7
-                    });
-                }
+            // Guest should be isolated from Security (cameras)
+            foreach (var security in securityNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, guest, security, "FW-ISOLATION-GUEST-SEC");
+            }
+
+            // Guest should be isolated from IoT (guests shouldn't control smart home devices)
+            foreach (var iot in iotNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, guest, iot, "FW-ISOLATION-GUEST-IOT");
             }
         }
 
+        // Security should be isolated from IoT (already covered above, but check reverse if security has system isolation)
+        // Only check security networks that DO have system isolation (the ones without are already checked above)
+        var isolatedSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && n.NetworkIsolationEnabled).ToList();
+        // These are handled by UniFi's built-in isolation, no additional check needed
+
         return issues;
+    }
+
+    /// <summary>
+    /// Helper to check for isolation rule between two networks and add issue if missing
+    /// </summary>
+    private void CheckAndAddIsolationIssue(
+        List<AuditIssue> issues,
+        List<FirewallRule> rules,
+        NetworkInfo network1,
+        NetworkInfo network2,
+        string ruleIdPrefix)
+    {
+        // Don't check network against itself
+        if (network1.Id == network2.Id)
+            return;
+
+        var hasIsolationRule = rules.Any(r =>
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)));
+
+        if (!hasIsolationRule)
+        {
+            issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.MissingIsolation,
+                Severity = AuditSeverity.Recommended,
+                Message = $"No explicit isolation rule between {network1.Name} ({network1.Purpose}) and {network2.Name} ({network2.Purpose})",
+                Metadata = new Dictionary<string, object>
+                {
+                    { "network1", network1.Name },
+                    { "network1Purpose", network1.Purpose.ToString() },
+                    { "network2", network2.Name },
+                    { "network2Purpose", network2.Purpose.ToString() },
+                    { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
+                },
+                RuleId = ruleIdPrefix,
+                ScoreImpact = 7
+            });
+        }
     }
 
     /// <summary>
@@ -428,7 +463,7 @@ public class FirewallRuleAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.MgmtMissingUnifiAccess,
-                    Severity = AuditSeverity.Info,
+                    Severity = AuditSeverity.Informational,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack UniFi cloud access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
@@ -457,7 +492,7 @@ public class FirewallRuleAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.MgmtMissingAfcAccess,
-                    Severity = AuditSeverity.Info,
+                    Severity = AuditSeverity.Informational,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack AFC traffic access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
@@ -488,7 +523,7 @@ public class FirewallRuleAnalyzer
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.MgmtMissingNtpAccess,
-                    Severity = AuditSeverity.Info,
+                    Severity = AuditSeverity.Informational,
                     Message = $"Isolated management network '{mgmtNetwork.Name}' may lack NTP time sync access",
                     CurrentNetwork = mgmtNetwork.Name,
                     CurrentVlan = mgmtNetwork.VlanId,
@@ -525,7 +560,7 @@ public class FirewallRuleAnalyzer
                     issues.Add(new AuditIssue
                     {
                         Type = IssueTypes.MgmtMissing5gAccess,
-                        Severity = AuditSeverity.Info,
+                        Severity = AuditSeverity.Informational,
                         Message = $"Isolated management network '{mgmtNetwork.Name}' may lack 5G/LTE modem registration access",
                         CurrentNetwork = mgmtNetwork.Name,
                         CurrentVlan = mgmtNetwork.VlanId,

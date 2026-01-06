@@ -160,7 +160,7 @@
                                 </div>
                                 <div class="issue-body">
                                 <div class="issue-header">
-                                    <span class="issue-severity">@issue.Severity</span>
+                                    <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                     <span class="issue-category">@issue.Category</span>
                                     <button class="btn btn-sm btn-ghost issue-action" @onclick="() => RestoreIssue(issue)" title="Restore this issue">
                                         Restore
@@ -232,7 +232,7 @@
                                     </div>
                                     <div class="issue-body">
                                         <div class="issue-header">
-                                            <span class="issue-severity">@issue.Severity</span>
+                                            <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                             @if (!string.IsNullOrEmpty(issue.ConfigurableSetting))
                                             {
                                                 <span class="tooltip-wrapper">
@@ -306,7 +306,7 @@
                                         </div>
                                         <div class="issue-type-body">
                                             <div class="issue-header">
-                                                <span class="issue-severity">@issueTypeGroup.Key.Severity (@groupCount)</span>
+                                                <span class="issue-severity">@GetSeverityDisplayName(issueTypeGroup.Key.Severity) (@groupCount)</span>
                                                 @if (!string.IsNullOrEmpty(firstIssue.ConfigurableSetting))
                                                 {
                                                     <span class="tooltip-wrapper">
@@ -823,7 +823,7 @@
             var activeIssues = await AuditService.GetActiveIssuesAsync();
             criticalCount = activeIssues.Count(i => i.Severity == AuditSeverity.Critical);
             warningCount = activeIssues.Count(i => i.Severity == AuditSeverity.Recommended);
-            infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Info);
+            infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Informational);
             issues = activeIssues;
 
             // Load dismissed issues
@@ -885,7 +885,7 @@
             var activeIssues = await AuditService.GetActiveIssuesAsync();
             criticalCount = activeIssues.Count(i => i.Severity == AuditSeverity.Critical);
             warningCount = activeIssues.Count(i => i.Severity == AuditSeverity.Recommended);
-            infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Info);
+            infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Informational);
             issues = activeIssues;
 
             // Load dismissed issues
@@ -1213,10 +1213,19 @@
             // Triangle with exclamation - recommended (was warning)
             AuditSeverity.Recommended => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""",
             // Circle with i - info
-            AuditSeverity.Info or AuditSeverity.Informational => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-11h2v6h-2v-6zm0-4h2v2h-2V7z"/></svg>""",
+            AuditSeverity.Informational => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-11h2v6h-2v-6zm0-4h2v2h-2V7z"/></svg>""",
             _ => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>"""
         };
     }
+
+    /// <summary>
+    /// Get display-friendly name for severity (shows "Info" instead of "Informational")
+    /// </summary>
+    private static string GetSeverityDisplayName(AuditSeverity severity) => severity switch
+    {
+        AuditSeverity.Informational => "Info",
+        _ => severity.ToString()
+    };
 
     private async Task DismissIssue(Services.AuditIssue issue)
     {
@@ -1229,7 +1238,7 @@
         // Update counts
         criticalCount = issues.Count(i => i.Severity == AuditSeverity.Critical);
         warningCount = issues.Count(i => i.Severity == AuditSeverity.Recommended);
-        infoCount = issues.Count(i => i.Severity == AuditSeverity.Info);
+        infoCount = issues.Count(i => i.Severity == AuditSeverity.Informational);
 
         StateHasChanged();
     }
@@ -1245,7 +1254,7 @@
         // Update counts
         criticalCount = issues.Count(i => i.Severity == AuditSeverity.Critical);
         warningCount = issues.Count(i => i.Severity == AuditSeverity.Recommended);
-        infoCount = issues.Count(i => i.Severity == AuditSeverity.Info);
+        infoCount = issues.Count(i => i.Severity == AuditSeverity.Informational);
 
         StateHasChanged();
     }
