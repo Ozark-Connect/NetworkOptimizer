@@ -580,17 +580,38 @@
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
 
-        // Construct OpenSpeedTest URL from HOST_NAME or HOST_IP
+        // Construct OpenSpeedTest URL - supports HTTPS when proxied
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
+        var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
         var openSpeedTestPort = Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
-        if (!string.IsNullOrEmpty(hostName))
+        var openSpeedTestHttps = Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+        var openSpeedTestHttpsPort = Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
+
+        // OPENSPEEDTEST_HOST defaults to HOST_NAME
+        if (string.IsNullOrEmpty(openSpeedTestHost))
+            openSpeedTestHost = hostName;
+
+        // Build URL - prefer HTTPS when configured, else HTTP
+        if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
-            openSpeedTestUrl = $"http://{hostName}:{openSpeedTestPort}";
-            serverHost = hostName;
+            if (openSpeedTestHttps)
+            {
+                // HTTPS URL (behind proxy)
+                openSpeedTestUrl = openSpeedTestHttpsPort == "443"
+                    ? $"https://{openSpeedTestHost}"
+                    : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
+            }
+            else
+            {
+                // HTTP URL (direct access)
+                openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
+            }
+            serverHost = openSpeedTestHost;
         }
         else if (!string.IsNullOrEmpty(hostIp))
         {
+            // Fallback to HOST_IP (HTTP only)
             openSpeedTestUrl = $"http://{hostIp}:{openSpeedTestPort}";
             serverHost = hostIp;
         }
