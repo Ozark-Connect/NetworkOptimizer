@@ -214,9 +214,9 @@ launchctl unload ~/Library/LaunchAgents/com.networkoptimizer.app.plist
 # Backup database (optional)
 cp ~/Library/Application\ Support/NetworkOptimizer/network_optimizer.db ~/network_optimizer.db.backup
 
-# Pull latest and rebuild
+# Pull latest from main and rebuild
 cd ~/NetworkOptimizer
-git pull
+git fetch origin && git checkout main && git pull
 dotnet publish src/NetworkOptimizer.Web -c Release -r osx-arm64 --self-contained -o ~/network-optimizer
 
 # Re-sign binaries

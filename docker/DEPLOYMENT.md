@@ -493,22 +493,28 @@ docker compose logs --tail=100 network-optimizer
 
 Currently, Network Optimizer is deployed by building from source. Pre-built images will be published in a future release.
 
+### Quick Update (Most Common)
+
+Pull latest from `main` and rebuild:
+
 ```bash
-# Pull latest source
 cd /path/to/network-optimizer
+git fetch origin
+git checkout main
 git pull
+cd docker && docker compose build && docker compose up -d
+```
 
-# Rebuild and restart
-cd docker
-docker compose build
-docker compose up -d
+### Verify Update
 
-# Verify
+```bash
 docker compose ps
 docker compose logs -f
 ```
 
-For significant updates (major version changes or Dockerfile modifications), use a full rebuild:
+### Full Rebuild
+
+For significant updates (major version changes or Dockerfile modifications), use `--no-cache`:
 
 ```bash
 docker compose build --no-cache

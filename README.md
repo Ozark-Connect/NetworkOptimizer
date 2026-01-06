@@ -1,6 +1,6 @@
 # Network Optimizer for UniFi
 
-> **Early Access Testers:** This project is under active development. Until official beta releases are cut, please **pull from `main` regularly** to get the latest fixes and features. Breaking changes may occur between updates.
+> **Early Access Testers:** This project is under active development. Until official beta releases are cut, please **[pull from `main` regularly](docker/DEPLOYMENT.md#upgrade-procedure)** to get the latest fixes and features. Breaking changes may occur between updates.
 >
 > **Private Repo Access:** Set up [HTTPS with a personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) or [SSH keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh) to clone this repository.
 
