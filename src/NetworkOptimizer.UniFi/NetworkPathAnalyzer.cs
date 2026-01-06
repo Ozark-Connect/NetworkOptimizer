@@ -130,10 +130,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         string? sourceIp = null,
         CancellationToken cancellationToken = default)
     {
+        Console.WriteLine($"[DEBUG IP] DiscoverServerPositionAsync called, sourceIp={sourceIp ?? "(null)"}");
+
         // If sourceIp is provided, don't use cache (it's specific to this test)
         // Otherwise check cache
         if (string.IsNullOrEmpty(sourceIp) && _cache.TryGetValue(ServerPositionCacheKey, out ServerPosition? cached))
         {
+            Console.WriteLine($"[DEBUG IP] Returning cached position: {cached.IpAddress}");
             return cached;
         }
 
@@ -145,27 +148,34 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         // sourceIp will be the container's internal IP which isn't visible to UniFi
         List<string> localIps;
         var hostIpOverride = Environment.GetEnvironmentVariable("HOST_IP");
+        Console.WriteLine($"[DEBUG IP] Decision tree: HOST_IP env={hostIpOverride ?? "(not set)"}, sourceIp param={sourceIp ?? "(null)"}");
+
         if (!string.IsNullOrWhiteSpace(hostIpOverride))
         {
             // Admin has explicitly configured the server IP - use it
             localIps = new List<string> { hostIpOverride.Trim() };
+            Console.WriteLine($"[DEBUG IP] Using HOST_IP override: {hostIpOverride}");
             _logger.LogDebug("Using HOST_IP override: {Ip}", hostIpOverride);
         }
         else if (!string.IsNullOrEmpty(sourceIp))
         {
             // Use the specific source IP from iperf3 output - this is the actual IP used
             localIps = new List<string> { sourceIp };
+            Console.WriteLine($"[DEBUG IP] Using sourceIp param: {sourceIp}");
             _logger.LogDebug("Using source IP from iperf3: {Ip}", sourceIp);
         }
         else
         {
             // Fall back to interface enumeration
+            Console.WriteLine("[DEBUG IP] Falling back to interface enumeration");
             localIps = GetLocalIpAddresses();
             if (localIps.Count == 0)
             {
+                Console.WriteLine("[DEBUG IP] No IPs from enumeration!");
                 _logger.LogWarning("Could not determine local IP addresses");
                 return null;
             }
+            Console.WriteLine($"[DEBUG IP] Auto-detected: {string.Join(", ", localIps)}");
             _logger.LogDebug("Auto-detected local IP addresses: {Ips}", string.Join(", ", localIps));
         }
 
@@ -538,43 +548,49 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     private static List<string> GetLocalIpAddresses()
     {
-        // Check for HOST_IP environment variable override (useful for Docker port mapping mode)
+        Console.WriteLine("[DEBUG IP] GetLocalIpAddresses starting");
         var hostIp = Environment.GetEnvironmentVariable("HOST_IP");
         if (!string.IsNullOrWhiteSpace(hostIp))
         {
+            Console.WriteLine($"[DEBUG IP] HOST_IP set: {hostIp}");
             return new List<string> { hostIp.Trim() };
         }
+        Console.WriteLine("[DEBUG IP] HOST_IP not set, enumerating...");
 
-        var interfaceIps = new List<(string Ip, int Priority, string Name)>();
-
+        var interfaceIps = new List<(string Ip, int Priority, string Name, string Desc, NetworkInterfaceType Type)>();
         try
         {
             foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
             {
+                var name = ni.Name;
+                var desc = ni.Description;
+                var nameLower = name.ToLowerInvariant();
+                var descLower = desc.ToLowerInvariant();
+
                 if (ni.OperationalStatus != OperationalStatus.Up)
+                {
+                    Console.WriteLine($"[DEBUG IP] SKIP not-up: {name} [{ni.NetworkInterfaceType}]");
                     continue;
-
+                }
                 if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                {
+                    Console.WriteLine($"[DEBUG IP] SKIP loopback: {name}");
                     continue;
-
-                var name = ni.Name.ToLowerInvariant();
-                var desc = ni.Description.ToLowerInvariant();
-
-                // Skip virtual/bridge/tunnel interfaces - these are rarely the "real" network
-                if (name.Contains("docker") || desc.Contains("docker") ||
-                    name.Contains("veth") || name.Contains("br-") ||
-                    name.Contains("virbr") || name.Contains("vbox") ||
-                    name.Contains("vmnet") || name.Contains("vmware") ||
-                    name.Contains("hyper-v") || desc.Contains("hyper-v") ||
-                    name.Contains("virtualbox") || desc.Contains("virtualbox") ||
-                    name.StartsWith("veth") || name.StartsWith("cni") ||
-                    name.StartsWith("gre") || name.StartsWith("ifb") ||
-                    name.StartsWith("wg"))  // WireGuard
+                }
+                if (nameLower.Contains("docker") || descLower.Contains("docker") ||
+                    nameLower.Contains("veth") || nameLower.Contains("br-") ||
+                    nameLower.Contains("virbr") || nameLower.Contains("vbox") ||
+                    nameLower.Contains("vmnet") || nameLower.Contains("vmware") ||
+                    nameLower.Contains("hyper-v") || descLower.Contains("hyper-v") ||
+                    nameLower.Contains("virtualbox") || descLower.Contains("virtualbox") ||
+                    nameLower.StartsWith("veth") || nameLower.StartsWith("cni") ||
+                    nameLower.StartsWith("gre") || nameLower.StartsWith("ifb") ||
+                    nameLower.StartsWith("wg"))
+                {
+                    Console.WriteLine($"[DEBUG IP] SKIP virtual: {name} [{ni.NetworkInterfaceType}] - {desc}");
                     continue;
+                }
 
-                // Assign priority: lower = better
-                // Physical Ethernet > WiFi > Everything else
-                // Note: 10GbE/25GbE/etc typically report as Ethernet (6) or FastEtherFx (69)
                 int priority;
                 var ifType = ni.NetworkInterfaceType;
                 if (ifType == NetworkInterfaceType.Ethernet ||
@@ -582,38 +598,36 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     ifType == NetworkInterfaceType.FastEthernetT ||
                     ifType == NetworkInterfaceType.FastEthernetFx ||
                     ifType == NetworkInterfaceType.GigabitEthernet)
-                {
-                    priority = 1; // Physical Ethernet (any speed) - highest priority
-                }
+                    priority = 1;
                 else if (ifType == NetworkInterfaceType.Wireless80211)
-                {
-                    priority = 2; // WiFi
-                }
+                    priority = 2;
                 else
-                {
-                    priority = 3; // Other (tunnel, ppp, etc.)
-                }
+                    priority = 3;
 
                 var props = ni.GetIPProperties();
                 foreach (var addr in props.UnicastAddresses)
                 {
                     if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
                     {
-                        interfaceIps.Add((addr.Address.ToString(), priority, ni.Name));
+                        Console.WriteLine($"[DEBUG IP] FOUND: {addr.Address} on {name} [{ifType}] pri={priority} - {desc}");
+                        interfaceIps.Add((addr.Address.ToString(), priority, name, desc, ifType));
                     }
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore network enumeration errors
+            Console.WriteLine($"[DEBUG IP] ERROR: {ex.Message}");
         }
 
-        // Return IPs sorted by priority (Ethernet first, then WiFi, then others)
-        return interfaceIps
-            .OrderBy(x => x.Priority)
-            .Select(x => x.Ip)
-            .ToList();
+        var sorted = interfaceIps.OrderBy(x => x.Priority).ToList();
+        Console.WriteLine($"[DEBUG IP] Sorted ({sorted.Count}):");
+        foreach (var (ip, pri, ifName, _, ifType) in sorted)
+            Console.WriteLine($"[DEBUG IP]   {ip} pri={pri} {ifName} [{ifType}]");
+
+        var result = sorted.Select(x => x.Ip).ToList();
+        Console.WriteLine(result.Count > 0 ? $"[DEBUG IP] SELECTED: {result[0]}" : "[DEBUG IP] No IPs!");
+        return result;
     }
 
     private static DiscoveredDevice? FindDevice(NetworkTopology topology, string hostOrIp)
