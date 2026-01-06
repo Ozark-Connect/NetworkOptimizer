@@ -1662,7 +1662,7 @@ select.form-control {
     align-items: flex-start;
     padding-top: 0.125rem;
     width: 24px;
-    height: 24px;
+    min-height: 24px;
 }
 
 .issue-item.issue-critical .issue-icon {
@@ -1676,6 +1676,7 @@ select.form-control {
 
 .issue-item.issue-info .issue-icon {
     color: var(--info-color);
+    padding-top: 0.25rem;
 }
 
 .issue-body {
@@ -1849,7 +1850,7 @@ select.form-control {
     align-items: flex-start;
     padding-top: 0.125rem;
     width: 24px;
-    height: 24px;
+    min-height: 24px;
     flex-shrink: 0;
 }
 
@@ -1868,6 +1869,7 @@ select.form-control {
 
 .issue-type-group.issue-info .issue-type-icon {
     color: var(--info-color);
+    padding-top: 0.25rem;
 }
 
 .issue-type-body {
@@ -2212,6 +2214,7 @@ select.form-control {
         grid-column: 2;
         grid-row: 2;
         font-size: 0.9rem;
+        margin-top: 0.125rem;
     }
 
     .issue-description {
@@ -2267,6 +2270,7 @@ select.form-control {
         grid-column: 2;
         grid-row: 2;
         font-size: 0.9rem;
+        margin-top: 0.125rem;
     }
 
     .issue-type-chevron {
