@@ -46,29 +46,6 @@
     text-decoration: underline !important;
 }
 
-/* Ozark Connect Logo Overlay - centered in gauge area */
-.ozark-logo-overlay {
-    position: fixed;
-    top: 50%;
-    left: 25%;
-    transform: translate(-50%, -50%);
-    z-index: 100;
-    pointer-events: none;
-}
-
-.ozark-logo-overlay img {
-    height: 30vh;
-    width: auto;
-}
-
-/* Responsive - on mobile the gauge is centered */
-@media (max-width: 768px) {
-    .ozark-logo-overlay {
-        left: 50%;
-        top: 45%;
-    }
-}
-
 /* Progress bar and gauge accent colors */
 #progressbg {
     stroke: var(--ozark-primary) !important;
@@ -127,7 +104,3 @@
     stroke: var(--ozark-primary) !important;
 }
 
-/* Hide OpenSpeedTest logo in SVG - we use HTML overlay instead */
-#logo-Desk {
-    opacity: 0 !important;
-}
