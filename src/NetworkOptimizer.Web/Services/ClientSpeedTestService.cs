@@ -76,7 +76,7 @@ public class ClientSpeedTestService
         };
 
         // Try to look up client info from UniFi
-        await EnrichClientInfoAsync(result);
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
 
         // Perform path analysis (client to server)
         await AnalyzePathAsync(result);
@@ -183,7 +183,7 @@ public class ClientSpeedTestService
         };
 
         // Try to look up client info from UniFi
-        await EnrichClientInfoAsync(result);
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
 
         // Perform path analysis
         await AnalyzePathAsync(result);
@@ -240,45 +240,6 @@ public class ClientSpeedTestService
             .OrderByDescending(r => r.TestTime)
             .Take(count)
             .ToListAsync();
-    }
-
-    /// <summary>
-    /// Enrich a result with client info from UniFi (MAC, name).
-    /// </summary>
-    private async Task EnrichClientInfoAsync(Iperf3Result result)
-    {
-        try
-        {
-            if (!_connectionService.IsConnected)
-                return;
-
-            var clients = await _connectionService.Client!.GetClientsAsync();
-            var client = clients?.FirstOrDefault(c => c.Ip == result.DeviceHost);
-
-            if (client != null)
-            {
-                result.ClientMac = client.Mac;
-                result.DeviceName = !string.IsNullOrEmpty(client.Name) ? client.Name : client.Hostname;
-
-                // Capture Wi-Fi signal for wireless clients
-                if (!client.IsWired)
-                {
-                    result.WifiSignalDbm = client.Signal;
-                    result.WifiNoiseDbm = client.Noise;
-                    result.WifiChannel = client.Channel;
-                    result.WifiRadioProto = client.RadioProto;
-                    _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Proto={Proto}",
-                        result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadioProto);
-                }
-
-                _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",
-                    result.DeviceHost, result.ClientMac, result.DeviceName);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to enrich client info for {Ip}", result.DeviceHost);
-        }
     }
 
     /// <summary>
