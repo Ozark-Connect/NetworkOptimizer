@@ -58,3 +58,56 @@ svg linearGradient#gradient stop:first-child {
 svg linearGradient#gradient stop:last-child {
     stop-color: var(--ozark-accent) !important;
 }
+
+/* Hide OpenSpeedTest logo and replace with Ozark Connect logo */
+#logo-Desk {
+    opacity: 0 !important;
+}
+
+/* Ozark Connect logo overlay */
+#intro-Desk::before,
+#intro-Mob::before {
+    content: '';
+    position: absolute;
+    background-image: url('../images/ozark-connect-logo.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none;
+}
+
+/* Desktop logo positioning */
+#intro-Desk {
+    position: relative;
+}
+
+#intro-Desk::before {
+    left: 35px;
+    top: 130px;
+    width: 223px;
+    height: 60px;
+}
+
+/* Mobile logo positioning */
+#intro-Mob {
+    position: relative;
+}
+
+#intro-Mob::before {
+    left: 38px;
+    top: 100px;
+    width: 219px;
+    height: 60px;
+}
+
+/* Hide "SpeedTest by OpenSpeedTest" text */
+#YourIP {
+    visibility: hidden;
+}
+
+/* Show our branding text instead */
+.Your-IP::after {
+    content: 'Speed Test by Ozark Connect';
+    visibility: visible;
+    position: absolute;
+}
