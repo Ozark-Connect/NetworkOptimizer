@@ -194,13 +194,31 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
 
 // Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
 var openSpeedTestPort = builder.Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
+var openSpeedTestHttps = builder.Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+var openSpeedTestHttpsPort = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
+
 if (!string.IsNullOrEmpty(hostIp))
 {
     corsOriginsList.Add($"http://{hostIp}:{openSpeedTestPort}");
+    if (openSpeedTestHttps)
+    {
+        // For HTTPS, omit port if 443 (default)
+        var httpsOrigin = openSpeedTestHttpsPort == "443"
+            ? $"https://{hostIp}"
+            : $"https://{hostIp}:{openSpeedTestHttpsPort}";
+        corsOriginsList.Add(httpsOrigin);
+    }
 }
 if (!string.IsNullOrEmpty(hostName))
 {
     corsOriginsList.Add($"http://{hostName}:{openSpeedTestPort}");
+    if (openSpeedTestHttps)
+    {
+        var httpsOrigin = openSpeedTestHttpsPort == "443"
+            ? $"https://{hostName}"
+            : $"https://{hostName}:{openSpeedTestHttpsPort}";
+        corsOriginsList.Add(httpsOrigin);
+    }
 }
 // Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
 // OpenSpeedTest runs on its own port, even when API is behind reverse proxy
