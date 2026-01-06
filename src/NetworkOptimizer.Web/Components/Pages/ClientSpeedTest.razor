@@ -679,7 +679,9 @@
             using var client = HttpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(2);
             var response = await client.GetAsync(openSpeedTestHealthCheckUrl);
-            _lastHealthResult = response.IsSuccessStatusCode;
+            // Accept 2xx or 3xx (redirects) as "running" - speedtest may redirect to canonical URL
+            _lastHealthResult = response.IsSuccessStatusCode ||
+                (int)response.StatusCode >= 300 && (int)response.StatusCode < 400;
         }
         catch
         {
