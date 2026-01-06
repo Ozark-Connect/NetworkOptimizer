@@ -507,7 +507,7 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsThirdPartyDetected,
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
-                    Message = $"{result.ThirdPartyDnsProviderName} detected handling DNS queries. Networks using third-party DNS: {string.Join(", ", networkNames)}. DNS server(s): {string.Join(", ", dnsServerIps)}.",
+                    Message = $"DNS: {result.ThirdPartyDnsProviderName} detected handling queries. Networks: {string.Join(", ", networkNames)}. Server(s): {string.Join(", ", dnsServerIps)}.",
                     RecommendedAction = "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass.",
                     RuleId = "DNS-3RDPARTY-001",
                     ScoreImpact = 0, // Neutral - not a security gap
@@ -531,7 +531,7 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsUnknownConfig,
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
-                    Message = "Unable to determine DNS security solution. No DoH configured and no third-party LAN DNS detected.",
+                    Message = "DNS: Unable to determine security solution. No DoH configured and no third-party LAN DNS detected.",
                     RecommendedAction = "Configure DoH in Network Settings or deploy a DNS security solution like Pi-hole",
                     RuleId = "DNS-UNKNOWN-001",
                     ScoreImpact = 2
@@ -543,7 +543,7 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsNoDoh,
                     Severity = AuditSeverity.Recommended,
                     DeviceName = result.GatewayName,
-                    Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
+                    Message = "DNS: DoH is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
                     RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
                     RuleId = "DNS-DOH-001",
                     ScoreImpact = 8
@@ -558,7 +558,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsDohAuto,
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
-                Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
+                Message = "DNS: DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
                 RecommendedAction = "Configure DoH with explicit custom servers for guaranteed encryption",
                 RuleId = "DNS-DOH-002",
                 ScoreImpact = 3
@@ -576,7 +576,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNo53Block,
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
+                Message = "DNS: No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
                 RecommendedAction = "Create firewall rule: Block outbound UDP/TCP port 53 to Internet for all VLANs (except gateway)",
                 RuleId = "DNS-LEAK-001",
                 ScoreImpact = 12
@@ -591,7 +591,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNoDotBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks DNS-over-TLS (port 853). Devices can use encrypted DNS that bypasses your DoH configuration.",
+                Message = "DNS: No firewall rule blocks DoT (port 853). Devices can use encrypted DNS that bypasses your DoH configuration.",
                 RecommendedAction = "Create firewall rule: Block outbound TCP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-002",
                 ScoreImpact = 6
@@ -606,7 +606,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNoDohBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks public DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
+                Message = "DNS: No firewall rule blocks DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
                 RecommendedAction = "Create firewall rule: Block TCP 443 to known DoH provider domains",
                 RuleId = "DNS-LEAK-003",
                 ScoreImpact = 5,
@@ -625,7 +625,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNoDoqBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS.",
+                Message = "DNS: No firewall rule blocks DoQ. Devices can bypass your DNS filtering using QUIC-based DNS.",
                 RecommendedAction = "Create firewall rule: Block UDP 443 to known DoQ provider domains",
                 RuleId = "DNS-LEAK-004",
                 ScoreImpact = 4,
@@ -644,7 +644,7 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsIsp,
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
-                Message = "Network is using ISP-provided DNS servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
+                Message = "DNS: Using ISP-provided servers. This may expose browsing history to your ISP and lacks filtering capabilities.",
                 RecommendedAction = "Configure custom DNS servers or enable DoH with a privacy-focused provider",
                 RuleId = "DNS-ISP-001",
                 ScoreImpact = 4
@@ -840,7 +840,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = IssueTypes.DnsWanMismatch,
                 Severity = AuditSeverity.Recommended,
-                Message = $"{displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
+                Message = $"DNS: {displayName} uses {string.Join(", ", mismatchedServers)} instead of {expectedProvider.Name}",
                 RecommendedAction = recommendation,
                 DeviceName = result.GatewayName,
                 Port = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, null),
@@ -871,7 +871,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = IssueTypes.DnsWanOrder,
                 Severity = AuditSeverity.Recommended,
-                Message = $"{displayName} DNS in wrong order: {ips}. Should be {correctOrder}",
+                Message = $"DNS: {displayName} servers in wrong order: {ips}. Should be {correctOrder}",
                 RecommendedAction = $"Swap DNS order to {correctOrder}",
                 DeviceName = result.GatewayName,
                 Port = NetworkFormatHelpers.FormatWanInterfaceName(wanInterface.InterfaceName, null),
@@ -909,7 +909,7 @@ public class DnsSecurityAnalyzer
             {
                 Type = IssueTypes.DnsWanNoStatic,
                 Severity = AuditSeverity.Recommended,
-                Message = $"WAN interface '{displayName}' has no static DNS configured. If DoH fails, DNS queries will leak to your ISP's DNS servers.",
+                Message = $"DNS: WAN '{displayName}' has no static servers configured. If DoH fails, queries will leak to ISP.",
                 RecommendedAction = $"Configure static DNS on {displayName} to use {providerName} servers",
                 DeviceName = result.GatewayName,
                 Port = NetworkFormatHelpers.FormatWanInterfaceName(interfaceName, null),
@@ -1029,7 +1029,7 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                    Message = $"DNS: {misconfigured} of {result.TotalDevicesChecked} infrastructure devices pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
@@ -1146,7 +1146,7 @@ public class DnsSecurityAnalyzer
                 {
                     Type = IssueTypes.DnsDeviceMisconfigured,
                     Severity = AuditSeverity.Informational,
-                    Message = $"{misconfigured} of {result.TotalDevicesChecked} infrastructure devices have DNS pointing to non-gateway address",
+                    Message = $"DNS: {misconfigured} of {result.TotalDevicesChecked} infrastructure devices pointing to non-gateway address",
                     RecommendedAction = $"Configure device DNS to point to gateway ({expectedGatewayIp})",
                     RuleId = "DNS-DEVICE-001",
                     ScoreImpact = 3,
