@@ -47,6 +47,7 @@ public static class IssueTypes
     public const string DnsNo53Block = "DNS_NO_53_BLOCK";
     public const string DnsNoDotBlock = "DNS_NO_DOT_BLOCK";
     public const string DnsNoDohBlock = "DNS_NO_DOH_BLOCK";
+    public const string DnsNoDoqBlock = "DNS_NO_DOQ_BLOCK";
     public const string DnsIsp = "DNS_ISP";
     public const string DnsWanMismatch = "DNS_WAN_MISMATCH";
     public const string DnsWanOrder = "DNS_WAN_ORDER";

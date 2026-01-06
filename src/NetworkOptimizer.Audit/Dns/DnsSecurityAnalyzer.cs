@@ -606,12 +606,31 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks public DoH providers. Devices can bypass your DNS filtering by using their own DoH servers.",
-                RecommendedAction = "Create firewall rule: Block HTTPS (port 443) to known DoH provider domains",
+                RecommendedAction = "Create firewall rule: Block TCP 443 to known DoH provider domains",
                 RuleId = "DNS-LEAK-003",
                 ScoreImpact = 5,
                 Metadata = new Dictionary<string, object>
                 {
                     { "suggested_domains", "dns.google, cloudflare-dns.com, dns.quad9.net, doh.opendns.com" }
+                }
+            });
+        }
+
+        // Issue: No DoQ (DNS over QUIC) bypass blocking
+        if (!result.HasDoqBlockRule && result.DohConfigured)
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsNoDoqBlock,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS.",
+                RecommendedAction = "Create firewall rule: Block UDP 443 to known DoQ provider domains",
+                RuleId = "DNS-LEAK-004",
+                ScoreImpact = 4,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "suggested_domains", "dns.google, cloudflare-dns.com, dns.quad9.net, dns.adguard.com" }
                 }
             });
         }

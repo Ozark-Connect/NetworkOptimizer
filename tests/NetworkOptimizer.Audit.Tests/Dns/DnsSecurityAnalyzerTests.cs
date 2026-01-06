@@ -1075,6 +1075,53 @@ public class DnsSecurityAnalyzerTests
         result.Issues.Should().Contain(i => i.Type == "DNS_NO_DOH_BLOCK");
     }
 
+    [Fact]
+    public async Task Analyze_WithDohButNoDoqBlock_GeneratesDoqBypassIssue()
+    {
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.Issues.Should().Contain(i => i.Type == "DNS_NO_DOQ_BLOCK");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDoqBlockRule_DoesNotGenerateDoqBypassIssue()
+    {
+        // DoH configured + DoQ block rule = no DoQ bypass issue
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoQ"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, firewall);
+
+        result.Issues.Should().NotContain(i => i.Type == "DNS_NO_DOQ_BLOCK");
+    }
+
     #endregion
 
     #region DeviceName on Issues Tests
