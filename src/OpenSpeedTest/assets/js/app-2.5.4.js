@@ -936,7 +936,7 @@ window.onload = function() {
           if (downloadTimeing >= dlDuration && ProG == "done") {
             if (SelectTest) {
               Show.GaugeProgresstoZero(currentSpeed, "SendR");
-              Show.showStatus("All done");
+              Show.showStatus("Complete");
               Show.Symbol(2);
             } else {
               Show.GaugeProgresstoZero(currentSpeed, "Upload");
@@ -985,7 +985,7 @@ window.onload = function() {
             Show.uploadResult(uploadSpeed);
             Show.GaugeProgresstoZero(currentSpeed, "SendR");
             SendData = undefined;
-            Show.showStatus("All done");
+            Show.showStatus("Complete");
             Show.Symbol(2);
             Status = "busy";
             stop = 0;
@@ -1005,7 +1005,7 @@ window.onload = function() {
           circleSVG.innerHTML = dummyElement.innerHTML;
         }
         if (Status === "SendR") {
-          Show.showStatus("All done");
+          Show.showStatus("Complete");
           var dummyElement = document.createElement("div");
           dummyElement.innerHTML = '<a xlink:href="https://openspeedtest.com?ref=Self-Hosted-Outro&run=5" style="cursor: pointer" target="_blank"></a>';
           var htmlAnchorElement = dummyElement.querySelector("a");
