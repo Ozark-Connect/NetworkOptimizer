@@ -187,9 +187,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return null;
         }
 
-        // Find this server in the client list
-        var serverClient = topology.Clients.FirstOrDefault(c =>
-            localIps.Contains(c.IpAddress, StringComparer.OrdinalIgnoreCase));
+        // Find this server in the client list - search in priority order
+        DiscoveredClient? serverClient = null;
+        foreach (var ip in localIps)
+        {
+            serverClient = topology.Clients.FirstOrDefault(c =>
+                c.IpAddress.Equals(ip, StringComparison.OrdinalIgnoreCase));
+            if (serverClient != null)
+            {
+                Console.WriteLine($"[DEBUG IP] Found server in UniFi at IP {ip} (priority order match)");
+                break;
+            }
+            Console.WriteLine($"[DEBUG IP] IP {ip} not found in UniFi client list");
+        }
 
         if (serverClient == null)
         {
