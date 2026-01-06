@@ -57,12 +57,15 @@ services:
       - "${OPENSPEEDTEST_PORT:-3005}:3000"
     environment:
       - TZ=${TZ:-America/Chicago}
-      # For URL construction: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
-      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      # For URL construction and host enforcement redirect
       - HOST_NAME=${HOST_NAME:-}
       - HOST_IP=${HOST_IP:-}
-      # External port for host enforcement redirect (default 3005)
       - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      # For result reporting URL
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
     logging:
       driver: "json-file"
       options:

@@ -41,25 +41,41 @@ else
     echo "Warning: config.js not found at $CONFIG_FILE"
 fi
 
-# Enforce canonical host via 302 redirect (HOST_NAME or HOST_IP)
-# Required for CORS and prevents browser caching issues on mobile
+# Enforce canonical URL via 302 redirect (matches UI logic exactly)
+# Prevents browser caching issues on mobile
 NGINX_CONF="/etc/nginx/conf.d/default.conf"
+OST_PORT="${OPENSPEEDTEST_PORT:-3005}"
+OST_HTTPS_PORT="${OPENSPEEDTEST_HTTPS_PORT:-443}"
+
+# Match UI: OPENSPEEDTEST_HOST defaults to HOST_NAME
+OST_HOST="${OPENSPEEDTEST_HOST:-$HOST_NAME}"
+
+# Build canonical URL (same logic as ClientSpeedTest.razor)
+CANONICAL_URL=""
 CANONICAL_HOST=""
-if [ -n "$HOST_NAME" ]; then
-    CANONICAL_HOST="$HOST_NAME"
+if [ -n "$OST_HOST" ]; then
+    CANONICAL_HOST="$OST_HOST"
+    if [ "$OPENSPEEDTEST_HTTPS" = "true" ]; then
+        if [ "$OST_HTTPS_PORT" = "443" ]; then
+            CANONICAL_URL="https://$OST_HOST"
+        else
+            CANONICAL_URL="https://$OST_HOST:$OST_HTTPS_PORT"
+        fi
+    else
+        CANONICAL_URL="http://$OST_HOST:$OST_PORT"
+    fi
 elif [ -n "$HOST_IP" ]; then
     CANONICAL_HOST="$HOST_IP"
+    CANONICAL_URL="http://$HOST_IP:$OST_PORT"
 fi
 
-CANONICAL_PORT="${OPENSPEEDTEST_PORT:-3005}"
-
 if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
-    echo "Enforcing canonical host: $CANONICAL_HOST:$CANONICAL_PORT"
-    # Add redirect rule inside the server block (after server_name directive)
+    echo "Enforcing canonical URL: $CANONICAL_URL"
+    # Redirect if host doesn't match (simple host check, not full URL)
     sed -i "/server_name/a\\
     # Enforce canonical host - prevents browser caching issues on mobile\\
     if (\$host != \"$CANONICAL_HOST\") {\\
-        return 302 \$scheme://$CANONICAL_HOST:$CANONICAL_PORT\$request_uri;\\
+        return 302 $CANONICAL_URL\$request_uri;\\
     }" "$NGINX_CONF"
     echo "Added host redirect rule"
 fi
