@@ -18,17 +18,31 @@
     fill: var(--ozark-primary) !important;
 }
 
-/* Credits section styling */
+/* Credits section styling - fixed bottom bar */
 .Credits {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    background: rgba(26, 32, 41, 0.95) !important;
     color: var(--ozark-text) !important;
+    padding: 8px 16px !important;
+    font-size: 12px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    z-index: 1000 !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
 }
 
 .Credits a {
     color: var(--ozark-primary) !important;
+    text-decoration: none !important;
 }
 
 .Credits a:hover {
     color: var(--ozark-accent) !important;
+    text-decoration: underline !important;
 }
 
 /* Progress bar and gauge accent colors */
