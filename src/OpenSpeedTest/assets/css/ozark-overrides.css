@@ -111,3 +111,11 @@
     stroke: var(--ozark-primary) !important;
 }
 
+
+/* Lighter blue for progress bar visibility */
+.intro-Progress path,
+.intro-Progress line,
+#progressStatus-Desk,
+#progressStatus-Mob {
+    stroke: #60A5FA !important;
+}

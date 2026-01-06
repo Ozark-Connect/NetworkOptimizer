@@ -452,12 +452,12 @@
 				</g>
 			</svg>
 		</a>
-		<linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-			<stop offset="0%" stop-color="#0559C9" />
-			<stop offset="100%" stop-color="#F97316" />
+		<linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+			<stop offset="0%" stop-color="#4a4a4a" />
+			<stop offset="100%" stop-color="#8a8a8a" />
 		</linearGradient>
 		<radialGradient id="RadialGradient1">
-			<stop offset="0%" stop-color="#0559C9" />
-			<stop offset="100%" stop-color="#F97316" />
+			<stop offset="0%" stop-color="#4a4a4a" />
+			<stop offset="100%" stop-color="#8a8a8a" />
 		</radialGradient>
 	</svg>
