@@ -887,7 +887,7 @@ public class AuditService
         Audit.IssueTypes.MgmtDhcpEnabled => "VLAN Security",
         Audit.IssueTypes.SecurityNetworkNotIsolated or Audit.IssueTypes.MgmtNetworkNotIsolated or Audit.IssueTypes.IotNetworkNotIsolated => "VLAN Security",
         Audit.IssueTypes.SecurityNetworkHasInternet or Audit.IssueTypes.MgmtNetworkHasInternet => "VLAN Security",
-        Audit.IssueTypes.MgmtMissingUnifiAccess or Audit.IssueTypes.MgmtMissingAfcAccess or Audit.IssueTypes.MgmtMissingNtpAccess or Audit.IssueTypes.MgmtMissing5gAccess => "VLAN Security",
+        Audit.IssueTypes.MgmtMissingUnifiAccess or Audit.IssueTypes.MgmtMissingAfcAccess or Audit.IssueTypes.MgmtMissingNtpAccess or Audit.IssueTypes.MgmtMissing5gAccess => "Firewall Rules",
         // Device placement (wrong VLAN) - controlled by VLAN Security checkbox
         Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" => "VLAN Security",
         Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" => "VLAN Security",
@@ -932,11 +932,11 @@ public class AuditService
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 
-            // Management network access
-            Audit.IssueTypes.MgmtMissingUnifiAccess => "Missing UniFi Cloud Access",
-            Audit.IssueTypes.MgmtMissingAfcAccess => "Missing AFC Access",
-            Audit.IssueTypes.MgmtMissingNtpAccess => "Missing NTP Access",
-            Audit.IssueTypes.MgmtMissing5gAccess => "Missing 5G/LTE Access",
+            // Management network firewall access
+            Audit.IssueTypes.MgmtMissingUnifiAccess => "Firewall: Missing UniFi Cloud Access",
+            Audit.IssueTypes.MgmtMissingAfcAccess => "Firewall: Missing AFC Access",
+            Audit.IssueTypes.MgmtMissingNtpAccess => "Firewall: Missing NTP Access",
+            Audit.IssueTypes.MgmtMissing5gAccess => "Firewall: Missing 5G/LTE Access",
 
             // VLAN security
             Audit.IssueTypes.RoutingEnabled => "Routing on Isolated VLAN",
