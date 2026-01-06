@@ -265,7 +265,7 @@ public abstract class AuditRuleBase : IAuditRule
 
     /// <summary>
     /// Get the best available device name for a port, checking multiple sources.
-    /// Priority: ConnectedClient > HistoricalClient > Detection ProductName > Custom port name > Port number
+    /// Priority: ConnectedClient > HistoricalClient > Detection ProductName > ModelName > Custom port name > Port number
     /// </summary>
     private string GetBestDeviceName(PortInfo port)
     {
@@ -289,11 +289,15 @@ public abstract class AuditRuleBase : IAuditRule
         if (!string.IsNullOrEmpty(detection.ProductName))
             return $"{detection.ProductName} on {port.Switch.Name}";
 
-        // 4. Try custom port name (not just "Port X" or a bare number)
+        // 4. Try historical client model name (e.g., "g6-pro-bullet")
+        if (!string.IsNullOrEmpty(port.HistoricalClient?.ModelName))
+            return $"{port.HistoricalClient.ModelName} on {port.Switch.Name}";
+
+        // 5. Try custom port name (not just "Port X" or a bare number)
         if (!string.IsNullOrWhiteSpace(port.Name) && IsCustomPortName(port.Name))
             return $"{port.Name} on {port.Switch.Name}";
 
-        // 5. Fall back to port number
+        // 6. Fall back to port number
         return $"Port {port.PortIndex} on {port.Switch.Name}";
     }
 
