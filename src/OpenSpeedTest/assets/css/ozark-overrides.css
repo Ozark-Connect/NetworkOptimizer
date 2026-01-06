@@ -61,6 +61,13 @@
     fill: var(--ozark-accent) !important;
 }
 
+/* Ping symbol - blue to match download */
+#pingSymbol,
+#pingSymbolDesk,
+#pingSymbolMob {
+    fill: var(--ozark-primary) !important;
+}
+
 /* Download symbol (arrow) - blue to match graph */
 #downSymbol,
 #downSymbolDesk,
