@@ -374,10 +374,23 @@ public class FirewallRuleAnalyzer
             }
         }
 
-        // Security should be isolated from IoT (already covered above, but check reverse if security has system isolation)
-        // Only check security networks that DO have system isolation (the ones without are already checked above)
-        var isolatedSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && n.NetworkIsolationEnabled).ToList();
-        // These are handled by UniFi's built-in isolation, no additional check needed
+        // Management should be isolated from: Corporate, Home, Security
+        // Management networks should only be accessible to specific admin devices, not entire networks
+        foreach (var mgmt in managementNetworks.Where(n => !n.NetworkIsolationEnabled))
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, corp, mgmt, "FW-ISOLATION-MGMT");
+            }
+            foreach (var home in homeNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, home, mgmt, "FW-ISOLATION-MGMT");
+            }
+            foreach (var security in securityNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, security, mgmt, "FW-ISOLATION-SEC-MGMT");
+            }
+        }
 
         // Now check for ALLOW rules between networks that should be isolated
         // This catches rules that explicitly open up traffic between isolated network types
@@ -412,6 +425,23 @@ public class FirewallRuleAnalyzer
             foreach (var iot in allIotNetworks)
             {
                 CheckForProblematicAllowRules(issues, rules, guest, iot);
+            }
+        }
+
+        // Check for allow rules between Corporate/Home/Security and Management
+        foreach (var mgmt in managementNetworks)
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, corp, mgmt);
+            }
+            foreach (var home in homeNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, home, mgmt);
+            }
+            foreach (var security in allSecurityNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, security, mgmt);
             }
         }
 
@@ -515,7 +545,7 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Determines if missing isolation between two network types is critical.
-    /// Guest accessing sensitive networks and IoT accessing Management are critical.
+    /// Guest accessing sensitive networks, and anything accessing Management are critical.
     /// </summary>
     private static bool IsCriticalIsolationMissing(NetworkPurpose purpose1, NetworkPurpose purpose2)
     {
@@ -527,10 +557,14 @@ public class FirewallRuleAnalyzer
                 return true;
         }
 
-        // IoT to Management = Critical (IoT shouldn't access network infrastructure)
-        if ((purpose1 == NetworkPurpose.IoT && purpose2 == NetworkPurpose.Management) ||
-            (purpose1 == NetworkPurpose.Management && purpose2 == NetworkPurpose.IoT))
-            return true;
+        // Anything to Management = Critical (Management should only be accessed by specific admin devices)
+        // This includes: IoT, Corporate, Home, Security
+        if (purpose1 == NetworkPurpose.Management || purpose2 == NetworkPurpose.Management)
+        {
+            var other = purpose1 == NetworkPurpose.Management ? purpose2 : purpose1;
+            if (other is NetworkPurpose.IoT or NetworkPurpose.Corporate or NetworkPurpose.Home or NetworkPurpose.Security)
+                return true;
+        }
 
         return false;
     }
