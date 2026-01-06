@@ -40,7 +40,7 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
             return null;
 
         return CreateIssue(
-            $"{client.Detection.CategoryName} on {network.Name} WiFi - should be on security network",
+            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be on security network",
             client,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,

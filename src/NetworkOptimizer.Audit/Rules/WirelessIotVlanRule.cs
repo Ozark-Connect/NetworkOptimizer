@@ -39,7 +39,7 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
             return null;
 
         return CreateIssue(
-            $"{client.Detection.CategoryName} on {network.Name} WiFi - should be isolated",
+            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be isolated",
             client,
             severityOverride: placement.Severity,
             scoreImpactOverride: placement.ScoreImpact,
