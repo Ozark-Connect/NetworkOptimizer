@@ -116,14 +116,5 @@
     height: 60px;
 }
 
-/* Hide "SpeedTest by OpenSpeedTest" text */
-#YourIP {
-    visibility: hidden;
-}
-
-/* Show our branding text instead */
-.Your-IP::after {
-    content: 'Powered by OpenSpeedTest™';
-    visibility: visible;
-    position: absolute;
-}
+/* The SVG text now says "Speed Test by Ozark Connect" */
+/* Attribution is in the footer HTML */
