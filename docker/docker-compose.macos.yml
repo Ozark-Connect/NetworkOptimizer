@@ -26,7 +26,19 @@ services:
     environment:
       - TZ=${TZ:-America/Chicago}
       - APP_PASSWORD=${APP_PASSWORD:-}
-      - HOST_IP=${HOST_IP:-}              # Override if auto-detection fails (rarely needed)
+      - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
+      # Host IP/name for path analysis and CORS (required for client speed tests)
+      - HOST_IP=${HOST_IP:-}
+      - HOST_NAME=${HOST_NAME:-}
+      # Reverse proxy hostname (e.g., optimizer.example.com) - overrides HOST_NAME for API URLs
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      # OpenSpeedTest configuration (for UI display and CORS)
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      # iperf3 server mode - enable to accept client-initiated speed tests on port 5201
+      - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
       # Logging (Trace, Debug, Information, Warning, Error, Critical)
       - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
       - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
