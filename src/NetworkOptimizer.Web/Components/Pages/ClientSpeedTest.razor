@@ -673,12 +673,13 @@
 
         try
         {
-            using var client = HttpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(2);
+            // Don't follow redirects - just check if the service responds
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2) };
             var response = await client.GetAsync(openSpeedTestHealthCheckUrl);
-            // Accept 2xx or 3xx (redirects) as "running" - speedtest may redirect to canonical URL
+            // Accept 2xx or 3xx (redirects) as "running"
             _lastHealthResult = response.IsSuccessStatusCode ||
-                (int)response.StatusCode >= 300 && (int)response.StatusCode < 400;
+                ((int)response.StatusCode >= 300 && (int)response.StatusCode < 400);
         }
         catch
         {
