@@ -435,7 +435,7 @@ public class ConfigAuditEngine
                         RecommendedNetwork = placement.RecommendedNetwork?.Name,
                         RecommendedVlan = placement.RecommendedNetwork?.VlanId,
                         RecommendedAction = placement.RecommendedNetwork != null
-                            ? $"Connect to {placement.RecommendedNetworkLabel}"
+                            ? $"Move to {placement.RecommendedNetworkLabel}"
                             : "Create IoT VLAN",
                         RuleId = "OFFLINE-IOT-VLAN",
                         ScoreImpact = scoreImpact,
@@ -480,7 +480,7 @@ public class ConfigAuditEngine
                         RecommendedNetwork = placement.RecommendedNetwork?.Name,
                         RecommendedVlan = placement.RecommendedNetwork?.VlanId,
                         RecommendedAction = placement.RecommendedNetwork != null
-                            ? $"Connect to {placement.RecommendedNetworkLabel}"
+                            ? $"Move to {placement.RecommendedNetworkLabel}"
                             : "Create Security VLAN",
                         RuleId = "OFFLINE-CAMERA-VLAN",
                         ScoreImpact = scoreImpact,

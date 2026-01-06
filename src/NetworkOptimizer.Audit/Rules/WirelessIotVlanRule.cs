@@ -45,7 +45,7 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
             scoreImpactOverride: placement.ScoreImpact,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,
-            recommendedAction: $"Connect to {placement.RecommendedNetworkLabel}",
+            recommendedAction: $"Move to {placement.RecommendedNetworkLabel}",
             metadata: VlanPlacementChecker.BuildMetadata(client.Detection, network, placement.IsLowRisk)
         );
     }
