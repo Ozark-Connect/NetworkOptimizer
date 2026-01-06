@@ -25,14 +25,15 @@
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    background: rgba(26, 32, 41, 0.95) !important;
-    color: var(--ozark-text) !important;
-    padding: 8px 16px !important;
+    background: inherit !important;
+    background-color: rgba(0, 0, 0, 0.7) !important;
+    color: #ffffff !important;
+    padding: 10px 16px !important;
     font-size: 12px !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
     z-index: 1000 !important;
-    backdrop-filter: blur(8px) !important;
-    -webkit-backdrop-filter: blur(8px) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
 }
 
 .Credits a {
@@ -43,6 +44,21 @@
 .Credits a:hover {
     color: var(--ozark-accent) !important;
     text-decoration: underline !important;
+}
+
+/* Ozark Connect Logo Overlay */
+.ozark-logo-overlay {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 100;
+    pointer-events: none;
+}
+
+.ozark-logo-overlay img {
+    height: 40px;
+    width: auto;
+    opacity: 0.9;
 }
 
 /* Progress bar and gauge accent colors */
@@ -103,46 +119,7 @@
     stroke: var(--ozark-primary) !important;
 }
 
-/* Hide OpenSpeedTest logo and replace with Ozark Connect logo */
+/* Hide OpenSpeedTest logo in SVG - we use HTML overlay instead */
 #logo-Desk {
     opacity: 0 !important;
 }
-
-/* Ozark Connect logo overlay */
-#intro-Desk::before,
-#intro-Mob::before {
-    content: '';
-    position: absolute;
-    background-image: url('../images/ozark-connect-logo.png');
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    pointer-events: none;
-}
-
-/* Desktop logo positioning */
-#intro-Desk {
-    position: relative;
-}
-
-#intro-Desk::before {
-    left: 35px;
-    top: 130px;
-    width: 223px;
-    height: 60px;
-}
-
-/* Mobile logo positioning */
-#intro-Mob {
-    position: relative;
-}
-
-#intro-Mob::before {
-    left: 38px;
-    top: 100px;
-    width: 219px;
-    height: 60px;
-}
-
-/* The SVG text now says "Speed Test by Ozark Connect" */
-/* Attribution is in the footer HTML */
