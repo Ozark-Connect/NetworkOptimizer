@@ -955,6 +955,102 @@ public class FirewallRuleAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleBetweenIsolatedNetworks_FlaggedAsBroadRule()
+    {
+        // Test that ALLOW rules between networks that should be isolated are flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "security-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-iot-to-security",
+                Name = "[TEST] Any <-> Any",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "security-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag the ALLOW rule as problematic
+        issues.Should().Contain(i => i.Type == "BROAD_RULE" && i.Message.Contains("[TEST] Any <-> Any"));
+        var allowIssue = issues.First(i => i.Type == "BROAD_RULE");
+        allowIssue.Message.Should().Contain("IoT").And.Contain("Security");
+        allowIssue.RuleId.Should().Be("FW-ALLOW-ISOLATED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleBetweenGuestAndCorporate_FlaggedAsBroadRule()
+    {
+        // Test Guest to Corporate allow rule is flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-guest-to-corp",
+                Name = "Allow Guest to Corporate",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "guest-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().Contain(i => i.Type == "BROAD_RULE" && i.RuleId == "FW-ALLOW-ISOLATED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleBetweenCorporateNetworks_NotFlagged()
+    {
+        // Test that ALLOW rules between two Corporate networks are NOT flagged
+        // (Corporate to Corporate is fine)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate Main", NetworkPurpose.Corporate, id: "corp-main-id"),
+            CreateNetwork("Corporate Branch", NetworkPurpose.Corporate, id: "corp-branch-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-corp-to-corp",
+                Name = "Allow Corp to Corp",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-main-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-branch-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag allow rules between two corporate networks
+        issues.Should().NotContain(i => i.RuleId == "FW-ALLOW-ISOLATED");
+    }
+
     #endregion
 
     #endregion

@@ -379,7 +379,92 @@ public class FirewallRuleAnalyzer
         var isolatedSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && n.NetworkIsolationEnabled).ToList();
         // These are handled by UniFi's built-in isolation, no additional check needed
 
+        // Now check for ALLOW rules between networks that should be isolated
+        // This catches rules that explicitly open up traffic between isolated network types
+        var allIotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
+        var allGuestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest).ToList();
+        var allSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security).ToList();
+
+        // Check for allow rules between IoT and trusted/security networks
+        foreach (var iot in allIotNetworks)
+        {
+            foreach (var trusted in trustedNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, iot, trusted);
+            }
+            foreach (var security in allSecurityNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, iot, security);
+            }
+        }
+
+        // Check for allow rules between Guest and trusted/security/IoT networks
+        foreach (var guest in allGuestNetworks)
+        {
+            foreach (var trusted in trustedNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, guest, trusted);
+            }
+            foreach (var security in allSecurityNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, guest, security);
+            }
+            foreach (var iot in allIotNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, guest, iot);
+            }
+        }
+
         return issues;
+    }
+
+    /// <summary>
+    /// Helper to find and flag ALLOW rules between networks that should be isolated
+    /// </summary>
+    private void CheckForProblematicAllowRules(
+        List<AuditIssue> issues,
+        List<FirewallRule> rules,
+        NetworkInfo network1,
+        NetworkInfo network2)
+    {
+        // Don't check network against itself
+        if (network1.Id == network2.Id)
+            return;
+
+        // Find all ALLOW rules between these two networks (either direction)
+        var allowRules = rules.Where(r =>
+            r.Enabled &&
+            !r.Predefined &&
+            r.ActionType.IsAllowAction() &&
+            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)))
+            .ToList();
+
+        foreach (var rule in allowRules)
+        {
+            // Determine direction for the message
+            var isForward = HasNetworkPair(rule, network1.Id, network2.Id);
+            var sourceNet = isForward ? network1 : network2;
+            var destNet = isForward ? network2 : network1;
+
+            issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.BroadRule,
+                Severity = AuditSeverity.Recommended,
+                Message = $"Rule '{rule.Name}' allows traffic from {sourceNet.Name} ({sourceNet.Purpose}) to {destNet.Name} ({destNet.Purpose}) which should be isolated",
+                Metadata = new Dictionary<string, object>
+                {
+                    { "rule_name", rule.Name ?? rule.Id },
+                    { "rule_index", rule.Index },
+                    { "source_network", sourceNet.Name },
+                    { "source_purpose", sourceNet.Purpose.ToString() },
+                    { "dest_network", destNet.Name },
+                    { "dest_purpose", destNet.Purpose.ToString() },
+                    { "recommendation", "Review if this rule is necessary or restrict to specific ports/protocols" }
+                },
+                RuleId = "FW-ALLOW-ISOLATED",
+                ScoreImpact = 7
+            });
+        }
     }
 
     /// <summary>
