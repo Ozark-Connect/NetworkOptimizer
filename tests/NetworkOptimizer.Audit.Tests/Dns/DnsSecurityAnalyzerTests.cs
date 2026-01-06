@@ -314,21 +314,140 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_WithQuicBlockRule_DetectsRule()
+    public async Task Analyze_WithDoqBlockRule_DetectsRule()
     {
+        // DoQ (DNS over QUIC) blocking requires UDP 443 + web domains with DNS providers
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block QUIC DoH"",
+                ""name"": ""Block DoQ"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
-                ""destination"": { ""port"": ""443"" }
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com""]
+                }
             }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
-        result.HasQuicBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.DoqBlockedDomains.Should().Contain("dns.google");
+        result.DoqBlockedDomains.Should().Contain("cloudflare-dns.com");
+    }
+
+    [Fact]
+    public async Task Analyze_WithCombinedDohDoqBlockRule_DetectsBoth()
+    {
+        // A single rule with tcp_udp protocol blocks both DoH (TCP 443) and DoQ (UDP 443)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoH and DoQ"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp_udp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.DohBlockedDomains.Should().Contain("dns.google");
+        result.DoqBlockedDomains.Should().Contain("dns.google");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53TcpOnlyProtocol_DoesNotDetect()
+    {
+        // DNS 53 blocking requires UDP protocol - TCP-only rules should NOT be detected
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS TCP Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDotUdpOnlyProtocol_DoesNotDetect()
+    {
+        // DoT (853) blocking requires TCP protocol - UDP-only rules should NOT be detected
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoT UDP Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": { ""port"": ""853"" }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDotBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohUdpOnlyProtocol_DetectsOnlyDoq()
+    {
+        // UDP-only 443 rule with web domains should detect DoQ but NOT DoH
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoQ Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDohBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohTcpOnlyProtocol_DetectsOnlyDoh()
+    {
+        // TCP-only 443 rule with web domains should detect DoH but NOT DoQ
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoH Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port"": ""443"",
+                    ""matching_target"": ""WEB"",
+                    ""web_domains"": [""dns.google""]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeFalse();
     }
 
     [Fact]
@@ -548,6 +667,7 @@ public class DnsSecurityAnalyzerTests
             HasDns53BlockRule = true,
             HasDotBlockRule = true,
             HasDohBlockRule = true,
+            HasDoqBlockRule = true,
             WanDnsMatchesDoH = true,
             DeviceDnsPointsToGateway = true
         };
@@ -555,6 +675,7 @@ public class DnsSecurityAnalyzerTests
         var summary = _analyzer.GetSummary(analysisResult);
 
         summary.FullyProtected.Should().BeTrue();
+        summary.DoqBypassBlocked.Should().BeTrue();
     }
 
     [Fact]
