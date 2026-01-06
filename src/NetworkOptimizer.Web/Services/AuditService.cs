@@ -964,19 +964,20 @@ public class AuditService
             "PORT_SECURITY" => "Port Security Issue",
 
             // DNS security
-            Audit.IssueTypes.DnsLeakage => "DNS Leak Detected",
-            Audit.IssueTypes.DnsNoDoh => "DoH Not Configured",
-            Audit.IssueTypes.DnsDohAuto => "DoH Set to Auto Mode",
-            Audit.IssueTypes.DnsNo53Block => "No DNS Leak Prevention",
-            Audit.IssueTypes.DnsNoDotBlock => "DNS-over-TLS Not Blocked",
-            Audit.IssueTypes.DnsNoDohBlock => "DoH Bypass Not Blocked",
-            Audit.IssueTypes.DnsIsp => "Using ISP DNS Servers",
-            Audit.IssueTypes.DnsWanMismatch => "WAN DNS Mismatch",
-            Audit.IssueTypes.DnsWanOrder => "WAN DNS Wrong Order",
-            Audit.IssueTypes.DnsWanNoStatic => "WAN DNS Not Configured",
-            Audit.IssueTypes.DnsDeviceMisconfigured => "Device DNS Misconfigured",
-            Audit.IssueTypes.DnsThirdPartyDetected => "Third-Party DNS Detected",
-            Audit.IssueTypes.DnsUnknownConfig => "Unknown DNS Configuration",
+            Audit.IssueTypes.DnsLeakage => "DNS: Leak Detected",
+            Audit.IssueTypes.DnsNoDoh => "DNS: DoH Not Configured",
+            Audit.IssueTypes.DnsDohAuto => "DNS: DoH Set to Auto Mode",
+            Audit.IssueTypes.DnsNo53Block => "DNS: No Leak Prevention",
+            Audit.IssueTypes.DnsNoDotBlock => "DNS: DoT Not Blocked",
+            Audit.IssueTypes.DnsNoDohBlock => "DNS: DoH Bypass Not Blocked",
+            Audit.IssueTypes.DnsNoDoqBlock => "DNS: DoQ Not Blocked",
+            Audit.IssueTypes.DnsIsp => "DNS: Using ISP Servers",
+            Audit.IssueTypes.DnsWanMismatch => "DNS: WAN Mismatch",
+            Audit.IssueTypes.DnsWanOrder => "DNS: WAN Wrong Order",
+            Audit.IssueTypes.DnsWanNoStatic => "DNS: WAN Not Configured",
+            Audit.IssueTypes.DnsDeviceMisconfigured => "DNS: Device Misconfigured",
+            Audit.IssueTypes.DnsThirdPartyDetected => "DNS: Third-Party Detected",
+            Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };
