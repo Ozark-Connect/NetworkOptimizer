@@ -194,34 +194,28 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
 
 // Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
 var openSpeedTestPort = builder.Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
+var openSpeedTestHost = builder.Configuration["OPENSPEEDTEST_HOST"] ?? hostName;
 var openSpeedTestHttps = builder.Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
 var openSpeedTestHttpsPort = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
 
+// HTTP origins (direct access via IP or hostname)
 if (!string.IsNullOrEmpty(hostIp))
 {
     corsOriginsList.Add($"http://{hostIp}:{openSpeedTestPort}");
-    if (openSpeedTestHttps)
-    {
-        // For HTTPS, omit port if 443 (default)
-        var httpsOrigin = openSpeedTestHttpsPort == "443"
-            ? $"https://{hostIp}"
-            : $"https://{hostIp}:{openSpeedTestHttpsPort}";
-        corsOriginsList.Add(httpsOrigin);
-    }
 }
-if (!string.IsNullOrEmpty(hostName))
+if (!string.IsNullOrEmpty(openSpeedTestHost))
 {
-    corsOriginsList.Add($"http://{hostName}:{openSpeedTestPort}");
-    if (openSpeedTestHttps)
-    {
-        var httpsOrigin = openSpeedTestHttpsPort == "443"
-            ? $"https://{hostName}"
-            : $"https://{hostName}:{openSpeedTestHttpsPort}";
-        corsOriginsList.Add(httpsOrigin);
-    }
+    corsOriginsList.Add($"http://{openSpeedTestHost}:{openSpeedTestPort}");
 }
-// Note: REVERSE_PROXIED_HOST_NAME is for API URL, not OpenSpeedTest origin
-// OpenSpeedTest runs on its own port, even when API is behind reverse proxy
+
+// HTTPS origins (when proxied with TLS)
+if (openSpeedTestHttps && !string.IsNullOrEmpty(openSpeedTestHost))
+{
+    var httpsOrigin = openSpeedTestHttpsPort == "443"
+        ? $"https://{openSpeedTestHost}"
+        : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
+    corsOriginsList.Add(httpsOrigin);
+}
 
 builder.Services.AddCors(options =>
 {

@@ -2,11 +2,9 @@
 # Ozark Connect Speed Test - Entrypoint
 # Injects runtime configuration into config.js
 
-# Construct the save URL if not explicitly set
-# Priority: OPENSPEEDTEST_SAVE_URL > REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
-if [ -n "$OPENSPEEDTEST_SAVE_URL" ]; then
-    SAVE_DATA_URL="$OPENSPEEDTEST_SAVE_URL"
-elif [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
+# Construct the save URL from environment variables
+# Priority: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
+if [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
     # Behind reverse proxy - use https and no port (proxy handles it)
     SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}/api/public/speedtest/results?"
 elif [ -n "$HOST_NAME" ]; then
