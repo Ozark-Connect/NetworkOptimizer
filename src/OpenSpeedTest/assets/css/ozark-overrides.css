@@ -1,0 +1,60 @@
+/**
+ * Ozark Connect Branding Overrides for OpenSpeedTest
+ * These styles override the default OpenSpeedTest colors with Ozark Connect branding
+ */
+
+:root {
+    --ozark-primary: #0559C9;
+    --ozark-accent: #F97316;
+    --ozark-bg: #1a2029;
+    --ozark-text: #f1f5f9;
+}
+
+/* Override the blue gradient/accent colors */
+.openSpeedtestApp [style*="fill: #3da6ff"],
+.openSpeedtestApp [style*="fill: #14b0fe"],
+.openSpeedtestApp [style*="fill:#3da6ff"],
+.openSpeedtestApp [style*="fill:#14b0fe"] {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Credits section styling */
+.Credits {
+    color: var(--ozark-text) !important;
+}
+
+.Credits a {
+    color: var(--ozark-primary) !important;
+}
+
+.Credits a:hover {
+    color: var(--ozark-accent) !important;
+}
+
+/* Progress bar and gauge accent colors */
+#progressbg {
+    stroke: var(--ozark-primary) !important;
+}
+
+/* Download/Upload result cards */
+.line {
+    fill: var(--ozark-primary) !important;
+}
+
+.line2 {
+    fill: var(--ozark-accent) !important;
+}
+
+/* Start button hover effect */
+#startBtn:hover {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Override gradient definitions in SVG */
+svg linearGradient#gradient stop:first-child {
+    stop-color: var(--ozark-primary) !important;
+}
+
+svg linearGradient#gradient stop:last-child {
+    stop-color: var(--ozark-accent) !important;
+}

@@ -528,6 +528,11 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     double? uploadData = double.TryParse(GetValue("ud"), out var ud) ? ud : null;
     var userAgent = GetValue("ua") ?? context.Request.Headers.UserAgent.ToString();
 
+    // Geolocation (optional)
+    double? latitude = double.TryParse(GetValue("lat"), out var lat) ? lat : null;
+    double? longitude = double.TryParse(GetValue("lng"), out var lng) ? lng : null;
+    int? locationAccuracy = int.TryParse(GetValue("acc"), out var acc) ? acc : null;
+
     // Get client IP (handle proxies)
     var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -537,7 +542,8 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     }
 
     var result = await service.RecordOpenSpeedTestResultAsync(
-        clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent);
+        clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
+        latitude, longitude, locationAccuracy);
 
     return Results.Ok(new {
         success = true,

@@ -590,9 +590,18 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<double?>("JitterMs")
                         .HasColumnType("REAL");
 
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("LocationAccuracyMeters")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("LocalIp")
                         .HasMaxLength(45)
                         .HasColumnType("TEXT");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("REAL");
 
                     b.Property<int>("ParallelStreams")
                         .HasColumnType("INTEGER");
@@ -627,6 +636,19 @@ namespace NetworkOptimizer.Storage.Migrations
                     b.Property<string>("UserAgent")
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("WifiChannel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("WifiNoiseDbm")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("WifiRadioProto")
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("WifiSignalDbm")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 

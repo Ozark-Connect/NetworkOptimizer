@@ -43,7 +43,10 @@ public class ClientSpeedTestService
         double? jitterMs,
         double? downloadDataMb,
         double? uploadDataMb,
-        string? userAgent)
+        string? userAgent,
+        double? latitude = null,
+        double? longitude = null,
+        int? locationAccuracy = null)
     {
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
@@ -65,7 +68,11 @@ public class ClientSpeedTestService
             UserAgent = userAgent,
             TestTime = DateTime.UtcNow,
             Success = true,
-            ParallelStreams = 6  // OpenSpeedTest default: 6 parallel HTTP connections
+            ParallelStreams = 6,  // OpenSpeedTest default: 6 parallel HTTP connections
+            // Geolocation (if provided)
+            Latitude = latitude,
+            Longitude = longitude,
+            LocationAccuracyMeters = locationAccuracy
         };
 
         // Try to look up client info from UniFi
@@ -252,6 +259,18 @@ public class ClientSpeedTestService
             {
                 result.ClientMac = client.Mac;
                 result.DeviceName = !string.IsNullOrEmpty(client.Name) ? client.Name : client.Hostname;
+
+                // Capture Wi-Fi signal for wireless clients
+                if (!client.IsWired)
+                {
+                    result.WifiSignalDbm = client.Signal;
+                    result.WifiNoiseDbm = client.Noise;
+                    result.WifiChannel = client.Channel;
+                    result.WifiRadioProto = client.RadioProto;
+                    _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Proto={Proto}",
+                        result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadioProto);
+                }
+
                 _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",
                     result.DeviceHost, result.ClientMac, result.DeviceName);
             }

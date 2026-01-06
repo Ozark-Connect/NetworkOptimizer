@@ -41,14 +41,14 @@ services:
       retries: 3
       start_period: 40s
 
-  # OpenSpeedTest - browser-based speed test that sends results to Network Optimizer
+  # Ozark Connect Speed Test - customized OpenSpeedTest that sends results to Network Optimizer
   # Requires HOST_IP or HOST_NAME to be set in .env for result reporting
-  openspeedtest:
+  ozark-speedtest:
     build:
-      context: openspeedtest
-      dockerfile: Dockerfile
-    image: ozark-connect/openspeedtest:latest
-    container_name: openspeedtest
+      context: ..
+      dockerfile: docker/openspeedtest/Dockerfile
+    image: ozark-connect/speedtest:latest
+    container_name: ozark-speedtest
     restart: unless-stopped
     ports:
       - "${OPENSPEEDTEST_PORT:-3005}:3000"
