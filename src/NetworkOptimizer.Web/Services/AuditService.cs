@@ -934,14 +934,14 @@ public class AuditService
         return type switch
         {
             // Firewall rules
-            Audit.IssueTypes.FwAnyAny => "Any-Any Firewall Rule",
-            Audit.IssueTypes.PermissiveRule => "Overly Permissive Rule",
-            Audit.IssueTypes.BroadRule => "Broad Firewall Rule",
-            Audit.IssueTypes.OrphanedRule => "Orphaned Firewall Rule",
-            Audit.IssueTypes.AllowExceptionPattern => "Allow Exception Pattern",
-            Audit.IssueTypes.AllowSubvertsDeny => "Rule Order Issue",
-            Audit.IssueTypes.DenyShadowsAllow => "Ineffective Allow Rule",
-            Audit.IssueTypes.MissingIsolation => "Missing VLAN Isolation",
+            Audit.IssueTypes.FwAnyAny => "Firewall: Any-Any Rule",
+            Audit.IssueTypes.PermissiveRule => "Firewall: Overly Permissive Rule",
+            Audit.IssueTypes.BroadRule => "Firewall: Broad Rule",
+            Audit.IssueTypes.OrphanedRule => "Firewall: Orphaned Rule",
+            Audit.IssueTypes.AllowExceptionPattern => "Firewall: Allow Exception Pattern",
+            Audit.IssueTypes.AllowSubvertsDeny => "Firewall: Rule Order Issue",
+            Audit.IssueTypes.DenyShadowsAllow => "Firewall: Ineffective Allow Rule",
+            Audit.IssueTypes.MissingIsolation => "Firewall: Missing VLAN Isolation",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 
