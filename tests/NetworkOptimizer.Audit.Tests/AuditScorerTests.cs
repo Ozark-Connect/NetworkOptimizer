@@ -376,6 +376,199 @@ public class AuditScorerTests
 
     #endregion
 
+    #region GetScoreLabel Tests
+
+    [Theory]
+    [InlineData(90, "EXCELLENT")]
+    [InlineData(95, "EXCELLENT")]
+    [InlineData(100, "EXCELLENT")]
+    [InlineData(75, "GOOD")]
+    [InlineData(80, "GOOD")]
+    [InlineData(89, "GOOD")]
+    [InlineData(60, "FAIR")]
+    [InlineData(65, "FAIR")]
+    [InlineData(74, "FAIR")]
+    [InlineData(0, "NEEDS ATTENTION")]
+    [InlineData(30, "NEEDS ATTENTION")]
+    [InlineData(59, "NEEDS ATTENTION")]
+    public void GetScoreLabel_ReturnsExpectedLabel(int score, string expectedLabel)
+    {
+        AuditScorer.GetScoreLabel(score).Should().Be(expectedLabel);
+    }
+
+    #endregion
+
+    #region CalculateFilteredScore Tests
+
+    [Fact]
+    public void CalculateFilteredScore_NoIssues_Returns100()
+    {
+        var score = _scorer.CalculateFilteredScore(
+            new List<AuditIssue>(),
+            new AuditStatistics(),
+            0);
+
+        score.Should().Be(100);
+    }
+
+    [Fact]
+    public void CalculateFilteredScore_WithCriticalIssues_DeductsPoints()
+    {
+        var issues = new List<AuditIssue>
+        {
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 10)
+        };
+
+        var score = _scorer.CalculateFilteredScore(
+            issues,
+            new AuditStatistics(),
+            0);
+
+        score.Should().Be(90);
+    }
+
+    [Fact]
+    public void CalculateFilteredScore_WithMixedSeverities_CalculatesCorrectly()
+    {
+        var issues = new List<AuditIssue>
+        {
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 10),
+            CreateIssue(AuditSeverity.Recommended, scoreImpact: 5),
+            CreateIssue(AuditSeverity.Informational, scoreImpact: 2)
+        };
+
+        var score = _scorer.CalculateFilteredScore(
+            issues,
+            new AuditStatistics(),
+            0);
+
+        // 100 - 10 - 5 - 2 = 83
+        score.Should().Be(83);
+    }
+
+    [Fact]
+    public void CalculateFilteredScore_WithHardening_AddsBonus()
+    {
+        var issues = new List<AuditIssue>
+        {
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 20)
+        };
+        var stats = new AuditStatistics
+        {
+            TotalPorts = 100,
+            MacRestrictedPorts = 80 // 80% hardening
+        };
+
+        var score = _scorer.CalculateFilteredScore(issues, stats, hardeningMeasureCount: 4);
+
+        // 100 - 20 + 5 (80% hardening) + 3 (4 measures) = 88
+        score.Should().Be(88);
+    }
+
+    #endregion
+
+    #region CalculateHardeningBonus Edge Cases
+
+    [Fact]
+    public void CalculateScore_HardeningBonus_40PercentHardening_Adds2Points()
+    {
+        var result = CreateAuditResult(
+            criticalIssues: new[] { CreateIssue(AuditSeverity.Critical, scoreImpact: 10) },
+            hardeningPercentage: 40,
+            hardeningMeasureCount: 0);
+
+        var score = _scorer.CalculateScore(result);
+
+        // 100 - 10 + 2 = 92
+        score.Should().Be(92);
+    }
+
+    [Fact]
+    public void CalculateScore_HardeningBonus_2Measures_Adds2Points()
+    {
+        var result = CreateAuditResult(
+            criticalIssues: new[] { CreateIssue(AuditSeverity.Critical, scoreImpact: 10) },
+            hardeningPercentage: 0,
+            hardeningMeasureCount: 2);
+
+        var score = _scorer.CalculateScore(result);
+
+        // 100 - 10 + 2 = 92
+        score.Should().Be(92);
+    }
+
+    [Fact]
+    public void CalculateScore_HardeningBonus_1Measure_Adds1Point()
+    {
+        var result = CreateAuditResult(
+            criticalIssues: new[] { CreateIssue(AuditSeverity.Critical, scoreImpact: 10) },
+            hardeningPercentage: 0,
+            hardeningMeasureCount: 1);
+
+        var score = _scorer.CalculateScore(result);
+
+        // 100 - 10 + 1 = 91
+        score.Should().Be(91);
+    }
+
+    #endregion
+
+    #region GetRecommendations Edge Cases
+
+    [Fact]
+    public void GetRecommendations_PermissiveFirewallRules_ReturnsRestrictMessage()
+    {
+        var result = CreateAuditResult(criticalIssues: new[]
+        {
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 10, type: "PERMISSIVE_RULE_1"),
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 10, type: "PERMISSIVE_RULE_2")
+        });
+
+        var recommendations = _scorer.GetRecommendations(result);
+
+        recommendations.Should().Contain(r => r.Contains("Restrict") && r.Contains("permissive firewall rule"));
+    }
+
+    [Fact]
+    public void GetRecommendations_ManyMacRestrictionIssues_ReturnsMacRestrictionMessage()
+    {
+        var macIssues = Enumerable.Range(0, 6)
+            .Select(_ => CreateIssue(AuditSeverity.Recommended, scoreImpact: 1, type: "MAC_NOT_RESTRICTED"))
+            .ToArray();
+        var result = CreateAuditResult(recommendedIssues: macIssues);
+
+        var recommendations = _scorer.GetRecommendations(result);
+
+        recommendations.Should().Contain(r => r.Contains("Implement MAC restrictions"));
+    }
+
+    [Fact]
+    public void GetRecommendations_IsolationIssues_ReturnsEnableIsolationMessage()
+    {
+        var result = CreateAuditResult(recommendedIssues: new[]
+        {
+            CreateIssue(AuditSeverity.Recommended, scoreImpact: 5, type: "PORT_ISOLATION_DISABLED")
+        });
+
+        var recommendations = _scorer.GetRecommendations(result);
+
+        recommendations.Should().Contain(r => r.Contains("Enable port isolation"));
+    }
+
+    [Fact]
+    public void GetRecommendations_HighUnprotectedPorts_ReturnsSecureMessage()
+    {
+        var result = CreateAuditResult(hardeningPercentage: 80);
+        result.Statistics.ActivePorts = 100;
+        result.Statistics.UnprotectedActivePorts = 40; // 40% unprotected
+
+        var recommendations = _scorer.GetRecommendations(result);
+
+        recommendations.Should().Contain(r => r.Contains("Secure") && r.Contains("unprotected active ports"));
+    }
+
+    #endregion
+
     #region GenerateExecutiveSummary Tests
 
     [Fact]
@@ -413,6 +606,46 @@ public class AuditScorerTests
 
         // Assert
         summary.Should().Contain("2 critical issue");
+    }
+
+    [Fact]
+    public void GenerateExecutiveSummary_WithOnlyRecommendedIssues_ReturnsImprovementMessage()
+    {
+        // Arrange
+        var result = CreateAuditResult(recommendedIssues: new[]
+        {
+            CreateIssue(AuditSeverity.Recommended, scoreImpact: 5),
+            CreateIssue(AuditSeverity.Recommended, scoreImpact: 5),
+            CreateIssue(AuditSeverity.Recommended, scoreImpact: 5)
+        });
+        result.SecurityScore = 85;
+        result.Posture = SecurityPosture.Good;
+
+        // Act
+        var summary = _scorer.GenerateExecutiveSummary(result);
+
+        // Assert
+        summary.Should().Contain("3 recommended improvement");
+        summary.Should().NotContain("critical issue");
+    }
+
+    [Fact]
+    public void GenerateExecutiveSummary_SingleCriticalIssue_UsesSingularForm()
+    {
+        // Arrange
+        var result = CreateAuditResult(criticalIssues: new[]
+        {
+            CreateIssue(AuditSeverity.Critical, scoreImpact: 10)
+        });
+        result.SecurityScore = 90;
+        result.Posture = SecurityPosture.Excellent;
+
+        // Act
+        var summary = _scorer.GenerateExecutiveSummary(result);
+
+        // Assert
+        summary.Should().Contain("1 critical issue ");
+        summary.Should().NotContain("issues");
     }
 
     #endregion
