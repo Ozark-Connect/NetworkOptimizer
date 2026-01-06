@@ -105,9 +105,8 @@ public static class VlanPlacementChecker
 
     /// <summary>
     /// Check if a printer is correctly placed.
-    /// If a Printer VLAN exists, printer must be there to be "correctly placed".
-    /// If no Printer VLAN exists, IoT or Security is acceptable.
-    /// Respects AllowPrintersOnMainNetwork setting for severity.
+    /// If AllowPrintersOnMainNetwork is true (lenient): IoT or Security is acceptable.
+    /// If false (strict) and Printer VLAN exists: must be on Printer VLAN.
     /// </summary>
     /// <param name="currentNetwork">The network the device is currently on</param>
     /// <param name="allNetworks">All available networks</param>
@@ -120,6 +119,9 @@ public static class VlanPlacementChecker
         int defaultScoreImpact,
         DeviceAllowanceSettings? allowanceSettings)
     {
+        // Check if user allows printers on main/IoT network (lenient mode)
+        var isAllowed = allowanceSettings?.AllowPrintersOnMainNetwork ?? true;
+
         // Find the best network to recommend
         // Priority: Printer VLAN > IoT VLAN
         var printerNetwork = allNetworks
@@ -132,18 +134,31 @@ public static class VlanPlacementChecker
             .OrderBy(n => n.VlanId)
             .FirstOrDefault();
 
-        // Determine if correctly placed based on available networks:
-        // - If Printer VLAN exists: must be on Printer VLAN
-        // - If no Printer VLAN: IoT or Security is acceptable
+        // Determine if correctly placed based on available networks and settings:
+        // - Printer VLAN is always acceptable
+        // - If lenient (isAllowed=true): IoT or Security is also acceptable
+        // - If strict (isAllowed=false) AND Printer VLAN exists: must be on Printer VLAN
         bool isCorrectlyPlaced;
-        if (printerNetwork != null)
+        if (currentNetwork?.Purpose == NetworkPurpose.Printer)
         {
-            // Printer VLAN exists - printer should be there
-            isCorrectlyPlaced = currentNetwork?.Purpose == NetworkPurpose.Printer;
+            // Always correct on Printer VLAN
+            isCorrectlyPlaced = true;
+        }
+        else if (isAllowed)
+        {
+            // Lenient mode: IoT or Security is acceptable
+            isCorrectlyPlaced = currentNetwork != null &&
+                (currentNetwork.Purpose == NetworkPurpose.IoT ||
+                 currentNetwork.Purpose == NetworkPurpose.Security);
+        }
+        else if (printerNetwork != null)
+        {
+            // Strict mode with Printer VLAN available: must be on Printer VLAN
+            isCorrectlyPlaced = false;
         }
         else
         {
-            // No Printer VLAN - IoT or Security is acceptable
+            // Strict mode without Printer VLAN: IoT or Security is acceptable
             isCorrectlyPlaced = currentNetwork != null &&
                 (currentNetwork.Purpose == NetworkPurpose.IoT ||
                  currentNetwork.Purpose == NetworkPurpose.Security);
@@ -167,10 +182,6 @@ public static class VlanPlacementChecker
             recommendedNetwork = null;
             recommendedLabel = "Printer or IoT VLAN";
         }
-
-        // Printers are low-risk but should still be segmented
-        // Check if user allows printers on main network
-        var isAllowed = allowanceSettings?.AllowPrintersOnMainNetwork ?? true;
 
         // If allowed: Informational (no score impact)
         // If not allowed: Recommended severity with score impact
