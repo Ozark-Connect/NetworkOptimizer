@@ -554,6 +554,7 @@
 
     // Configuration
     private string? openSpeedTestUrl;
+    private string? openSpeedTestHealthCheckUrl;  // Internal HTTP URL for health checks
     private bool iperf3ServerEnabled;
     private bool openSpeedTestAvailable;
     private string serverHost = "<server IP>";
@@ -592,7 +593,13 @@
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
 
-        // Build URL - prefer HTTPS when configured, else HTTP
+        // Build health check URL (always internal HTTP - for server-side reachability check)
+        if (!string.IsNullOrEmpty(hostName))
+            openSpeedTestHealthCheckUrl = $"http://{hostName}:{openSpeedTestPort}";
+        else if (!string.IsNullOrEmpty(hostIp))
+            openSpeedTestHealthCheckUrl = $"http://{hostIp}:{openSpeedTestPort}";
+
+        // Build display URL - prefer HTTPS when configured, else HTTP
         if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
             if (openSpeedTestHttps)
@@ -616,8 +623,8 @@
             serverHost = hostIp;
         }
 
-        // Check if OpenSpeedTest is actually reachable
-        if (!string.IsNullOrEmpty(openSpeedTestUrl))
+        // Check if OpenSpeedTest is actually reachable (using internal HTTP URL)
+        if (!string.IsNullOrEmpty(openSpeedTestHealthCheckUrl))
         {
             openSpeedTestAvailable = await CheckOpenSpeedTestHealthAsync();
         }
@@ -671,7 +678,7 @@
         {
             using var client = HttpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(2);
-            var response = await client.GetAsync(openSpeedTestUrl);
+            var response = await client.GetAsync(openSpeedTestHealthCheckUrl);
             _lastHealthResult = response.IsSuccessStatusCode;
         }
         catch
