@@ -1,0 +1,187 @@
+using System.Text.Json;
+using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Models;
+using NetworkOptimizer.UniFi.Models;
+using Xunit;
+
+namespace NetworkOptimizer.Audit.Tests.Models;
+
+public class AuditRequestTests
+{
+    [Fact]
+    public void AuditRequest_RequiredProperty_DeviceDataJson()
+    {
+        var request = new AuditRequest { DeviceDataJson = "{}" };
+        Assert.Equal("{}", request.DeviceDataJson);
+    }
+
+    [Fact]
+    public void AuditRequest_OptionalProperties_DefaultToNull()
+    {
+        var request = new AuditRequest { DeviceDataJson = "{}" };
+
+        Assert.Null(request.Clients);
+        Assert.Null(request.ClientHistory);
+        Assert.Null(request.FingerprintDb);
+        Assert.Null(request.SettingsData);
+        Assert.Null(request.FirewallPoliciesData);
+        Assert.Null(request.AllowanceSettings);
+        Assert.Null(request.ProtectCameras);
+        Assert.Null(request.ClientName);
+    }
+
+    [Fact]
+    public void AuditRequest_Clients_CanBeSet()
+    {
+        var clients = new List<UniFiClientResponse>
+        {
+            new() { Mac = "aa:bb:cc:dd:ee:ff" }
+        };
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            Clients = clients
+        };
+
+        Assert.NotNull(request.Clients);
+        Assert.Single(request.Clients);
+        Assert.Equal("aa:bb:cc:dd:ee:ff", request.Clients[0].Mac);
+    }
+
+    [Fact]
+    public void AuditRequest_ClientHistory_CanBeSet()
+    {
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new() { Mac = "aa:bb:cc:dd:ee:ff" }
+        };
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            ClientHistory = history
+        };
+
+        Assert.NotNull(request.ClientHistory);
+        Assert.Single(request.ClientHistory);
+    }
+
+    [Fact]
+    public void AuditRequest_FingerprintDb_CanBeSet()
+    {
+        var db = new UniFiFingerprintDatabase();
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            FingerprintDb = db
+        };
+
+        Assert.NotNull(request.FingerprintDb);
+    }
+
+    [Fact]
+    public void AuditRequest_SettingsData_CanBeSet()
+    {
+        var json = JsonDocument.Parse("{\"test\": 123}");
+        var element = json.RootElement;
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            SettingsData = element
+        };
+
+        Assert.NotNull(request.SettingsData);
+        Assert.Equal(123, request.SettingsData.Value.GetProperty("test").GetInt32());
+    }
+
+    [Fact]
+    public void AuditRequest_FirewallPoliciesData_CanBeSet()
+    {
+        var json = JsonDocument.Parse("{\"rules\": []}");
+        var element = json.RootElement;
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            FirewallPoliciesData = element
+        };
+
+        Assert.NotNull(request.FirewallPoliciesData);
+    }
+
+    [Fact]
+    public void AuditRequest_AllowanceSettings_CanBeSet()
+    {
+        var settings = new DeviceAllowanceSettings();
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            AllowanceSettings = settings
+        };
+
+        Assert.NotNull(request.AllowanceSettings);
+    }
+
+    [Fact]
+    public void AuditRequest_ProtectCameras_CanBeSet()
+    {
+        var cameras = new ProtectCameraCollection();
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            ProtectCameras = cameras
+        };
+
+        Assert.NotNull(request.ProtectCameras);
+    }
+
+    [Fact]
+    public void AuditRequest_ClientName_CanBeSet()
+    {
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{}",
+            ClientName = "TestClient"
+        };
+
+        Assert.Equal("TestClient", request.ClientName);
+    }
+
+    [Fact]
+    public void AuditRequest_AllPropertiesSet()
+    {
+        var clients = new List<UniFiClientResponse>();
+        var history = new List<UniFiClientHistoryResponse>();
+        var db = new UniFiFingerprintDatabase();
+        var settings = JsonDocument.Parse("{}").RootElement;
+        var policies = JsonDocument.Parse("{}").RootElement;
+        var allowance = new DeviceAllowanceSettings();
+        var cameras = new ProtectCameraCollection();
+
+        var request = new AuditRequest
+        {
+            DeviceDataJson = "{\"data\":[]}",
+            Clients = clients,
+            ClientHistory = history,
+            FingerprintDb = db,
+            SettingsData = settings,
+            FirewallPoliciesData = policies,
+            AllowanceSettings = allowance,
+            ProtectCameras = cameras,
+            ClientName = "FullTest"
+        };
+
+        Assert.Equal("{\"data\":[]}", request.DeviceDataJson);
+        Assert.Same(clients, request.Clients);
+        Assert.Same(history, request.ClientHistory);
+        Assert.Same(db, request.FingerprintDb);
+        Assert.Same(allowance, request.AllowanceSettings);
+        Assert.Same(cameras, request.ProtectCameras);
+        Assert.Equal("FullTest", request.ClientName);
+    }
+}
