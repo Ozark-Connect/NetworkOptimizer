@@ -107,7 +107,7 @@ svg linearGradient#gradient stop:last-child {
 
 /* Show our branding text instead */
 .Your-IP::after {
-    content: 'Powered by OpenSpeedTest';
+    content: 'Powered by OpenSpeedTest™';
     visibility: visible;
     position: absolute;
 }
