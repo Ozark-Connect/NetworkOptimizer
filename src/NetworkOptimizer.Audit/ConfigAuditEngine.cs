@@ -169,7 +169,7 @@ public class ConfigAuditEngine
     /// <param name="protectCameras">UniFi Protect cameras for 100% confidence detection (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
-    public async Task<AuditResult> RunAuditAsync(
+    public Task<AuditResult> RunAuditAsync(
         string deviceDataJson,
         List<UniFiClientResponse>? clients,
         List<UniFiClientHistoryResponse>? clientHistory,
@@ -180,10 +180,31 @@ public class ConfigAuditEngine
         ProtectCameraCollection? protectCameras,
         string? clientName = null)
     {
-        _logger.LogInformation("Starting network configuration audit for {Client}", clientName ?? "Unknown");
+        return RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = deviceDataJson,
+            Clients = clients,
+            ClientHistory = clientHistory,
+            FingerprintDb = fingerprintDb,
+            SettingsData = settingsData,
+            FirewallPoliciesData = firewallPoliciesData,
+            AllowanceSettings = allowanceSettings,
+            ProtectCameras = protectCameras,
+            ClientName = clientName
+        });
+    }
+
+    /// <summary>
+    /// Run a comprehensive security audit using the provided request parameters.
+    /// </summary>
+    /// <param name="request">Audit request containing all parameters</param>
+    /// <returns>Complete audit results</returns>
+    public async Task<AuditResult> RunAuditAsync(AuditRequest request)
+    {
+        _logger.LogInformation("Starting network configuration audit for {Client}", request.ClientName ?? "Unknown");
 
         // Initialize context with parsed data and security engine
-        var ctx = InitializeAuditContext(deviceDataJson, clients, clientHistory, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, protectCameras, clientName);
+        var ctx = InitializeAuditContext(request);
 
         // Execute audit phases
         ExecutePhase1_ExtractNetworks(ctx);
@@ -208,42 +229,33 @@ public class ConfigAuditEngine
 
     #region Audit Phase Methods
 
-    private AuditContext InitializeAuditContext(
-        string deviceDataJson,
-        List<UniFiClientResponse>? clients,
-        List<UniFiClientHistoryResponse>? clientHistory,
-        UniFiFingerprintDatabase? fingerprintDb,
-        JsonElement? settingsData,
-        JsonElement? firewallPoliciesData,
-        DeviceAllowanceSettings? allowanceSettings,
-        ProtectCameraCollection? protectCameras,
-        string? clientName)
+    private AuditContext InitializeAuditContext(AuditRequest request)
     {
-        if (clients != null)
-            _logger.LogInformation("Client data available for enhanced detection: {ClientCount} clients", clients.Count);
-        if (clientHistory != null)
-            _logger.LogInformation("Client history available for offline detection: {HistoryCount} historical clients", clientHistory.Count);
-        if (fingerprintDb != null)
-            _logger.LogInformation("Fingerprint database available: {DeviceCount} devices", fingerprintDb.DevIds.Count);
-        if (protectCameras != null)
-            _logger.LogInformation("UniFi Protect cameras available for priority detection: {CameraCount} cameras", protectCameras.Count);
+        if (request.Clients != null)
+            _logger.LogInformation("Client data available for enhanced detection: {ClientCount} clients", request.Clients.Count);
+        if (request.ClientHistory != null)
+            _logger.LogInformation("Client history available for offline detection: {HistoryCount} historical clients", request.ClientHistory.Count);
+        if (request.FingerprintDb != null)
+            _logger.LogInformation("Fingerprint database available: {DeviceCount} devices", request.FingerprintDb.DevIds.Count);
+        if (request.ProtectCameras != null)
+            _logger.LogInformation("UniFi Protect cameras available for priority detection: {CameraCount} cameras", request.ProtectCameras.Count);
 
         // Create detection service with all available data sources
         var detectionService = new DeviceTypeDetectionService(
             _loggerFactory.CreateLogger<DeviceTypeDetectionService>(),
-            fingerprintDb,
+            request.FingerprintDb,
             _ieeeOuiDb);
 
         // Set UniFi Protect cameras (highest priority detection)
-        if (protectCameras != null && protectCameras.Count > 0)
+        if (request.ProtectCameras != null && request.ProtectCameras.Count > 0)
         {
-            detectionService.SetProtectCameras(protectCameras);
+            detectionService.SetProtectCameras(request.ProtectCameras);
         }
 
         // Set client history for enhanced offline device detection
-        if (clientHistory != null)
+        if (request.ClientHistory != null)
         {
-            detectionService.SetClientHistory(clientHistory);
+            detectionService.SetClientHistory(request.ClientHistory);
         }
 
         var securityEngine = new PortSecurityAnalyzer(
@@ -255,7 +267,7 @@ public class ConfigAuditEngine
         JsonElement deviceData;
         try
         {
-            using var doc = JsonDocument.Parse(deviceDataJson);
+            using var doc = JsonDocument.Parse(request.DeviceDataJson);
             deviceData = doc.RootElement.Clone();
         }
         catch (JsonException ex)
@@ -265,17 +277,17 @@ public class ConfigAuditEngine
         }
 
         // Apply allowance settings to rules
-        var effectiveSettings = allowanceSettings ?? DeviceAllowanceSettings.Default;
+        var effectiveSettings = request.AllowanceSettings ?? DeviceAllowanceSettings.Default;
         securityEngine.SetAllowanceSettings(effectiveSettings);
 
         return new AuditContext
         {
             DeviceData = deviceData,
-            Clients = clients,
-            ClientHistory = clientHistory,
-            SettingsData = settingsData,
-            FirewallPoliciesData = firewallPoliciesData,
-            ClientName = clientName,
+            Clients = request.Clients,
+            ClientHistory = request.ClientHistory,
+            SettingsData = request.SettingsData,
+            FirewallPoliciesData = request.FirewallPoliciesData,
+            ClientName = request.ClientName,
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings
         };
