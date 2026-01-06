@@ -46,6 +46,20 @@
     fill: var(--ozark-accent) !important;
 }
 
+/* Download symbol (arrow) - blue to match graph */
+#downSymbol,
+#downSymbolDesk,
+#downSymbolMob {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Upload symbol (arrow) - orange to match graph */
+#upSymbol,
+#upSymbolDesk,
+#upSymbolMob {
+    fill: var(--ozark-accent) !important;
+}
+
 /* Override the graph symbols to not use gradient */
 #graphc1,
 #graphc2 {
