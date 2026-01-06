@@ -1846,8 +1846,8 @@ select.form-control {
 
 .issue-type-icon {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    padding-top: 0.125rem;
     width: 24px;
     height: 24px;
     flex-shrink: 0;
@@ -1888,6 +1888,7 @@ select.form-control {
     display: flex;
     align-items: center;
     justify-content: center;
+    align-self: center;
     font-size: 0.75rem;
     color: var(--text-muted);
     width: 2rem;
