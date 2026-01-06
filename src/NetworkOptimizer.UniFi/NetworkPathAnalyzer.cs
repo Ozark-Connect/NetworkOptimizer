@@ -588,6 +588,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     continue;
                 }
                 if (nameLower.Contains("docker") || descLower.Contains("docker") ||
+                    nameLower.Contains("podman") || descLower.Contains("podman") ||
+                    nameLower.Contains("macvlan") || descLower.Contains("macvlan") ||
                     nameLower.Contains("veth") || nameLower.Contains("br-") ||
                     nameLower.Contains("virbr") || nameLower.Contains("vbox") ||
                     nameLower.Contains("vmnet") || nameLower.Contains("vmware") ||
