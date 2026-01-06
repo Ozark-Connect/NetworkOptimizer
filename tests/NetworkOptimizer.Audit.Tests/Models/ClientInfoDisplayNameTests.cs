@@ -136,6 +136,224 @@ public class ClientInfoDisplayNameTests
 
     #endregion
 
+    #region WirelessClientInfo.WifiBand Tests
+
+    [Theory]
+    [InlineData("na", "5 GHz")]
+    [InlineData("ng", "2.4 GHz")]
+    [InlineData("6e", "6 GHz")]
+    [InlineData("ax-6e", "6 GHz")]
+    [InlineData("NA", "5 GHz")]  // Case insensitive
+    [InlineData("NG", "2.4 GHz")]
+    public void WirelessClientInfo_WifiBand_ReturnsCorrectBand_FromRadioType(string radio, string expectedBand)
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Radio = radio,
+            IsWired = false
+        };
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.WifiBand.Should().Be(expectedBand);
+    }
+
+    [Theory]
+    [InlineData(1, "2.4 GHz")]
+    [InlineData(6, "2.4 GHz")]
+    [InlineData(11, "2.4 GHz")]
+    [InlineData(14, "2.4 GHz")]
+    [InlineData(36, "5 GHz")]
+    [InlineData(44, "5 GHz")]
+    [InlineData(149, "5 GHz")]
+    [InlineData(177, "5 GHz")]
+    [InlineData(181, "6 GHz")]
+    [InlineData(233, "6 GHz")]
+    public void WirelessClientInfo_WifiBand_ReturnsCorrectBand_FromChannel(int channel, string expectedBand)
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Radio = null,
+            Channel = channel,
+            IsWired = false
+        };
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.WifiBand.Should().Be(expectedBand);
+    }
+
+    [Fact]
+    public void WirelessClientInfo_WifiBand_ReturnsNull_WhenNoRadioOrChannel()
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Radio = null,
+            Channel = null,
+            IsWired = false
+        };
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.WifiBand.Should().BeNull();
+    }
+
+    [Fact]
+    public void WirelessClientInfo_WifiBand_PrefersRadioType_OverChannel()
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Radio = "na",  // 5 GHz
+            Channel = 6,   // Would indicate 2.4 GHz if radio wasn't set
+            IsWired = false
+        };
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.WifiBand.Should().Be("5 GHz");
+    }
+
+    [Fact]
+    public void WirelessClientInfo_WifiBand_FallsBackToChannel_WhenRadioUnrecognized()
+    {
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Radio = "unknown-radio",
+            Channel = 36,  // 5 GHz
+            IsWired = false
+        };
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.WifiBand.Should().Be("5 GHz");
+    }
+
+    [Fact]
+    public void WirelessClientInfo_Mac_ReturnsClientMac()
+    {
+        var client = CreateWirelessClient("Test", "", "aa:bb:cc:dd:ee:ff");
+        var info = CreateWirelessClientInfo(client, null, ClientDeviceCategory.Unknown);
+
+        info.Mac.Should().Be("aa:bb:cc:dd:ee:ff");
+    }
+
+    #endregion
+
+    #region OfflineClientInfo Property Tests
+
+    [Fact]
+    public void OfflineClientInfo_LastSeenDisplay_ReturnsMinutes_WhenUnderOneHour()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddMinutes(-30).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastSeenDisplay.Should().Be("30 min ago");
+    }
+
+    [Fact]
+    public void OfflineClientInfo_LastSeenDisplay_ReturnsHours_WhenUnderOneDay()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddHours(-5).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastSeenDisplay.Should().Be("5 hr ago");
+    }
+
+    [Fact]
+    public void OfflineClientInfo_LastSeenDisplay_ReturnsDays_WhenUnderOneWeek()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastSeenDisplay.Should().Be("3 days ago");
+    }
+
+    [Fact]
+    public void OfflineClientInfo_LastSeenDisplay_ReturnsWeeks_WhenOverOneWeek()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddDays(-21).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastSeenDisplay.Should().Be("3 weeks ago");
+    }
+
+    [Fact]
+    public void OfflineClientInfo_IsRecentlyActive_ReturnsTrue_WhenWithin14Days()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddDays(-10).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.IsRecentlyActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OfflineClientInfo_IsRecentlyActive_ReturnsFalse_WhenOlderThan14Days()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddDays(-15).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.IsRecentlyActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public void OfflineClientInfo_IsRecentlyActive_ReturnsTrueAtJustUnder14Days()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = DateTimeOffset.UtcNow.AddDays(-13).AddHours(-23).ToUnixTimeSeconds();
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.IsRecentlyActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OfflineClientInfo_Mac_ReturnsHistoryClientMac()
+    {
+        var history = CreateHistoryClient("", "", "", "11:22:33:44:55:66");
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.Mac.Should().Be("11:22:33:44:55:66");
+    }
+
+    [Fact]
+    public void OfflineClientInfo_IsWired_ReturnsHistoryClientIsWired()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.IsWired = true;
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.IsWired.Should().BeTrue();
+    }
+
+    [Fact]
+    public void OfflineClientInfo_LastSeenDateTime_ConvertsUnixTimestampCorrectly()
+    {
+        var expectedTime = new DateTime(2025, 6, 15, 12, 0, 0, DateTimeKind.Utc);
+        var unixTime = new DateTimeOffset(expectedTime).ToUnixTimeSeconds();
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastSeen = unixTime;
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastSeenDateTime.Should().Be(expectedTime);
+    }
+
+    [Fact]
+    public void OfflineClientInfo_LastUplinkName_ReturnsHistoryClientLastUplinkName()
+    {
+        var history = CreateHistoryClient("", "", "", "aa:bb:cc:dd:ee:ff");
+        history.LastUplinkName = "AP-Living-Room";
+        var info = CreateOfflineClientInfo(history, null, ClientDeviceCategory.Unknown);
+
+        info.LastUplinkName.Should().Be("AP-Living-Room");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static UniFiClientResponse CreateWirelessClient(string name, string hostname, string? mac)
