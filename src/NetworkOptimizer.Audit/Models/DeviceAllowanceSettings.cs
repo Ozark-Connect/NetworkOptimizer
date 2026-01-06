@@ -51,10 +51,19 @@ public class DeviceAllowanceSettings
 
     /// <summary>
     /// Check if a Smart TV should be allowed on main network based on vendor.
+    /// Note: Apple TV is categorized as SmartTV (dev_type_id=47) by UniFi, so we
+    /// also check AllowAppleStreamingOnMainNetwork here.
     /// </summary>
     public bool IsSmartTVAllowed(string? vendor)
     {
         if (AllowAllTVsOnMainNetwork)
+            return true;
+
+        // Apple TV is categorized as SmartTV by UniFi fingerprint (dev_type_id=47)
+        // so respect the Apple streaming allowance setting
+        if (AllowAppleStreamingOnMainNetwork &&
+            !string.IsNullOrEmpty(vendor) &&
+            vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
             return true;
 
         if (AllowNameBrandTVsOnMainNetwork && !string.IsNullOrEmpty(vendor))
