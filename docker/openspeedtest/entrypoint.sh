@@ -41,5 +41,28 @@ else
     echo "Warning: config.js not found at $CONFIG_FILE"
 fi
 
+# Enforce canonical host via 302 redirect (HOST_NAME or HOST_IP)
+# Required for CORS and prevents browser caching issues on mobile
+NGINX_CONF="/etc/nginx/conf.d/default.conf"
+CANONICAL_HOST=""
+if [ -n "$HOST_NAME" ]; then
+    CANONICAL_HOST="$HOST_NAME"
+elif [ -n "$HOST_IP" ]; then
+    CANONICAL_HOST="$HOST_IP"
+fi
+
+CANONICAL_PORT="${OPENSPEEDTEST_PORT:-3005}"
+
+if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
+    echo "Enforcing canonical host: $CANONICAL_HOST:$CANONICAL_PORT"
+    # Add redirect rule inside the server block (after server_name directive)
+    sed -i "/server_name/a\\
+    # Enforce canonical host - prevents browser caching issues on mobile\\
+    if (\$host != \"$CANONICAL_HOST\") {\\
+        return 302 \$scheme://$CANONICAL_HOST:$CANONICAL_PORT\$request_uri;\\
+    }" "$NGINX_CONF"
+    echo "Added host redirect rule"
+fi
+
 # Start nginx
 exec "$@"
