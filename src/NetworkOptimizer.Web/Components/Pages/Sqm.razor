@@ -1087,6 +1087,7 @@
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
     private static bool _cachedGatewayConnected;
+    private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
 
     // State
     private bool isLoading = true;
@@ -1183,8 +1184,17 @@
             await LoadSavedConfigsAsync();
             StateHasChanged();
 
+            // Check if a refresh was in progress when user navigated away
+            if (_refreshNeeded)
+            {
+                // Previous refresh didn't complete - do a fresh fetch
+                var dashboardTask = LoadSqmMonitorDataAsync();
+                _ = RefreshStatus(forceRefresh: true);
+                await dashboardTask;
+                StateHasChanged();
+            }
             // If cache was valid in OnInitialized, just load dashboard data
-            if (!isLoading)
+            else if (!isLoading)
             {
                 // Cache was used - just load SQM Monitor data
                 if (deploymentStatus?.IsDeployed == true)
@@ -1562,6 +1572,8 @@
 
     private async Task RefreshStatus(bool forceRefresh = true)
     {
+        // Mark that a refresh is in progress - if user navs away, next page load will re-fetch
+        _refreshNeeded = true;
         isLoading = true;
         StateHasChanged();
 
@@ -1635,6 +1647,7 @@
         }
         finally
         {
+            _refreshNeeded = false;  // Refresh completed (or failed) - clear the flag
             isLoading = false;
             StateHasChanged();
         }
