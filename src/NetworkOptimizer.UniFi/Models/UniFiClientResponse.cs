@@ -167,4 +167,38 @@ public class UniFiClientResponse
     // Blocked/allowed status
     [JsonPropertyName("blocked")]
     public bool Blocked { get; set; }
+
+    // Wi-Fi 7 MLO (Multi-Link Operation)
+    [JsonPropertyName("is_mlo")]
+    public bool? IsMlo { get; set; }
+
+    [JsonPropertyName("mlo_details")]
+    public List<MloLinkDetail>? MloDetails { get; set; }
+}
+
+/// <summary>
+/// Details for each link in a Wi-Fi 7 MLO (Multi-Link Operation) connection
+/// </summary>
+public class MloLinkDetail
+{
+    [JsonPropertyName("band")]
+    public string? Band { get; set; }  // "ng", "na", "6e"
+
+    [JsonPropertyName("channel")]
+    public int? Channel { get; set; }
+
+    [JsonPropertyName("channel_width")]
+    public string? ChannelWidth { get; set; }  // "20", "40", "80", "160", "320"
+
+    [JsonPropertyName("mimo")]
+    public string? Mimo { get; set; }  // "MIMO_2", etc.
+
+    [JsonPropertyName("phy_rate_most_common")]
+    public long? PhyRateMostCommon { get; set; }  // Kbps
+
+    [JsonPropertyName("signal_avg")]
+    public int? SignalAvg { get; set; }  // dBm
+
+    [JsonPropertyName("standard")]
+    public string? Standard { get; set; }  // "WIFI_7"
 }

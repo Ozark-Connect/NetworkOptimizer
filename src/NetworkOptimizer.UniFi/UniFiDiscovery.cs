@@ -153,6 +153,18 @@ public class UniFiDiscovery
 
         _logger.LogInformation("Discovered {Count} connected clients", clients.Count);
 
+        // Log any MLO clients found
+        var mloClients = clients.Where(c => c.IsMlo == true).ToList();
+        if (mloClients.Any())
+        {
+            foreach (var c in mloClients)
+            {
+                _logger.LogDebug("MLO client found: {Name} ({Mac}), Links: {Links}",
+                    c.Name ?? c.Hostname, c.Mac,
+                    c.MloDetails != null ? string.Join(", ", c.MloDetails.Select(m => $"{m.Band}@ch{m.Channel}")) : "none");
+            }
+        }
+
         var discoveredClients = clients.Select(c => new DiscoveredClient
         {
             Id = c.Id,
@@ -179,6 +191,16 @@ public class UniFiDiscovery
             NoiseLevel = c.Noise,
             RadioProtocol = c.RadioProto,
             Radio = c.Radio,
+            // Wi-Fi 7 MLO
+            IsMlo = c.IsMlo ?? false,
+            MloLinks = c.MloDetails?.Select(m => new MloLink
+            {
+                Band = m.Band ?? "",
+                Channel = m.Channel,
+                ChannelWidth = m.ChannelWidth,
+                SignalDbm = m.SignalAvg,
+                PhyRateKbps = m.PhyRateMostCommon
+            }).ToList(),
             // Traffic stats
             TxBytes = c.TxBytes,
             RxBytes = c.RxBytes,
@@ -438,6 +460,9 @@ public class DiscoveredClient
     public int? NoiseLevel { get; set; }
     public string? RadioProtocol { get; set; }
     public string? Radio { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
+    // Wi-Fi 7 MLO (Multi-Link Operation)
+    public bool IsMlo { get; set; }
+    public List<MloLink>? MloLinks { get; set; }
     // Traffic
     public long TxBytes { get; set; }
     public long RxBytes { get; set; }
@@ -453,6 +478,18 @@ public class DiscoveredClient
     public string? FixedIp { get; set; }
     public string? Note { get; set; }
     public string Oui { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// MLO link info for Wi-Fi 7 multi-link clients
+/// </summary>
+public class MloLink
+{
+    public string Band { get; set; } = string.Empty;  // "ng", "na", "6e"
+    public int? Channel { get; set; }
+    public string? ChannelWidth { get; set; }  // "20", "40", "80", "160", "320"
+    public int? SignalDbm { get; set; }
+    public long? PhyRateKbps { get; set; }
 }
 
 public class NetworkTopology
