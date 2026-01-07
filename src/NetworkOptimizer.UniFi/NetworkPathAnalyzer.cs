@@ -936,9 +936,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     DeviceIp = device.IpAddress,
                     IngressPort = currentPort,
                     IngressPortName = ingressPortName,
-                    IngressSpeedMbps = ingressSpeed,
-                    IsWirelessIngress = isWirelessUplink,
-                    WirelessIngressBand = isWirelessUplink ? device.UplinkRadioBand : null
+                    IngressSpeedMbps = ingressSpeed
+                    // Note: IsWirelessIngress is set by the PREVIOUS hop's egress, not this device's uplink
                 };
 
                 if (stopAtServerSwitch)
@@ -950,25 +949,24 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
-                    // Continue up the chain - get next hop's uplink speed if wireless
-                    if (deviceDict.TryGetValue(device.UplinkMac, out var uplinkDevice)
-                        && uplinkDevice.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
-                        && uplinkDevice.UplinkSpeedMbps > 0)
+                    // Continue up the chain - check if THIS device has a wireless uplink to its uplink device
+                    if (isWirelessUplink)
                     {
+                        // This device connects to its uplink via wireless mesh
                         hop.EgressPort = device.UplinkPort;
-                        hop.EgressSpeedMbps = uplinkDevice.UplinkSpeedMbps;
+                        hop.EgressSpeedMbps = device.UplinkSpeedMbps;
                         hop.EgressPortName = "wireless mesh";
                         hop.IsWirelessEgress = true;
-                        hop.WirelessEgressBand = uplinkDevice.UplinkRadioBand;
+                        hop.WirelessEgressBand = device.UplinkRadioBand;
                         // Signal stats come from the device with the wireless uplink
-                        hop.WirelessChannel = uplinkDevice.UplinkChannel;
-                        hop.WirelessSignalDbm = uplinkDevice.UplinkSignalDbm;
-                        hop.WirelessNoiseDbm = uplinkDevice.UplinkNoiseDbm;
-                        hop.WirelessTxRateMbps = uplinkDevice.UplinkTxRateKbps > 0
-                            ? (int)(uplinkDevice.UplinkTxRateKbps / 1000)
+                        hop.WirelessChannel = device.UplinkChannel;
+                        hop.WirelessSignalDbm = device.UplinkSignalDbm;
+                        hop.WirelessNoiseDbm = device.UplinkNoiseDbm;
+                        hop.WirelessTxRateMbps = device.UplinkTxRateKbps > 0
+                            ? (int)(device.UplinkTxRateKbps / 1000)
                             : null;
-                        hop.WirelessRxRateMbps = uplinkDevice.UplinkRxRateKbps > 0
-                            ? (int)(uplinkDevice.UplinkRxRateKbps / 1000)
+                        hop.WirelessRxRateMbps = device.UplinkRxRateKbps > 0
+                            ? (int)(device.UplinkRxRateKbps / 1000)
                             : null;
                     }
                     else
