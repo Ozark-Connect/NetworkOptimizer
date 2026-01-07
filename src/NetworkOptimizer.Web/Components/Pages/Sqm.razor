@@ -329,7 +329,7 @@
         <div class="card-header">
             <h2 class="card-title">@(sqmEligibleWans.Count == 1 ? "WAN Configuration" : "WAN 1 Configuration")</h2>
             <label class="toggle-label">
-                <input type="checkbox" @bind="wan1Config.Enabled" />
+                <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" />
                 <span>Enable SQM</span>
             </label>
         </div>
@@ -342,13 +342,13 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan1Config.Interface" @bind:after="() => OnInterfaceChanged(wan1Config)">
-                        @if (sqmEligibleWans.Any())
+                        @if (wan1AvailableInterfaces.Any())
                         {
                             @if (string.IsNullOrEmpty(wan1Config.Interface))
                             {
                                 <option value="">-- Select Interface --</option>
                             }
-                            @foreach (var wan in sqmEligibleWans)
+                            @foreach (var wan in wan1AvailableInterfaces)
                             {
                                 <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
                             }
@@ -469,7 +469,7 @@
         <div class="card-header">
             <h2 class="card-title">WAN 2 Configuration</h2>
             <label class="toggle-label">
-                <input type="checkbox" @bind="wan2Config.Enabled" />
+                <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" />
                 <span>Enable SQM</span>
             </label>
         </div>
@@ -482,9 +482,13 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan2Config.Interface" @bind:after="() => OnInterfaceChanged(wan2Config)">
-                        @if (sqmEligibleWans.Any())
+                        @if (wan2AvailableInterfaces.Any())
                         {
-                            @foreach (var wan in sqmEligibleWans)
+                            @if (string.IsNullOrEmpty(wan2Config.Interface))
+                            {
+                                <option value="">-- Select Interface --</option>
+                            }
+                            @foreach (var wan in wan2AvailableInterfaces)
                             {
                                 <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
                             }
@@ -1088,6 +1092,17 @@
     // WANs with Smart Queues enabled (eligible for Adaptive SQM)
     private List<WanInterfaceInfo> sqmEligibleWans => wanInterfaces.Where(w => w.SmartqEnabled).ToList();
 
+    // Filtered interface lists - exclude interfaces already selected by other WAN
+    private List<WanInterfaceInfo> wan1AvailableInterfaces => sqmEligibleWans
+        .Where(w => string.IsNullOrEmpty(wan2Config.Interface) ||
+                    !w.Interface.Equals(wan2Config.Interface, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    private List<WanInterfaceInfo> wan2AvailableInterfaces => sqmEligibleWans
+        .Where(w => string.IsNullOrEmpty(wan1Config.Interface) ||
+                    !w.Interface.Equals(wan1Config.Interface, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
     // WAN configurations (defaults overwritten by ApplyDetectedWanInterfaces)
     private WanConfigModel wan1Config = new()
     {
@@ -1445,6 +1460,25 @@
 
         // Always update calculated speeds after applying defaults
         UpdateCalculatedSpeeds(config);
+    }
+
+    private void OnEnabledChanged(WanConfigModel config, List<WanInterfaceInfo> availableInterfaces)
+    {
+        // When enabling, auto-select if only one interface available
+        if (config.Enabled && string.IsNullOrEmpty(config.Interface) && availableInterfaces.Count == 1)
+        {
+            var wan = availableInterfaces[0];
+            config.Interface = wan.Interface;
+
+            // Apply all defaults as if user selected it
+            if (!string.IsNullOrEmpty(wan.SuggestedPingIp))
+                config.PingHost = wan.SuggestedPingIp;
+
+            if (string.IsNullOrEmpty(config.Name) || config.Name == "WAN1" || config.Name == "WAN2")
+                config.Name = wan.Name;
+
+            ApplyConnectionDefaults(config, wan.Name);
+        }
     }
 
     private void OnInterfaceChanged(WanConfigModel config)
