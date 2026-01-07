@@ -3066,6 +3066,13 @@ select.form-control {
     padding-left: 0.25rem;
 }
 
+.wifi-tooltip-link-speed {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-bottom: 0.15rem;
+    padding-left: 0.25rem;
+}
+
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;

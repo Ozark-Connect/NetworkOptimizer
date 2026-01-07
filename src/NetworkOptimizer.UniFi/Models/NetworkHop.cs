@@ -65,6 +65,12 @@ public class NetworkHop
     /// <summary>Noise floor in dBm for wireless link</summary>
     public int? WirelessNoiseDbm { get; set; }
 
+    /// <summary>TX rate in Mbps for wireless link (from device to uplink)</summary>
+    public int? WirelessTxRateMbps { get; set; }
+
+    /// <summary>RX rate in Mbps for wireless link (from uplink to device)</summary>
+    public int? WirelessRxRateMbps { get; set; }
+
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
 }

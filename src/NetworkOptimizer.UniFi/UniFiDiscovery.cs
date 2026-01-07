@@ -77,6 +77,9 @@ public class UniFiDiscovery
                 UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
                     ? (int)(d.Uplink.TxRate / 1000)
                     : d.Uplink?.Speed ?? 0,
+                // Wireless uplink rates in Kbps
+                UplinkTxRateKbps = d.Uplink?.TxRate ?? 0,
+                UplinkRxRateKbps = d.Uplink?.RxRate ?? 0,
                 UplinkType = d.Uplink?.Type,
                 UplinkRadioBand = d.Uplink?.RadioBand,
                 UplinkChannel = d.Uplink?.Channel,
@@ -430,6 +433,10 @@ public class DiscoveredDevice
     public string? UplinkDeviceName { get; set; }
     public bool IsUplinkConnected { get; set; }
     public int UplinkSpeedMbps { get; set; }
+    /// <summary>TX rate in Kbps for wireless uplinks</summary>
+    public long UplinkTxRateKbps { get; set; }
+    /// <summary>RX rate in Kbps for wireless uplinks</summary>
+    public long UplinkRxRateKbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
     public string? UplinkRadioBand { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
     public int? UplinkChannel { get; set; }

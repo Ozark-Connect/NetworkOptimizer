@@ -711,8 +711,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.WirelessChannel = targetDevice.UplinkChannel;
                 deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
                 deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
-                _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, UplinkSpeed={Speed}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
-                    targetDevice.Name, targetDevice.UplinkType, targetDevice.UplinkSpeedMbps,
+                deviceHop.WirelessTxRateMbps = targetDevice.UplinkTxRateKbps > 0
+                    ? (int)(targetDevice.UplinkTxRateKbps / 1000)
+                    : null;
+                deviceHop.WirelessRxRateMbps = targetDevice.UplinkRxRateKbps > 0
+                    ? (int)(targetDevice.UplinkRxRateKbps / 1000)
+                    : null;
+                _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, TxRate={Tx}Mbps, RxRate={Rx}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
+                    targetDevice.Name, targetDevice.UplinkType,
+                    deviceHop.WirelessTxRateMbps, deviceHop.WirelessRxRateMbps,
                     targetDevice.UplinkRadioBand ?? "null", targetDevice.UplinkChannel, targetDevice.UplinkSignalDbm);
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
@@ -957,6 +964,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.WirelessChannel = uplinkDevice.UplinkChannel;
                         hop.WirelessSignalDbm = uplinkDevice.UplinkSignalDbm;
                         hop.WirelessNoiseDbm = uplinkDevice.UplinkNoiseDbm;
+                        hop.WirelessTxRateMbps = uplinkDevice.UplinkTxRateKbps > 0
+                            ? (int)(uplinkDevice.UplinkTxRateKbps / 1000)
+                            : null;
+                        hop.WirelessRxRateMbps = uplinkDevice.UplinkRxRateKbps > 0
+                            ? (int)(uplinkDevice.UplinkRxRateKbps / 1000)
+                            : null;
                     }
                     else
                     {

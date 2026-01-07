@@ -308,6 +308,18 @@
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
                 lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
 
+            // TX/RX speeds
+            if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
+            {
+                var speedParts = new List<string>();
+                if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                    speedParts.Add($"TX {Result.WifiTxRateKbps.Value / 1000} Mbps");
+                if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
+                    speedParts.Add($"RX {Result.WifiRxRateKbps.Value / 1000} Mbps");
+                if (speedParts.Count > 0)
+                    lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
+            }
+
             // Link info with band badge
             if (!string.IsNullOrEmpty(clientBand) || Result.WifiChannel.HasValue)
             {
@@ -336,6 +348,17 @@
         var lines2 = new List<string>();
 
         lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
+
+        // TX/RX speeds
+        if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
+        {
+            var speedParts = new List<string>();
+            if (meshHop.WirelessTxRateMbps.HasValue)
+                speedParts.Add($"TX {meshHop.WirelessTxRateMbps.Value} Mbps");
+            if (meshHop.WirelessRxRateMbps.HasValue)
+                speedParts.Add($"RX {meshHop.WirelessRxRateMbps.Value} Mbps");
+            lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
+        }
 
         // Link info with band badge
         if (!string.IsNullOrEmpty(band) || meshHop.WirelessChannel.HasValue)
@@ -413,6 +436,17 @@
                 }
 
                 lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+
+                // Per-link TX/RX rates
+                if (link.txRate.HasValue || link.rxRate.HasValue)
+                {
+                    var linkSpeedParts = new List<string>();
+                    if (link.txRate.HasValue)
+                        linkSpeedParts.Add($"TX {link.txRate.Value / 1000} Mbps");
+                    if (link.rxRate.HasValue)
+                        linkSpeedParts.Add($"RX {link.rxRate.Value / 1000} Mbps");
+                    lines.Add($"<div class='wifi-tooltip-link-speed'>{string.Join(" · ", linkSpeedParts)}</div>");
+                }
 
                 // Signal for this link
                 if (link.signal.HasValue)

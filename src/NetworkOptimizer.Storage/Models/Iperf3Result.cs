@@ -131,6 +131,12 @@ public class Iperf3Result
     [MaxLength(10)]
     public string? WifiRadio { get; set; }
 
+    /// <summary>Wi-Fi TX rate in Kbps (wireless clients only)</summary>
+    public long? WifiTxRateKbps { get; set; }
+
+    /// <summary>Wi-Fi RX rate in Kbps (wireless clients only)</summary>
+    public long? WifiRxRateKbps { get; set; }
+
     /// <summary>Wi-Fi 7 MLO (Multi-Link Operation) enabled</summary>
     public bool WifiIsMlo { get; set; }
 

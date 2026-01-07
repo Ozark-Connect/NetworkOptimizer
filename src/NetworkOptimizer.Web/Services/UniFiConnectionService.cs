@@ -618,6 +618,8 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 result.WifiChannel = client.Channel;
                 result.WifiRadioProto = client.RadioProto;
                 result.WifiRadio = client.Radio;
+                result.WifiTxRateKbps = client.TxRate;
+                result.WifiRxRateKbps = client.RxRate;
 
                 // Capture MLO (Multi-Link Operation) data for Wi-Fi 7 clients
                 result.WifiIsMlo = client.IsMlo ?? false;
