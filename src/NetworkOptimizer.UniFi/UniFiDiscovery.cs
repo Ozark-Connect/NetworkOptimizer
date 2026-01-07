@@ -162,9 +162,11 @@ public class UniFiDiscovery
         {
             foreach (var c in mloClients)
             {
-                _logger.LogDebug("MLO client found: {Name} ({Mac}), Links: {Links}",
-                    c.Name ?? c.Hostname, c.Mac,
-                    c.MloDetails != null ? string.Join(", ", c.MloDetails.Select(m => $"{m.Band}@ch{m.Channel}")) : "none");
+                var linksInfo = c.MloDetails != null
+                    ? string.Join(", ", c.MloDetails.Select(m => $"band={m.Band ?? "null"} ch={m.Channel} sig={m.SignalAvg}dBm"))
+                    : "none";
+                _logger.LogDebug("MLO client found: {Name} ({Mac}), Radio={Radio}, Links: [{Links}]",
+                    c.Name ?? c.Hostname, c.Mac, c.Radio ?? "null", linksInfo);
             }
         }
 
