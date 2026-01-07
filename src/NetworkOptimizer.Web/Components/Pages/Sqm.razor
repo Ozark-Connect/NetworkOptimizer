@@ -297,7 +297,7 @@
                     <strong>Warning:</strong> Running a speedtest will temporarily saturate your WAN connection and may interrupt active video calls, gaming, or other real-time activities.
                 </div>
                 <div class="adjustment-buttons">
-                    @if (wan1Config.Enabled && sqmMonitorData?.Wan1?.Active == true)
+                    @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
                         <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@isRunningAdjustment">
                             @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
@@ -311,7 +311,7 @@
                             }
                         </button>
                     }
-                    @if (wan2Config.Enabled && sqmMonitorData?.Wan2?.Active == true)
+                    @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
                         <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@isRunningAdjustment">
                             @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
@@ -1223,6 +1223,24 @@
     private bool wan2HasSavedConfig = false;
     // Derived property - true if any WAN has saved config
     private bool hasSavedConfigs => wan1HasSavedConfig || wan2HasSavedConfig;
+
+    // Helper to check if a WAN name is active in monitor data (matches by name, not slot position)
+    private bool IsWanActiveInMonitor(string wanName)
+    {
+        if (sqmMonitorData == null || string.IsNullOrEmpty(wanName))
+            return false;
+
+        // Check if name matches either Wan1 or Wan2 in monitor data
+        if (sqmMonitorData.Wan1?.Active == true &&
+            string.Equals(sqmMonitorData.Wan1.Name, wanName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (sqmMonitorData.Wan2?.Active == true &&
+            string.Equals(sqmMonitorData.Wan2.Name, wanName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
 
     private async Task LoadSavedConfigsAsync()
     {
