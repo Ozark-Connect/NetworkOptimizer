@@ -1495,7 +1495,7 @@
             await ScrollDeploymentLog();
 
             // Validate WANs still have Smart Queues enabled - disable any that don't
-            var availableInterfaces = wanInterfaces.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (wan1Config.Enabled && !availableInterfaces.Contains(wan1Config.Interface))
             {
                 wan1Config.Enabled = false;
