@@ -308,14 +308,14 @@
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
                 lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
 
-            // TX/RX speeds
+            // RX/TX speeds (RX first = "from device", TX = "to device")
             if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
             {
                 var speedParts = new List<string>();
-                if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                    speedParts.Add($"TX {Result.WifiTxRateKbps.Value / 1000} Mbps");
                 if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                    speedParts.Add($"RX {Result.WifiRxRateKbps.Value / 1000} Mbps");
+                    speedParts.Add($"<span class='wifi-speed-rx'>RX {Result.WifiRxRateKbps.Value / 1000} Mbps</span>");
+                if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
+                    speedParts.Add($"<span class='wifi-speed-tx'>TX {Result.WifiTxRateKbps.Value / 1000} Mbps</span>");
                 if (speedParts.Count > 0)
                     lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
@@ -349,14 +349,14 @@
 
         lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
 
-        // TX/RX speeds
+        // RX/TX speeds (RX first = "from device", TX = "to device")
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
             var speedParts = new List<string>();
-            if (meshHop.WirelessTxRateMbps.HasValue)
-                speedParts.Add($"TX {meshHop.WirelessTxRateMbps.Value} Mbps");
             if (meshHop.WirelessRxRateMbps.HasValue)
-                speedParts.Add($"RX {meshHop.WirelessRxRateMbps.Value} Mbps");
+                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
+            if (meshHop.WirelessTxRateMbps.HasValue)
+                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
@@ -409,8 +409,8 @@
             if (totalTxMbps > 0 || totalRxMbps > 0)
             {
                 var speedParts = new List<string>();
-                if (totalTxMbps > 0) speedParts.Add($"TX {totalTxMbps:F0} Mbps");
-                if (totalRxMbps > 0) speedParts.Add($"RX {totalRxMbps:F0} Mbps");
+                if (totalRxMbps > 0) speedParts.Add($"<span class='wifi-speed-rx'>RX {totalRxMbps:F0} Mbps</span>");
+                if (totalTxMbps > 0) speedParts.Add($"<span class='wifi-speed-tx'>TX {totalTxMbps:F0} Mbps</span>");
                 lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
 
@@ -437,14 +437,14 @@
 
                 lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
 
-                // Per-link TX/RX rates
+                // Per-link RX/TX rates (RX first = "from device", TX = "to device")
                 if (link.txRate.HasValue || link.rxRate.HasValue)
                 {
                     var linkSpeedParts = new List<string>();
-                    if (link.txRate.HasValue)
-                        linkSpeedParts.Add($"TX {link.txRate.Value / 1000} Mbps");
                     if (link.rxRate.HasValue)
-                        linkSpeedParts.Add($"RX {link.rxRate.Value / 1000} Mbps");
+                        linkSpeedParts.Add($"<span class='wifi-speed-rx'>RX {link.rxRate.Value / 1000} Mbps</span>");
+                    if (link.txRate.HasValue)
+                        linkSpeedParts.Add($"<span class='wifi-speed-tx'>TX {link.txRate.Value / 1000} Mbps</span>");
                     lines.Add($"<div class='wifi-tooltip-link-speed'>{string.Join(" · ", linkSpeedParts)}</div>");
                 }
 

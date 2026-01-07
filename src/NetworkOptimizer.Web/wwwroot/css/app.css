@@ -3073,6 +3073,14 @@ select.form-control {
     padding-left: 0.25rem;
 }
 
+.wifi-speed-rx {
+    color: var(--speed-download-color);
+}
+
+.wifi-speed-tx {
+    color: var(--speed-upload-color);
+}
+
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;
