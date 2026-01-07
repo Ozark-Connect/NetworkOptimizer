@@ -596,6 +596,9 @@
         // Build health check URL - always use localhost (most reliable with host networking)
         openSpeedTestHealthCheckUrl = $"http://localhost:{openSpeedTestPort}";
 
+        // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
+        serverHost = hostName ?? hostIp ?? "<server IP>";
+
         // Build display URL - prefer HTTPS when configured, else HTTP
         if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
@@ -611,13 +614,11 @@
                 // HTTP URL (direct access)
                 openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
             }
-            serverHost = openSpeedTestHost;
         }
         else if (!string.IsNullOrEmpty(hostIp))
         {
             // Fallback to HOST_IP (HTTP only)
             openSpeedTestUrl = $"http://{hostIp}:{openSpeedTestPort}";
-            serverHost = hostIp;
         }
 
         // Check if OpenSpeedTest is actually reachable (using internal HTTP URL)
