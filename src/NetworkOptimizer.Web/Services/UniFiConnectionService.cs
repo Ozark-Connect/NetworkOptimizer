@@ -616,8 +616,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 result.WifiNoiseDbm = client.Noise;
                 result.WifiChannel = client.Channel;
                 result.WifiRadioProto = client.RadioProto;
-                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Proto={Proto}",
-                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadioProto);
+                result.WifiRadio = client.Radio;
+                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Radio={Radio}, Proto={Proto}",
+                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadio, result.WifiRadioProto);
             }
 
             _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",

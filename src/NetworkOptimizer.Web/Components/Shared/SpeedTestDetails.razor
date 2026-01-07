@@ -283,28 +283,49 @@
         if (Result == null)
             return "Wireless connection";
 
-        var parts = new List<string>();
+        var row1 = new List<string>();
+        var row2 = new List<string>();
 
+        // Row 1: Signal info
         if (Result.WifiSignalDbm.HasValue)
-            parts.Add($"Signal: {Result.WifiSignalDbm.Value} dBm");
+            row1.Add($"{Result.WifiSignalDbm.Value} dBm");
 
         if (Result.WifiNoiseDbm.HasValue)
-            parts.Add($"Noise: {Result.WifiNoiseDbm.Value} dBm");
+            row1.Add($"Noise {Result.WifiNoiseDbm.Value}");
 
         if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
         {
             var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
-            parts.Add($"SNR: {snr} dB");
+            row1.Add($"SNR {snr}");
         }
 
+        // Row 2: Band/channel/protocol
+        if (!string.IsNullOrEmpty(Result.WifiRadio))
+            row2.Add(FormatRadioBand(Result.WifiRadio));
+
         if (Result.WifiChannel.HasValue)
-            parts.Add($"Ch {Result.WifiChannel.Value}");
+            row2.Add($"Ch {Result.WifiChannel.Value}");
 
         if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-            parts.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
+            row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
 
-        return parts.Count > 0 ? string.Join(" · ", parts) : "Wireless connection";
+        if (row1.Count == 0 && row2.Count == 0)
+            return "Wireless connection";
+
+        // Format as two rows if we have both, otherwise single row
+        if (row1.Count > 0 && row2.Count > 0)
+            return $"{string.Join(" · ", row1)}<br/>{string.Join(" · ", row2)}";
+
+        return string.Join(" · ", row1.Count > 0 ? row1 : row2);
     }
+
+    private string FormatRadioBand(string radio) => radio.ToLowerInvariant() switch
+    {
+        "ng" => "2.4 GHz",
+        "na" => "5 GHz",
+        "6e" => "6 GHz",
+        _ => radio
+    };
 
     private string FormatRadioProto(string proto) => proto.ToLowerInvariant() switch
     {

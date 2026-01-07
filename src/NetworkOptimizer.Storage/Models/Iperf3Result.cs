@@ -127,6 +127,10 @@ public class Iperf3Result
     [MaxLength(10)]
     public string? WifiRadioProto { get; set; }
 
+    /// <summary>Wi-Fi radio band - ng (2.4GHz), na (5GHz), 6e (6GHz) (wireless clients only)</summary>
+    [MaxLength(10)]
+    public string? WifiRadio { get; set; }
+
     /// <summary>Raw iperf3 JSON output for upload test</summary>
     public string? RawUploadJson { get; set; }
 
