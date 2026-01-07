@@ -152,11 +152,25 @@
             });
         }
 
-        // Periodically check for stale tooltips (handles Blazor element reuse)
+        // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
-                if (el._tippy && el._tippy.props.content !== el.dataset.tooltip) {
-                    el._tippy.destroy();
+                if (el._tippy) {
+                    // Update existing tooltip if content changed
+                    if (el._tippy.props.content !== el.dataset.tooltip) {
+                        el._tippy.destroy();
+                        tippy(el, {
+                            content: el.dataset.tooltip,
+                            allowHTML: true,
+                            delay: [100, 200],
+                            placement: 'top',
+                            theme: 'custom',
+                            appendTo: document.body,
+                            maxWidth: 'none'
+                        });
+                    }
+                } else {
+                    // Initialize new tooltip for dynamically added element
                     tippy(el, {
                         content: el.dataset.tooltip,
                         allowHTML: true,
@@ -186,8 +200,14 @@
             mutations.forEach(function(mutation) {
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(function(node) {
-                        if (node.nodeType === 1 && (node.classList?.contains('tooltip-icon') || node.querySelector?.('.tooltip-icon'))) {
-                            shouldInit = true;
+                        if (node.nodeType === 1) {
+                            // Check for tooltip elements
+                            if (node.classList?.contains('tooltip-icon') ||
+                                node.querySelector?.('.tooltip-icon') ||
+                                node.hasAttribute?.('data-tooltip') ||
+                                node.querySelector?.('[data-tooltip]')) {
+                                shouldInit = true;
+                            }
                         }
                     });
                 }
