@@ -200,16 +200,35 @@ public class ClientSpeedTestService
 
     /// <summary>
     /// Get recent client speed test results (ClientToServer and BrowserToServer directions).
+    /// Retries path analysis for results where the target was not found in topology.
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        return await db.Iperf3Results
+        var results = await db.Iperf3Results
             .Where(r => r.Direction == SpeedTestDirection.ClientToServer
                      || r.Direction == SpeedTestDirection.BrowserToServer)
             .OrderByDescending(r => r.TestTime)
             .Take(count)
             .ToListAsync();
+
+        // Retry path analysis for results where target was not found
+        var needsRetry = results.Where(r =>
+            r.PathAnalysis?.Path?.IsValid == false &&
+            r.PathAnalysis?.Path?.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
+
+        if (needsRetry.Count > 0)
+        {
+            _logger.LogDebug("Retrying path analysis for {Count} results with missing targets", needsRetry.Count);
+            foreach (var result in needsRetry)
+            {
+                await AnalyzePathAsync(result);
+            }
+            await db.SaveChangesAsync();
+        }
+
+        return results;
     }
 
     /// <summary>
