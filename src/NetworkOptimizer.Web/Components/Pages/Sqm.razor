@@ -1560,12 +1560,16 @@
                 deploymentSteps.Add("Deploying SQM Monitor...");
                 await ScrollDeploymentLog();
 
+                // Use first enabled WAN for slot 1, second enabled (if any) for slot 2
                 var w1 = wan1Config.Enabled ? wan1Config : wan2Config;
-                var w2 = wan2Config.Enabled ? wan2Config : wan1Config;
+                var w1Interface = $"ifb{w1.Interface}";
+                var w1Name = w1.Name;
 
-                await DeploymentService.DeploySqmMonitorAsync(
-                    $"ifb{w1.Interface}", w1.Name,
-                    $"ifb{w2.Interface}", w2.Name);
+                // Only populate w2 if BOTH WANs are enabled
+                var w2Interface = (wan1Config.Enabled && wan2Config.Enabled) ? $"ifb{wan2Config.Interface}" : "";
+                var w2Name = (wan1Config.Enabled && wan2Config.Enabled) ? wan2Config.Name : "";
+
+                await DeploymentService.DeploySqmMonitorAsync(w1Interface, w1Name, w2Interface, w2Name);
 
                 deploymentSteps.Add("SQM Monitor deployed");
             }
