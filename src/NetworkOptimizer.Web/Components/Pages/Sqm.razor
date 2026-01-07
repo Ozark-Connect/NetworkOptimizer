@@ -1187,10 +1187,22 @@
             var savedConfigs = await SpeedTestRepository.GetAllSqmWanConfigsAsync();
             if (savedConfigs.Count > 0)
             {
-                hasSavedConfigs = true;
+                // Get available interfaces (if wanInterfaces is populated from cache)
+                var availableInterfaces = sqmEligibleWans
+                    .Select(w => w.Interface)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var saved in savedConfigs)
                 {
+                    // Skip loading config if interface is no longer available
+                    if (availableInterfaces.Count > 0 &&
+                        !string.IsNullOrEmpty(saved.Interface) &&
+                        !availableInterfaces.Contains(saved.Interface))
+                    {
+                        continue;
+                    }
+
+                    hasSavedConfigs = true;
                     var config = saved.WanNumber == 1 ? wan1Config : wan2Config;
                     config.Enabled = saved.Enabled;
                     config.ConnectionType = (ConnectionType)saved.ConnectionType;
