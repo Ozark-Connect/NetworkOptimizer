@@ -341,9 +341,13 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
-                    <select class="form-control" @bind="wan1Config.Interface">
+                    <select class="form-control" @bind="wan1Config.Interface" @bind:after="() => OnInterfaceChanged(wan1Config)">
                         @if (sqmEligibleWans.Any())
                         {
+                            @if (string.IsNullOrEmpty(wan1Config.Interface))
+                            {
+                                <option value="">-- Select Interface --</option>
+                            }
                             @foreach (var wan in sqmEligibleWans)
                             {
                                 <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
@@ -477,7 +481,7 @@
                 </div>
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
-                    <select class="form-control" @bind="wan2Config.Interface">
+                    <select class="form-control" @bind="wan2Config.Interface" @bind:after="() => OnInterfaceChanged(wan2Config)">
                         @if (sqmEligibleWans.Any())
                         {
                             @foreach (var wan in sqmEligibleWans)
@@ -1087,7 +1091,7 @@
     // WAN configurations (defaults overwritten by ApplyDetectedWanInterfaces)
     private WanConfigModel wan1Config = new()
     {
-        Enabled = true,
+        Enabled = false,  // Start disabled - user must select interface and enable
         Name = "WAN1",
         Interface = "",
         ConnectionType = ConnectionType.DocsisCable,
@@ -1178,9 +1182,11 @@
         }
     }
 
-    private bool hasSavedConfigs = false;
+    // Track which WANs have saved configurations
     private bool wan1HasSavedConfig = false;
     private bool wan2HasSavedConfig = false;
+    // Derived property - true if any WAN has saved config
+    private bool hasSavedConfigs => wan1HasSavedConfig || wan2HasSavedConfig;
 
     private async Task LoadSavedConfigsAsync()
     {
@@ -1204,7 +1210,7 @@
                         continue;
                     }
 
-                    hasSavedConfigs = true;
+                    // Mark this WAN as having a saved config
                     if (saved.WanNumber == 1)
                         wan1HasSavedConfig = true;
                     else
@@ -1237,9 +1243,10 @@
     {
         try
         {
-            if (wan1Config.Enabled || wan2Config.Enabled)
+            // Only save configs that are enabled AND have an interface selected
+            // This prevents saving incomplete/stale configs
+            if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Interface))
             {
-                // Save WAN 1 config
                 var wan1Saved = new SqmWanConfiguration
                 {
                     WanNumber = 1,
@@ -1257,8 +1264,10 @@
                     SpeedtestEveningMinute = wan1Config.EveningMinute
                 };
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
+            }
 
-                // Save WAN 2 config
+            if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Interface))
+            {
                 var wan2Saved = new SqmWanConfiguration
                 {
                     WanNumber = 2,
@@ -1308,16 +1317,25 @@
             usedInterfaces.Add(wan2Config.Interface);
 
         // Get available WANs not already used by saved configs
-        var availableWans = wanInterfaces.Where(w => !usedInterfaces.Contains(w.Interface)).ToList();
+        var availableWans = sqmEligibleWans.Where(w => !usedInterfaces.Contains(w.Interface)).ToList();
 
         // Apply first available WAN to wan1Config (only if no saved config for WAN1)
         if (!wan1HasSavedConfig)
         {
-            if (availableWans.Count > 0)
+            if (availableWans.Count == 1)
             {
+                // Only one WAN available - auto-select it with ping host
                 ApplyWanInterfaceToConfig(availableWans[0], wan1Config);
+                if (!string.IsNullOrEmpty(availableWans[0].SuggestedPingIp))
+                    wan1Config.PingHost = availableWans[0].SuggestedPingIp;
                 usedInterfaces.Add(availableWans[0].Interface);
                 availableWans.RemoveAt(0);
+            }
+            else if (availableWans.Count > 1)
+            {
+                // Multiple WANs - don't auto-select, let user choose
+                wan1Config.Enabled = false;
+                wan1Config.Interface = "";
             }
             else
             {
@@ -1328,14 +1346,9 @@
         // Apply next available WAN to wan2Config (only if no saved config for WAN2)
         if (!wan2HasSavedConfig)
         {
-            if (availableWans.Count > 0)
-            {
-                ApplyWanInterfaceToConfig(availableWans[0], wan2Config);
-            }
-            else
-            {
-                wan2Config.Enabled = false;
-            }
+            // WAN2 never auto-selects - user chooses if they want dual-WAN
+            wan2Config.Enabled = false;
+            wan2Config.Interface = "";
         }
     }
 
@@ -1345,18 +1358,10 @@
         config.Interface = wan.Interface;
         config.Enabled = true;
 
-        if (!string.IsNullOrEmpty(wan.SuggestedPingIp))
-            config.PingHost = wan.SuggestedPingIp;
+        // Note: PingHost is NOT auto-set here - it's set via OnInterfaceChanged when user selects
 
-        // Apply Starlink defaults when detected
-        if (wan.Name.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
-        {
-            config.ConnectionType = ConnectionType.Starlink;
-            config.NominalDownload = 400;
-            config.NominalUpload = 40;
-        }
-
-        UpdateCalculatedSpeeds(config);
+        // Apply connection-specific defaults (Starlink, etc.)
+        ApplyConnectionDefaults(config, wan.Name);
     }
 
     private void UpdateCalculatedSpeeds(WanConfigModel config)
@@ -1374,6 +1379,80 @@
         config.Overhead = profile.OverheadMultiplier;
         config.BaselineLatency = profile.BaselineLatency;
         config.LatencyThreshold = profile.LatencyThreshold;
+    }
+
+    private void ResetWanConfigs()
+    {
+        // Reset WAN1 to defaults
+        wan1Config.Enabled = false;
+        wan1Config.Name = "WAN1";
+        wan1Config.Interface = "";
+        wan1Config.ConnectionType = ConnectionType.DocsisCable;
+        wan1Config.NominalDownload = 0;
+        wan1Config.NominalUpload = 0;
+        wan1Config.PingHost = "1.1.1.1";
+        wan1Config.SpeedtestServerId = "";
+        wan1Config.MorningHour = 6;
+        wan1Config.MorningMinute = 0;
+        wan1Config.EveningHour = 19;
+        wan1Config.EveningMinute = 0;
+        UpdateCalculatedSpeeds(wan1Config);
+
+        // Reset WAN2 to defaults
+        wan2Config.Enabled = false;
+        wan2Config.Name = "WAN2";
+        wan2Config.Interface = "";
+        wan2Config.ConnectionType = ConnectionType.DocsisCable;
+        wan2Config.NominalDownload = 0;
+        wan2Config.NominalUpload = 0;
+        wan2Config.PingHost = "1.1.1.1";
+        wan2Config.SpeedtestServerId = "";
+        wan2Config.MorningHour = 5;
+        wan2Config.MorningMinute = 0;
+        wan2Config.EveningHour = 18;
+        wan2Config.EveningMinute = 0;
+        UpdateCalculatedSpeeds(wan2Config);
+    }
+
+    /// <summary>
+    /// Applies connection-specific defaults based on WAN name.
+    /// Centralizes logic for Starlink and other connection types.
+    /// Always updates calculated speeds after applying defaults.
+    /// </summary>
+    private void ApplyConnectionDefaults(WanConfigModel config, string wanName)
+    {
+        if (wanName.Equals("Starlink", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ConnectionType = ConnectionType.Starlink;
+            config.NominalDownload = 400;
+            config.NominalUpload = 40;
+            config.SpeedtestServerId = "59762";
+        }
+        // Add other connection-specific defaults here as needed
+
+        // Always update calculated speeds after applying defaults
+        UpdateCalculatedSpeeds(config);
+    }
+
+    private void OnInterfaceChanged(WanConfigModel config)
+    {
+        // Find the WAN info for the selected interface
+        var wanInfo = wanInterfaces.FirstOrDefault(w =>
+            w.Interface.Equals(config.Interface, StringComparison.OrdinalIgnoreCase));
+
+        if (wanInfo == null)
+            return;
+
+        // Set suggested ping IP
+        if (!string.IsNullOrEmpty(wanInfo.SuggestedPingIp))
+            config.PingHost = wanInfo.SuggestedPingIp;
+
+        // Set name from WAN
+        if (string.IsNullOrEmpty(config.Name) || config.Name == "WAN1" || config.Name == "WAN2")
+            config.Name = wanInfo.Name;
+
+        // Apply connection-specific defaults (Starlink, etc.)
+        ApplyConnectionDefaults(config, wanInfo.Name);
     }
 
     private async Task ScrollDeploymentLog()
@@ -1507,12 +1586,22 @@
 
     private async Task DeploySqm()
     {
-        if (!wan1Config.Enabled && !wan2Config.Enabled)
+        // Validate: enabled configs must have interface selected
+        var wan1Ready = wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Interface);
+        var wan2Ready = wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Interface);
+
+        if (!wan1Ready && !wan2Ready)
         {
-            statusMessage = "Enable at least one WAN interface";
+            statusMessage = "Enable at least one WAN and select its interface";
             statusSuccess = false;
             return;
         }
+
+        // Disable any configs without interfaces (safety check)
+        if (wan1Config.Enabled && string.IsNullOrEmpty(wan1Config.Interface))
+            wan1Config.Enabled = false;
+        if (wan2Config.Enabled && string.IsNullOrEmpty(wan2Config.Interface))
+            wan2Config.Enabled = false;
 
         isDeploying = true;
         deploymentSteps.Clear();
@@ -1689,6 +1778,16 @@
 
             if (success)
             {
+                // Clear saved configurations from database
+                await SpeedTestRepository.ClearAllSqmWanConfigsAsync();
+                deploymentSteps.Add("Cleared saved configurations");
+                await ScrollDeploymentLog();
+
+                // Reset UI state and clear saved config flags
+                ResetWanConfigs();
+                wan1HasSavedConfig = false;
+                wan2HasSavedConfig = false;
+
                 statusMessage = "SQM and SQM Monitor removed successfully";
                 statusSuccess = true;
                 InvalidateCache();

@@ -269,5 +269,28 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Clears all SQM WAN configurations.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task ClearAllSqmWanConfigsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var allConfigs = await _context.SqmWanConfigurations.ToListAsync(cancellationToken);
+            if (allConfigs.Count > 0)
+            {
+                _context.SqmWanConfigurations.RemoveRange(allConfigs);
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Cleared {Count} SQM WAN configurations", allConfigs.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear SQM WAN configurations");
+            throw;
+        }
+    }
+
     #endregion
 }
