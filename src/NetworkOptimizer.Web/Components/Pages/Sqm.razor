@@ -637,6 +637,11 @@
                 </button>
             </div>
 
+            @if (!string.IsNullOrEmpty(statusMessage))
+            {
+                <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")" style="margin-top: 1rem;">@statusMessage</div>
+            }
+
             @if (deploymentSteps.Any())
             {
                 <div class="deployment-log" style="margin-top: 1rem;">
@@ -648,11 +653,6 @@
                         }
                     </ul>
                 </div>
-            }
-
-            @if (!string.IsNullOrEmpty(statusMessage))
-            {
-                <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")" style="margin-top: 1rem;">@statusMessage</div>
             }
         </div>
     </div>
@@ -1300,6 +1300,7 @@
                     SpeedtestEveningMinute = wan1Config.EveningMinute
                 };
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
+                wan1HasSavedConfig = true;
             }
 
             // Save WAN2 config if it has an interface configured (preserves settings when disabled)
@@ -1322,6 +1323,7 @@
                     SpeedtestEveningMinute = wan2Config.EveningMinute
                 };
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan2Saved);
+                wan2HasSavedConfig = true;
             }
         }
         catch
