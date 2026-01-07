@@ -613,8 +613,13 @@
                 for real-time latency optimization.
             </p>
 
+            @if (!hasValidWanConfig)
+            {
+                <div class="alert alert-danger" style="margin-bottom: 1rem;">Enable at least one WAN and select its interface</div>
+            }
+
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || (!wan1Config.Enabled && !wan2Config.Enabled))">
+                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)">
                     @if (isDeploying)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
@@ -1202,6 +1207,10 @@
     private bool wan2HasSavedConfig = false;
     // Derived property - true if any WAN has saved config
     private bool hasSavedConfigs => wan1HasSavedConfig || wan2HasSavedConfig;
+    // Derived property - true if at least one WAN is enabled with interface selected
+    private bool hasValidWanConfig =>
+        (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Interface)) ||
+        (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Interface));
 
     private async Task LoadSavedConfigsAsync()
     {
