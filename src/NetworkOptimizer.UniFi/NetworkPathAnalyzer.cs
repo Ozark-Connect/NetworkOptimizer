@@ -909,22 +909,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Traffic must go to gateway for L3 routing even if it passes through server's switch
                 bool stopAtServerSwitch = isServerSwitch && !path.RequiresRouting;
 
-                // Determine ingress speed - use device's uplink speed for wireless mesh, otherwise port speed
-                int ingressSpeed;
-                string? ingressPortName;
+                // Check if this device has a wireless uplink (for egress, not ingress)
                 bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
                     && device.UplinkSpeedMbps > 0;
 
-                if (isWirelessUplink)
-                {
-                    ingressSpeed = device.UplinkSpeedMbps;
-                    ingressPortName = "wireless mesh";
-                }
-                else
-                {
-                    ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                    ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
-                }
+                // Ingress speed comes from the port/connection from the PREVIOUS hop, not this device's uplink
+                // For APs after a wireless client, ingress is the client's wireless connection (handled by client hop's egress)
+                int ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                string? ingressPortName = GetPortName(rawDevices, currentMac, currentPort);
 
                 var hop = new NetworkHop
                 {
