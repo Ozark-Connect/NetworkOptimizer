@@ -116,9 +116,21 @@
     {
         <div class="card">
             <div class="card-body">
-                <div class="alert alert-info">
-                    <strong>Smart Queues Required:</strong> Adaptive SQM requires at least one WAN connection with UniFi Smart Queues (SQM) enabled.
-                    Enable Smart Queues in your UniFi controller under <strong>Settings &rarr; Internet &rarr; <em>WAN Connection</em> &rarr; Advanced &rarr; Smart Queues</strong>.
+                <div class="alert alert-info" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                    <div>
+                        <strong>Smart Queues Required:</strong> Adaptive SQM requires at least one WAN connection with UniFi Smart Queues (SQM) enabled.
+                        Enable Smart Queues in your UniFi controller under <strong>Settings &rarr; Internet &rarr; <em>WAN Connection</em> &rarr; Advanced &rarr; Smart Queues</strong>.
+                    </div>
+                    <button class="btn btn-primary btn-sm" @onclick="ManualRefresh" disabled="@isRefreshing" style="white-space: nowrap;">
+                        @if (isRefreshing)
+                        {
+                            <span>Checking...</span>
+                        }
+                        else
+                        {
+                            <span>Check Again</span>
+                        }
+                    </button>
                 </div>
             </div>
         </div>
