@@ -78,6 +78,7 @@ public class UniFiDiscovery
                     ? (int)(d.Uplink.TxRate / 1000)
                     : d.Uplink?.Speed ?? 0,
                 UplinkType = d.Uplink?.Type,
+                UplinkRadioBand = d.Uplink?.RadioBand,
                 CpuUsage = d.SystemStats?.Cpu,
                 MemoryUsage = d.SystemStats?.Mem,
                 LoadAverage = d.SystemStats?.LoadAvg1?.ToString("F2"),
@@ -170,6 +171,7 @@ public class UniFiDiscovery
             SignalStrength = c.Signal,
             NoiseLevel = c.Noise,
             RadioProtocol = c.RadioProto,
+            Radio = c.Radio,
             // Traffic stats
             TxBytes = c.TxBytes,
             RxBytes = c.RxBytes,
@@ -393,6 +395,7 @@ public class DiscoveredDevice
     public bool IsUplinkConnected { get; set; }
     public int UplinkSpeedMbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
+    public string? UplinkRadioBand { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
     public List<string>? DownstreamDevices { get; set; }
     public string? CpuUsage { get; set; }
     public string? MemoryUsage { get; set; }
@@ -427,6 +430,7 @@ public class DiscoveredClient
     public int? SignalStrength { get; set; }
     public int? NoiseLevel { get; set; }
     public string? RadioProtocol { get; set; }
+    public string? Radio { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
     // Traffic
     public long TxBytes { get; set; }
     public long RxBytes { get; set; }

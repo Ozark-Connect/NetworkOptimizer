@@ -92,7 +92,7 @@
                             <div class="path-connector @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
                                 @if (isWirelessLink)
                                 {
-                                    var wifiTooltip = GetWifiTooltip();
+                                    var wifiTooltip = GetWifiTooltip(hop, nextHop);
                                     <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
                                 }
                                 <span class="connector-line"></span>
@@ -276,47 +276,65 @@
     };
 
     /// <summary>
-    /// Get Wi-Fi signal tooltip content from the Result
+    /// Get Wi-Fi signal tooltip content from the hop or Result
     /// </summary>
-    private string GetWifiTooltip()
+    private string GetWifiTooltip(NetworkHop hop, NetworkHop nextHop)
     {
-        if (Result == null)
-            return "Wireless connection";
+        // Determine if this is the client's wireless connection (first hop is WirelessClient)
+        // or a mesh/bridge wireless link
+        var isClientWireless = hop.Type == HopType.WirelessClient || nextHop.Type == HopType.WirelessClient;
 
-        var row1 = new List<string>();
-        var row2 = new List<string>();
+        // Get band from hop (mesh) or result (client)
+        string? band = null;
+        if (hop.IsWirelessEgress && !string.IsNullOrEmpty(hop.WirelessEgressBand))
+            band = hop.WirelessEgressBand;
+        else if (nextHop.IsWirelessIngress && !string.IsNullOrEmpty(nextHop.WirelessIngressBand))
+            band = nextHop.WirelessIngressBand;
 
-        // Row 1: Signal info
-        if (Result.WifiSignalDbm.HasValue)
-            row1.Add($"{Result.WifiSignalDbm.Value} dBm");
-
-        if (Result.WifiNoiseDbm.HasValue)
-            row1.Add($"Noise {Result.WifiNoiseDbm.Value}");
-
-        if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
+        // For client wireless, also show signal/noise from Result
+        if (isClientWireless && Result != null)
         {
-            var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
-            row1.Add($"SNR {snr}");
+            var row1 = new List<string>();
+            var row2 = new List<string>();
+
+            // Row 1: Signal info
+            if (Result.WifiSignalDbm.HasValue)
+                row1.Add($"{Result.WifiSignalDbm.Value} dBm");
+
+            if (Result.WifiNoiseDbm.HasValue)
+                row1.Add($"Noise {Result.WifiNoiseDbm.Value}");
+
+            if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
+            {
+                var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
+                row1.Add($"SNR {snr}");
+            }
+
+            // Row 2: Band/channel/protocol (prefer result data for client)
+            var clientBand = !string.IsNullOrEmpty(Result.WifiRadio) ? Result.WifiRadio : band;
+            if (!string.IsNullOrEmpty(clientBand))
+                row2.Add(FormatRadioBand(clientBand));
+
+            if (Result.WifiChannel.HasValue)
+                row2.Add($"Ch {Result.WifiChannel.Value}");
+
+            if (!string.IsNullOrEmpty(Result.WifiRadioProto))
+                row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
+
+            if (row1.Count == 0 && row2.Count == 0)
+                return "Wireless connection";
+
+            if (row1.Count > 0 && row2.Count > 0)
+                return $"{string.Join(" · ", row1)}<br/>{string.Join(" · ", row2)}";
+
+            return string.Join(" · ", row1.Count > 0 ? row1 : row2);
         }
 
-        // Row 2: Band/channel/protocol
-        if (!string.IsNullOrEmpty(Result.WifiRadio))
-            row2.Add(FormatRadioBand(Result.WifiRadio));
+        // For mesh/bridge wireless, show what we have (band only for now)
+        if (!string.IsNullOrEmpty(band))
+            return $"Wireless mesh · {FormatRadioBand(band)}";
 
-        if (Result.WifiChannel.HasValue)
-            row2.Add($"Ch {Result.WifiChannel.Value}");
-
-        if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-            row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
-
-        if (row1.Count == 0 && row2.Count == 0)
-            return "Wireless connection";
-
-        // Format as two rows if we have both, otherwise single row
-        if (row1.Count > 0 && row2.Count > 0)
-            return $"{string.Join(" · ", row1)}<br/>{string.Join(" · ", row2)}";
-
-        return string.Join(" · ", row1.Count > 0 ? row1 : row2);
+        return "Wireless mesh";
     }
 
     private string FormatRadioBand(string radio) => radio.ToLowerInvariant() switch

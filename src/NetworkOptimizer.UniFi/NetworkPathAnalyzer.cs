@@ -706,6 +706,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.EgressPortName = "wireless mesh";
                 deviceHop.IsWirelessIngress = true;
                 deviceHop.IsWirelessEgress = true;
+                deviceHop.WirelessIngressBand = targetDevice.UplinkRadioBand;
+                deviceHop.WirelessEgressBand = targetDevice.UplinkRadioBand;
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -742,6 +744,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 hop.IngressSpeedMbps = maxRate;
                 hop.IsWirelessEgress = true;
                 hop.IsWirelessIngress = true;
+                hop.WirelessEgressBand = targetClient.Radio;
+                hop.WirelessIngressBand = targetClient.Radio;
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -904,7 +908,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     IngressPort = currentPort,
                     IngressPortName = ingressPortName,
                     IngressSpeedMbps = ingressSpeed,
-                    IsWirelessIngress = isWirelessUplink
+                    IsWirelessIngress = isWirelessUplink,
+                    WirelessIngressBand = isWirelessUplink ? device.UplinkRadioBand : null
                 };
 
                 if (stopAtServerSwitch)
@@ -925,6 +930,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.EgressSpeedMbps = uplinkDevice.UplinkSpeedMbps;
                         hop.EgressPortName = "wireless mesh";
                         hop.IsWirelessEgress = true;
+                        hop.WirelessEgressBand = uplinkDevice.UplinkRadioBand;
                     }
                     else
                     {

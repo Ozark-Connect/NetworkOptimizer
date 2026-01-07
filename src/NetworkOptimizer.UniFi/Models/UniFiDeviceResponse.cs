@@ -216,6 +216,12 @@ public class UplinkInfo
     /// </summary>
     [JsonPropertyName("rx_rate")]
     public long RxRate { get; set; }
+
+    /// <summary>
+    /// Radio band for wireless uplinks (ng=2.4GHz, na=5GHz, 6e=6GHz)
+    /// </summary>
+    [JsonPropertyName("radio_band")]
+    public string? RadioBand { get; set; }
 }
 
 public class DeviceStats
