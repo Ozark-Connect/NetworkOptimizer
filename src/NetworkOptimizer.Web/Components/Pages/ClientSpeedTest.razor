@@ -4,6 +4,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.Core.Helpers
 @inject ClientSpeedTestService ClientSpeedTestService
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
@@ -597,7 +598,8 @@
         openSpeedTestHealthCheckUrl = $"http://localhost:{openSpeedTestPort}";
 
         // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
-        serverHost = hostName ?? hostIp ?? "<server IP>";
+        // Priority: HOST_NAME > HOST_IP > auto-detected IP from network interface
+        serverHost = hostName ?? hostIp ?? NetworkUtilities.DetectLocalIpFromInterfaces() ?? "<server IP>";
 
         // Build display URL - prefer HTTPS when configured, else HTTP
         if (!string.IsNullOrEmpty(openSpeedTestHost))
