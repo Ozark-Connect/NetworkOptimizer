@@ -1271,9 +1271,8 @@
     {
         try
         {
-            // Only save configs that are enabled AND have an interface selected
-            // This prevents saving incomplete/stale configs
-            if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Interface))
+            // Save WAN1 config if it has an interface configured (preserves settings when disabled)
+            if (!string.IsNullOrEmpty(wan1Config.Interface))
             {
                 var wan1Saved = new SqmWanConfiguration
                 {
@@ -1294,7 +1293,8 @@
                 await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
             }
 
-            if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Interface))
+            // Save WAN2 config if it has an interface configured (preserves settings when disabled)
+            if (!string.IsNullOrEmpty(wan2Config.Interface))
             {
                 var wan2Saved = new SqmWanConfiguration
                 {

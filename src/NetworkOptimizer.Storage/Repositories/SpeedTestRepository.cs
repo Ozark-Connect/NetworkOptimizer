@@ -270,6 +270,32 @@ public class SpeedTestRepository : ISpeedTestRepository
     }
 
     /// <summary>
+    /// Deletes an SQM WAN configuration by WAN number.
+    /// </summary>
+    /// <param name="wanNumber">The WAN number to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task DeleteSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var existing = await _context.SqmWanConfigurations
+                .FirstOrDefaultAsync(c => c.WanNumber == wanNumber, cancellationToken);
+
+            if (existing != null)
+            {
+                _context.SqmWanConfigurations.Remove(existing);
+                await _context.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Deleted SQM WAN config for WAN {WanNumber}", wanNumber);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete SQM WAN config for WAN {WanNumber}", wanNumber);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Clears all SQM WAN configurations.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

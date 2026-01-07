@@ -21,5 +21,6 @@ public interface ISpeedTestRepository
     Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
     Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);
     Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default);
+    Task DeleteSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
     Task ClearAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);
 }
