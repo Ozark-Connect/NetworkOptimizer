@@ -615,13 +615,8 @@
                 for real-time latency optimization.
             </p>
 
-            @if (!hasValidWanConfig)
-            {
-                <div class="alert alert-danger" style="margin-bottom: 1rem;">Enable at least one WAN and select its interface</div>
-            }
-
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)">
+                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)" title="@(!hasValidWanConfig ? "Enable at least one WAN and select its interface" : "")">
                     @if (isDeploying)
                     {
                         <span class="spinner-border spinner-border-sm"></span>
