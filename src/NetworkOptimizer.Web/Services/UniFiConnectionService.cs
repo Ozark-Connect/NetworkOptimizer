@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
@@ -617,8 +618,28 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 result.WifiChannel = client.Channel;
                 result.WifiRadioProto = client.RadioProto;
                 result.WifiRadio = client.Radio;
-                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Radio={Radio}, Proto={Proto}",
-                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadio, result.WifiRadioProto);
+
+                // Capture MLO (Multi-Link Operation) data for Wi-Fi 7 clients
+                result.WifiIsMlo = client.IsMlo ?? false;
+                if (client.IsMlo == true && client.MloDetails?.Count > 0)
+                {
+                    var mloLinks = client.MloDetails.Select(m => new
+                    {
+                        radio = m.Radio,
+                        channel = m.Channel,
+                        channelWidth = m.ChannelWidth,
+                        signal = m.Signal,
+                        noise = m.Noise,
+                        txRate = m.TxRate,
+                        rxRate = m.RxRate
+                    }).ToList();
+                    result.WifiMloLinksJson = JsonSerializer.Serialize(mloLinks);
+                    _logger.LogDebug("Captured MLO data for {Ip}: {LinkCount} links",
+                        result.DeviceHost, client.MloDetails.Count);
+                }
+
+                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Radio={Radio}, Proto={Proto}, MLO={IsMlo}",
+                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadio, result.WifiRadioProto, result.WifiIsMlo);
             }
 
             _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",

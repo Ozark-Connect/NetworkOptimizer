@@ -294,76 +294,156 @@
         // For client wireless, also show signal/noise from Result
         if (isClientWireless && Result != null)
         {
-            var row1 = new List<string>();
-            var row2 = new List<string>();
+            // Check for MLO (Multi-Link Operation)
+            if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
+            {
+                return BuildMloTooltip();
+            }
 
-            // Row 1: Signal info
+            // Standard single-link wireless
+            var lines = new List<string>();
+
+            // Protocol line
+            var clientBand = !string.IsNullOrEmpty(Result.WifiRadio) ? Result.WifiRadio : band;
+            if (!string.IsNullOrEmpty(Result.WifiRadioProto))
+                lines.Add($"<div class='wifi-tooltip-header'>Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}</div>");
+
+            // Band/Channel line
+            var bandInfo = new List<string>();
+            if (!string.IsNullOrEmpty(clientBand))
+                bandInfo.Add(FormatRadioBand(clientBand));
+            if (Result.WifiChannel.HasValue)
+                bandInfo.Add($"Ch {Result.WifiChannel.Value}");
+            if (bandInfo.Count > 0)
+                lines.Add($"<div class='wifi-tooltip-row'>{string.Join(" · ", bandInfo)}</div>");
+
+            // Signal line
+            var signalInfo = new List<string>();
             if (Result.WifiSignalDbm.HasValue)
-                row1.Add($"{Result.WifiSignalDbm.Value} dBm");
-
-            if (Result.WifiNoiseDbm.HasValue)
-                row1.Add($"Noise {Result.WifiNoiseDbm.Value} dBm");
-
+                signalInfo.Add($"{Result.WifiSignalDbm.Value} dBm");
             if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
             {
                 var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
-                row1.Add($"SNR {snr} dB");
+                signalInfo.Add($"SNR {snr} dB");
             }
+            if (signalInfo.Count > 0)
+                lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-signal'>{string.Join(" · ", signalInfo)}</div>");
 
-            // Row 2: Band/channel/protocol (prefer result data for client)
-            var clientBand = !string.IsNullOrEmpty(Result.WifiRadio) ? Result.WifiRadio : band;
-            if (!string.IsNullOrEmpty(clientBand))
-                row2.Add(FormatRadioBand(clientBand));
-
-            if (Result.WifiChannel.HasValue)
-                row2.Add($"Ch {Result.WifiChannel.Value}");
-
-            if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-                row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}");
-
-            if (row1.Count == 0 && row2.Count == 0)
-                return "Wireless connection";
-
-            if (row1.Count > 0 && row2.Count > 0)
-                return $"{string.Join(" · ", row1)}<br/>{string.Join(" · ", row2)}";
-
-            return string.Join(" · ", row1.Count > 0 ? row1 : row2);
+            return lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
         }
 
         // For mesh/bridge wireless, show signal stats from hop
         var meshHop = hop.IsWirelessEgress ? hop : nextHop;
-        var meshRow1 = new List<string>();
-        var meshRow2 = new List<string>();
+        var lines2 = new List<string>();
 
-        // Row 1: Signal info
+        lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
+
+        // Band/Channel line
+        var meshBandInfo = new List<string>();
+        if (!string.IsNullOrEmpty(band))
+            meshBandInfo.Add(FormatRadioBand(band));
+        if (meshHop.WirelessChannel.HasValue)
+            meshBandInfo.Add($"Ch {meshHop.WirelessChannel.Value}");
+        if (meshBandInfo.Count > 0)
+            lines2.Add($"<div class='wifi-tooltip-row'>{string.Join(" · ", meshBandInfo)}</div>");
+
+        // Signal line
+        var meshSignalInfo = new List<string>();
         if (meshHop.WirelessSignalDbm.HasValue)
-            meshRow1.Add($"{meshHop.WirelessSignalDbm.Value} dBm");
-
-        if (meshHop.WirelessNoiseDbm.HasValue)
-            meshRow1.Add($"Noise {meshHop.WirelessNoiseDbm.Value} dBm");
-
+            meshSignalInfo.Add($"{meshHop.WirelessSignalDbm.Value} dBm");
         if (meshHop.WirelessSignalDbm.HasValue && meshHop.WirelessNoiseDbm.HasValue)
         {
             var snr = meshHop.WirelessSignalDbm.Value - meshHop.WirelessNoiseDbm.Value;
-            meshRow1.Add($"SNR {snr} dB");
+            meshSignalInfo.Add($"SNR {snr} dB");
         }
+        if (meshSignalInfo.Count > 0)
+            lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-signal'>{string.Join(" · ", meshSignalInfo)}</div>");
 
-        // Row 2: Band/channel
-        if (!string.IsNullOrEmpty(band))
-            meshRow2.Add(FormatRadioBand(band));
-
-        if (meshHop.WirelessChannel.HasValue)
-            meshRow2.Add($"Ch {meshHop.WirelessChannel.Value}");
-
-        if (meshRow1.Count == 0 && meshRow2.Count == 0)
-            return "Wireless mesh";
-
-        var prefix = "Wireless mesh";
-        if (meshRow1.Count > 0 && meshRow2.Count > 0)
-            return $"{prefix}<br/>{string.Join(" · ", meshRow1)}<br/>{string.Join(" · ", meshRow2)}";
-
-        return $"{prefix} · {string.Join(" · ", meshRow1.Count > 0 ? meshRow1 : meshRow2)}";
+        return lines2.Count > 1 ? string.Join("", lines2) : "Wireless mesh";
     }
+
+    /// <summary>
+    /// Build tooltip content for MLO (Multi-Link Operation) Wi-Fi 7 connections
+    /// </summary>
+    private string BuildMloTooltip()
+    {
+        if (Result == null || string.IsNullOrEmpty(Result.WifiMloLinksJson))
+            return "Wi-Fi 7 MLO";
+
+        try
+        {
+            var links = System.Text.Json.JsonSerializer.Deserialize<List<MloLinkData>>(Result.WifiMloLinksJson);
+            if (links == null || links.Count == 0)
+                return "Wi-Fi 7 MLO";
+
+            var lines = new List<string>();
+
+            // Header with Wi-Fi 7 MLO badge
+            lines.Add("<div class='wifi-tooltip-header'>Wi-Fi 7 (be) · MLO</div>");
+
+            // Sum link speeds
+            var totalTxMbps = links.Where(l => l.txRate.HasValue).Sum(l => l.txRate!.Value / 1000.0);
+            var totalRxMbps = links.Where(l => l.rxRate.HasValue).Sum(l => l.rxRate!.Value / 1000.0);
+
+            if (totalTxMbps > 0 || totalRxMbps > 0)
+            {
+                var speedParts = new List<string>();
+                if (totalTxMbps > 0) speedParts.Add($"TX {totalTxMbps:F0} Mbps");
+                if (totalRxMbps > 0) speedParts.Add($"RX {totalRxMbps:F0} Mbps");
+                lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
+            }
+
+            // Divider
+            lines.Add("<div class='wifi-tooltip-divider'></div>");
+
+            // Each link
+            foreach (var link in links.OrderByDescending(l => l.channelWidth ?? 0))
+            {
+                var linkParts = new List<string>();
+
+                // Band badge
+                if (!string.IsNullOrEmpty(link.radio))
+                    linkParts.Add($"<span class='wifi-band-badge wifi-band-{link.radio}'>{FormatRadioBand(link.radio)}</span>");
+
+                // Channel/width
+                if (link.channel.HasValue)
+                {
+                    var chInfo = $"Ch {link.channel.Value}";
+                    if (link.channelWidth.HasValue)
+                        chInfo += $" ({link.channelWidth.Value} MHz)";
+                    linkParts.Add(chInfo);
+                }
+
+                lines.Add($"<div class='wifi-tooltip-link'>{string.Join(" ", linkParts)}</div>");
+
+                // Signal for this link
+                if (link.signal.HasValue)
+                {
+                    var sigParts = new List<string> { $"{link.signal.Value} dBm" };
+                    if (link.signal.HasValue && link.noise.HasValue)
+                        sigParts.Add($"SNR {link.signal.Value - link.noise.Value} dB");
+                    lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
+                }
+            }
+
+            return string.Join("", lines);
+        }
+        catch
+        {
+            return "Wi-Fi 7 MLO";
+        }
+    }
+
+    // DTO for deserializing MLO link JSON
+    private record MloLinkData(
+        string? radio,
+        int? channel,
+        int? channelWidth,
+        int? signal,
+        int? noise,
+        long? txRate,
+        long? rxRate
+    );
 
     private string FormatRadioBand(string? radio) => RadioFormatHelper.FormatBand(radio);
 

@@ -3022,6 +3022,74 @@ select.form-control {
     cursor: pointer;
 }
 
+/* Wi-Fi tooltip styling */
+.wifi-tooltip-header {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+    color: #f1f5f9;
+}
+
+.wifi-tooltip-row {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-bottom: 0.2rem;
+}
+
+.wifi-tooltip-signal {
+    color: #60a5fa;
+}
+
+.wifi-tooltip-speed {
+    color: #4ade80;
+    font-weight: 500;
+}
+
+.wifi-tooltip-divider {
+    height: 1px;
+    background: rgba(148, 163, 184, 0.2);
+    margin: 0.4rem 0;
+}
+
+.wifi-tooltip-link {
+    font-size: 0.8rem;
+    margin-bottom: 0.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.wifi-tooltip-link-signal {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-bottom: 0.3rem;
+    padding-left: 0.25rem;
+}
+
+.wifi-band-badge {
+    display: inline-block;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.wifi-band-badge.wifi-band-ng {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.wifi-band-badge.wifi-band-na {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+}
+
+.wifi-band-badge.wifi-band-6e {
+    background: rgba(168, 85, 247, 0.2);
+    color: #c084fc;
+}
+
 /* Warnings and badges */
 .path-analysis .bottleneck-warning {
     padding: 0.5rem 0.75rem;
