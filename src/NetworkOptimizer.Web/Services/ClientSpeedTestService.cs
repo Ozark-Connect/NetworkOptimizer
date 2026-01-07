@@ -200,7 +200,7 @@ public class ClientSpeedTestService
 
     /// <summary>
     /// Get recent client speed test results (ClientToServer and BrowserToServer directions).
-    /// Retries path analysis for results where the target was not found in topology.
+    /// Retries path analysis for results missing valid paths.
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50)
     {
@@ -212,15 +212,16 @@ public class ClientSpeedTestService
             .Take(count)
             .ToListAsync();
 
-        // Retry path analysis for results where target was not found
+        // Retry path analysis for results without a valid path
         var needsRetry = results.Where(r =>
-            r.PathAnalysis?.Path?.IsValid == false &&
-            r.PathAnalysis?.Path?.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
+            r.PathAnalysis == null ||
+            r.PathAnalysis.Path == null ||
+            !r.PathAnalysis.Path.IsValid)
             .ToList();
 
         if (needsRetry.Count > 0)
         {
-            _logger.LogDebug("Retrying path analysis for {Count} results with missing targets", needsRetry.Count);
+            _logger.LogInformation("Retrying path analysis for {Count} results without valid paths", needsRetry.Count);
             foreach (var result in needsRetry)
             {
                 await AnalyzePathAsync(result);
