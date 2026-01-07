@@ -41,6 +41,7 @@ public class UniFiApiClient : IDisposable
     private bool _isAuthenticated = false;
     private bool _isUniFiOs = false; // True for UDM/UCG, false for standalone controller
     private bool _pathDetected = false;
+    private bool _useStandaloneLogin = false; // True for standalone Network controllers (uses /api/login)
     private string? _lastLoginError;
 
     /// <summary>
@@ -106,6 +107,57 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Detects whether this is a UniFi OS controller or standalone Network controller
+    /// by checking the login page endpoints.
+    /// - UniFi OS (UDM/UCG): GET /login returns 200 → use /api/auth/login
+    /// - Standalone Network: GET /login returns 404, /manage/account/login exists → use /api/login
+    /// </summary>
+    private async Task DetectLoginTypeAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Detecting login type (UniFi OS vs standalone Network controller)...");
+
+        try
+        {
+            // Try GET /login - UniFi OS returns 200, standalone returns 404
+            var response = await _httpClient!.GetAsync($"{_controllerUrl}/login", cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                // UniFi OS - use /api/auth/login
+                _useStandaloneLogin = false;
+                _logger.LogDebug("Detected UniFi OS login page - will use /api/auth/login");
+                return;
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                // Check for standalone Network controller login page
+                _logger.LogDebug("GET /login returned 404, checking for standalone Network controller...");
+
+                var manageResponse = await _httpClient!.GetAsync(
+                    $"{_controllerUrl}/manage/account/login",
+                    cancellationToken);
+
+                if (manageResponse.IsSuccessStatusCode)
+                {
+                    // Standalone Network controller - use /api/login
+                    _useStandaloneLogin = true;
+                    _logger.LogInformation("Detected standalone UniFi Network controller - will use /api/login");
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("Login type detection failed: {Message}", ex.Message);
+        }
+
+        // Default to UniFi OS (most common modern scenario)
+        _useStandaloneLogin = false;
+        _logger.LogDebug("Defaulting to UniFi OS login endpoint");
+    }
+
+    /// <summary>
     /// Authenticates with the UniFi controller using cookie-based auth (like a browser)
     /// </summary>
     public async Task<bool> LoginAsync(CancellationToken cancellationToken = default)
@@ -124,6 +176,9 @@ public class UniFiApiClient : IDisposable
             // Reset client to clear old cookies
             InitializeHttpClient();
 
+            // Detect which login endpoint to use
+            await DetectLoginTypeAsync(cancellationToken);
+
             var loginRequest = new UniFiLoginRequest
             {
                 Username = _username,
@@ -132,7 +187,13 @@ public class UniFiApiClient : IDisposable
                 Strict = true
             };
 
-            var loginUrl = $"{_controllerUrl}/api/auth/login";
+            // Use appropriate login endpoint based on controller type
+            var loginUrl = _useStandaloneLogin
+                ? $"{_controllerUrl}/api/login"
+                : $"{_controllerUrl}/api/auth/login";
+
+            _logger.LogDebug("Using login endpoint: {LoginUrl}", loginUrl);
+
             var content = new StringContent(
                 JsonSerializer.Serialize(loginRequest),
                 Encoding.UTF8,
@@ -326,6 +387,20 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Builds the correct V2 API path based on whether this is UniFi OS or standalone controller
+    /// </summary>
+    private string BuildV2ApiPath(string endpoint)
+    {
+        // For UniFi OS (UDM/UCG), V2 APIs are proxied through /proxy/network
+        if (_isUniFiOs)
+        {
+            return $"{_controllerUrl}/proxy/network/v2/api/{endpoint}";
+        }
+        // For standalone controllers
+        return $"{_controllerUrl}/v2/api/{endpoint}";
+    }
+
+    /// <summary>
     /// Detects whether this is a UniFi OS device (UDM/UCG) or standalone controller
     /// by trying the /proxy/network path first (more common for modern deployments)
     /// </summary>
@@ -386,6 +461,11 @@ public class UniFiApiClient : IDisposable
     /// Gets whether this is a UniFi OS device (UDM/UCG)
     /// </summary>
     public bool IsUniFiOs => _isUniFiOs;
+
+    /// <summary>
+    /// Gets whether this is a standalone Network controller (uses /api/login instead of /api/auth/login)
+    /// </summary>
+    public bool IsStandaloneNetworkController => _useStandaloneLogin;
 
     /// <summary>
     /// Executes an API call with automatic re-authentication on 401/403
@@ -510,7 +590,7 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// GET /proxy/network/v2/api/site/{site}/device - Get all device types including Protect devices
+    /// GET v2/api/site/{site}/device - Get all device types including Protect devices
     /// This v2 API returns network_devices, protect_devices, access_devices, etc.
     /// Only available on UniFi OS controllers (UDM, UCG, etc.)
     /// </summary>
@@ -529,7 +609,7 @@ public class UniFiApiClient : IDisposable
             return null;
         }
 
-        var url = $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/device";
+        var url = BuildV2ApiPath($"site/{_site}/device");
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
@@ -654,7 +734,7 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// GET /proxy/network/v2/api/site/{site}/clients/history - Get client history (includes offline devices)
+    /// GET v2/api/site/{site}/clients/history - Get client history (includes offline devices)
     /// </summary>
     /// <param name="withinHours">How far back to look (default 720 = 30 days)</param>
     public async Task<List<UniFiClientHistoryResponse>> GetClientHistoryAsync(
@@ -670,7 +750,7 @@ public class UniFiApiClient : IDisposable
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
-            var url = $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/clients/history?withinHours={withinHours}";
+            var url = BuildV2ApiPath($"site/{_site}/clients/history?withinHours={withinHours}");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
             if (response.IsSuccessStatusCode)
@@ -897,7 +977,7 @@ public class UniFiApiClient : IDisposable
     #region Traffic Management APIs
 
     /// <summary>
-    /// GET /proxy/network/v2/api/site/{site}/trafficroutes - Get traffic routes
+    /// GET v2/api/site/{site}/trafficroutes - Get traffic routes
     /// This is a newer UniFi Network Application (v2) endpoint
     /// </summary>
     public async Task<JsonDocument?> GetTrafficRoutesAsync(CancellationToken cancellationToken = default)
@@ -912,7 +992,7 @@ public class UniFiApiClient : IDisposable
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             var response = await _httpClient!.GetAsync(
-                $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/trafficroutes",
+                BuildV2ApiPath($"site/{_site}/trafficroutes"),
                 cancellationToken);
 
             if (response.IsSuccessStatusCode)
@@ -926,7 +1006,7 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// PUT /proxy/network/v2/api/site/{site}/trafficroutes/{id} - Update traffic route
+    /// PUT v2/api/site/{site}/trafficroutes/{id} - Update traffic route
     /// </summary>
     public async Task<bool> UpdateTrafficRouteAsync(
         string routeId,
@@ -948,7 +1028,7 @@ public class UniFiApiClient : IDisposable
                 "application/json");
 
             var response = await _httpClient!.PutAsync(
-                $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/trafficroutes/{routeId}",
+                BuildV2ApiPath($"site/{_site}/trafficroutes/{routeId}"),
                 content,
                 cancellationToken);
 
@@ -1074,7 +1154,7 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
-    /// GET /proxy/network/v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
+    /// GET v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
     /// This endpoint provides detailed firewall policy configuration including DNS blocking rules
     /// </summary>
     public async Task<JsonDocument?> GetFirewallPoliciesRawAsync(CancellationToken cancellationToken = default)
@@ -1088,8 +1168,7 @@ public class UniFiApiClient : IDisposable
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
-            // The v2 firewall-policies endpoint doesn't use the standard BuildApiPath
-            var url = $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/firewall-policies";
+            var url = BuildV2ApiPath($"site/{_site}/firewall-policies");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
             if (response.IsSuccessStatusCode)
@@ -1109,7 +1188,7 @@ public class UniFiApiClient : IDisposable
     #region Fingerprint Database APIs
 
     /// <summary>
-    /// GET /proxy/network/v2/api/fingerprint_devices/{index} - Get fingerprint database
+    /// GET v2/api/fingerprint_devices/{index} - Get fingerprint database
     /// The database is split across multiple indices (0-n)
     /// </summary>
     public async Task<UniFiFingerprintDatabase?> GetFingerprintDatabaseAsync(
@@ -1125,7 +1204,7 @@ public class UniFiApiClient : IDisposable
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
-            var url = $"{_controllerUrl}/proxy/network/v2/api/fingerprint_devices/{index}";
+            var url = BuildV2ApiPath($"fingerprint_devices/{index}");
             var response = await _httpClient!.GetAsync(url, cancellationToken);
 
             if (response.IsSuccessStatusCode)
