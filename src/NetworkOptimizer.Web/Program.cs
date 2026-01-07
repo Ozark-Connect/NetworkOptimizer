@@ -611,7 +611,7 @@ app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string re
         HttpOnly = true,
         Secure = isSecure,
         SameSite = isSecure ? SameSiteMode.Strict : SameSiteMode.Lax,
-        Expires = DateTimeOffset.UtcNow.AddDays(1),
+        Expires = DateTimeOffset.UtcNow.AddDays(30), // Match JWT expiration
         Path = "/"
     });
 

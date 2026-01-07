@@ -28,7 +28,7 @@ public class JwtService : IJwtService
 
     private const string Issuer = "NetworkOptimizer";
     private const string Audience = "NetworkOptimizer";
-    private const int TokenExpirationMinutes = 60 * 24; // 24 hours
+    private const int TokenExpirationMinutes = 60 * 24 * 30; // 30 days (single-user app)
     private const string SecretKeySettingName = "JwtSecretKey";
 
     private string? _cachedSecretKey;

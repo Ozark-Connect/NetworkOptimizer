@@ -96,6 +96,12 @@
   - Abstract authentication layer to support pluggable identity sources
   - Claims/roles mapping from IdP to local permissions
   - Future: Granular permissions per site/tenant (view-only, operator, admin)
+- **Token model upgrade** (prerequisite for multi-user):
+  - Move from current single JWT to proper access_token + refresh_token OIDC model
+  - Short-lived access tokens (1 hour) with long-lived refresh tokens
+  - Applies to local auth as well, not just external IdP
+  - Token rotation and revocation support
+  - Secure refresh token storage (DB-backed with family tracking)
 - Considerations:
   - SP-initiated vs IdP-initiated login flows
   - Just-in-time (JIT) user provisioning from IdP claims
