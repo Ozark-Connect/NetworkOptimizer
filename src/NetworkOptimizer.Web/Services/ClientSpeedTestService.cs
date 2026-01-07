@@ -264,13 +264,14 @@ public class ClientSpeedTestService
     /// <summary>
     /// Analyze network path for the speed test result.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
+    /// If target not found, invalidates topology cache and retries once.
     /// </summary>
-    private async Task AnalyzePathAsync(Iperf3Result result)
+    private async Task AnalyzePathAsync(Iperf3Result result, bool isRetry = false)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Client} from {Server}",
-                result.DeviceHost, result.LocalIp ?? "auto");
+            _logger.LogDebug("Analyzing network path to {Client} from {Server}{Retry}",
+                result.DeviceHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
 
             // Calculate path from server to client
             var path = await _pathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
@@ -294,7 +295,17 @@ public class ClientSpeedTestService
             }
             else
             {
-                _logger.LogDebug("Path analysis: path not found or invalid");
+                // If target not found and this isn't already a retry, invalidate cache and try again
+                if (!isRetry && analysis.Path.ErrorMessage?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    _logger.LogDebug("Target not found, invalidating topology cache and retrying");
+                    _pathAnalyzer.InvalidateTopologyCache();
+                    await AnalyzePathAsync(result, isRetry: true);
+                }
+                else
+                {
+                    _logger.LogDebug("Path analysis: path not found or invalid");
+                }
             }
         }
         catch (Exception ex)
