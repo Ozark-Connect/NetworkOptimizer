@@ -163,7 +163,7 @@ public class UniFiDiscovery
             foreach (var c in mloClients)
             {
                 var linksInfo = c.MloDetails != null
-                    ? string.Join(", ", c.MloDetails.Select(m => $"band={m.Band ?? "null"} ch={m.Channel} sig={m.SignalAvg}dBm"))
+                    ? string.Join(", ", c.MloDetails.Select(m => $"{m.Radio ?? "?"} ch{m.Channel} {m.Signal}dBm {m.ChannelWidth}MHz"))
                     : "none";
                 _logger.LogDebug("MLO client found: {Name} ({Mac}), Radio={Radio}, Links: [{Links}]",
                     c.Name ?? c.Hostname, c.Mac, c.Radio ?? "null", linksInfo);
@@ -200,11 +200,13 @@ public class UniFiDiscovery
             IsMlo = c.IsMlo ?? false,
             MloLinks = c.MloDetails?.Select(m => new MloLink
             {
-                Band = m.Band ?? "",
+                Radio = m.Radio ?? "",
                 Channel = m.Channel,
                 ChannelWidth = m.ChannelWidth,
-                SignalDbm = m.SignalAvg,
-                PhyRateKbps = m.PhyRateMostCommon
+                SignalDbm = m.Signal,
+                NoiseDbm = m.Noise,
+                TxRateKbps = m.TxRate,
+                RxRateKbps = m.RxRate
             }).ToList(),
             // Traffic stats
             TxBytes = c.TxBytes,
@@ -493,11 +495,13 @@ public class DiscoveredClient
 /// </summary>
 public class MloLink
 {
-    public string Band { get; set; } = string.Empty;  // "ng", "na", "6e"
+    public string Radio { get; set; } = string.Empty;  // "ng", "na", "6e"
     public int? Channel { get; set; }
     public int? ChannelWidth { get; set; }  // 20, 40, 80, 160, 320
     public int? SignalDbm { get; set; }
-    public long? PhyRateKbps { get; set; }
+    public int? NoiseDbm { get; set; }
+    public long? TxRateKbps { get; set; }
+    public long? RxRateKbps { get; set; }
 }
 
 public class NetworkTopology

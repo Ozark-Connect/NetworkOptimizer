@@ -222,3 +222,18 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 - [ ] Recommend IoT VLAN placement
 
 **Note:** The v2 API is only available on UniFi OS controllers (UDM, UCG, etc.). Device classification from the controller API is 100% confidence since the controller knows its own devices.
+
+## Standalone Controller Support
+
+### API Path Differences
+Currently only tested with UniFi OS controllers (UDM, Cloud Gateway). Standalone controllers use different API paths:
+
+| Controller Type | API Path Pattern |
+|-----------------|------------------|
+| UniFi OS (UDM/UCG) | `https://<ip>/proxy/network/api/s/{site}/stat/sta` |
+| Standalone Controller | `https://<ip>/api/s/{site}/stat/sta` |
+
+The app auto-detects controller type via login response, but needs testing with standalone controllers to verify:
+- Path detection logic in `UniFiApiClient`
+- All API endpoints work correctly
+- Authentication flow differences (if any)

@@ -319,7 +319,7 @@
                 row2.Add($"Ch {Result.WifiChannel.Value}");
 
             if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-                row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
+                row2.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto, clientBand)}");
 
             if (row1.Count == 0 && row2.Count == 0)
                 return "Wireless connection";
@@ -365,24 +365,10 @@
         return $"{prefix} · {string.Join(" · ", meshRow1.Count > 0 ? meshRow1 : meshRow2)}";
     }
 
-    private string FormatRadioBand(string radio) => radio.ToLowerInvariant() switch
-    {
-        "ng" => "2.4 GHz",
-        "na" => "5 GHz",
-        "6e" => "6 GHz",
-        _ => radio
-    };
+    private string FormatRadioBand(string? radio) => RadioFormatHelper.FormatBand(radio);
 
-    private string FormatRadioProto(string proto) => proto.ToLowerInvariant() switch
-    {
-        "ax" => "6 (ax)",
-        "ac" => "5 (ac)",
-        "n" => "4 (n)",
-        "g" => "3 (g)",
-        "a" => "3 (a)",
-        "b" => "2 (b)",
-        _ => proto
-    };
+    private string FormatRadioProto(string? proto, string? radio = null) =>
+        RadioFormatHelper.FormatProtocolSuffix(proto, radio);
 
     /// <summary>
     /// Render a device icon for the path hop, falling back to emoji if no icon available

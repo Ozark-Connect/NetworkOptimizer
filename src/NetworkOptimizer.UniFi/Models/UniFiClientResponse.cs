@@ -181,8 +181,17 @@ public class UniFiClientResponse
 /// </summary>
 public class MloLinkDetail
 {
-    [JsonPropertyName("band")]
-    public string? Band { get; set; }  // "ng", "na", "6e"
+    [JsonPropertyName("mac")]
+    public string? Mac { get; set; }
+
+    [JsonPropertyName("radio")]
+    public string? Radio { get; set; }  // "ng", "na", "6e"
+
+    [JsonPropertyName("radio_name")]
+    public string? RadioName { get; set; }  // "wifi0", "wifi1", "wifi2"
+
+    [JsonPropertyName("radio_proto")]
+    public string? RadioProto { get; set; }  // "be" for Wi-Fi 7
 
     [JsonPropertyName("channel")]
     public int? Channel { get; set; }
@@ -190,15 +199,24 @@ public class MloLinkDetail
     [JsonPropertyName("channel_width")]
     public int? ChannelWidth { get; set; }  // 20, 40, 80, 160, 320
 
-    [JsonPropertyName("mimo")]
-    public string? Mimo { get; set; }  // "MIMO_2", etc.
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }  // dBm
 
-    [JsonPropertyName("phy_rate_most_common")]
-    public long? PhyRateMostCommon { get; set; }  // Kbps
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }  // dBm
 
-    [JsonPropertyName("signal_avg")]
-    public int? SignalAvg { get; set; }  // dBm
+    [JsonPropertyName("rssi")]
+    public int? Rssi { get; set; }
 
-    [JsonPropertyName("standard")]
-    public string? Standard { get; set; }  // "WIFI_7"
+    [JsonPropertyName("nss")]
+    public int? Nss { get; set; }  // Number of spatial streams
+
+    [JsonPropertyName("tx_rate")]
+    public long? TxRate { get; set; }  // Kbps
+
+    [JsonPropertyName("rx_rate")]
+    public long? RxRate { get; set; }  // Kbps
+
+    [JsonPropertyName("satisfaction")]
+    public int? Satisfaction { get; set; }
 }
