@@ -708,6 +708,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.IsWirelessEgress = true;
                 deviceHop.WirelessIngressBand = targetDevice.UplinkRadioBand;
                 deviceHop.WirelessEgressBand = targetDevice.UplinkRadioBand;
+                _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, UplinkSpeed={Speed}Mbps, UplinkRadioBand={Band}",
+                    targetDevice.Name, targetDevice.UplinkType, targetDevice.UplinkSpeedMbps, targetDevice.UplinkRadioBand ?? "null");
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -746,6 +748,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 hop.IsWirelessIngress = true;
                 hop.WirelessEgressBand = targetClient.Radio;
                 hop.WirelessIngressBand = targetClient.Radio;
+                _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps, RxRate={Rx}Mbps, Radio={Radio}",
+                    targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.Radio ?? "null");
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {

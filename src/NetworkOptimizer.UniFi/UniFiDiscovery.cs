@@ -88,6 +88,13 @@ public class UniFiDiscovery
             };
         }).ToList();
 
+        // Log wireless uplink details for debugging
+        foreach (var d in devices.Where(d => d.Uplink?.Type == "wireless"))
+        {
+            _logger.LogDebug("Wireless uplink for {Name}: Radio={Radio}, TxRate={Tx}Kbps, RxRate={Rx}Kbps, Channel={Ch}, IsMlo={Mlo}",
+                d.Name, d.Uplink?.RadioBand ?? "null", d.Uplink?.TxRate, d.Uplink?.RxRate, d.Uplink?.Channel, d.Uplink?.IsMlo);
+        }
+
         return discoveredDevices;
     }
 
