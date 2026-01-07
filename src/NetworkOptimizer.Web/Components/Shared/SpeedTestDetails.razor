@@ -302,12 +302,12 @@
                 row1.Add($"{Result.WifiSignalDbm.Value} dBm");
 
             if (Result.WifiNoiseDbm.HasValue)
-                row1.Add($"Noise {Result.WifiNoiseDbm.Value}");
+                row1.Add($"Noise {Result.WifiNoiseDbm.Value} dBm");
 
             if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
             {
                 var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
-                row1.Add($"SNR {snr}");
+                row1.Add($"SNR {snr} dB");
             }
 
             // Row 2: Band/channel/protocol (prefer result data for client)

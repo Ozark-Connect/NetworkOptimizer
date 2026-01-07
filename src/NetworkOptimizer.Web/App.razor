@@ -146,7 +146,8 @@
                     delay: [100, 200],
                     placement: 'top',
                     theme: 'custom',
-                    appendTo: document.body
+                    appendTo: document.body,
+                    maxWidth: 'none'
                 });
             });
         }
@@ -165,24 +166,19 @@
         const observer = new MutationObserver(function(mutations) {
             let shouldInit = false;
             mutations.forEach(function(mutation) {
-                // Check for new nodes with tooltips
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(function(node) {
-                        if (node.nodeType === 1 && (node.classList?.contains('tooltip-icon') || node.querySelector?.('.tooltip-icon') || node.dataset?.tooltip || node.querySelector?.('[data-tooltip]'))) {
+                        if (node.nodeType === 1 && (node.classList?.contains('tooltip-icon') || node.querySelector?.('.tooltip-icon'))) {
                             shouldInit = true;
                         }
                     });
-                }
-                // Check for attribute changes on data-tooltip
-                if (mutation.type === 'attributes' && mutation.attributeName === 'data-tooltip') {
-                    shouldInit = true;
                 }
             });
             if (shouldInit) {
                 setTimeout(initTooltips, 50);
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-tooltip'] });
+        observer.observe(document.body, { childList: true, subtree: true });
 
         // Auto-reload when Blazor reconnects after a real disconnection
         // After server restart, client state is stale and causes loading issues
