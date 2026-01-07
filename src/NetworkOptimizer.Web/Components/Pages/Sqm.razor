@@ -1662,7 +1662,7 @@
             deploymentSteps.Add("WAN configurations saved");
             await ScrollDeploymentLog();
 
-            // Deploy WAN 1 (initial speedtest immediately)
+            // Deploy first WAN (initial speedtest immediately)
             if (wan1Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan1Config.Name} ({wan1Config.Interface})...");
@@ -1674,15 +1674,15 @@
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 1 ({wan1Config.Name}) deployed successfully (speedtest in 5s)");
+                    deploymentSteps.Add($"{wan1Config.Name} deployed successfully (speedtest in 5s)");
                 }
                 else
                 {
-                    throw new Exception($"WAN 1 deployment failed: {result.Error}");
+                    throw new Exception($"{wan1Config.Name} deployment failed: {result.Error}");
                 }
             }
 
-            // Deploy WAN 2 (initial speedtest 45 seconds after WAN1, staggered cron schedule)
+            // Deploy second WAN (initial speedtest 45 seconds after first, staggered cron schedule)
             if (wan2Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
@@ -1694,11 +1694,11 @@
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
-                    deploymentSteps.Add($"WAN 2 ({wan2Config.Name}) deployed successfully (speedtest in 50s)");
+                    deploymentSteps.Add($"{wan2Config.Name} deployed successfully (speedtest in 50s)");
                 }
                 else
                 {
-                    throw new Exception($"WAN 2 deployment failed: {result.Error}");
+                    throw new Exception($"{wan2Config.Name} deployment failed: {result.Error}");
                 }
             }
 
