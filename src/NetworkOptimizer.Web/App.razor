@@ -133,7 +133,13 @@
 
             // Simple tooltips for elements with data-tooltip (not .tooltip-icon)
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
-                if (el._tippy) return;
+                if (el._tippy) {
+                    // Update content if it changed
+                    if (el._tippy.props.content !== el.dataset.tooltip) {
+                        el._tippy.setContent(el.dataset.tooltip);
+                    }
+                    return;
+                }
                 tippy(el, {
                     content: el.dataset.tooltip,
                     delay: [100, 200],

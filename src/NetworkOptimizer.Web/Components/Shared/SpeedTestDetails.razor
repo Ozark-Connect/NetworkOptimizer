@@ -286,13 +286,7 @@
         var parts = new List<string>();
 
         if (Result.WifiSignalDbm.HasValue)
-        {
-            var signal = Result.WifiSignalDbm.Value;
-            var quality = signal >= -50 ? "Excellent" :
-                          signal >= -60 ? "Good" :
-                          signal >= -70 ? "Fair" : "Weak";
-            parts.Add($"Signal: {signal} dBm ({quality})");
-        }
+            parts.Add($"Signal: {Result.WifiSignalDbm.Value} dBm");
 
         if (Result.WifiNoiseDbm.HasValue)
             parts.Add($"Noise: {Result.WifiNoiseDbm.Value} dBm");
@@ -304,13 +298,10 @@
         }
 
         if (Result.WifiChannel.HasValue)
-        {
-            var band = Result.WifiChannel.Value >= 36 ? "5 GHz" : "2.4 GHz";
-            parts.Add($"Channel: {Result.WifiChannel.Value} ({band})");
-        }
+            parts.Add($"Ch {Result.WifiChannel.Value}");
 
         if (!string.IsNullOrEmpty(Result.WifiRadioProto))
-            parts.Add($"Protocol: Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
+            parts.Add($"Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
 
         return parts.Count > 0 ? string.Join(" · ", parts) : "Wireless connection";
     }
