@@ -1712,22 +1712,7 @@
             deploymentSteps.Add("Existing scripts cleaned");
             await ScrollDeploymentLog();
 
-            // Validate WANs still have Smart Queues enabled - disable any that don't
-            var availableInterfaces = sqmEligibleWans.Select(w => w.Interface).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (wan1Config.Enabled && !availableInterfaces.Contains(wan1Config.Interface))
-            {
-                wan1Config.Enabled = false;
-                deploymentSteps.Add($"Skipping {wan1Config.Name} - Smart Queues no longer enabled in UniFi");
-                await ScrollDeploymentLog();
-            }
-            if (wan2Config.Enabled && !availableInterfaces.Contains(wan2Config.Interface))
-            {
-                wan2Config.Enabled = false;
-                deploymentSteps.Add($"Skipping {wan2Config.Name} - Smart Queues no longer enabled in UniFi");
-                await ScrollDeploymentLog();
-            }
-
-            // Save WAN configs to database (after validation so disabled WANs are persisted)
+            // Save WAN configs to database
             await SaveWanConfigsAsync();
             deploymentSteps.Add("WAN configurations saved");
             await ScrollDeploymentLog();
