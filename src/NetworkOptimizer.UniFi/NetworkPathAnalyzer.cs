@@ -946,6 +946,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 hops.Add(hop);
 
+                // Debug: log hop wireless info
+                if (hop.IsWirelessIngress || hop.IsWirelessEgress)
+                {
+                    _logger.LogDebug("Hop {Name}: IsWirelessIngress={WI}, IngressBand={IB}, IsWirelessEgress={WE}, EgressBand={EB}",
+                        hop.DeviceName, hop.IsWirelessIngress, hop.WirelessIngressBand ?? "null",
+                        hop.IsWirelessEgress, hop.WirelessEgressBand ?? "null");
+                }
+
                 if (stopAtServerSwitch)
                     break;
 
