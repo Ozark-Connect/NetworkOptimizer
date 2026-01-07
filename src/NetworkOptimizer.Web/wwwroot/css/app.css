@@ -3012,14 +3012,14 @@ select.form-control {
     position: relative;
 }
 
-.path-analysis .path-connector.wireless::before {
-    content: '📶';
+.path-analysis .path-connector .wireless-icon {
     position: absolute;
     top: -0.9rem;
     left: 50%;
     transform: translateX(-50%);
     font-size: 0.9rem;
     line-height: 1;
+    cursor: pointer;
 }
 
 /* Warnings and badges */

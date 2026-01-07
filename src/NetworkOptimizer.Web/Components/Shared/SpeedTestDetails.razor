@@ -90,6 +90,11 @@
                             @* Check if this link is wireless (current hop egress or next hop ingress) *@
                             var isWirelessLink = hop.IsWirelessEgress || nextHop.IsWirelessIngress;
                             <div class="path-connector @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                @if (isWirelessLink)
+                                {
+                                    var wifiTooltip = GetWifiTooltip();
+                                    <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                }
                                 <span class="connector-line"></span>
                                 @if (linkSpeed > 0)
                                 {
@@ -268,6 +273,57 @@
         HopType.Gateway => "🌐",
         HopType.Server => "🖥️",
         _ => "•"
+    };
+
+    /// <summary>
+    /// Get Wi-Fi signal tooltip content from the Result
+    /// </summary>
+    private string GetWifiTooltip()
+    {
+        if (Result == null)
+            return "Wireless connection";
+
+        var parts = new List<string>();
+
+        if (Result.WifiSignalDbm.HasValue)
+        {
+            var signal = Result.WifiSignalDbm.Value;
+            var quality = signal >= -50 ? "Excellent" :
+                          signal >= -60 ? "Good" :
+                          signal >= -70 ? "Fair" : "Weak";
+            parts.Add($"Signal: {signal} dBm ({quality})");
+        }
+
+        if (Result.WifiNoiseDbm.HasValue)
+            parts.Add($"Noise: {Result.WifiNoiseDbm.Value} dBm");
+
+        if (Result.WifiSignalDbm.HasValue && Result.WifiNoiseDbm.HasValue)
+        {
+            var snr = Result.WifiSignalDbm.Value - Result.WifiNoiseDbm.Value;
+            parts.Add($"SNR: {snr} dB");
+        }
+
+        if (Result.WifiChannel.HasValue)
+        {
+            var band = Result.WifiChannel.Value >= 36 ? "5 GHz" : "2.4 GHz";
+            parts.Add($"Channel: {Result.WifiChannel.Value} ({band})");
+        }
+
+        if (!string.IsNullOrEmpty(Result.WifiRadioProto))
+            parts.Add($"Protocol: Wi-Fi {FormatRadioProto(Result.WifiRadioProto)}");
+
+        return parts.Count > 0 ? string.Join(" · ", parts) : "Wireless connection";
+    }
+
+    private string FormatRadioProto(string proto) => proto.ToLowerInvariant() switch
+    {
+        "ax" => "6 (ax)",
+        "ac" => "5 (ac)",
+        "n" => "4 (n)",
+        "g" => "3 (g)",
+        "a" => "3 (a)",
+        "b" => "2 (b)",
+        _ => proto
     };
 
     /// <summary>
