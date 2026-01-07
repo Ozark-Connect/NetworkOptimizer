@@ -616,19 +616,17 @@
             </p>
 
             <div class="action-buttons">
-                <span title="@(!hasValidWanConfig ? "Enable at least one WAN and select its interface" : "")">
-                    <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)">
-                        @if (isDeploying)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>Deploying...</span>
-                        }
-                        else
-                        {
-                            <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
-                        }
-                    </button>
-                </span>
+                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@isDeploying">
+                    @if (isDeploying)
+                    {
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <span>Deploying...</span>
+                    }
+                    else
+                    {
+                        <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
+                    }
+                </button>
                 <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
                     <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
                         Deploy SQM Monitor Only
@@ -1213,10 +1211,6 @@
     private bool wan2HasSavedConfig = false;
     // Derived property - true if any WAN has saved config
     private bool hasSavedConfigs => wan1HasSavedConfig || wan2HasSavedConfig;
-    // Derived property - true if at least one WAN is enabled with interface selected
-    private bool hasValidWanConfig =>
-        (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Interface)) ||
-        (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Interface));
 
     private async Task LoadSavedConfigsAsync()
     {
@@ -1655,6 +1649,33 @@
         if (!wan1Ready && !wan2Ready)
         {
             statusMessage = "Enable at least one WAN and select its interface";
+            statusSuccess = false;
+            return;
+        }
+
+        // Validate enabled configs have valid settings
+        var errors = new List<string>();
+        if (wan1Ready)
+        {
+            if (wan1Config.NominalDownload <= 0)
+                errors.Add($"{wan1Config.Name}: Download speed must be greater than 0");
+            if (wan1Config.NominalUpload <= 0)
+                errors.Add($"{wan1Config.Name}: Upload speed must be greater than 0");
+            if (string.IsNullOrWhiteSpace(wan1Config.PingHost))
+                errors.Add($"{wan1Config.Name}: Ping host is required");
+        }
+        if (wan2Ready)
+        {
+            if (wan2Config.NominalDownload <= 0)
+                errors.Add($"{wan2Config.Name}: Download speed must be greater than 0");
+            if (wan2Config.NominalUpload <= 0)
+                errors.Add($"{wan2Config.Name}: Upload speed must be greater than 0");
+            if (string.IsNullOrWhiteSpace(wan2Config.PingHost))
+                errors.Add($"{wan2Config.Name}: Ping host is required");
+        }
+        if (errors.Count > 0)
+        {
+            statusMessage = string.Join("; ", errors);
             statusSuccess = false;
             return;
         }
