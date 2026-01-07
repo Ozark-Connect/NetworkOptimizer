@@ -1200,12 +1200,21 @@
                     .Select(w => w.Interface)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+                // Track interfaces already loaded to prevent duplicates (stale DB data protection)
+                var loadedInterfaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (var saved in savedConfigs)
                 {
                     // Skip loading config if interface is no longer available
                     if (availableInterfaces.Count > 0 &&
                         !string.IsNullOrEmpty(saved.Interface) &&
                         !availableInterfaces.Contains(saved.Interface))
+                    {
+                        continue;
+                    }
+
+                    // Skip loading config if interface already loaded (duplicate protection)
+                    if (!string.IsNullOrEmpty(saved.Interface) && loadedInterfaces.Contains(saved.Interface))
                     {
                         continue;
                     }
@@ -1230,6 +1239,10 @@
                     config.EveningHour = saved.SpeedtestEveningHour;
                     config.EveningMinute = saved.SpeedtestEveningMinute;
                     UpdateCalculatedSpeeds(config);
+
+                    // Track this interface as loaded
+                    if (!string.IsNullOrEmpty(saved.Interface))
+                        loadedInterfaces.Add(saved.Interface);
                 }
             }
         }
@@ -1602,6 +1615,14 @@
             wan1Config.Enabled = false;
         if (wan2Config.Enabled && string.IsNullOrEmpty(wan2Config.Interface))
             wan2Config.Enabled = false;
+
+        // Prevent duplicate interface deployment (both WANs using same interface)
+        if (wan1Config.Enabled && wan2Config.Enabled &&
+            wan1Config.Interface.Equals(wan2Config.Interface, StringComparison.OrdinalIgnoreCase))
+        {
+            wan2Config.Enabled = false;
+            // Note: This shouldn't happen with proper UI, but protects against stale DB data
+        }
 
         isDeploying = true;
         deploymentSteps.Clear();
