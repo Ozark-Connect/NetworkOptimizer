@@ -616,20 +616,24 @@
             </p>
 
             <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)" title="@(!hasValidWanConfig ? "Enable at least one WAN and select its interface" : "")">
-                    @if (isDeploying)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                        <span>Deploying...</span>
-                    }
-                    else
-                    {
-                        <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
-                    }
-                </button>
-                <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)" title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                    Deploy SQM Monitor Only
-                </button>
+                <span title="@(!hasValidWanConfig ? "Enable at least one WAN and select its interface" : "")">
+                    <button class="btn btn-primary" @onclick="DeploySqm" disabled="@(isDeploying || !hasValidWanConfig)">
+                        @if (isDeploying)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>Deploying...</span>
+                        }
+                        else
+                        {
+                            <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
+                        }
+                    </button>
+                </span>
+                <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
+                    <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                        Deploy SQM Monitor Only
+                    </button>
+                </span>
                 <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
                     Remove Adaptive SQM
                 </button>
