@@ -29,11 +29,6 @@
             }
         </div>
         <div class="card-body">
-            @if (!string.IsNullOrEmpty(statusMessage))
-            {
-                <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")">@statusMessage</div>
-            }
-
             <div class="deployment-status-content" style="min-height: 90px;">
                 @if (isLoading)
                 {
@@ -85,6 +80,13 @@
                         <div class="metric-value">@(deploymentStatus?.CronJobsConfigured ?? 0) configured</div>
                     </div>
                     </div>
+
+                    @if (!string.IsNullOrEmpty(deploymentStatus?.Error))
+                    {
+                        <div class="alert alert-danger" style="margin-top: 1rem;">
+                            <strong>Status Check Error:</strong> @deploymentStatus.Error
+                        </div>
+                    }
 
                     @if (gatewayConnected && deploymentStatus?.UdmBootInstalled != true)
                     {
@@ -649,6 +651,11 @@
                         }
                     </ul>
                 </div>
+            }
+
+            @if (!string.IsNullOrEmpty(statusMessage))
+            {
+                <div class="alert @(statusSuccess ? "alert-success" : "alert-danger")" style="margin-top: 1rem;">@statusMessage</div>
             }
         </div>
     </div>
