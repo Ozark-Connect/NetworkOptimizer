@@ -184,9 +184,9 @@ WantedBy=multi-user.target
                 "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
             status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
 
-            // Check for SQM boot scripts (new pattern: 20-sqm-{name}.sh)
+            // Check for SQM boot scripts (new pattern: 20-sqm-{name}.sh, excluding monitor)
             var sqmBootCheck = await _sshService.RunCommandWithDeviceAsync(device,
-                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | wc -l");
+                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
             var bootScriptCount = 0;
             if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out bootScriptCount))
             {

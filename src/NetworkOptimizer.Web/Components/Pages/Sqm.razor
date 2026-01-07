@@ -625,7 +625,7 @@
                         <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
                     }
                 </button>
-                <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@isDeploying">
+                <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)" title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
                     Deploy SQM Monitor Only
                 </button>
                 <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
