@@ -120,8 +120,8 @@ public class PathAnalysisResult
             Insights.Add("Performance is moderate - some overhead or minor congestion");
         }
 
-        // Recommendations based on bottleneck
-        if (Path.TheoreticalMaxMbps <= 100)
+        // Recommendations based on bottleneck (wired only - wireless speeds vary naturally)
+        if (Path.TheoreticalMaxMbps <= 100 && !Path.HasWirelessConnection)
         {
             Recommendations.Add("100 Mbps link detected - consider upgrading to gigabit");
         }
