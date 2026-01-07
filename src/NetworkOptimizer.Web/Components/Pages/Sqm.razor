@@ -1427,13 +1427,14 @@
         {
             if (availableWans.Count == 1)
             {
-                // Only one WAN available - pre-populate interface and ping host but don't auto-enable
-                // User must consciously enable SQM via checkbox
+                // Only one WAN available - pre-populate interface, ping host, and connection defaults
+                // but don't auto-enable. User must consciously enable SQM via checkbox.
                 wan1Config.Name = availableWans[0].Name;
                 wan1Config.Interface = availableWans[0].Interface;
                 wan1Config.Enabled = false;
                 if (!string.IsNullOrEmpty(availableWans[0].SuggestedPingIp))
                     wan1Config.PingHost = availableWans[0].SuggestedPingIp;
+                ApplyConnectionDefaults(wan1Config, availableWans[0].Name);
                 usedInterfaces.Add(availableWans[0].Interface);
                 availableWans.RemoveAt(0);
             }
