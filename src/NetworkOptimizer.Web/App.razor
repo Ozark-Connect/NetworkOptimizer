@@ -133,12 +133,12 @@
 
             // Simple tooltips for elements with data-tooltip (not .tooltip-icon)
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
+                // Destroy existing tippy if content changed (Blazor may reuse elements)
                 if (el._tippy) {
-                    // Update content if it changed
-                    if (el._tippy.props.content !== el.dataset.tooltip) {
-                        el._tippy.setContent(el.dataset.tooltip);
+                    if (el._tippy.props.content === el.dataset.tooltip) {
+                        return; // Content unchanged, keep existing
                     }
-                    return;
+                    el._tippy.destroy();
                 }
                 tippy(el, {
                     content: el.dataset.tooltip,
@@ -151,6 +151,24 @@
                 });
             });
         }
+
+        // Periodically check for stale tooltips (handles Blazor element reuse)
+        setInterval(function() {
+            document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
+                if (el._tippy && el._tippy.props.content !== el.dataset.tooltip) {
+                    el._tippy.destroy();
+                    tippy(el, {
+                        content: el.dataset.tooltip,
+                        allowHTML: true,
+                        delay: [100, 200],
+                        placement: 'top',
+                        theme: 'custom',
+                        appendTo: document.body,
+                        maxWidth: 'none'
+                    });
+                }
+            });
+        }, 500);
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', initTooltips);
