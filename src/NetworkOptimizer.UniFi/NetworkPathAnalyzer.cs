@@ -742,9 +742,23 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (!targetClient.IsWired)
             {
-                // Wireless client - use max of Tx/Rx rates as theoretical link capacity
-                var txMbps = (int)(targetClient.TxRate / 1000);
-                var rxMbps = (int)(targetClient.RxRate / 1000);
+                int txMbps, rxMbps;
+
+                // For MLO clients, sum speeds from all links
+                if (targetClient.IsMlo && targetClient.MloLinks?.Count > 0)
+                {
+                    txMbps = (int)(targetClient.MloLinks.Sum(l => l.TxRateKbps ?? 0) / 1000);
+                    rxMbps = (int)(targetClient.MloLinks.Sum(l => l.RxRateKbps ?? 0) / 1000);
+                    _logger.LogDebug("MLO client {Name}: Summed TxRate={Tx}Mbps, RxRate={Rx}Mbps from {Links} links",
+                        targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.MloLinks.Count);
+                }
+                else
+                {
+                    // Single-link wireless - use reported rates
+                    txMbps = (int)(targetClient.TxRate / 1000);
+                    rxMbps = (int)(targetClient.RxRate / 1000);
+                }
+
                 var maxRate = Math.Max(txMbps, rxMbps);
                 hop.EgressSpeedMbps = maxRate;
                 hop.IngressSpeedMbps = maxRate;
@@ -752,8 +766,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 hop.IsWirelessIngress = true;
                 hop.WirelessEgressBand = targetClient.Radio;
                 hop.WirelessIngressBand = targetClient.Radio;
-                _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps, RxRate={Rx}Mbps, Radio={Radio}",
-                    targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.Radio ?? "null");
+                _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps, RxRate={Rx}Mbps, Radio={Radio}, MLO={IsMlo}",
+                    targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.Radio ?? "null", targetClient.IsMlo);
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
