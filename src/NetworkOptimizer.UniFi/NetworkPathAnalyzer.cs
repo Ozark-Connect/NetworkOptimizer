@@ -1,8 +1,8 @@
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi;
@@ -159,8 +159,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
         else
         {
-            // Fall back to interface enumeration
-            localIps = GetLocalIpAddresses();
+            // Fall back to interface enumeration (shared utility handles HOST_IP check internally)
+            localIps = NetworkUtilities.GetAllLocalIpAddresses();
             if (localIps.Count == 0)
             {
                 _logger.LogWarning("Could not determine local IP addresses");
@@ -540,87 +540,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         _logger.LogWarning("Could not resolve hostname {Hostname} via DNS", hostname);
         return null;
-    }
-
-    private static List<string> GetLocalIpAddresses()
-    {
-        // Check for HOST_IP environment variable override (useful for Docker port mapping mode)
-        var hostIp = Environment.GetEnvironmentVariable("HOST_IP");
-        if (!string.IsNullOrWhiteSpace(hostIp))
-        {
-            return new List<string> { hostIp.Trim() };
-        }
-
-        var interfaceIps = new List<(string Ip, int Priority, string Name)>();
-
-        try
-        {
-            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up)
-                    continue;
-
-                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
-                    continue;
-
-                var name = ni.Name.ToLowerInvariant();
-                var desc = ni.Description.ToLowerInvariant();
-
-                // Skip virtual/bridge/tunnel/container interfaces
-                if (name.Contains("docker") || desc.Contains("docker") ||
-                    name.Contains("podman") || desc.Contains("podman") ||
-                    name.Contains("macvlan") || desc.Contains("macvlan") ||
-                    name.Contains("veth") || name.Contains("br-") ||
-                    name.Contains("virbr") || name.Contains("vbox") ||
-                    name.Contains("vmnet") || name.Contains("vmware") ||
-                    name.Contains("hyper-v") || desc.Contains("hyper-v") ||
-                    name.Contains("virtualbox") || desc.Contains("virtualbox") ||
-                    name.StartsWith("veth") || name.StartsWith("cni") ||
-                    name.StartsWith("gre") || name.StartsWith("ifb") ||
-                    name.StartsWith("wg"))  // WireGuard
-                    continue;
-
-                // Assign priority: lower = better
-                // Physical Ethernet > WiFi > Everything else
-                int priority;
-                var ifType = ni.NetworkInterfaceType;
-                if (ifType == NetworkInterfaceType.Ethernet ||
-                    ifType == NetworkInterfaceType.Ethernet3Megabit ||
-                    ifType == NetworkInterfaceType.FastEthernetT ||
-                    ifType == NetworkInterfaceType.FastEthernetFx ||
-                    ifType == NetworkInterfaceType.GigabitEthernet)
-                {
-                    priority = 1; // Physical Ethernet (any speed) - highest priority
-                }
-                else if (ifType == NetworkInterfaceType.Wireless80211)
-                {
-                    priority = 2; // WiFi
-                }
-                else
-                {
-                    priority = 3; // Other (tunnel, ppp, etc.)
-                }
-
-                var props = ni.GetIPProperties();
-                foreach (var addr in props.UnicastAddresses)
-                {
-                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
-                    {
-                        interfaceIps.Add((addr.Address.ToString(), priority, ni.Name));
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Ignore network enumeration errors
-        }
-
-        // Return IPs sorted by priority (Ethernet first, then WiFi, then others)
-        return interfaceIps
-            .OrderBy(x => x.Priority)
-            .Select(x => x.Ip)
-            .ToList();
     }
 
     private static DiscoveredDevice? FindDevice(NetworkTopology topology, string hostOrIp)

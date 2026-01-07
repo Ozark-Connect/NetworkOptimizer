@@ -103,6 +103,30 @@ public class Iperf3Result
     [MaxLength(17)]
     public string? ClientMac { get; set; }
 
+    // Geolocation (browser tests with permission)
+    /// <summary>Client latitude (browser tests with geolocation permission)</summary>
+    public double? Latitude { get; set; }
+
+    /// <summary>Client longitude (browser tests with geolocation permission)</summary>
+    public double? Longitude { get; set; }
+
+    /// <summary>Location accuracy in meters (browser tests)</summary>
+    public int? LocationAccuracyMeters { get; set; }
+
+    // Wi-Fi signal (from UniFi at test time)
+    /// <summary>Wi-Fi signal strength in dBm (wireless clients only)</summary>
+    public int? WifiSignalDbm { get; set; }
+
+    /// <summary>Wi-Fi noise floor in dBm (wireless clients only)</summary>
+    public int? WifiNoiseDbm { get; set; }
+
+    /// <summary>Wi-Fi channel (wireless clients only)</summary>
+    public int? WifiChannel { get; set; }
+
+    /// <summary>Wi-Fi radio protocol - ax, ac, n, etc. (wireless clients only)</summary>
+    [MaxLength(10)]
+    public string? WifiRadioProto { get; set; }
+
     /// <summary>Raw iperf3 JSON output for upload test</summary>
     public string? RawUploadJson { get; set; }
 

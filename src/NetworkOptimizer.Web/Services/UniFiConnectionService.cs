@@ -583,6 +583,53 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Enrich a speed test result with client info from UniFi (MAC, name, Wi-Fi signal).
+    /// </summary>
+    /// <param name="result">The speed test result to enrich</param>
+    /// <param name="setDeviceName">Whether to set DeviceName from UniFi (false for SSH tests that already have a name)</param>
+    /// <param name="overwriteMac">Whether to overwrite existing MAC (false for SSH tests that may have MAC from config)</param>
+    public async Task EnrichSpeedTestWithClientInfoAsync(Iperf3Result result, bool setDeviceName = true, bool overwriteMac = true)
+    {
+        if (!IsConnected || _client == null)
+            return;
+
+        try
+        {
+            var clients = await _client.GetClientsAsync();
+            var client = clients?.FirstOrDefault(c => c.Ip == result.DeviceHost);
+
+            if (client == null)
+                return;
+
+            // Set MAC address
+            if (overwriteMac || string.IsNullOrEmpty(result.ClientMac))
+                result.ClientMac = client.Mac;
+
+            // Set device name from UniFi
+            if (setDeviceName)
+                result.DeviceName = !string.IsNullOrEmpty(client.Name) ? client.Name : client.Hostname;
+
+            // Capture Wi-Fi signal for wireless clients
+            if (!client.IsWired)
+            {
+                result.WifiSignalDbm = client.Signal;
+                result.WifiNoiseDbm = client.Noise;
+                result.WifiChannel = client.Channel;
+                result.WifiRadioProto = client.RadioProto;
+                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Proto={Proto}",
+                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadioProto);
+            }
+
+            _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",
+                result.DeviceHost, result.ClientMac, result.DeviceName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enrich client info for {Ip}", result.DeviceHost);
+        }
+    }
+
+    /// <summary>
     /// Parses connection exceptions for user-friendly error messages
     /// </summary>
     private string ParseConnectionException(Exception ex)

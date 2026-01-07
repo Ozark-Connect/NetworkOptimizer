@@ -4,6 +4,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Web.Components.Shared
+@using NetworkOptimizer.Core.Helpers
 @inject ClientSpeedTestService ClientSpeedTestService
 @inject NavigationManager NavigationManager
 @inject IConfiguration Configuration
@@ -554,6 +555,7 @@
 
     // Configuration
     private string? openSpeedTestUrl;
+    private string? openSpeedTestHealthCheckUrl;  // Internal HTTP URL for health checks
     private bool iperf3ServerEnabled;
     private bool openSpeedTestAvailable;
     private string serverHost = "<server IP>";
@@ -580,23 +582,49 @@
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
 
-        // Construct OpenSpeedTest URL from HOST_NAME or HOST_IP
+        // Construct OpenSpeedTest URL - supports HTTPS when proxied
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
+        var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
         var openSpeedTestPort = Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
-        if (!string.IsNullOrEmpty(hostName))
+        var openSpeedTestHttps = Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
+        var openSpeedTestHttpsPort = Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
+
+        // OPENSPEEDTEST_HOST defaults to HOST_NAME
+        if (string.IsNullOrEmpty(openSpeedTestHost))
+            openSpeedTestHost = hostName;
+
+        // Build health check URL - always use localhost (most reliable with host networking)
+        openSpeedTestHealthCheckUrl = $"http://localhost:{openSpeedTestPort}";
+
+        // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
+        // Priority: HOST_NAME > HOST_IP > auto-detected IP from network interface
+        serverHost = hostName ?? hostIp ?? NetworkUtilities.DetectLocalIpFromInterfaces() ?? "<server IP>";
+
+        // Build display URL - prefer HTTPS when configured, else HTTP
+        if (!string.IsNullOrEmpty(openSpeedTestHost))
         {
-            openSpeedTestUrl = $"http://{hostName}:{openSpeedTestPort}";
-            serverHost = hostName;
+            if (openSpeedTestHttps)
+            {
+                // HTTPS URL (behind proxy)
+                openSpeedTestUrl = openSpeedTestHttpsPort == "443"
+                    ? $"https://{openSpeedTestHost}"
+                    : $"https://{openSpeedTestHost}:{openSpeedTestHttpsPort}";
+            }
+            else
+            {
+                // HTTP URL (direct access)
+                openSpeedTestUrl = $"http://{openSpeedTestHost}:{openSpeedTestPort}";
+            }
         }
         else if (!string.IsNullOrEmpty(hostIp))
         {
+            // Fallback to HOST_IP (HTTP only)
             openSpeedTestUrl = $"http://{hostIp}:{openSpeedTestPort}";
-            serverHost = hostIp;
         }
 
-        // Check if OpenSpeedTest is actually reachable
-        if (!string.IsNullOrEmpty(openSpeedTestUrl))
+        // Check if OpenSpeedTest is actually reachable (using internal HTTP URL)
+        if (!string.IsNullOrEmpty(openSpeedTestHealthCheckUrl))
         {
             openSpeedTestAvailable = await CheckOpenSpeedTestHealthAsync();
         }
@@ -648,10 +676,13 @@
 
         try
         {
-            using var client = HttpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(2);
-            var response = await client.GetAsync(openSpeedTestUrl);
-            _lastHealthResult = response.IsSuccessStatusCode;
+            // Don't follow redirects - just check if the service responds
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2) };
+            var response = await client.GetAsync(openSpeedTestHealthCheckUrl);
+            // Accept 2xx or 3xx (redirects) as "running"
+            _lastHealthResult = response.IsSuccessStatusCode ||
+                ((int)response.StatusCode >= 300 && (int)response.StatusCode < 400);
         }
         catch
         {

@@ -19,6 +19,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly UniFiSshService _sshService;
     private readonly SystemSettingsService _settingsService;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
+    private readonly UniFiConnectionService _connectionService;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -38,13 +39,15 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
         SystemSettingsService settingsService,
-        INetworkPathAnalyzer pathAnalyzer)
+        INetworkPathAnalyzer pathAnalyzer,
+        UniFiConnectionService connectionService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _settingsService = settingsService;
         _pathAnalyzer = pathAnalyzer;
+        _connectionService = connectionService;
     }
 
     /// <summary>
@@ -410,6 +413,10 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 }
             }
 
+            // Enrich with client info (MAC, name, Wi-Fi signal) if target is a UniFi client
+            // Don't overwrite DeviceName (SSH tests have name from config), but do capture Wi-Fi/MAC
+            await _connectionService.EnrichSpeedTestWithClientInfoAsync(result, setDeviceName: false, overwriteMac: false);
+
             // Perform path analysis
             await AnalyzePathAsync(result, host);
 
@@ -663,4 +670,5 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             // Don't fail the test - path analysis is optional
         }
     }
+
 }

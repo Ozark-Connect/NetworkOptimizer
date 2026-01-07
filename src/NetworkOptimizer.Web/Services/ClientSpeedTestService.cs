@@ -43,7 +43,10 @@ public class ClientSpeedTestService
         double? jitterMs,
         double? downloadDataMb,
         double? uploadDataMb,
-        string? userAgent)
+        string? userAgent,
+        double? latitude = null,
+        double? longitude = null,
+        int? locationAccuracy = null)
     {
         // Get server's local IP for path analysis
         var serverIp = _configuration["HOST_IP"];
@@ -65,11 +68,15 @@ public class ClientSpeedTestService
             UserAgent = userAgent,
             TestTime = DateTime.UtcNow,
             Success = true,
-            ParallelStreams = 6  // OpenSpeedTest default: 6 parallel HTTP connections
+            ParallelStreams = 6,  // OpenSpeedTest default: 6 parallel HTTP connections
+            // Geolocation (if provided)
+            Latitude = latitude,
+            Longitude = longitude,
+            LocationAccuracyMeters = locationAccuracy
         };
 
         // Try to look up client info from UniFi
-        await EnrichClientInfoAsync(result);
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
 
         // Perform path analysis (client to server)
         await AnalyzePathAsync(result);
@@ -176,7 +183,7 @@ public class ClientSpeedTestService
         };
 
         // Try to look up client info from UniFi
-        await EnrichClientInfoAsync(result);
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
 
         // Perform path analysis
         await AnalyzePathAsync(result);
@@ -233,33 +240,6 @@ public class ClientSpeedTestService
             .OrderByDescending(r => r.TestTime)
             .Take(count)
             .ToListAsync();
-    }
-
-    /// <summary>
-    /// Enrich a result with client info from UniFi (MAC, name).
-    /// </summary>
-    private async Task EnrichClientInfoAsync(Iperf3Result result)
-    {
-        try
-        {
-            if (!_connectionService.IsConnected)
-                return;
-
-            var clients = await _connectionService.Client!.GetClientsAsync();
-            var client = clients?.FirstOrDefault(c => c.Ip == result.DeviceHost);
-
-            if (client != null)
-            {
-                result.ClientMac = client.Mac;
-                result.DeviceName = !string.IsNullOrEmpty(client.Name) ? client.Name : client.Hostname;
-                _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",
-                    result.DeviceHost, result.ClientMac, result.DeviceName);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to enrich client info for {Ip}", result.DeviceHost);
-        }
     }
 
     /// <summary>

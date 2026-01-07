@@ -1,0 +1,121 @@
+/**
+ * Ozark Connect Branding Overrides for OpenSpeedTest
+ * These styles override the default OpenSpeedTest colors with Ozark Connect branding
+ */
+
+:root {
+    --ozark-primary: #0559C9;
+    --ozark-accent: #F97316;
+    --ozark-bg: #1a2029;
+    --ozark-text: #f1f5f9;
+}
+
+/* Override the blue gradient/accent colors */
+.openSpeedtestApp [style*="fill: #3da6ff"],
+.openSpeedtestApp [style*="fill: #14b0fe"],
+.openSpeedtestApp [style*="fill:#3da6ff"],
+.openSpeedtestApp [style*="fill:#14b0fe"] {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Credits section styling - fixed bottom bar */
+.Credits {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    background: inherit !important;
+    background-color: rgba(0, 0, 0, 0.7) !important;
+    color: #ffffff !important;
+    padding: 10px 16px !important;
+    font-size: 12px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+    z-index: 1000 !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+.Credits a {
+    color: var(--ozark-primary) !important;
+    text-decoration: none !important;
+}
+
+.Credits a:hover {
+    color: var(--ozark-accent) !important;
+    text-decoration: underline !important;
+}
+
+/* Progress bar and gauge accent colors */
+#progressbg {
+    stroke: var(--ozark-primary) !important;
+}
+
+/* Download graph - solid blue */
+.line {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Upload graph - solid orange */
+.line2 {
+    fill: var(--ozark-accent) !important;
+}
+
+/* Ping symbol - blue to match download */
+#pingSymbol,
+#pingSymbolDesk,
+#pingSymbolMob {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Download symbol (arrow) - blue to match graph */
+#downSymbol,
+#downSymbolDesk,
+#downSymbolMob {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Upload symbol (arrow) - orange to match graph */
+#upSymbol,
+#upSymbolDesk,
+#upSymbolMob {
+    fill: var(--ozark-accent) !important;
+}
+
+/* Override the graph symbols to not use gradient */
+#graphc1,
+#graphc2 {
+    fill: none !important;
+}
+
+/* Start button - solid blue instead of gradient */
+.startButton {
+    fill: var(--ozark-primary) !important;
+}
+
+.startButton:hover {
+    fill: #0447a3 !important;
+}
+
+/* Settings icon */
+.Startsettings {
+    fill: var(--ozark-primary) !important;
+}
+
+/* Progress bar colors */
+.intro-Progress {
+    stroke: var(--ozark-primary) !important;
+}
+
+.progressElmstart {
+    stroke: var(--ozark-primary) !important;
+}
+
+
+/* Lighter blue for progress bar visibility */
+.intro-Progress path,
+.intro-Progress line,
+#progressStatus-Desk,
+#progressStatus-Mob {
+    stroke: #60A5FA !important;
+}
