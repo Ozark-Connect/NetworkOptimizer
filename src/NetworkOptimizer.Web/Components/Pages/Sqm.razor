@@ -613,41 +613,65 @@
     </div>
     }
 
-    <!-- Deployment Actions (only show if at least one WAN has Smart Queues enabled) -->
-    @if (sqmEligibleWans.Any())
+    <!-- Deployment Actions (show if WANs available OR scripts are deployed but need cleanup) -->
+    @if (sqmEligibleWans.Any() || deploymentStatus?.IsDeployed == true)
     {
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Deployment</h2>
         </div>
         <div class="card-body">
-            <p class="info-text">
-                Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily
-                at configured times, while <strong>Ping-based</strong> adjustments run every 5 minutes
-                for real-time latency optimization.
-            </p>
-
-            <div class="action-buttons">
-                <button class="btn btn-primary" @onclick="DeploySqm" disabled="@isDeploying">
-                    @if (isDeploying)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                        <span>Deploying...</span>
-                    }
-                    else
-                    {
-                        <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
-                    }
-                </button>
-                <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
-                    <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
-                        Deploy SQM Monitor Only
+            @if (!sqmEligibleWans.Any() && deploymentStatus?.IsDeployed == true)
+            {
+                <!-- Orphaned scripts - Smart Queues disabled but scripts still deployed -->
+                <div class="alert alert-warning">
+                    <strong>Orphaned SQM Scripts Detected:</strong> Adaptive SQM scripts are deployed, but no WAN connections have Smart Queues enabled in UniFi.
+                    The scripts and scheduled tasks will not function correctly. You should either re-enable Smart Queues in UniFi, or remove the deployed scripts.
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@isDeploying">
+                        @if (isDeploying)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>Removing...</span>
+                        }
+                        else
+                        {
+                            <span>Remove Adaptive SQM</span>
+                        }
                     </button>
-                </span>
-                <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
-                    Remove Adaptive SQM
-                </button>
-            </div>
+                </div>
+            }
+            else
+            {
+                <p class="info-text">
+                    Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily
+                    at configured times, while <strong>Ping-based</strong> adjustments run every 5 minutes
+                    for real-time latency optimization.
+                </p>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" @onclick="DeploySqm" disabled="@isDeploying">
+                        @if (isDeploying)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>Deploying...</span>
+                        }
+                        else
+                        {
+                            <span>@(deploymentStatus?.IsDeployed == true ? "Deploy Settings" : "Deploy SQM Scripts")</span>
+                        }
+                    </button>
+                    <span title="@(deploymentStatus?.IsDeployed != true ? "Deploy SQM scripts first" : "")">
+                        <button class="btn btn-secondary" @onclick="DeployTcMonitor" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                            Deploy SQM Monitor Only
+                        </button>
+                    </span>
+                    <button class="btn btn-danger" @onclick="RemoveSqm" disabled="@(isDeploying || deploymentStatus?.IsDeployed != true)">
+                        Remove Adaptive SQM
+                    </button>
+                </div>
+            }
 
             @if (!string.IsNullOrEmpty(statusMessage))
             {
