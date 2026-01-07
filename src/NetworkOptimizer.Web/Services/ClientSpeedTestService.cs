@@ -212,11 +212,13 @@ public class ClientSpeedTestService
             .Take(count)
             .ToListAsync();
 
-        // Retry path analysis for results without a valid path
+        // Retry path analysis for recent results (last 30 min) without a valid path
+        var retryWindow = DateTime.UtcNow.AddMinutes(-30);
         var needsRetry = results.Where(r =>
-            r.PathAnalysis == null ||
-            r.PathAnalysis.Path == null ||
-            !r.PathAnalysis.Path.IsValid)
+            r.TestTime > retryWindow &&
+            (r.PathAnalysis == null ||
+             r.PathAnalysis.Path == null ||
+             !r.PathAnalysis.Path.IsValid))
             .ToList();
 
         if (needsRetry.Count > 0)
