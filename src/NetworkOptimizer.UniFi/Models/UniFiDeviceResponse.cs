@@ -234,6 +234,18 @@ public class UplinkInfo
     /// </summary>
     [JsonPropertyName("is_mlo")]
     public bool? IsMlo { get; set; }
+
+    /// <summary>
+    /// Signal strength in dBm for wireless uplinks
+    /// </summary>
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }
+
+    /// <summary>
+    /// Noise floor in dBm for wireless uplinks
+    /// </summary>
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }
 }
 
 public class DeviceStats

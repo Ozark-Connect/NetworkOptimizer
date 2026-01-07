@@ -330,11 +330,39 @@
             return string.Join(" · ", row1.Count > 0 ? row1 : row2);
         }
 
-        // For mesh/bridge wireless, show what we have (band only for now)
-        if (!string.IsNullOrEmpty(band))
-            return $"Wireless mesh · {FormatRadioBand(band)}";
+        // For mesh/bridge wireless, show signal stats from hop
+        var meshHop = hop.IsWirelessEgress ? hop : nextHop;
+        var meshRow1 = new List<string>();
+        var meshRow2 = new List<string>();
 
-        return "Wireless mesh";
+        // Row 1: Signal info
+        if (meshHop.WirelessSignalDbm.HasValue)
+            meshRow1.Add($"{meshHop.WirelessSignalDbm.Value} dBm");
+
+        if (meshHop.WirelessNoiseDbm.HasValue)
+            meshRow1.Add($"Noise {meshHop.WirelessNoiseDbm.Value} dBm");
+
+        if (meshHop.WirelessSignalDbm.HasValue && meshHop.WirelessNoiseDbm.HasValue)
+        {
+            var snr = meshHop.WirelessSignalDbm.Value - meshHop.WirelessNoiseDbm.Value;
+            meshRow1.Add($"SNR {snr} dB");
+        }
+
+        // Row 2: Band/channel
+        if (!string.IsNullOrEmpty(band))
+            meshRow2.Add(FormatRadioBand(band));
+
+        if (meshHop.WirelessChannel.HasValue)
+            meshRow2.Add($"Ch {meshHop.WirelessChannel.Value}");
+
+        if (meshRow1.Count == 0 && meshRow2.Count == 0)
+            return "Wireless mesh";
+
+        var prefix = "Wireless mesh";
+        if (meshRow1.Count > 0 && meshRow2.Count > 0)
+            return $"{prefix}<br/>{string.Join(" · ", meshRow1)}<br/>{string.Join(" · ", meshRow2)}";
+
+        return $"{prefix} · {string.Join(" · ", meshRow1.Count > 0 ? meshRow1 : meshRow2)}";
     }
 
     private string FormatRadioBand(string radio) => radio.ToLowerInvariant() switch

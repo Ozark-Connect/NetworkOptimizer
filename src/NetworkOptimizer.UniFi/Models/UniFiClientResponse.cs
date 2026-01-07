@@ -188,7 +188,7 @@ public class MloLinkDetail
     public int? Channel { get; set; }
 
     [JsonPropertyName("channel_width")]
-    public string? ChannelWidth { get; set; }  // "20", "40", "80", "160", "320"
+    public int? ChannelWidth { get; set; }  // 20, 40, 80, 160, 320
 
     [JsonPropertyName("mimo")]
     public string? Mimo { get; set; }  // "MIMO_2", etc.

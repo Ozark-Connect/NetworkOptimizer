@@ -56,6 +56,15 @@ public class NetworkHop
     /// <summary>Radio band for wireless egress (ng=2.4GHz, na=5GHz, 6e=6GHz)</summary>
     public string? WirelessEgressBand { get; set; }
 
+    /// <summary>Channel for wireless link</summary>
+    public int? WirelessChannel { get; set; }
+
+    /// <summary>Signal strength in dBm for wireless link</summary>
+    public int? WirelessSignalDbm { get; set; }
+
+    /// <summary>Noise floor in dBm for wireless link</summary>
+    public int? WirelessNoiseDbm { get; set; }
+
     /// <summary>Additional notes (e.g., "L3 routing", "Wireless uplink")</summary>
     public string? Notes { get; set; }
 }

@@ -708,8 +708,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.IsWirelessEgress = true;
                 deviceHop.WirelessIngressBand = targetDevice.UplinkRadioBand;
                 deviceHop.WirelessEgressBand = targetDevice.UplinkRadioBand;
-                _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, UplinkSpeed={Speed}Mbps, UplinkRadioBand={Band}",
-                    targetDevice.Name, targetDevice.UplinkType, targetDevice.UplinkSpeedMbps, targetDevice.UplinkRadioBand ?? "null");
+                deviceHop.WirelessChannel = targetDevice.UplinkChannel;
+                deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
+                deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
+                _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, UplinkSpeed={Speed}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
+                    targetDevice.Name, targetDevice.UplinkType, targetDevice.UplinkSpeedMbps,
+                    targetDevice.UplinkRadioBand ?? "null", targetDevice.UplinkChannel, targetDevice.UplinkSignalDbm);
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
@@ -935,6 +939,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.EgressPortName = "wireless mesh";
                         hop.IsWirelessEgress = true;
                         hop.WirelessEgressBand = uplinkDevice.UplinkRadioBand;
+                        // Signal stats come from the device with the wireless uplink
+                        hop.WirelessChannel = uplinkDevice.UplinkChannel;
+                        hop.WirelessSignalDbm = uplinkDevice.UplinkSignalDbm;
+                        hop.WirelessNoiseDbm = uplinkDevice.UplinkNoiseDbm;
                     }
                     else
                     {

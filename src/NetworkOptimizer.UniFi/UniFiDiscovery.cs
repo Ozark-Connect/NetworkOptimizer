@@ -79,6 +79,9 @@ public class UniFiDiscovery
                     : d.Uplink?.Speed ?? 0,
                 UplinkType = d.Uplink?.Type,
                 UplinkRadioBand = d.Uplink?.RadioBand,
+                UplinkChannel = d.Uplink?.Channel,
+                UplinkSignalDbm = d.Uplink?.Signal,
+                UplinkNoiseDbm = d.Uplink?.Noise,
                 CpuUsage = d.SystemStats?.Cpu,
                 MemoryUsage = d.SystemStats?.Mem,
                 LoadAverage = d.SystemStats?.LoadAvg1?.ToString("F2"),
@@ -425,6 +428,9 @@ public class DiscoveredDevice
     public int UplinkSpeedMbps { get; set; }
     public string? UplinkType { get; set; }  // "wire" or "wireless"
     public string? UplinkRadioBand { get; set; }  // "ng" (2.4GHz), "na" (5GHz), "6e" (6GHz)
+    public int? UplinkChannel { get; set; }
+    public int? UplinkSignalDbm { get; set; }
+    public int? UplinkNoiseDbm { get; set; }
     public List<string>? DownstreamDevices { get; set; }
     public string? CpuUsage { get; set; }
     public string? MemoryUsage { get; set; }
@@ -487,7 +493,7 @@ public class MloLink
 {
     public string Band { get; set; } = string.Empty;  // "ng", "na", "6e"
     public int? Channel { get; set; }
-    public string? ChannelWidth { get; set; }  // "20", "40", "80", "160", "320"
+    public int? ChannelWidth { get; set; }  // 20, 40, 80, 160, 320
     public int? SignalDbm { get; set; }
     public long? PhyRateKbps { get; set; }
 }
