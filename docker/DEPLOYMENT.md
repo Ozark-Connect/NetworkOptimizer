@@ -599,6 +599,8 @@ Network Optimizer stores UniFi controller credentials and SSH passwords. Limit a
 
 ### UniFi Account
 
+Network Optimizer supports UniFi OS devices (UDM, UCG, UDR, Cloud Key) and self-hosted UniFi Network Server installations.
+
 Create a dedicated **Local Access Only** account on your UniFi controller for Network Optimizer. Ubiquiti SSO accounts will not work.
 
 **Quick Setup:** Create a Local Access Only account with **Super Admin** role.

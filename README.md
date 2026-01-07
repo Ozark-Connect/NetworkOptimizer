@@ -51,7 +51,7 @@ Time-series metrics with historical trending and alerting. Cable modem stats (si
 ## Requirements
 
 **Basic (Security Audit only):**
-- UniFi controller: UCG-Ultra, UCG-Max, UDM, UDM Pro, UDM SE, or standalone controller
+- UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted UniFi Network Server
 - Network access to your UniFi controller API (HTTPS)
 
 **Full Functionality (Adaptive SQM, LAN Speed Testing):**
