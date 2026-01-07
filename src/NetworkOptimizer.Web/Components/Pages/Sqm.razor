@@ -108,6 +108,19 @@
         </div>
     </div>
 
+    <!-- Feature Guard: Show message if no WANs have Smart Queues enabled -->
+    @if (!isLoading && wanInterfaces.Any() && !sqmEligibleWans.Any())
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <strong>Smart Queues Required:</strong> Adaptive SQM requires at least one WAN connection with UniFi Smart Queues (SQM) enabled.
+                    Enable Smart Queues in your UniFi controller under <strong>Settings &rarr; Internet &rarr; [WAN] &rarr; Advanced &rarr; Smart Queues</strong>.
+                </div>
+            </div>
+        </div>
+    }
+
     <!-- SQM Live Status Dashboard (show if monitor responds with active WANs) -->
     @if (sqmMonitorData != null && (sqmMonitorData.Wan1?.Active == true || sqmMonitorData.Wan2?.Active == true))
     {
@@ -265,6 +278,9 @@
                     Manually trigger an SQM speedtest adjustment. This runs the same script that executes at 6 AM/6 PM,
                     measuring current speed and adjusting the SQM rate accordingly.
                 </p>
+                <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                    <strong>Warning:</strong> Running a speedtest will temporarily saturate your WAN connection and may interrupt active video calls, gaming, or other real-time activities.
+                </div>
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && sqmMonitorData?.Wan1?.Active == true)
                     {
@@ -305,10 +321,12 @@
         </div>
     }
 
-    <!-- WAN 1 Configuration -->
+    <!-- WAN 1 Configuration (only show if at least one WAN has Smart Queues enabled) -->
+    @if (sqmEligibleWans.Any())
+    {
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">WAN 1 Configuration</h2>
+            <h2 class="card-title">@(sqmEligibleWans.Count == 1 ? "WAN Configuration" : "WAN 1 Configuration")</h2>
             <label class="toggle-label">
                 <input type="checkbox" @bind="wan1Config.Enabled" />
                 <span>Enable SQM</span>
@@ -323,9 +341,9 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan1Config.Interface">
-                        @if (wanInterfaces.Any())
+                        @if (sqmEligibleWans.Any())
                         {
-                            @foreach (var wan in wanInterfaces)
+                            @foreach (var wan in sqmEligibleWans)
                             {
                                 <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
                             }
@@ -437,8 +455,11 @@
             </div>
         </div>
     </div>
+    }
 
-    <!-- WAN 2 Configuration (Dual-WAN) -->
+    <!-- WAN 2 Configuration (only show if 2+ WANs have Smart Queues enabled) -->
+    @if (sqmEligibleWans.Count >= 2)
+    {
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">WAN 2 Configuration</h2>
@@ -456,9 +477,9 @@
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
                     <select class="form-control" @bind="wan2Config.Interface">
-                        @if (wanInterfaces.Any())
+                        @if (sqmEligibleWans.Any())
                         {
-                            @foreach (var wan in wanInterfaces)
+                            @foreach (var wan in sqmEligibleWans)
                             {
                                 <option value="@wan.Interface">@wan.Interface (@wan.Name)</option>
                             }
@@ -567,8 +588,11 @@
             </div>
         </div>
     </div>
+    }
 
-    <!-- Deployment Actions -->
+    <!-- Deployment Actions (only show if at least one WAN has Smart Queues enabled) -->
+    @if (sqmEligibleWans.Any())
+    {
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Deployment</h2>
@@ -614,6 +638,7 @@
             }
         </div>
     </div>
+    }
 
 </div>
 
@@ -1055,6 +1080,9 @@
     // WAN interfaces from controller
     private List<WanInterfaceInfo> wanInterfaces = new();
 
+    // WANs with Smart Queues enabled (eligible for Adaptive SQM)
+    private List<WanInterfaceInfo> sqmEligibleWans => wanInterfaces.Where(w => w.SmartqEnabled).ToList();
+
     // WAN configurations (defaults overwritten by ApplyDetectedWanInterfaces)
     private WanConfigModel wan1Config = new()
     {
@@ -1444,6 +1472,17 @@
             // Save WAN configs to database before deploying
             await SaveWanConfigsAsync();
             deploymentSteps.Add("WAN configurations saved");
+            StateHasChanged();
+
+            // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
+            deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
+            StateHasChanged();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
+            if (!cleanResult.success)
+            {
+                throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
+            }
+            deploymentSteps.Add("Existing scripts cleaned");
             StateHasChanged();
 
             // Deploy WAN 1 (initial speedtest immediately)

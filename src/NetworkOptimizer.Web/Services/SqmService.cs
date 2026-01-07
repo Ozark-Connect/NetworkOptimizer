@@ -262,13 +262,25 @@ public class SqmService : ISqmService
                 return result;
             }
 
-            // Get WAN network configs for friendly names
+            // Get WAN network configs for friendly names and SmartQ status
             var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+
+            // Build lookup by IP (for WANs with static IPs)
             var ipToName = wanConfigs
                 .Where(w => !string.IsNullOrEmpty(w.WanIp))
                 .ToDictionary(w => w.WanIp!, w => w.Name);
 
-            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName);
+            // Build lookup by wan_networkgroup for SmartQ status (e.g., "WAN" -> true, "WAN2" -> true)
+            var networkGroupToSmartq = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
+                .ToDictionary(w => w.WanNetworkgroup!, w => w.WanSmartqEnabled, StringComparer.OrdinalIgnoreCase);
+
+            // Build lookup by wan_networkgroup for friendly name
+            var networkGroupToName = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
+                .ToDictionary(w => w.WanNetworkgroup!, w => w.Name, StringComparer.OrdinalIgnoreCase);
+
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
         }
@@ -282,9 +294,13 @@ public class SqmService : ISqmService
 
     /// <summary>
     /// Extract WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname)
-    /// Correlates with network config names via IP address matching
+    /// Uses ethernet_overrides to map interface -> networkgroup, then looks up SmartQ status
     /// </summary>
-    private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(string deviceJson, Dictionary<string, string> ipToName)
+    private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(
+        string deviceJson,
+        Dictionary<string, string> ipToName,
+        Dictionary<string, bool> networkGroupToSmartq,
+        Dictionary<string, string> networkGroupToName)
     {
         var result = new List<WanInterfaceInfo>();
 
@@ -305,6 +321,22 @@ public class SqmService : ISqmService
                 if (deviceType != "ugw" && deviceType != "udm" && deviceType != "uxg")
                     continue;
 
+                // Build ifname -> networkgroup lookup from ethernet_overrides
+                var ifnameToNetworkGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (device.TryGetProperty("ethernet_overrides", out var ethOverrides) &&
+                    ethOverrides.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var ov in ethOverrides.EnumerateArray())
+                    {
+                        var ifn = ov.TryGetProperty("ifname", out var ifnProp) ? ifnProp.GetString() : null;
+                        var ng = ov.TryGetProperty("networkgroup", out var ngProp) ? ngProp.GetString() : null;
+                        if (!string.IsNullOrEmpty(ifn) && !string.IsNullOrEmpty(ng))
+                        {
+                            ifnameToNetworkGroup[ifn] = ng;
+                        }
+                    }
+                }
+
                 // Check for wan1, wan2, wan3, etc.
                 for (int i = 1; i <= 4; i++)
                 {
@@ -324,9 +356,18 @@ public class SqmService : ISqmService
                         if (wanObj.TryGetProperty("ip", out var ipProp))
                             wanIp = ipProp.GetString();
 
-                        // Try to get friendly name from network config, fallback to WAN1/WAN2
+                        // Get networkgroup for this interface from ethernet_overrides
+                        string? networkGroup = null;
+                        if (ifnameToNetworkGroup.TryGetValue(ifname, out var ng))
+                            networkGroup = ng;
+
+                        // Try to get friendly name: first from networkgroup lookup, then IP lookup, then fallback
                         var friendlyName = wanKey.ToUpper();
-                        if (!string.IsNullOrEmpty(wanIp) && ipToName.TryGetValue(wanIp, out var configName))
+                        if (!string.IsNullOrEmpty(networkGroup) && networkGroupToName.TryGetValue(networkGroup, out var ngName))
+                        {
+                            friendlyName = ngName;
+                        }
+                        else if (!string.IsNullOrEmpty(wanIp) && ipToName.TryGetValue(wanIp, out var configName))
                         {
                             friendlyName = configName;
                         }
@@ -364,6 +405,10 @@ public class SqmService : ISqmService
                         // TC monitor uses "ifb" + interface name format
                         var tcInterface = $"ifb{ifname}";
 
+                        // Check if Smart Queues is enabled via networkgroup lookup
+                        var smartqEnabled = !string.IsNullOrEmpty(networkGroup) &&
+                            networkGroupToSmartq.TryGetValue(networkGroup, out var sqEnabled) && sqEnabled;
+
                         result.Add(new WanInterfaceInfo
                         {
                             Name = friendlyName,
@@ -372,11 +417,12 @@ public class SqmService : ISqmService
                             WanType = "dhcp",
                             LoadBalanceType = null,
                             LoadBalanceWeight = null,
-                            SuggestedPingIp = suggestedPingIp
+                            SuggestedPingIp = suggestedPingIp,
+                            SmartqEnabled = smartqEnabled
                         });
 
-                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (IP: {Ip}, PingIp: {PingIp})",
-                            wanKey, ifname, friendlyName, wanIp, suggestedPingIp);
+                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ})",
+                            wanKey, ifname, friendlyName, networkGroup, smartqEnabled);
                     }
                 }
 
@@ -646,4 +692,7 @@ public class WanInterfaceInfo
 
     /// <summary>Suggested ISP gateway IP for ping monitoring (from mac_table)</summary>
     public string? SuggestedPingIp { get; set; }
+
+    /// <summary>Whether UniFi Smart Queues (SQM) is enabled for this WAN in the controller</summary>
+    public bool SmartqEnabled { get; set; }
 }

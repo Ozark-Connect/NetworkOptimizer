@@ -247,6 +247,52 @@ WantedBy=multi-user.target
     }
 
     /// <summary>
+    /// Clean ALL SQM scripts and cron entries from the gateway.
+    /// Call this ONCE before deploying any WANs to handle renamed connections.
+    /// </summary>
+    public async Task<(bool success, string message)> CleanAllSqmScriptsAsync()
+    {
+        var settings = await GetGatewaySettingsAsync();
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return (false, "Gateway SSH not configured");
+        }
+
+        var device = new DeviceSshConfiguration
+        {
+            Host = settings.Host,
+            SshUsername = settings.Username,
+            SshPassword = settings.Password,
+            SshPrivateKeyPath = settings.PrivateKeyPath
+        };
+
+        try
+        {
+            _logger.LogInformation("Cleaning all SQM scripts and cron entries");
+
+            // Remove all SQM boot scripts
+            await _sshService.RunCommandWithDeviceAsync(device,
+                $"rm -f {OnBootDir}/20-sqm-*.sh {OnBootDir}/21-sqm-*.sh");
+
+            // Remove all SQM data directories
+            await _sshService.RunCommandWithDeviceAsync(device,
+                $"rm -rf {SqmDir}/*");
+
+            // Remove ALL SQM-related cron entries (catches renamed connections)
+            await _sshService.RunCommandWithDeviceAsync(device,
+                "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
+
+            _logger.LogInformation("Successfully cleaned all SQM scripts and cron entries");
+            return (true, "Cleaned all SQM scripts and cron entries");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cleaning SQM scripts");
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Deploy SQM scripts to the gateway
     /// </summary>
     /// <param name="config">SQM configuration for this WAN</param>
@@ -440,10 +486,10 @@ WantedBy=multi-user.target
 
         try
         {
-            // Remove SQM-related cron jobs
+            // Remove ALL SQM-related cron jobs (catches renamed connections too)
             steps.Add("Removing SQM cron jobs...");
             await _sshService.RunCommandWithDeviceAsync(device,
-                "crontab -l 2>/dev/null | grep -v '/data/sqm/' | crontab -");
+                "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
             steps.Add("Removing SQM boot scripts...");
