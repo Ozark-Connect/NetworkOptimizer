@@ -74,6 +74,7 @@
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
+    private bool pendingInitialize = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
@@ -159,11 +160,16 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && HasLocationData)
+        // Initialize map after render when we have data and DOM is ready
+        if (!mapInitialized && (firstRender && HasLocationData || pendingInitialize))
         {
-            // Small delay to ensure DOM is ready
-            await Task.Delay(100);
-            await InitializeMap();
+            pendingInitialize = false;
+            // Retry a few times in case Leaflet scripts are still loading
+            for (int i = 0; i < 5 && !mapInitialized; i++)
+            {
+                await Task.Delay(100 + i * 100); // 100, 200, 300, 400, 500ms
+                await InitializeMap();
+            }
         }
     }
 
@@ -171,11 +177,11 @@
     {
         var currentCount = Results.Count();
 
-        // If map not initialized but we now have location data, initialize it
+        // If map not initialized but we now have location data, flag for init after render
         if (!mapInitialized && HasLocationData)
         {
-            await Task.Delay(100); // Ensure DOM is ready
-            await InitializeMap();
+            pendingInitialize = true;
+            StateHasChanged(); // Trigger render so OnAfterRenderAsync runs
         }
         // Only update markers if results actually changed (new tests added)
         else if (mapInitialized && currentCount != lastResultCount)
@@ -195,9 +201,15 @@
             // Initialize the map using inline JS
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
-                    if (typeof L === 'undefined') return;
+                    if (typeof L === 'undefined') {{
+                        console.error('SpeedTestMap: Leaflet not loaded');
+                        return;
+                    }}
                     const container = document.getElementById('{mapId}');
-                    if (!container) return;
+                    if (!container) {{
+                        console.error('SpeedTestMap: Container not found:', '{mapId}');
+                        return;
+                    }}
 
                     window._speedTestMaps = window._speedTestMaps || {{}};
                     if (window._speedTestMaps['{mapId}']) return;
