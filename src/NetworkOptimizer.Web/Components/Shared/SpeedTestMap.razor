@@ -145,6 +145,15 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
+                    // Speed color function for clusters
+                    function getSpeedColor(speed) {{
+                        if (speed < 50) return 'rgb(239,68,68)';
+                        if (speed < 100) return 'rgb(249,115,22)';
+                        if (speed < 200) return 'rgb(234,179,8)';
+                        if (speed < 500) return 'rgb(132,204,22)';
+                        return 'rgb(34,197,94)';
+                    }}
+
                     // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
                         maxClusterRadius: 25,
@@ -156,16 +165,10 @@
                             let totalSpeed = 0;
                             markers.forEach(m => {{ totalSpeed += m.options.speed || 0; }});
                             const avgSpeed = totalSpeed / markers.length;
-
-                            let color;
-                            if (avgSpeed < 50) color = '#ef4444';
-                            else if (avgSpeed < 100) color = '#f97316';
-                            else if (avgSpeed < 200) color = '#eab308';
-                            else if (avgSpeed < 500) color = '#84cc16';
-                            else color = '#22c55e';
+                            const color = getSpeedColor(avgSpeed);
 
                             return L.divIcon({{
-                                html: '<div style=\"background:' + color + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3);\">' + markers.length + '</div>',
+                                html: '<div style=\"background:' + color + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);\">' + markers.length + '</div>',
                                 className: 'speed-cluster-icon',
                                 iconSize: L.point(40, 40)
                             }});
