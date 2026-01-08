@@ -269,10 +269,12 @@
 
                     // Track current spider state
                     var currentSpider = null;
+                    var switchingSpider = false;
 
-                    // Fade out existing spider on cluster click
+                    // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
                         if (currentSpider) {{
+                            switchingSpider = true;
                             var markers = currentSpider.getAllChildMarkers();
                             markers.forEach(m => {{
                                 if (m._path) {{
@@ -285,23 +287,21 @@
                                 }}
                             }});
                         }}
-                    }});
-
-                    // Set z-index when spider opens (after any unspiderfied has fired)
-                    clusterGroup.on('spiderfied', function(e) {{
-                        currentSpider = e.cluster;
+                        // Set z-index BEFORE spider opens
                         map.getPane('overlayPane').style.zIndex = 650;
                     }});
 
-                    // Reset z-index when spider closes
+                    clusterGroup.on('spiderfied', function(e) {{
+                        currentSpider = e.cluster;
+                        switchingSpider = false;
+                    }});
+
                     clusterGroup.on('unspiderfied', function(e) {{
                         currentSpider = null;
-                        // Delay reset to allow new spiderfied event to fire first when switching
-                        setTimeout(function() {{
-                            if (!currentSpider) {{
-                                map.getPane('overlayPane').style.zIndex = '';
-                            }}
-                        }}, 50);
+                        // Only reset z-index if not switching to a new spider
+                        if (!switchingSpider) {{
+                            map.getPane('overlayPane').style.zIndex = '';
+                        }}
                     }});
 
                     // Use mousedown on container to catch click before markercluster handles it
