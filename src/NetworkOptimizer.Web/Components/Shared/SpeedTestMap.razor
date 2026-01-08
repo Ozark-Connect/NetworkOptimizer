@@ -286,11 +286,19 @@
                     map.getContainer().addEventListener('mousedown', function(e) {{
                         console.log('mousedown, currentSpider:', currentSpider);
                         if (currentSpider) {{
-                            var paths = document.querySelectorAll('.leaflet-overlay-pane svg path');
-                            console.log('fading paths:', paths.length);
-                            paths.forEach(p => {{
-                                p.style.transition = 'opacity 0.3s ease-out';
-                                p.style.opacity = '0';
+                            var markers = currentSpider.getAllChildMarkers();
+                            console.log('fading spider markers:', markers.length);
+                            markers.forEach(m => {{
+                                // Fade the dot
+                                if (m._path) {{
+                                    m._path.style.transition = 'opacity 0.3s ease-out';
+                                    m._path.style.opacity = '0';
+                                }}
+                                // Fade the spider leg
+                                if (m._spiderLeg && m._spiderLeg._path) {{
+                                    m._spiderLeg._path.style.transition = 'opacity 0.3s ease-out';
+                                    m._spiderLeg._path.style.opacity = '0';
+                                }}
                             }});
                         }}
                     }}, true);
