@@ -807,6 +807,185 @@ public class ConfigAuditEngineTests
         result.Issues.Should().NotContain(i => i.DeviceName != null && i.DeviceName.Contains("Orphaned"));
     }
 
+    private static string CreateDeviceJsonWithPrinterVlan()
+    {
+        // Device JSON with networks including a Printer VLAN
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "network_table": [
+                    {
+                        "_id": "net-corp",
+                        "name": "Corporate",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    },
+                    {
+                        "_id": "net-iot",
+                        "name": "IoT",
+                        "vlan": 20,
+                        "purpose": "iot",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.129/25"
+                    },
+                    {
+                        "_id": "net-printer",
+                        "name": "Printing",
+                        "vlan": 40,
+                        "purpose": "printer",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.240/28"
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflinePrinterOnIoTVlan_StrictMode_CreatesIssue()
+    {
+        var deviceJson = CreateDeviceJsonWithPrinterVlan();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-iot", // On IoT, not Printer VLAN
+                DisplayName = "Office Printer", // Name-based detection
+                LastSeen = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeSeconds() // Recent
+            }
+        };
+
+        // Strict mode: printers must be on Printer VLAN
+        var allowanceSettings = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = false };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: allowanceSettings,
+            protectCameras: null);
+
+        // Should flag printer on IoT when Printer VLAN exists and strict mode enabled
+        result.Issues.Should().Contain(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        var issue = result.Issues.First(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        issue.DeviceName.Should().Contain("(offline)");
+        issue.CurrentNetwork.Should().Be("IoT");
+        issue.RecommendedNetwork.Should().Be("Printing");
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflinePrinterOnIoTVlan_LenientMode_NoIssue()
+    {
+        var deviceJson = CreateDeviceJsonWithPrinterVlan();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-iot", // On IoT
+                DisplayName = "Office Printer",
+                LastSeen = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeSeconds()
+            }
+        };
+
+        // Lenient mode (default): printers allowed on IoT
+        var allowanceSettings = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = true };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: allowanceSettings,
+            protectCameras: null);
+
+        // Should NOT flag printer on IoT when lenient mode enabled
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-PRINTER-VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflinePrinterOnPrinterVlan_NoIssue()
+    {
+        var deviceJson = CreateDeviceJsonWithPrinterVlan();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-printer", // Already on Printer VLAN
+                DisplayName = "Office Printer",
+                LastSeen = DateTimeOffset.UtcNow.AddDays(-3).ToUnixTimeSeconds()
+            }
+        };
+
+        var allowanceSettings = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = false };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: allowanceSettings,
+            protectCameras: null);
+
+        // Printer already on correct VLAN
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-PRINTER-VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_StaleOfflinePrinter_GetsInformationalSeverity()
+    {
+        var deviceJson = CreateDeviceJsonWithPrinterVlan();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-iot",
+                DisplayName = "Old Printer",
+                LastSeen = DateTimeOffset.UtcNow.AddDays(-30).ToUnixTimeSeconds() // Stale
+            }
+        };
+
+        var allowanceSettings = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = false };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: allowanceSettings,
+            protectCameras: null);
+
+        var issue = result.Issues.FirstOrDefault(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        issue.Should().NotBeNull();
+        issue!.Severity.Should().Be(AuditSeverity.Informational);
+        issue.ScoreImpact.Should().Be(0);
+    }
+
     #endregion
 
     #region Helper Methods

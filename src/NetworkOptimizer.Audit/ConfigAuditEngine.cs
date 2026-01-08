@@ -443,6 +443,11 @@ public class ConfigAuditEngine
 
         if (detection.Category.IsSurveillance())
             CheckOfflineCameraPlacement(ctx, historyClient, lastNetwork, detection, twoWeeksAgo);
+
+        // Printers and scanners have their own VLAN placement logic (not part of IsIoT)
+        if (detection.Category == Core.Enums.ClientDeviceCategory.Printer ||
+            detection.Category == Core.Enums.ClientDeviceCategory.Scanner)
+            CheckOfflinePrinterPlacement(ctx, historyClient, lastNetwork, detection, twoWeeksAgo);
     }
 
     private void CheckOfflineIoTPlacement(
@@ -493,6 +498,32 @@ public class ConfigAuditEngine
             placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : "Create Security VLAN",
             isRecent ? Models.AuditSeverity.Critical : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0));
+    }
+
+    private void CheckOfflinePrinterPlacement(
+        AuditContext ctx,
+        UniFiClientHistoryResponse historyClient,
+        NetworkInfo lastNetwork,
+        DeviceDetectionResult detection,
+        long twoWeeksAgo)
+    {
+        var placement = Rules.VlanPlacementChecker.CheckPrinterPlacement(
+            lastNetwork, ctx.Networks, 10, ctx.AllowanceSettings);
+
+        if (placement.IsCorrectlyPlaced)
+            return;
+
+        var isRecent = historyClient.LastSeen >= twoWeeksAgo;
+        var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
+
+        ctx.AllIssues.Add(CreateOfflineVlanIssue(
+            "OFFLINE-PRINTER-VLAN",
+            $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated",
+            displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
+            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : "Create Printer or IoT VLAN",
+            isRecent ? placement.Severity : Models.AuditSeverity.Informational,
+            isRecent ? placement.ScoreImpact : 0,
+            placement.IsLowRisk));
     }
 
     private static AuditIssue CreateOfflineVlanIssue(
