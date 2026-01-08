@@ -5,6 +5,9 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
           crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
 </HeadContent>
 
 @if (HasLocationData)
@@ -42,7 +45,6 @@
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private bool mapInitialized = false;
-    private IJSObjectReference? mapModule;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = true;
 
@@ -101,13 +103,15 @@
     {
         if (firstRender && HasLocationData)
         {
+            // Small delay to ensure DOM is ready
+            await Task.Delay(100);
             await InitializeMap();
         }
     }
 
     protected override async Task OnParametersSetAsync()
     {
-        if (mapInitialized && mapModule != null)
+        if (mapInitialized)
         {
             await UpdateMarkers();
         }
@@ -117,139 +121,129 @@
     {
         try
         {
-            // Load the Leaflet library dynamically
-            await JS.InvokeVoidAsync("eval", @"
-                if (!window.leafletLoaded) {
-                    window.leafletLoaded = new Promise((resolve, reject) => {
-                        if (window.L) { resolve(); return; }
-                        const script = document.createElement('script');
-                        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                        script.crossOrigin = '';
-                        script.onload = () => { console.log('Leaflet loaded'); resolve(); };
-                        script.onerror = (e) => { console.error('Failed to load Leaflet', e); reject(e); };
-                        document.head.appendChild(script);
-                    });
-                }
-            ");
-            await JS.InvokeVoidAsync("eval", "await window.leafletLoaded");
-            Console.WriteLine("Leaflet library loaded");
-
-            // Initialize map module
-            mapModule = await JS.InvokeAsync<IJSObjectReference>("eval", $@"
+            // Initialize the map using inline JS
+            await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
-                    console.log('Initializing map for container: {mapId}');
-                    const mapContainer = document.getElementById('{mapId}');
-                    if (!mapContainer) {{
-                        console.error('Map container not found: {mapId}');
-                        return null;
-                    }}
-                    if (mapContainer._leafletMap) {{
-                        console.log('Map already initialized');
-                        return null;
+                    console.log('Initializing map: {mapId}');
+                    if (typeof L === 'undefined') {{
+                        console.error('Leaflet not loaded');
+                        return;
                     }}
 
-                    console.log('Creating Leaflet map...');
-                    const map = L.map('{mapId}').setView([36.17, -92.68], 13);
-                    mapContainer._leafletMap = map;
+                    const container = document.getElementById('{mapId}');
+                    if (!container) {{
+                        console.error('Container not found: {mapId}');
+                        return;
+                    }}
+
+                    // Store maps globally
+                    window._speedTestMaps = window._speedTestMaps || {{}};
+
+                    if (window._speedTestMaps['{mapId}']) {{
+                        console.log('Map already exists');
+                        return;
+                    }}
+
+                    const map = L.map('{mapId}').setView([36.17, -92.68], 10);
 
                     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                         maxZoom: 19,
-                        attribution: '© <a href=""https://www.openstreetmap.org/copyright"">OpenStreetMap</a>'
+                        attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
-                    map._markers = [];
-                    console.log('Map created successfully');
-
-                    return {{
-                        addMarker: function(lat, lng, color, popup, isExternal) {{
-                            const marker = L.circleMarker([lat, lng], {{
-                                radius: 8,
-                                fillColor: color,
-                                color: isExternal ? '#888' : '#fff',
-                                weight: 2,
-                                opacity: 1,
-                                fillOpacity: 0.8
-                            }}).addTo(map);
-                            if (popup) marker.bindPopup(popup);
-                            map._markers.push(marker);
-                            return marker;
-                        }},
-                        clearMarkers: function() {{
-                            map._markers.forEach(m => map.removeLayer(m));
-                            map._markers = [];
-                        }},
-                        fitBounds: function(bounds) {{
-                            if (bounds && bounds.length > 0) {{
-                                if (bounds.length === 1) {{
-                                    map.setView(bounds[0], 14);
-                                }} else {{
-                                    map.fitBounds(bounds, {{ padding: [30, 30], maxZoom: 15 }});
-                                }}
-                            }}
-                        }},
-                        invalidateSize: function() {{
-                            setTimeout(() => map.invalidateSize(), 100);
-                        }}
+                    window._speedTestMaps['{mapId}'] = {{
+                        map: map,
+                        markers: []
                     }};
-                }})()
+
+                    console.log('Map initialized successfully');
+                }})();
             ");
 
-            if (mapModule != null)
-            {
-                mapInitialized = true;
-                await UpdateMarkers();
-            }
+            mapInitialized = true;
+            await UpdateMarkers();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Map initialization error: {ex.Message}");
+            Console.WriteLine($"Map init error: {ex.Message}");
         }
     }
 
     private async Task UpdateMarkers()
     {
-        if (mapModule == null) return;
+        if (!mapInitialized) return;
 
         try
         {
-            await mapModule.InvokeVoidAsync("clearMarkers");
-
-            var bounds = new List<double[]>();
-            var externalSet = ExternalResults.ToHashSet();
-
-            foreach (var result in FilteredResults)
+            var markers = FilteredResults.Select(r => new
             {
-                var lat = result.Latitude!.Value;
-                var lng = result.Longitude!.Value;
-                var color = GetSpeedColor(result.DownloadMbps);
-                var isExternal = externalSet.Contains(result);
-                var popup = BuildPopup(result, isExternal);
+                lat = r.Latitude!.Value,
+                lng = r.Longitude!.Value,
+                color = GetSpeedColor(r.DownloadMbps),
+                isExternal = r.PathAnalysis?.Path?.IsValid != true,
+                popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true)
+            }).ToArray();
 
-                await mapModule.InvokeVoidAsync("addMarker", lat, lng, color, popup, isExternal);
-                bounds.Add(new[] { lat, lng });
-            }
+            var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
 
-            if (bounds.Count > 0)
-            {
-                await mapModule.InvokeVoidAsync("fitBounds", bounds);
-            }
+            await JS.InvokeVoidAsync("eval", $@"
+                (function() {{
+                    const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
+                    if (!mapData) {{
+                        console.error('Map not found: {mapId}');
+                        return;
+                    }}
 
-            await mapModule.InvokeVoidAsync("invalidateSize");
+                    const map = mapData.map;
+
+                    // Clear existing markers
+                    mapData.markers.forEach(m => map.removeLayer(m));
+                    mapData.markers = [];
+
+                    const markers = {markersJson};
+                    const bounds = [];
+
+                    markers.forEach(m => {{
+                        const marker = L.circleMarker([m.lat, m.lng], {{
+                            radius: 8,
+                            fillColor: m.color,
+                            color: m.isExternal ? '#888' : '#fff',
+                            weight: 2,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        }}).addTo(map);
+
+                        marker.bindPopup(m.popup);
+                        mapData.markers.push(marker);
+                        bounds.push([m.lat, m.lng]);
+                    }});
+
+                    if (bounds.length > 0) {{
+                        if (bounds.length === 1) {{
+                            map.setView(bounds[0], 14);
+                        }} else {{
+                            map.fitBounds(bounds, {{ padding: [30, 30], maxZoom: 15 }});
+                        }}
+                    }}
+
+                    setTimeout(() => map.invalidateSize(), 100);
+                    console.log('Added ' + markers.length + ' markers');
+                }})();
+            ");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Map update error: {ex.Message}");
+            Console.WriteLine($"Marker update error: {ex.Message}");
         }
     }
 
     private string GetSpeedColor(double mbps)
     {
-        // Red (<50) -> Yellow (50-200) -> Green (>200)
-        if (mbps < 50) return "#ef4444";      // Red
-        if (mbps < 100) return "#f97316";     // Orange
-        if (mbps < 200) return "#eab308";     // Yellow
-        if (mbps < 500) return "#84cc16";     // Lime
-        return "#22c55e";                      // Green
+        if (mbps < 50) return "#ef4444";
+        if (mbps < 100) return "#f97316";
+        if (mbps < 200) return "#eab308";
+        if (mbps < 500) return "#84cc16";
+        return "#22c55e";
     }
 
     private string BuildPopup(Iperf3Result result, bool isExternal)
@@ -257,31 +251,19 @@
         var deviceName = result.DeviceName ?? result.DeviceHost;
         var signal = result.WifiSignalDbm.HasValue ? $"{result.WifiSignalDbm} dBm" : "N/A";
         var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
-        var locationBadge = isExternal
-            ? "<span style='background:#475569;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>External</span>"
-            : "<span style='background:#22c55e;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>LAN</span>";
+        var badge = isExternal ? "External" : "LAN";
+        var badgeColor = isExternal ? "#475569" : "#22c55e";
 
-        return $@"
-            <div style='font-size: 13px; line-height: 1.5;'>
-                <div style='margin-bottom:4px;'>{locationBadge}</div>
-                <strong>{System.Web.HttpUtility.HtmlEncode(deviceName)}</strong><br/>
-                <span style='color: #22c55e;'>↓ {result.DownloadMbps:F0} Mbps</span> /
-                <span style='color: #3b82f6;'>↑ {result.UploadMbps:F0} Mbps</span><br/>
-                Signal: {signal}<br/>
-                <span style='color: #888;'>{time}</span>
-            </div>";
-    }
+        // Escape for JS string
+        deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
 
-    public async ValueTask DisposeAsync()
-    {
-        if (mapModule != null)
-        {
-            try
-            {
-                await mapModule.DisposeAsync();
-            }
-            catch { }
-        }
+        return $"<div style='font-size:13px;line-height:1.5;'>" +
+               $"<span style='background:{badgeColor};color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>{badge}</span><br/>" +
+               $"<strong>{deviceName}</strong><br/>" +
+               $"<span style='color:#22c55e;'>↓ {result.DownloadMbps:F0}</span> / " +
+               $"<span style='color:#3b82f6;'>↑ {result.UploadMbps:F0}</span> Mbps<br/>" +
+               $"Signal: {signal}<br/>" +
+               $"<span style='color:#888;'>{time}</span></div>";
     }
 }
 
@@ -336,7 +318,7 @@
         border: 2px solid #fff;
     }
 
-    /* Fix Leaflet popup styling for dark theme */
+    /* Dark theme for Leaflet */
     .leaflet-popup-content-wrapper {
         background: #1e293b;
         color: #f1f5f9;
