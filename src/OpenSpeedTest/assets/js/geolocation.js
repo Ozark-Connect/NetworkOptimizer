@@ -12,7 +12,6 @@ var geoLocation = {
 
 /**
  * Start watching location with high accuracy
- * Updates continuously so we always have the freshest position
  */
 function startLocationWatch() {
     if (!navigator.geolocation) {
@@ -25,7 +24,6 @@ function startLocationWatch() {
             geoLocation.latitude = position.coords.latitude;
             geoLocation.longitude = position.coords.longitude;
             geoLocation.accuracy = position.coords.accuracy;
-            // Now start watching with high accuracy
             startHighAccuracyWatch();
         },
         function(error) {},
@@ -39,7 +37,6 @@ function startLocationWatch() {
 
 /**
  * Start high-accuracy location watch
- * This runs continuously to keep location fresh
  */
 function startHighAccuracyWatch() {
     if (geoLocation.watchId !== null) {
@@ -62,32 +59,39 @@ function startHighAccuracyWatch() {
 }
 
 /**
- * Get location parameters to append to save URL
- * Returns empty string if location not available
+ * Get location as form-encoded string to append to POST body
  */
-function getLocationParams() {
+function getLocationFormData() {
     if (geoLocation.latitude === null || geoLocation.longitude === null) {
         return "";
     }
-    return "lat=" + geoLocation.latitude.toFixed(6) +
+    return "&lat=" + geoLocation.latitude.toFixed(6) +
            "&lng=" + geoLocation.longitude.toFixed(6) +
            "&acc=" + Math.round(geoLocation.accuracy);
 }
 
 /**
- * Intercept XMLHttpRequest to append location params to speed test results
+ * Intercept XMLHttpRequest to append location to POST body
  */
 (function() {
     var originalOpen = XMLHttpRequest.prototype.open;
+    var originalSend = XMLHttpRequest.prototype.send;
 
     XMLHttpRequest.prototype.open = function(method, url) {
-        if (typeof url === 'string' && url.indexOf('/api/public/speedtest/results') !== -1) {
-            var locationParams = getLocationParams();
-            if (locationParams) {
-                url = url + locationParams;
+        this._isSpeedTestResult = (typeof url === 'string' &&
+            url.indexOf('/api/public/speedtest/results') !== -1);
+        return originalOpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function(body) {
+        if (this._isSpeedTestResult && body) {
+            var locationData = getLocationFormData();
+            if (locationData) {
+                // Append location to POST body
+                body = body + locationData;
             }
         }
-        return originalOpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
+        return originalSend.call(this, body);
     };
 })();
 

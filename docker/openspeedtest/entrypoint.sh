@@ -6,11 +6,11 @@
 # Priority: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
 if [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
     # Behind reverse proxy - use https and no port (proxy handles it)
-    SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}/api/public/speedtest/results?"
+    SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}/api/public/speedtest/results"
 elif [ -n "$HOST_NAME" ]; then
-    SAVE_DATA_URL="http://${HOST_NAME}:8042/api/public/speedtest/results?"
+    SAVE_DATA_URL="http://${HOST_NAME}:8042/api/public/speedtest/results"
 elif [ -n "$HOST_IP" ]; then
-    SAVE_DATA_URL="http://${HOST_IP}:8042/api/public/speedtest/results?"
+    SAVE_DATA_URL="http://${HOST_IP}:8042/api/public/speedtest/results"
 else
     echo "Warning: No host configured for result reporting"
     echo "Set HOST_IP, HOST_NAME, or REVERSE_PROXIED_HOST_NAME in .env"
