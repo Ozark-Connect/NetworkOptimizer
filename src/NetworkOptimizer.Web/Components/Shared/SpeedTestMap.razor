@@ -35,7 +35,12 @@
                         title="Filter out low GPS accuracy results (>15m)">
                     ≤15m
                 </button>
-                <button class="btn btn-sm btn-secondary map-refresh-btn"
+                <button class="btn btn-sm btn-secondary map-action-btn"
+                        @onclick="FitToMarkers"
+                        title="Fit map to all markers">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+                </button>
+                <button class="btn btn-sm btn-secondary map-action-btn"
                         @onclick="RefreshMap"
                         title="Refresh results">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
@@ -143,6 +148,14 @@
         }
     }
 
+    private async Task FitToMarkers()
+    {
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: true);
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && HasLocationData)
@@ -199,7 +212,7 @@
 
                     // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
-                        maxClusterRadius: 19,
+                        maxClusterRadius: 24,
                         spiderfyOnMaxZoom: true,
                         showCoverageOnHover: false,
                         zoomToBoundsOnClick: true,
@@ -405,12 +418,12 @@
         gap: 0.5rem;
     }
 
-    .map-refresh-btn {
+    .map-action-btn {
         margin-left: 0.5rem;
         padding: 0.25rem 0.5rem;
     }
 
-    .map-refresh-btn svg {
+    .map-action-btn svg {
         display: block;
     }
 
