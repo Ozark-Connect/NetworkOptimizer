@@ -274,35 +274,18 @@
                     clusterGroup.on('unspiderfied', function(e) {{
                         map.getPane('overlayPane').style.zIndex = '';
                     }});
-                    // Override unspiderfy to add fade-out animation for dots and legs
-                    var originalUnspiderfy = clusterGroup.unspiderfy;
-                    clusterGroup.unspiderfy = function() {{
-                        console.log('unspiderfy called, _spiderfied:', this._spiderfied);
-                        var cluster = this._spiderfied;
-                        if (cluster) {{
-                            var markers = cluster.getAllChildMarkers();
-                            console.log('markers:', markers.length, markers[0]);
-                            markers.forEach(m => {{
-                                console.log('marker _path:', m._path, '_spiderLeg:', m._spiderLeg);
-                                // Fade out the dot (CircleMarker SVG path)
-                                if (m._path) {{
-                                    m._path.style.transition = 'opacity 0.3s ease-out';
-                                    m._path.style.opacity = '0';
-                                }}
-                                // Fade out the spider leg (Polyline SVG path)
-                                if (m._spiderLeg && m._spiderLeg._path) {{
-                                    m._spiderLeg._path.style.transition = 'opacity 0.3s ease-out';
-                                    m._spiderLeg._path.style.opacity = '0';
-                                }}
+
+                    // Fade out spider on map click (before unspiderfy happens)
+                    map.on('click', function() {{
+                        if (clusterGroup._spiderfied) {{
+                            var markers = clusterGroup._spiderfied.getAllChildMarkers();
+                            // Fade out all spider elements
+                            document.querySelectorAll('.leaflet-overlay-pane svg path').forEach(p => {{
+                                p.style.transition = 'opacity 0.3s ease-out';
+                                p.style.opacity = '0';
                             }});
-                            var self = this;
-                            setTimeout(function() {{
-                                originalUnspiderfy.call(self);
-                            }}, 300);
-                        }} else {{
-                            originalUnspiderfy.call(this);
                         }}
-                    }};
+                    }});
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
