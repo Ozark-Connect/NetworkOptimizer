@@ -277,10 +277,11 @@
 
                     // Fade out spider on map click (before unspiderfy happens)
                     map.on('click', function() {{
+                        console.log('map click, _spiderfied:', clusterGroup._spiderfied);
                         if (clusterGroup._spiderfied) {{
-                            var markers = clusterGroup._spiderfied.getAllChildMarkers();
-                            // Fade out all spider elements
-                            document.querySelectorAll('.leaflet-overlay-pane svg path').forEach(p => {{
+                            var paths = document.querySelectorAll('.leaflet-overlay-pane svg path');
+                            console.log('fading paths:', paths.length);
+                            paths.forEach(p => {{
                                 p.style.transition = 'opacity 0.3s ease-out';
                                 p.style.opacity = '0';
                             }});
