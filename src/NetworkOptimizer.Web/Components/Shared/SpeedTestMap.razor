@@ -235,9 +235,6 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
-                    // Create a custom pane for spider markers with higher z-index than clusters
-                    map.createPane('spiderPane');
-                    map.getPane('spiderPane').style.zIndex = 650;
 
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
@@ -270,29 +267,12 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // When cluster spiderfies, move spider markers to higher z-index pane
-                    clusterGroup.on('spiderfied', function(e) {{
-                        // Move each spider marker's SVG to the spider pane
-                        e.markers.forEach(m => {{
-                            if (m._path && m._path.parentNode) {{
-                                var spiderSvg = map.getPane('spiderPane').querySelector('svg') ||
-                                    (function() {{
-                                        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                                        svg.setAttribute('class', 'leaflet-zoom-animated');
-                                        svg.style.cssText = 'position: absolute; pointer-events: none;';
-                                        map.getPane('spiderPane').appendChild(svg);
-                                        return svg;
-                                    }})();
-                                // Clone viewBox from original SVG
-                                var origSvg = m._path.ownerSVGElement;
-                                if (origSvg) {{
-                                    spiderSvg.setAttribute('viewBox', origSvg.getAttribute('viewBox') || '');
-                                    spiderSvg.style.width = origSvg.style.width;
-                                    spiderSvg.style.height = origSvg.style.height;
-                                    spiderSvg.style.transform = origSvg.style.transform;
-                                }}
-                            }}
-                        }});
+                    // When spider is active, raise overlay pane above marker pane
+                    clusterGroup.on('spiderfied', function() {{
+                        map.getPane('overlayPane').style.zIndex = 650;
+                    }});
+                    clusterGroup.on('unspiderfied', function() {{
+                        map.getPane('overlayPane').style.zIndex = '';
                     }});
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
