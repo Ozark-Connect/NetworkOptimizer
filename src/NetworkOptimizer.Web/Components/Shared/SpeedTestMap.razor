@@ -128,39 +128,20 @@
             // Initialize the map using inline JS
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
-                    console.log('Initializing map: {mapId}');
-                    if (typeof L === 'undefined') {{
-                        console.error('Leaflet not loaded');
-                        return;
-                    }}
-
+                    if (typeof L === 'undefined') return;
                     const container = document.getElementById('{mapId}');
-                    if (!container) {{
-                        console.error('Container not found: {mapId}');
-                        return;
-                    }}
+                    if (!container) return;
 
-                    // Store maps globally
                     window._speedTestMaps = window._speedTestMaps || {{}};
-
-                    if (window._speedTestMaps['{mapId}']) {{
-                        console.log('Map already exists');
-                        return;
-                    }}
+                    if (window._speedTestMaps['{mapId}']) return;
 
                     const map = L.map('{mapId}').setView([36.17, -92.68], 10);
-
                     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
                         maxZoom: 19,
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
-                    window._speedTestMaps['{mapId}'] = {{
-                        map: map,
-                        markers: []
-                    }};
-
-                    console.log('Map initialized successfully');
+                    window._speedTestMaps['{mapId}'] = {{ map: map, markers: [] }};
                 }})();
             ");
 
@@ -195,10 +176,7 @@
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
                     const mapData = window._speedTestMaps && window._speedTestMaps['{mapId}'];
-                    if (!mapData) {{
-                        console.error('Map not found: {mapId}');
-                        return;
-                    }}
+                    if (!mapData) return;
 
                     const map = mapData.map;
 
@@ -226,14 +204,13 @@
 
                     if ({shouldFitBounds} && bounds.length > 0) {{
                         if (bounds.length === 1) {{
-                            map.setView(bounds[0], 14);
+                            map.setView(bounds[0], 18);
                         }} else {{
-                            map.fitBounds(bounds, {{ padding: [30, 30], maxZoom: 15 }});
+                            map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 19 }});
                         }}
                     }}
 
                     setTimeout(() => map.invalidateSize(), 100);
-                    console.log('Added ' + markers.length + ' markers');
                 }})();
             ");
         }
