@@ -169,9 +169,16 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        // Only update markers if results actually changed (new tests added)
         var currentCount = Results.Count();
-        if (mapInitialized && currentCount != lastResultCount)
+
+        // If map not initialized but we now have location data, initialize it
+        if (!mapInitialized && HasLocationData)
+        {
+            await Task.Delay(100); // Ensure DOM is ready
+            await InitializeMap();
+        }
+        // Only update markers if results actually changed (new tests added)
+        else if (mapInitialized && currentCount != lastResultCount)
         {
             lastResultCount = currentCount;
             await UpdateMarkers(fitBounds: false);
