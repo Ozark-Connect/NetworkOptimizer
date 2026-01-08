@@ -267,11 +267,12 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // Raise overlay pane z-index on cluster click (before spider animation)
-                    // Also fade out existing spider if one is open
+                    // Track current spider state
+                    var currentSpider = null;
+
+                    // Fade out existing spider on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
                         if (currentSpider) {{
-                            // Fade out current spider (whether clicking same or different cluster)
                             var markers = currentSpider.getAllChildMarkers();
                             markers.forEach(m => {{
                                 if (m._path) {{
@@ -284,16 +285,23 @@
                                 }}
                             }});
                         }}
-                        map.getPane('overlayPane').style.zIndex = 650;
-                    }});
-                    clusterGroup.on('unspiderfied', function(e) {{
-                        map.getPane('overlayPane').style.zIndex = '';
                     }});
 
-                    // Track current spider state and fade on close
-                    var currentSpider = null;
+                    // Set z-index when spider opens (after any unspiderfied has fired)
                     clusterGroup.on('spiderfied', function(e) {{
                         currentSpider = e.cluster;
+                        map.getPane('overlayPane').style.zIndex = 650;
+                    }});
+
+                    // Reset z-index when spider closes
+                    clusterGroup.on('unspiderfied', function(e) {{
+                        currentSpider = null;
+                        // Delay reset to allow new spiderfied event to fire first when switching
+                        setTimeout(function() {{
+                            if (!currentSpider) {{
+                                map.getPane('overlayPane').style.zIndex = '';
+                            }}
+                        }}, 50);
                     }});
 
                     // Use mousedown on container to catch click before markercluster handles it
@@ -321,10 +329,6 @@
                             }});
                         }}
                     }}, true);
-
-                    clusterGroup.on('unspiderfied', function() {{
-                        currentSpider = null;
-                    }});
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
