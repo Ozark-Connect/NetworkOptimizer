@@ -26,7 +26,10 @@ function startLocationWatch() {
             geoLocation.accuracy = position.coords.accuracy;
             startHighAccuracyWatch();
         },
-        function(error) {},
+        function(error) {
+            // Still try to start watch even if initial request fails
+            startHighAccuracyWatch();
+        },
         {
             enableHighAccuracy: false,
             timeout: 5000,
