@@ -6,9 +6,12 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
           crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" crossorigin=""></script>
 </HeadContent>
 
 @if (HasLocationData)
@@ -142,7 +145,16 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
-                    window._speedTestMaps['{mapId}'] = {{ map: map, markers: [] }};
+                    // Create marker cluster group
+                    const clusterGroup = L.markerClusterGroup({{
+                        maxClusterRadius: 40,
+                        spiderfyOnMaxZoom: true,
+                        showCoverageOnHover: false,
+                        zoomToBoundsOnClick: true
+                    }});
+                    map.addLayer(clusterGroup);
+
+                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
             ");
 
@@ -180,10 +192,10 @@
                     if (!mapData) return;
 
                     const map = mapData.map;
+                    const clusterGroup = mapData.clusterGroup;
 
                     // Clear existing markers
-                    mapData.markers.forEach(m => map.removeLayer(m));
-                    mapData.markers = [];
+                    clusterGroup.clearLayers();
 
                     const markers = {markersJson};
                     const bounds = [];
@@ -196,10 +208,10 @@
                             weight: 2,
                             opacity: 1,
                             fillOpacity: 0.8
-                        }}).addTo(map);
+                        }});
 
                         marker.bindPopup(m.popup);
-                        mapData.markers.push(marker);
+                        clusterGroup.addLayer(marker);
                         bounds.push([m.lat, m.lng]);
                     }});
 
@@ -331,5 +343,41 @@
 
     .leaflet-container a.leaflet-popup-close-button:hover {
         color: #f1f5f9;
+    }
+
+    /* Dark theme for marker clusters */
+    .marker-cluster-small {
+        background-color: rgba(59, 130, 246, 0.6);
+    }
+    .marker-cluster-small div {
+        background-color: rgba(59, 130, 246, 0.9);
+    }
+    .marker-cluster-medium {
+        background-color: rgba(234, 179, 8, 0.6);
+    }
+    .marker-cluster-medium div {
+        background-color: rgba(234, 179, 8, 0.9);
+    }
+    .marker-cluster-large {
+        background-color: rgba(239, 68, 68, 0.6);
+    }
+    .marker-cluster-large div {
+        background-color: rgba(239, 68, 68, 0.9);
+    }
+    .marker-cluster {
+        background-clip: padding-box;
+        border-radius: 20px;
+    }
+    .marker-cluster div {
+        width: 30px;
+        height: 30px;
+        margin-left: 5px;
+        margin-top: 5px;
+        text-align: center;
+        border-radius: 15px;
+        font: 12px "Helvetica Neue", Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        color: #fff;
+        line-height: 30px;
     }
 </style>
