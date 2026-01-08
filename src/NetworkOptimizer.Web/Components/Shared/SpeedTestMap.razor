@@ -639,4 +639,20 @@
         line-height: 30px;
     }
 
+    /* Animate spider CircleMarker dots on appear */
+    .leaflet-overlay-pane svg path.leaflet-interactive {
+        animation: fadeInScale 0.3s ease-out;
+    }
+
+    @@keyframes fadeInScale {
+        from {
+            opacity: 0;
+            transform: scale(0.3);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
 </style>
