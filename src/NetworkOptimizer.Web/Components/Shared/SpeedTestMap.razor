@@ -306,6 +306,7 @@
 
                     // Use mousedown on container to catch click before markercluster handles it
                     map.getContainer().addEventListener('mousedown', function(e) {{
+                        console.log('mousedown target:', e.target, 'currentSpider:', !!currentSpider);
                         if (currentSpider) {{
                             var markers = currentSpider.getAllChildMarkers();
                             // Check if click is on a spider element - if so, don't fade
@@ -313,15 +314,16 @@
                                 e.target === m._path ||
                                 (m._spiderLeg && e.target === m._spiderLeg._path)
                             );
+                            console.log('clickedOnSpider:', clickedOnSpider);
                             if (clickedOnSpider) return;
 
+                            console.log('fading spider');
+                            // Fade out spider (whether clicking elsewhere, on cluster to collapse, or different cluster)
                             markers.forEach(m => {{
-                                // Fade the dot
                                 if (m._path) {{
                                     m._path.style.transition = 'opacity 0.2s ease-out';
                                     m._path.style.opacity = '0';
                                 }}
-                                // Fade the spider leg
                                 if (m._spiderLeg && m._spiderLeg._path) {{
                                     m._spiderLeg._path.style.transition = 'opacity 0.2s ease-out';
                                     m._spiderLeg._path.style.opacity = '0';
