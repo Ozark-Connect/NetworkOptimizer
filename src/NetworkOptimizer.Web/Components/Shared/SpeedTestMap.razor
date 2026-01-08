@@ -275,10 +275,17 @@
                         map.getPane('overlayPane').style.zIndex = '';
                     }});
 
-                    // Fade out spider on map click (before unspiderfy happens)
-                    map.on('click', function() {{
-                        console.log('map click, _spiderfied:', clusterGroup._spiderfied);
-                        if (clusterGroup._spiderfied) {{
+                    // Track current spider state and fade on close
+                    var currentSpider = null;
+                    clusterGroup.on('spiderfied', function(e) {{
+                        currentSpider = e.cluster;
+                        console.log('spiderfied, cluster:', currentSpider);
+                    }});
+
+                    // Use mousedown on container to catch click before markercluster handles it
+                    map.getContainer().addEventListener('mousedown', function(e) {{
+                        console.log('mousedown, currentSpider:', currentSpider);
+                        if (currentSpider) {{
                             var paths = document.querySelectorAll('.leaflet-overlay-pane svg path');
                             console.log('fading paths:', paths.length);
                             paths.forEach(p => {{
@@ -286,6 +293,10 @@
                                 p.style.opacity = '0';
                             }});
                         }}
+                    }}, true);
+
+                    clusterGroup.on('unspiderfied', function() {{
+                        currentSpider = null;
                     }});
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
