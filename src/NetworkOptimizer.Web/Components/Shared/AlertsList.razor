@@ -81,11 +81,8 @@
     protected override async Task OnInitializedAsync()
     {
         // Wait for connection with longer timeout on cold start
-        var connected = await ConnectionService.WaitForConnectionAsync(TimeSpan.FromSeconds(10));
-        if (connected)
+        if (await ConnectionService.WaitForConnectionAsync(TimeSpan.FromSeconds(10)))
         {
-            // Small delay to let audit service initialize after connection
-            await Task.Delay(200);
             await LoadAlerts();
         }
     }

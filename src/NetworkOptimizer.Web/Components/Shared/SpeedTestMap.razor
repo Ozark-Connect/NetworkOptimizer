@@ -235,6 +235,10 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
+                    // Create a custom pane for spider markers with higher z-index than clusters
+                    map.createPane('spiderPane');
+                    map.getPane('spiderPane').style.zIndex = 650;
+
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
                         if (speed < 50) return 'rgb(239,68,68)';
@@ -266,20 +270,28 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // When cluster spiderfies, ensure markers are visible above other clusters
+                    // When cluster spiderfies, move spider markers to higher z-index pane
                     clusterGroup.on('spiderfied', function(e) {{
-                        // Move spider markers to a higher pane
+                        // Move each spider marker's SVG to the spider pane
                         e.markers.forEach(m => {{
-                            if (m._path) m._path.style.zIndex = 10000;
-                        }});
-                        // Lower other cluster icons
-                        document.querySelectorAll('.marker-cluster').forEach(el => {{
-                            el.style.zIndex = 100;
-                        }});
-                    }});
-                    clusterGroup.on('unspiderfied', function() {{
-                        document.querySelectorAll('.marker-cluster').forEach(el => {{
-                            el.style.zIndex = '';
+                            if (m._path && m._path.parentNode) {{
+                                var spiderSvg = map.getPane('spiderPane').querySelector('svg') ||
+                                    (function() {{
+                                        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                                        svg.setAttribute('class', 'leaflet-zoom-animated');
+                                        svg.style.cssText = 'position: absolute; pointer-events: none;';
+                                        map.getPane('spiderPane').appendChild(svg);
+                                        return svg;
+                                    }})();
+                                // Clone viewBox from original SVG
+                                var origSvg = m._path.ownerSVGElement;
+                                if (origSvg) {{
+                                    spiderSvg.setAttribute('viewBox', origSvg.getAttribute('viewBox') || '');
+                                    spiderSvg.style.width = origSvg.style.width;
+                                    spiderSvg.style.height = origSvg.style.height;
+                                    spiderSvg.style.transform = origSvg.style.transform;
+                                }}
+                            }}
                         }});
                     }});
 
