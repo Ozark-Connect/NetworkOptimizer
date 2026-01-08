@@ -37,7 +37,7 @@
 }
 
 .Credits a {
-    color: var(--ozark-primary) !important;
+    color: #60A5FA !important;  /* Lighter blue for better contrast on dark footer */
     text-decoration: none !important;
 }
 
