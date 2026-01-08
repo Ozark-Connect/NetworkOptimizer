@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Monitoring.Models
 @inject CellularModemService ModemService
+@implements IDisposable
 
 <div class="cellular-stats-panel">
     @if (isLoading)
@@ -402,10 +403,30 @@
     private bool isLoading = true;
     private bool isRefreshing = false;
     private bool hasConfiguredModems = false;
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadStats();
+
+        // Start auto-refresh timer (every 30 seconds) to pick up cached stats from background polling
+        _refreshTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(() =>
+            {
+                if (!isRefreshing && !isLoading)
+                {
+                    // Just fetch cached stats - don't force a poll
+                    var newStats = ModemService.GetLastStats();
+                    if (newStats != null)
+                    {
+                        modemStats = newStats;
+                        StateHasChanged();
+                    }
+                }
+            }),
+            null,
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromSeconds(30));
     }
 
     private async Task LoadStats()
@@ -510,5 +531,10 @@
             CellularNetworkMode.Lte => "mode-lte",
             _ => "mode-unknown"
         };
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }
