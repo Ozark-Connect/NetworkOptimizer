@@ -731,12 +731,23 @@
 
     private async Task ScrollToResult(int resultId)
     {
+        // Find which page the result is on
+        var index = testHistory.FindIndex(r => r.Id == resultId);
+        if (index >= 0)
+        {
+            var targetPage = (index / historyPageSize) + 1;
+            if (historyPage != targetPage)
+            {
+                historyPage = targetPage;
+            }
+        }
+
         // Expand the result
         expandedHistoryId = resultId;
         StateHasChanged();
 
         // Give time for the DOM to update, then scroll
-        await Task.Delay(50);
+        await Task.Delay(100);
         await JS.InvokeVoidAsync("eval", $@"
             (function() {{
                 var el = document.getElementById('result-{resultId}');
