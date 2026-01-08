@@ -19,7 +19,8 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
     public override AuditIssue? Evaluate(WirelessClientInfo client, List<NetworkInfo> networks)
     {
         // Check if this is an IoT or Printer device category
-        var isPrinter = client.Detection.Category == ClientDeviceCategory.Printer;
+        var isPrinter = client.Detection.Category == ClientDeviceCategory.Printer ||
+            client.Detection.Category == ClientDeviceCategory.Scanner;
         if (!client.Detection.Category.IsIoT() && !isPrinter)
             return null;
 

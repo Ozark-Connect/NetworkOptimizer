@@ -56,8 +56,9 @@ public class IotVlanRule : AuditRuleBase
             return null;
         }
 
-        // Check if this is an IoT or Printer device category
-        var isPrinter = detection.Category == ClientDeviceCategory.Printer;
+        // Check if this is an IoT or Printer/Scanner device category
+        var isPrinter = detection.Category == ClientDeviceCategory.Printer ||
+            detection.Category == ClientDeviceCategory.Scanner;
         if (!detection.Category.IsIoT() && !isPrinter)
             return null;
 
