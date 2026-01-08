@@ -42,7 +42,17 @@
                         <h3>Browser Speed Test</h3>
                         <span class="badge badge-primary">Recommended</span>
                     </div>
-                    <p>Run a speed test directly from any web browser using <a href="https://openspeedtest.com" target="_blank">OpenSpeedTest™</a>. Works on all devices.</p>
+                    <p>
+                        Run a speed test directly from any web browser using <a href="https://openspeedtest.com" target="_blank">OpenSpeedTest™</a>. Works on all devices.
+                        @if (openSpeedTestUrl?.StartsWith("https://") == true)
+                        {
+                            <text> Location data is collected with each test (with your permission), and results can be seen in the Speed / Coverage Map below.</text>
+                        }
+                        else
+                        {
+                            <text> The browser test can also capture your device's location (with permission), which feeds into the Speed / Coverage Map. If you want location data from mobile devices, you'll need HTTPS - browsers require a secure connection for location access on mobile. This means reverse-proxying the speedtest server through something like Caddy or nginx.</text>
+                        }
+                    </p>
 
                     @if (openSpeedTestAvailable)
                     {
