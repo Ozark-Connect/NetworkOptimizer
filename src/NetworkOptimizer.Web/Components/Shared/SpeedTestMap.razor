@@ -20,7 +20,7 @@
 {
     <div class="card speed-test-map-card">
         <div class="card-header">
-            <h2 class="card-title">Test Locations</h2>
+            <h2 class="card-title">Speed / Coverage Map</h2>
             <div class="map-filters">
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
@@ -30,9 +30,14 @@
                         @onclick="() => ToggleFilter(false)">
                     External (@ExternalCount)
                 </button>
+                <button class="btn btn-sm @(HighAccuracyOnly ? "btn-primary" : "btn-secondary")"
+                        @onclick="ToggleAccuracyFilter"
+                        title="Filter out low GPS accuracy results (>15m)">
+                    ≤15m
+                </button>
                 <button class="btn btn-sm btn-secondary map-refresh-btn"
                         @onclick="RefreshMap"
-                        title="Fit map to markers">
+                        title="Refresh results">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
                 </button>
             </div>
@@ -65,11 +70,13 @@
     private bool mapInitialized = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
+    private bool HighAccuracyOnly { get; set; } = false;
     private int lastResultCount = 0;
 
     // All tests with valid location data
     private IEnumerable<Iperf3Result> LocationResults => Results
-        .Where(r => r.Latitude.HasValue && r.Longitude.HasValue);
+        .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
+        .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
 
     // LAN = has valid L2 path AND has Wi-Fi signal (excludes wired clients)
     private IEnumerable<Iperf3Result> LanResults => LocationResults
@@ -111,6 +118,16 @@
             else
                 ShowLan = true;
         }
+
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: true);
+        }
+    }
+
+    private async Task ToggleAccuracyFilter()
+    {
+        HighAccuracyOnly = !HighAccuracyOnly;
 
         if (mapInitialized)
         {
