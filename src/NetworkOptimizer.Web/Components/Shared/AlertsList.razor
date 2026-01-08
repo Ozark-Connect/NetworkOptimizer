@@ -80,8 +80,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Wait for connection service to initialize before loading alerts
-        await ConnectionService.EnsureInitializedAsync();
+        // Wait for connection to be established before loading alerts
+        await ConnectionService.WaitForConnectionAsync();
         await LoadAlerts();
     }
 
