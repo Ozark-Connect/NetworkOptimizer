@@ -275,14 +275,20 @@
                     clusterGroup.on('unspiderfied', function(e) {{
                         map.getPane('overlayPane').style.zIndex = '';
                     }});
-                    // Override unspiderfy to add fade-out animation
+                    // Override unspiderfy to add fade-out animation for dots and legs
                     var originalUnspiderfy = clusterGroup.unspiderfy;
                     clusterGroup.unspiderfy = function() {{
                         var markers = this._spiderfied ? this._spiderfied.getAllChildMarkers() : [];
                         markers.forEach(m => {{
+                            // Fade out the dot (CircleMarker path)
                             if (m._path) {{
                                 m._path.style.transition = 'opacity 0.3s ease-out';
                                 m._path.style.opacity = '0';
+                            }}
+                            // Fade out the spider leg
+                            if (m._spiderLeg) {{
+                                m._spiderLeg.style.transition = 'opacity 0.3s ease-out';
+                                m._spiderLeg.style.opacity = '0';
                             }}
                         }});
                         var self = this;
@@ -325,8 +331,8 @@
             {
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
-                speed = r.DownloadMbps,
-                color = GetSpeedColor(r.DownloadMbps),
+                speed = (r.DownloadMbps + r.UploadMbps) / 2,
+                color = GetSpeedColor((r.DownloadMbps + r.UploadMbps) / 2),
                 isExternal = r.PathAnalysis?.Path?.IsValid != true,
                 popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true)
             }).ToArray();
