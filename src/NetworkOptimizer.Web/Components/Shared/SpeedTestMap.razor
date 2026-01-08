@@ -235,6 +235,7 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
+
                     // Speed color function for clusters
                     function getSpeedColor(speed) {{
                         if (speed < 50) return 'rgb(239,68,68)';
@@ -266,10 +267,93 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // Bring spiderified markers to front when cluster expands
-                    clusterGroup.on('spiderfied', function(e) {{
-                        e.markers.forEach(m => m.bringToFront());
+                    // Track current spider state
+                    var currentSpider = null;
+                    var switchingSpider = false;
+
+                    // Fade out existing spider and set z-index on cluster click
+                    clusterGroup.on('clusterclick', function(e) {{
+                        if (currentSpider) {{
+                            switchingSpider = true;
+                            var markers = currentSpider.getAllChildMarkers();
+                            markers.forEach(m => {{
+                                if (m._path) {{
+                                    m._path.style.transition = 'opacity 0.2s ease-out';
+                                    m._path.style.opacity = '0';
+                                }}
+                                if (m._spiderLeg && m._spiderLeg._path) {{
+                                    m._spiderLeg._path.style.transition = 'opacity 0.2s ease-out';
+                                    m._spiderLeg._path.style.opacity = '0';
+                                }}
+                            }});
+                        }}
+                        // Set z-index BEFORE spider opens
+                        map.getPane('overlayPane').style.zIndex = 650;
                     }});
+
+                    clusterGroup.on('spiderfied', function(e) {{
+                        currentSpider = e.cluster;
+                        switchingSpider = false;
+                        // Disable clicks on the spiderfied cluster icon
+                        if (e.cluster._icon) {{
+                            e.cluster._icon.style.pointerEvents = 'none';
+                        }}
+                        // Disable clicks on spider legs
+                        var markers = e.cluster.getAllChildMarkers();
+                        markers.forEach(m => {{
+                            if (m._spiderLeg && m._spiderLeg._path) {{
+                                m._spiderLeg._path.style.pointerEvents = 'none';
+                            }}
+                        }});
+                    }});
+
+                    clusterGroup.on('unspiderfied', function(e) {{
+                        // Re-enable clicks on the cluster icon
+                        if (e.cluster && e.cluster._icon) {{
+                            e.cluster._icon.style.pointerEvents = '';
+                        }}
+                        // Re-enable clicks on spider legs
+                        var markers = e.cluster.getAllChildMarkers();
+                        markers.forEach(m => {{
+                            if (m._spiderLeg && m._spiderLeg._path) {{
+                                m._spiderLeg._path.style.pointerEvents = '';
+                            }}
+                        }});
+                        currentSpider = null;
+                        // Only reset z-index if not switching to a new spider
+                        if (!switchingSpider) {{
+                            map.getPane('overlayPane').style.zIndex = '';
+                        }}
+                    }});
+
+                    // Use mousedown on container to fade spider when clicking outside
+                    map.getContainer().addEventListener('mousedown', function(e) {{
+                        if (currentSpider) {{
+                            var markers = currentSpider.getAllChildMarkers();
+                            // Check if click is on a spider element - if so, don't fade
+                            var clickedOnSpider = markers.some(m =>
+                                e.target === m._path ||
+                                (m._spiderLeg && e.target === m._spiderLeg._path)
+                            );
+                            if (clickedOnSpider) return;
+
+                            // Check if click is on a popup - if so, don't fade
+                            var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
+                            if (clickedOnPopup) return;
+
+                            // Fade out spider when clicking outside
+                            markers.forEach(m => {{
+                                if (m._path) {{
+                                    m._path.style.transition = 'opacity 0.2s ease-out';
+                                    m._path.style.opacity = '0';
+                                }}
+                                if (m._spiderLeg && m._spiderLeg._path) {{
+                                    m._spiderLeg._path.style.transition = 'opacity 0.2s ease-out';
+                                    m._spiderLeg._path.style.opacity = '0';
+                                }}
+                            }});
+                        }}
+                    }}, true);
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
@@ -305,8 +389,8 @@
             {
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
-                speed = r.DownloadMbps,
-                color = GetSpeedColor(r.DownloadMbps),
+                speed = (r.DownloadMbps + r.UploadMbps) / 2,
+                color = GetSpeedColor((r.DownloadMbps + r.UploadMbps) / 2),
                 isExternal = r.PathAnalysis?.Path?.IsValid != true,
                 popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true)
             }).ToArray();
@@ -635,18 +719,15 @@
         line-height: 30px;
     }
 
-    /* Ensure spiderified markers render above clusters */
-    .leaflet-marker-icon:not(.marker-cluster):not(.speed-cluster-icon) {
-        z-index: 10000 !important;
+    /* Animate spider CircleMarker dots on appear */
+    .leaflet-overlay-pane svg path.leaflet-interactive {
+        animation: fadeIn 0.3s ease-out;
     }
 
-    /* Spider legs should render above everything */
-    .leaflet-overlay-pane svg g path {
-        z-index: 9999 !important;
+    @@keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
     }
 
-    /* Bump up cluster z-index but keep below spider markers */
-    .marker-cluster, .speed-cluster-icon {
-        z-index: 1000 !important;
-    }
+
 </style>
