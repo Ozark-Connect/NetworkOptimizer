@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using Microsoft.JSInterop
 @implements IDisposable
@@ -232,6 +233,11 @@
                     }});
                     map.addLayer(clusterGroup);
 
+                    // Bring spiderified markers to front when cluster expands
+                    clusterGroup.on('spiderfied', function(e) {{
+                        e.markers.forEach(m => m.bringToFront());
+                    }});
+
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
             ");
@@ -364,10 +370,20 @@
             html += $"<div class='wifi-tooltip-link'>AP: {apName}</div>";
         }
 
-        // Signal if available
-        if (result.WifiSignalDbm.HasValue)
+        // Band and signal if available
+        if (result.WifiSignalDbm.HasValue || !string.IsNullOrEmpty(result.WifiRadio))
         {
-            html += $"<div class='wifi-tooltip-link-signal'>{result.WifiSignalDbm} dBm</div>";
+            html += "<div class='wifi-tooltip-link-signal'>";
+            if (!string.IsNullOrEmpty(result.WifiRadio))
+            {
+                var radio = result.WifiRadio.ToLowerInvariant();
+                html += $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span> ";
+            }
+            if (result.WifiSignalDbm.HasValue)
+            {
+                html += $"{result.WifiSignalDbm} dBm";
+            }
+            html += "</div>";
         }
 
         // Time and view link
@@ -579,5 +595,20 @@
         font-weight: bold;
         color: #fff;
         line-height: 30px;
+    }
+
+    /* Ensure spiderified markers render above clusters */
+    .leaflet-marker-icon:not(.marker-cluster):not(.speed-cluster-icon) {
+        z-index: 10000 !important;
+    }
+
+    /* Spider legs should render above everything */
+    .leaflet-overlay-pane svg g path {
+        z-index: 9999 !important;
+    }
+
+    /* Bump up cluster z-index but keep below spider markers */
+    .marker-cluster, .speed-cluster-icon {
+        z-index: 1000 !important;
     }
 </style>
