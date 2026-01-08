@@ -298,6 +298,13 @@
                         if (e.cluster._icon) {{
                             e.cluster._icon.style.pointerEvents = 'none';
                         }}
+                        // Disable clicks on spider legs
+                        var markers = e.cluster.getAllChildMarkers();
+                        markers.forEach(m => {{
+                            if (m._spiderLeg && m._spiderLeg._path) {{
+                                m._spiderLeg._path.style.pointerEvents = 'none';
+                            }}
+                        }});
                     }});
 
                     clusterGroup.on('unspiderfied', function(e) {{
@@ -305,6 +312,13 @@
                         if (e.cluster && e.cluster._icon) {{
                             e.cluster._icon.style.pointerEvents = '';
                         }}
+                        // Re-enable clicks on spider legs
+                        var markers = e.cluster.getAllChildMarkers();
+                        markers.forEach(m => {{
+                            if (m._spiderLeg && m._spiderLeg._path) {{
+                                m._spiderLeg._path.style.pointerEvents = '';
+                            }}
+                        }});
                         currentSpider = null;
                         // Only reset z-index if not switching to a new spider
                         if (!switchingSpider) {{
