@@ -949,8 +949,8 @@ public class AuditService
             Audit.IssueTypes.IotNetworkNotIsolated => "IoT Network Not Isolated",
             Audit.IssueTypes.SecurityNetworkHasInternet => "Security Network Has Internet",
             Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
-            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" =>
-                message.StartsWith("Printer")
+            Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" or "OFFLINE-PRINTER-VLAN" =>
+                message.StartsWith("Printer") || message.StartsWith("Scanner")
                     ? (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN")
                     : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
             Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" =>

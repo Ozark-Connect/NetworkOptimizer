@@ -135,30 +135,24 @@ public static class VlanPlacementChecker
             .FirstOrDefault();
 
         // Determine if correctly placed based on available networks and settings:
-        // - Printer VLAN is always acceptable
-        // - If lenient (isAllowed=true): IoT or Security is also acceptable
-        // - If strict (isAllowed=false) AND Printer VLAN exists: must be on Printer VLAN
+        // - Printer VLAN is always the ideal placement
+        // - If Printer VLAN exists: always suggest it (Info if lenient, Recommended if strict)
+        // - If no Printer VLAN: IoT or Security is acceptable
         bool isCorrectlyPlaced;
         if (currentNetwork?.Purpose == NetworkPurpose.Printer)
         {
             // Always correct on Printer VLAN
             isCorrectlyPlaced = true;
         }
-        else if (isAllowed)
-        {
-            // Lenient mode: IoT or Security is acceptable
-            isCorrectlyPlaced = currentNetwork != null &&
-                (currentNetwork.Purpose == NetworkPurpose.IoT ||
-                 currentNetwork.Purpose == NetworkPurpose.Security);
-        }
         else if (printerNetwork != null)
         {
-            // Strict mode with Printer VLAN available: must be on Printer VLAN
+            // Printer VLAN exists but device not on it: always flag
+            // Severity controlled by isAllowed (Info vs Recommended)
             isCorrectlyPlaced = false;
         }
         else
         {
-            // Strict mode without Printer VLAN: IoT or Security is acceptable
+            // No Printer VLAN: IoT or Security is acceptable
             isCorrectlyPlaced = currentNetwork != null &&
                 (currentNetwork.Purpose == NetworkPurpose.IoT ||
                  currentNetwork.Purpose == NetworkPurpose.Security);

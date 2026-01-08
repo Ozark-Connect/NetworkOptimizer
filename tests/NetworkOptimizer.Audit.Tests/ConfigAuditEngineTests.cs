@@ -885,7 +885,7 @@ public class ConfigAuditEngineTests
     }
 
     [Fact]
-    public async Task RunAudit_OfflinePrinterOnIoTVlan_LenientMode_NoIssue()
+    public async Task RunAudit_OfflinePrinterOnIoTVlan_LenientMode_CreatesInformationalIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
         var clientHistory = new List<UniFiClientHistoryResponse>
@@ -901,7 +901,7 @@ public class ConfigAuditEngineTests
             }
         };
 
-        // Lenient mode (default): printers allowed on IoT
+        // Lenient mode: still suggest Printer VLAN but as Informational
         var allowanceSettings = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = true };
 
         var result = await _engine.RunAuditAsync(
@@ -914,8 +914,11 @@ public class ConfigAuditEngineTests
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
-        // Should NOT flag printer on IoT when lenient mode enabled
-        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        // Should flag printer with Informational severity suggesting Printer VLAN
+        result.Issues.Should().Contain(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        var issue = result.Issues.First(i => i.Type == "OFFLINE-PRINTER-VLAN");
+        issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.RecommendedNetwork.Should().Be("Printing");
     }
 
     [Fact]
