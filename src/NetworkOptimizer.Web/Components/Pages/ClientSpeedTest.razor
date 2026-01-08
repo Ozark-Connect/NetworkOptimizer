@@ -46,7 +46,7 @@
                         Run a speed test directly from any web browser using <a href="https://openspeedtest.com" target="_blank">OpenSpeedTest™</a>. Works on all devices.
                         @if (openSpeedTestUrl?.StartsWith("https://") == true)
                         {
-                            <text> Location data is collected with each test (with your permission), and results can be seen in the <a href="#coverage-map">Speed / Coverage Map</a> below.</text>
+                            <text> Location data is collected with each test (with your permission), and results can be seen in the <a href="javascript:void(0)" onclick="document.getElementById('coverage-map').scrollIntoView({behavior: 'smooth'})">Speed / Coverage Map</a> below.</text>
                         }
                     </p>
 
