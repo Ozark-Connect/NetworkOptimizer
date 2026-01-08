@@ -267,8 +267,8 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // When spider is active, raise overlay pane above marker pane
-                    clusterGroup.on('spiderfied', function() {{
+                    // Raise overlay pane z-index on cluster click (before spider animation)
+                    clusterGroup.on('clusterclick', function() {{
                         map.getPane('overlayPane').style.zIndex = 650;
                     }});
                     clusterGroup.on('unspiderfied', function() {{

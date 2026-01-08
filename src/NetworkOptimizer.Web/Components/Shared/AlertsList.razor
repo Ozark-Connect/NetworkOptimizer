@@ -83,8 +83,11 @@
         // Wait for connection with longer timeout on cold start
         if (await ConnectionService.WaitForConnectionAsync(TimeSpan.FromSeconds(10)))
         {
-            // Small delay to let audit service initialize after connection
-            await Task.Delay(200);
+            // Only delay if no audit data exists yet (cold start)
+            if (!AuditService.LastAuditTime.HasValue)
+            {
+                await Task.Delay(200);
+            }
             await LoadAlerts();
         }
     }
