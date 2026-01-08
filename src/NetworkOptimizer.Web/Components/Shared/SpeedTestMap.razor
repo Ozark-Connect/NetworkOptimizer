@@ -273,6 +273,12 @@
 
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
+                        // Prevent clicking the same cluster to collapse - only allow clicking outside
+                        if (currentSpider && e.layer === currentSpider) {{
+                            e.originalEvent.stopPropagation();
+                            e.originalEvent.preventDefault();
+                            return;
+                        }}
                         if (currentSpider) {{
                             switchingSpider = true;
                             var markers = currentSpider.getAllChildMarkers();
@@ -304,9 +310,8 @@
                         }}
                     }});
 
-                    // Use mousedown on container to catch click before markercluster handles it
+                    // Use mousedown on container to fade spider when clicking outside
                     map.getContainer().addEventListener('mousedown', function(e) {{
-                        console.log('mousedown target:', e.target, 'currentSpider:', !!currentSpider);
                         if (currentSpider) {{
                             var markers = currentSpider.getAllChildMarkers();
                             // Check if click is on a spider element - if so, don't fade
@@ -314,11 +319,9 @@
                                 e.target === m._path ||
                                 (m._spiderLeg && e.target === m._spiderLeg._path)
                             );
-                            console.log('clickedOnSpider:', clickedOnSpider);
                             if (clickedOnSpider) return;
 
-                            console.log('fading spider');
-                            // Fade out spider (whether clicking elsewhere, on cluster to collapse, or different cluster)
+                            // Fade out spider when clicking outside
                             markers.forEach(m => {{
                                 if (m._path) {{
                                     m._path.style.transition = 'opacity 0.2s ease-out';
