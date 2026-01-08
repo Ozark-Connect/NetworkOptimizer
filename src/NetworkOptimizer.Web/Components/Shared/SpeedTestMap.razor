@@ -273,12 +273,6 @@
 
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
-                        // Prevent clicking the same cluster to collapse - only allow clicking outside
-                        if (currentSpider && e.layer === currentSpider) {{
-                            e.originalEvent.stopPropagation();
-                            e.originalEvent.preventDefault();
-                            return;
-                        }}
                         if (currentSpider) {{
                             switchingSpider = true;
                             var markers = currentSpider.getAllChildMarkers();
@@ -300,9 +294,17 @@
                     clusterGroup.on('spiderfied', function(e) {{
                         currentSpider = e.cluster;
                         switchingSpider = false;
+                        // Disable clicks on the spiderfied cluster icon
+                        if (e.cluster._icon) {{
+                            e.cluster._icon.style.pointerEvents = 'none';
+                        }}
                     }});
 
                     clusterGroup.on('unspiderfied', function(e) {{
+                        // Re-enable clicks on the cluster icon
+                        if (e.cluster && e.cluster._icon) {{
+                            e.cluster._icon.style.pointerEvents = '';
+                        }}
                         currentSpider = null;
                         // Only reset z-index if not switching to a new spider
                         if (!switchingSpider) {{
