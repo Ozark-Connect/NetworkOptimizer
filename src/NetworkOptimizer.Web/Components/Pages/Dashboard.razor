@@ -252,7 +252,7 @@
                 <a href="/audit" class="card-action">View All</a>
             </div>
             <div class="card-body">
-                <AlertsList MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
+                <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
             </div>
         </div>
 
@@ -303,6 +303,7 @@
     private List<Services.DeviceInfo> devices = new();
     private List<Iperf3Result> _recentSpeedTests = new();
     private int _sqmPanelKey = 0;
+    private int _alertsListKey = 0;
     private AdminPasswordSource _passwordSource = AdminPasswordSource.None;
 
     protected override void OnInitialized()
@@ -343,6 +344,7 @@
         if (e.Location.EndsWith("/") || e.Location.EndsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
         {
             _sqmPanelKey++; // Force SqmStatusPanel to recreate
+            _alertsListKey++; // Force AlertsList to recreate
             await Task.WhenAll(
                 LoadDashboardData(),
                 LoadSpeedTestData()
