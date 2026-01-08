@@ -271,7 +271,6 @@
                     clusterGroup.on('clusterclick', function() {{
                         map.getPane('overlayPane').style.zIndex = 650;
                     }});
-                    // Fade out dots when unspiderfying, then restore z-index
                     clusterGroup.on('unspiderfied', function(e) {{
                         map.getPane('overlayPane').style.zIndex = '';
                     }});
@@ -280,15 +279,15 @@
                     clusterGroup.unspiderfy = function() {{
                         var markers = this._spiderfied ? this._spiderfied.getAllChildMarkers() : [];
                         markers.forEach(m => {{
-                            // Fade out the dot (CircleMarker path)
+                            // Fade out the dot (CircleMarker SVG path)
                             if (m._path) {{
                                 m._path.style.transition = 'opacity 0.3s ease-out';
                                 m._path.style.opacity = '0';
                             }}
-                            // Fade out the spider leg
-                            if (m._spiderLeg) {{
-                                m._spiderLeg.style.transition = 'opacity 0.3s ease-out';
-                                m._spiderLeg.style.opacity = '0';
+                            // Fade out the spider leg (Polyline SVG path)
+                            if (m._spiderLeg && m._spiderLeg._path) {{
+                                m._spiderLeg._path.style.transition = 'opacity 0.3s ease-out';
+                                m._spiderLeg._path.style.opacity = '0';
                             }}
                         }});
                         var self = this;
