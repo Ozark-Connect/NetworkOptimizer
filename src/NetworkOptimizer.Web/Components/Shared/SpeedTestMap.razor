@@ -266,9 +266,21 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // Bring spiderified markers to front when cluster expands
+                    // When cluster spiderfies, ensure markers are visible above other clusters
                     clusterGroup.on('spiderfied', function(e) {{
-                        e.markers.forEach(m => m.bringToFront());
+                        // Move spider markers to a higher pane
+                        e.markers.forEach(m => {{
+                            if (m._path) m._path.style.zIndex = 10000;
+                        }});
+                        // Lower other cluster icons
+                        document.querySelectorAll('.marker-cluster').forEach(el => {{
+                            el.style.zIndex = 100;
+                        }});
+                    }});
+                    clusterGroup.on('unspiderfied', function() {{
+                        document.querySelectorAll('.marker-cluster').forEach(el => {{
+                            el.style.zIndex = '';
+                        }});
                     }});
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
@@ -635,18 +647,4 @@
         line-height: 30px;
     }
 
-    /* Ensure spiderified markers render above clusters */
-    .leaflet-marker-icon:not(.marker-cluster):not(.speed-cluster-icon) {
-        z-index: 10000 !important;
-    }
-
-    /* Spider legs should render above everything */
-    .leaflet-overlay-pane svg g path {
-        z-index: 9999 !important;
-    }
-
-    /* Bump up cluster z-index but keep below spider markers */
-    .marker-cluster, .speed-cluster-icon {
-        z-index: 1000 !important;
-    }
 </style>

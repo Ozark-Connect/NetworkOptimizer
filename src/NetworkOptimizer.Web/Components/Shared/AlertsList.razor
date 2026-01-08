@@ -80,9 +80,14 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Wait for connection to be established before loading alerts
-        await ConnectionService.WaitForConnectionAsync();
-        await LoadAlerts();
+        // Wait for connection with longer timeout on cold start
+        var connected = await ConnectionService.WaitForConnectionAsync(TimeSpan.FromSeconds(10));
+        if (connected)
+        {
+            // Small delay to let audit service initialize after connection
+            await Task.Delay(200);
+            await LoadAlerts();
+        }
     }
 
     private async Task LoadAlerts()
