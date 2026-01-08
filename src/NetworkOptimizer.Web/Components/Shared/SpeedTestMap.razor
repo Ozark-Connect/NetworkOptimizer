@@ -45,6 +45,7 @@
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private bool mapInitialized = false;
+    private bool initialBoundsSet = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = true;
 
@@ -95,7 +96,7 @@
 
         if (mapInitialized)
         {
-            await UpdateMarkers();
+            await UpdateMarkers(fitBounds: false);
         }
     }
 
@@ -113,7 +114,7 @@
     {
         if (mapInitialized)
         {
-            await UpdateMarkers();
+            await UpdateMarkers(fitBounds: false);
         }
     }
 
@@ -161,7 +162,8 @@
             ");
 
             mapInitialized = true;
-            await UpdateMarkers();
+            await UpdateMarkers(fitBounds: true);
+            initialBoundsSet = true;
         }
         catch (Exception ex)
         {
@@ -169,7 +171,7 @@
         }
     }
 
-    private async Task UpdateMarkers()
+    private async Task UpdateMarkers(bool fitBounds)
     {
         if (!mapInitialized) return;
 
@@ -185,6 +187,7 @@
             }).ToArray();
 
             var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
+            var shouldFitBounds = fitBounds ? "true" : "false";
 
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
@@ -218,7 +221,7 @@
                         bounds.push([m.lat, m.lng]);
                     }});
 
-                    if (bounds.length > 0) {{
+                    if ({shouldFitBounds} && bounds.length > 0) {{
                         if (bounds.length === 1) {{
                             map.setView(bounds[0], 14);
                         }} else {{
