@@ -268,10 +268,10 @@
                     map.addLayer(clusterGroup);
 
                     // Raise overlay pane z-index on cluster click (before spider animation)
-                    // Also fade out existing spider if clicking cluster to collapse
+                    // Also fade out existing spider if one is open
                     clusterGroup.on('clusterclick', function(e) {{
-                        if (currentSpider && e.layer === currentSpider) {{
-                            // Clicking same cluster to collapse - fade it out
+                        if (currentSpider) {{
+                            // Fade out current spider (whether clicking same or different cluster)
                             var markers = currentSpider.getAllChildMarkers();
                             markers.forEach(m => {{
                                 if (m._path) {{
