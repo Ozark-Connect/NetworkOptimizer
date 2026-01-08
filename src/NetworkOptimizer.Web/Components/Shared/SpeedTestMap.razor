@@ -1,5 +1,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.UniFi.Models
+@using Microsoft.JSInterop
+@implements IDisposable
 @inject IJSRuntime JS
 
 <HeadContent>
@@ -55,7 +57,11 @@
     [Parameter]
     public EventCallback OnRefresh { get; set; }
 
+    [Parameter]
+    public EventCallback<int> OnResultClick { get; set; }
+
     private string mapId = $"map-{Guid.NewGuid():N}";
+    private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
@@ -145,6 +151,9 @@
     {
         try
         {
+            // Create .NET object reference for JS callbacks
+            dotNetRef = DotNetObjectReference.Create(this);
+
             // Initialize the map using inline JS
             await JS.InvokeVoidAsync("eval", $@"
                 (function() {{
@@ -195,6 +204,16 @@
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
             ");
+
+            // Register click handler with .NET callback
+            await JS.InvokeVoidAsync("eval", @"
+                window._registerSpeedTestMapCallback = function(dotNetRef) {
+                    window._speedTestMapClick = function(id) {
+                        dotNetRef.invokeMethodAsync('OnMapResultClick', id);
+                    };
+                };
+            ");
+            await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef);
 
             mapInitialized = true;
             lastResultCount = Results.Count();
@@ -285,10 +304,9 @@
     private string BuildPopup(Iperf3Result result, bool isExternal)
     {
         var deviceName = result.DeviceName ?? result.DeviceHost;
-        var signal = result.WifiSignalDbm.HasValue ? $"{result.WifiSignalDbm} dBm" : "N/A";
         var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
         var badge = isExternal ? "External" : "LAN";
-        var badgeColor = isExternal ? "#475569" : "#22c55e";
+        var badgeClass = isExternal ? "map-badge-external" : "map-badge-lan";
 
         // Get AP name from path analysis
         var apName = result.PathAnalysis?.Path?.Hops?
@@ -298,16 +316,52 @@
         deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
         apName = apName?.Replace("'", "\\'").Replace("\"", "&quot;");
 
-        var apLine = !string.IsNullOrEmpty(apName) ? $"AP: {apName}<br/>" : "";
+        var html = $"<div class='map-popup'>";
 
-        return $"<div style='font-size:13px;line-height:1.5;'>" +
-               $"<span style='background:{badgeColor};color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>{badge}</span><br/>" +
-               $"<strong>{deviceName}</strong><br/>" +
-               $"<span style='color:#22c55e;'>↓ {result.DownloadMbps:F0}</span> / " +
-               $"<span style='color:#3b82f6;'>↑ {result.UploadMbps:F0}</span> Mbps<br/>" +
-               $"{apLine}" +
-               $"Signal: {signal}<br/>" +
-               $"<span style='color:#888;'>{time}</span></div>";
+        // Header with badge and device name
+        html += $"<div class='wifi-tooltip-header'><span class='map-badge {badgeClass}'>{badge}</span> {deviceName}</div>";
+
+        // Speed row
+        html += $"<div class='wifi-tooltip-row wifi-tooltip-speed'>";
+        html += $"<span class='wifi-speed-rx'>↓ {result.DownloadMbps:F0}</span> · ";
+        html += $"<span class='wifi-speed-tx'>↑ {result.UploadMbps:F0}</span> Mbps";
+        html += "</div>";
+
+        // AP name if available
+        if (!string.IsNullOrEmpty(apName))
+        {
+            html += $"<div class='wifi-tooltip-link'>AP: {apName}</div>";
+        }
+
+        // Signal if available
+        if (result.WifiSignalDbm.HasValue)
+        {
+            html += $"<div class='wifi-tooltip-link-signal'>{result.WifiSignalDbm} dBm</div>";
+        }
+
+        // Time and view link
+        html += "<div class='wifi-tooltip-divider'></div>";
+        html += $"<div class='map-popup-footer'>";
+        html += $"<span class='map-popup-time'>{time}</span>";
+        html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+        html += "</div>";
+
+        html += "</div>";
+        return html;
+    }
+
+    [JSInvokable]
+    public async Task OnMapResultClick(int resultId)
+    {
+        if (OnResultClick.HasDelegate)
+        {
+            await OnResultClick.InvokeAsync(resultId);
+        }
+    }
+
+    public void Dispose()
+    {
+        dotNetRef?.Dispose();
     }
 }
 
@@ -369,6 +423,53 @@
         height: 12px;
         border-radius: 50%;
         border: 2px solid #fff;
+    }
+
+    /* Map popup styling */
+    .map-popup {
+        min-width: 160px;
+    }
+
+    .map-badge {
+        display: inline-block;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-right: 0.4rem;
+    }
+
+    .map-badge-lan {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+    }
+
+    .map-badge-external {
+        background: rgba(100, 116, 139, 0.3);
+        color: #94a3b8;
+    }
+
+    .map-popup-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+    }
+
+    .map-popup-time {
+        color: #64748b;
+    }
+
+    .map-popup-link {
+        color: #60a5fa;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .map-popup-link:hover {
+        color: #93c5fd;
+        text-decoration: underline;
     }
 
     /* Dark theme for Leaflet */

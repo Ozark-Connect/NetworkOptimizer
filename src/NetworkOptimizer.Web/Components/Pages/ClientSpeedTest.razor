@@ -183,7 +183,8 @@
                             @foreach (var result in pagedHistory)
                             {
                                 var isExpanded = expandedHistoryId == result.Id;
-                                <tr class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
+                                <tr id="result-@result.Id"
+                                    class="history-row-clickable @(isExpanded ? "history-row-expanded" : "")"
                                     @onclick="@(() => ToggleHistoryExpand(result.Id))">
                                     <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                     <td>
@@ -261,7 +262,7 @@
     </div>
 
     <!-- Test Locations Map -->
-    <SpeedTestMap Results="testHistory" OnRefresh="() => LoadHistory()" />
+    <SpeedTestMap Results="testHistory" OnRefresh="() => LoadHistory()" OnResultClick="ScrollToResult" />
 
     <!-- How it Works -->
     <div class="card">
@@ -726,6 +727,28 @@
     private void ToggleHistoryExpand(int resultId)
     {
         expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
+    }
+
+    private async Task ScrollToResult(int resultId)
+    {
+        // Expand the result
+        expandedHistoryId = resultId;
+        StateHasChanged();
+
+        // Give time for the DOM to update, then scroll
+        await Task.Delay(50);
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                var el = document.getElementById('result-{resultId}');
+                if (el) {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                    // Brief highlight effect
+                    el.style.transition = 'background-color 0.3s';
+                    el.style.backgroundColor = 'rgba(59, 130, 246, 0.3)';
+                    setTimeout(function() {{ el.style.backgroundColor = ''; }}, 1500);
+                }}
+            }})();
+        ");
     }
 
     private async Task CopySpeedTestUrl()
