@@ -181,9 +181,10 @@
                     window._speedTestMaps = window._speedTestMaps || {{}};
                     if (window._speedTestMaps['{mapId}']) return;
 
-                    const map = L.map('{mapId}').setView([36.17, -92.68], 10);
+                    const map = L.map('{mapId}', {{ maxZoom: 22 }}).setView([36.17, -92.68], 10);
                     L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                        maxZoom: 19,
+                        maxZoom: 22,
+                        maxNativeZoom: 19,
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
@@ -295,7 +296,7 @@
                         if (bounds.length === 1) {{
                             map.setView(bounds[0], 18);
                         }} else {{
-                            map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 19 }});
+                            map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 22 }});
                         }}
                     }}
 
