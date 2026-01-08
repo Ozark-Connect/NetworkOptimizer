@@ -1,0 +1,350 @@
+@using NetworkOptimizer.Storage.Models
+@inject IJSRuntime JS
+
+<HeadContent>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="" />
+</HeadContent>
+
+@if (HasLocationData)
+{
+    <div class="card speed-test-map-card">
+        <div class="card-header">
+            <h2 class="card-title">Test Locations</h2>
+            <div class="map-filters">
+                <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
+                        @onclick="() => ToggleFilter(true)">
+                    LAN (@LanCount)
+                </button>
+                <button class="btn btn-sm @(ShowExternal ? "btn-primary" : "btn-secondary")"
+                        @onclick="() => ToggleFilter(false)">
+                    External (@ExternalCount)
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="@mapId" class="speed-test-map"></div>
+            <div class="map-legend">
+                <span class="legend-item"><span class="legend-dot" style="background: #ef4444;"></span>&lt;50 Mbps</span>
+                <span class="legend-item"><span class="legend-dot" style="background: #f97316;"></span>50-100</span>
+                <span class="legend-item"><span class="legend-dot" style="background: #eab308;"></span>100-200</span>
+                <span class="legend-item"><span class="legend-dot" style="background: #84cc16;"></span>200-500</span>
+                <span class="legend-item"><span class="legend-dot" style="background: #22c55e;"></span>&gt;500 Mbps</span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public IEnumerable<Iperf3Result> Results { get; set; } = Enumerable.Empty<Iperf3Result>();
+
+    private string mapId = $"map-{Guid.NewGuid():N}";
+    private bool mapInitialized = false;
+    private IJSObjectReference? mapModule;
+    private bool ShowLan { get; set; } = true;
+    private bool ShowExternal { get; set; } = true;
+
+    // All tests with valid location data
+    private IEnumerable<Iperf3Result> LocationResults => Results
+        .Where(r => r.Latitude.HasValue && r.Longitude.HasValue);
+
+    // LAN = has valid L2 path
+    private IEnumerable<Iperf3Result> LanResults => LocationResults
+        .Where(r => r.PathAnalysis?.Path?.IsValid == true);
+
+    // External = no valid L2 path (Tailscale, remote, etc.)
+    private IEnumerable<Iperf3Result> ExternalResults => LocationResults
+        .Where(r => r.PathAnalysis?.Path?.IsValid != true);
+
+    private int LanCount => LanResults.Count();
+    private int ExternalCount => ExternalResults.Count();
+
+    // Filtered results based on toggle state
+    private IEnumerable<Iperf3Result> FilteredResults
+    {
+        get
+        {
+            var results = Enumerable.Empty<Iperf3Result>();
+            if (ShowLan) results = results.Concat(LanResults);
+            if (ShowExternal) results = results.Concat(ExternalResults);
+            return results;
+        }
+    }
+
+    private bool HasLocationData => LocationResults.Any();
+
+    private async Task ToggleFilter(bool isLan)
+    {
+        if (isLan)
+            ShowLan = !ShowLan;
+        else
+            ShowExternal = !ShowExternal;
+
+        // Ensure at least one is selected
+        if (!ShowLan && !ShowExternal)
+        {
+            if (isLan)
+                ShowExternal = true;
+            else
+                ShowLan = true;
+        }
+
+        if (mapInitialized)
+        {
+            await UpdateMarkers();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && HasLocationData)
+        {
+            await InitializeMap();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (mapInitialized && mapModule != null)
+        {
+            await UpdateMarkers();
+        }
+    }
+
+    private async Task InitializeMap()
+    {
+        try
+        {
+            // Load the Leaflet library dynamically
+            await JS.InvokeVoidAsync("eval", @"
+                if (!window.leafletLoaded) {
+                    window.leafletLoaded = new Promise((resolve) => {
+                        if (window.L) { resolve(); return; }
+                        const script = document.createElement('script');
+                        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                        script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+                        script.crossOrigin = '';
+                        script.onload = resolve;
+                        document.head.appendChild(script);
+                    });
+                }
+            ");
+            await JS.InvokeVoidAsync("eval", "await window.leafletLoaded");
+
+            // Initialize map module
+            mapModule = await JS.InvokeAsync<IJSObjectReference>("eval", $@"
+                (function() {{
+                    const mapContainer = document.getElementById('{mapId}');
+                    if (!mapContainer || mapContainer._leafletMap) return null;
+
+                    const map = L.map('{mapId}').setView([36.17, -92.68], 13);
+                    mapContainer._leafletMap = map;
+
+                    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                        maxZoom: 19,
+                        attribution: '© <a href=""https://www.openstreetmap.org/copyright"">OpenStreetMap</a>'
+                    }}).addTo(map);
+
+                    map._markers = [];
+
+                    return {{
+                        addMarker: function(lat, lng, color, popup, isExternal) {{
+                            const marker = L.circleMarker([lat, lng], {{
+                                radius: 8,
+                                fillColor: color,
+                                color: isExternal ? '#888' : '#fff',
+                                weight: 2,
+                                opacity: 1,
+                                fillOpacity: 0.8
+                            }}).addTo(map);
+                            if (popup) marker.bindPopup(popup);
+                            map._markers.push(marker);
+                            return marker;
+                        }},
+                        clearMarkers: function() {{
+                            map._markers.forEach(m => map.removeLayer(m));
+                            map._markers = [];
+                        }},
+                        fitBounds: function(bounds) {{
+                            if (bounds && bounds.length > 0) {{
+                                if (bounds.length === 1) {{
+                                    map.setView(bounds[0], 14);
+                                }} else {{
+                                    map.fitBounds(bounds, {{ padding: [30, 30], maxZoom: 15 }});
+                                }}
+                            }}
+                        }},
+                        invalidateSize: function() {{
+                            setTimeout(() => map.invalidateSize(), 100);
+                        }}
+                    }};
+                }})()
+            ");
+
+            if (mapModule != null)
+            {
+                mapInitialized = true;
+                await UpdateMarkers();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Map initialization error: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateMarkers()
+    {
+        if (mapModule == null) return;
+
+        try
+        {
+            await mapModule.InvokeVoidAsync("clearMarkers");
+
+            var bounds = new List<double[]>();
+            var externalSet = ExternalResults.ToHashSet();
+
+            foreach (var result in FilteredResults)
+            {
+                var lat = result.Latitude!.Value;
+                var lng = result.Longitude!.Value;
+                var color = GetSpeedColor(result.DownloadMbps);
+                var isExternal = externalSet.Contains(result);
+                var popup = BuildPopup(result, isExternal);
+
+                await mapModule.InvokeVoidAsync("addMarker", lat, lng, color, popup, isExternal);
+                bounds.Add(new[] { lat, lng });
+            }
+
+            if (bounds.Count > 0)
+            {
+                await mapModule.InvokeVoidAsync("fitBounds", bounds);
+            }
+
+            await mapModule.InvokeVoidAsync("invalidateSize");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Map update error: {ex.Message}");
+        }
+    }
+
+    private string GetSpeedColor(double mbps)
+    {
+        // Red (<50) -> Yellow (50-200) -> Green (>200)
+        if (mbps < 50) return "#ef4444";      // Red
+        if (mbps < 100) return "#f97316";     // Orange
+        if (mbps < 200) return "#eab308";     // Yellow
+        if (mbps < 500) return "#84cc16";     // Lime
+        return "#22c55e";                      // Green
+    }
+
+    private string BuildPopup(Iperf3Result result, bool isExternal)
+    {
+        var deviceName = result.DeviceName ?? result.DeviceHost;
+        var signal = result.WifiSignalDbm.HasValue ? $"{result.WifiSignalDbm} dBm" : "N/A";
+        var time = result.TestTime.ToLocalTime().ToString("MMM d, h:mm tt");
+        var locationBadge = isExternal
+            ? "<span style='background:#475569;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>External</span>"
+            : "<span style='background:#22c55e;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>LAN</span>";
+
+        return $@"
+            <div style='font-size: 13px; line-height: 1.5;'>
+                <div style='margin-bottom:4px;'>{locationBadge}</div>
+                <strong>{System.Web.HttpUtility.HtmlEncode(deviceName)}</strong><br/>
+                <span style='color: #22c55e;'>↓ {result.DownloadMbps:F0} Mbps</span> /
+                <span style='color: #3b82f6;'>↑ {result.UploadMbps:F0} Mbps</span><br/>
+                Signal: {signal}<br/>
+                <span style='color: #888;'>{time}</span>
+            </div>";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (mapModule != null)
+        {
+            try
+            {
+                await mapModule.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+}
+
+<style>
+    .speed-test-map-card {
+        margin-top: 1.5rem;
+    }
+
+    .speed-test-map-card .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .speed-test-map-card .card-title {
+        margin: 0;
+    }
+
+    .map-filters {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .speed-test-map {
+        height: 350px;
+        width: 100%;
+        border-radius: 6px;
+        z-index: 1;
+    }
+
+    .map-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 0.75rem;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .legend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+    }
+
+    /* Fix Leaflet popup styling for dark theme */
+    .leaflet-popup-content-wrapper {
+        background: #1e293b;
+        color: #f1f5f9;
+        border-radius: 6px;
+    }
+
+    .leaflet-popup-tip {
+        background: #1e293b;
+    }
+
+    .leaflet-popup-content {
+        margin: 10px 12px;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button {
+        color: #94a3b8;
+    }
+
+    .leaflet-container a.leaflet-popup-close-button:hover {
+        color: #f1f5f9;
+    }
+</style>
