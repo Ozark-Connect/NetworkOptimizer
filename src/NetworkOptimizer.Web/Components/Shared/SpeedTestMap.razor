@@ -271,9 +271,25 @@
                     clusterGroup.on('clusterclick', function() {{
                         map.getPane('overlayPane').style.zIndex = 650;
                     }});
-                    clusterGroup.on('unspiderfied', function() {{
+                    // Fade out dots when unspiderfying, then restore z-index
+                    clusterGroup.on('unspiderfied', function(e) {{
                         map.getPane('overlayPane').style.zIndex = '';
                     }});
+                    // Override unspiderfy to add fade-out animation
+                    var originalUnspiderfy = clusterGroup.unspiderfy;
+                    clusterGroup.unspiderfy = function() {{
+                        var markers = this._spiderfied ? this._spiderfied.getAllChildMarkers() : [];
+                        markers.forEach(m => {{
+                            if (m._path) {{
+                                m._path.style.transition = 'opacity 0.3s ease-out';
+                                m._path.style.opacity = '0';
+                            }}
+                        }});
+                        var self = this;
+                        setTimeout(function() {{
+                            originalUnspiderfy.call(self);
+                        }}, 300);
+                    }};
 
                     window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
                 }})();
@@ -649,9 +665,5 @@
         to { opacity: 1; }
     }
 
-    /* Speed up spider leg animation on close to match instant dot removal */
-    .leaflet-cluster-spider-leg {
-        transition: stroke-dashoffset 0.1s ease-out, stroke-opacity 0.1s ease-out !important;
-    }
 
 </style>
