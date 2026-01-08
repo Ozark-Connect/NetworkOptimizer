@@ -7,8 +7,7 @@ var geoLocation = {
     latitude: null,
     longitude: null,
     accuracy: null,
-    watchId: null,
-    error: null
+    watchId: null
 };
 
 /**
@@ -17,7 +16,6 @@ var geoLocation = {
  */
 function startLocationWatch() {
     if (!navigator.geolocation) {
-        console.log("Geolocation not supported");
         return;
     }
 
@@ -27,15 +25,10 @@ function startLocationWatch() {
             geoLocation.latitude = position.coords.latitude;
             geoLocation.longitude = position.coords.longitude;
             geoLocation.accuracy = position.coords.accuracy;
-            console.log("Initial location fix:", geoLocation.latitude, geoLocation.longitude, "accuracy:", geoLocation.accuracy);
-
             // Now start watching with high accuracy
             startHighAccuracyWatch();
         },
-        function(error) {
-            geoLocation.error = error.message;
-            console.log("Location denied or unavailable:", error.message);
-        },
+        function(error) {},
         {
             enableHighAccuracy: false,
             timeout: 5000,
@@ -50,7 +43,7 @@ function startLocationWatch() {
  */
 function startHighAccuracyWatch() {
     if (geoLocation.watchId !== null) {
-        return; // Already watching
+        return;
     }
 
     geoLocation.watchId = navigator.geolocation.watchPosition(
@@ -58,15 +51,12 @@ function startHighAccuracyWatch() {
             geoLocation.latitude = position.coords.latitude;
             geoLocation.longitude = position.coords.longitude;
             geoLocation.accuracy = position.coords.accuracy;
-            console.log("Location updated:", geoLocation.latitude, geoLocation.longitude, "accuracy:", geoLocation.accuracy);
         },
-        function(error) {
-            console.log("Location watch error:", error.message);
-        },
+        function(error) {},
         {
             enableHighAccuracy: true,
             timeout: 10000,
-            maximumAge: 0  // Always get fresh reading
+            maximumAge: 0
         }
     );
 }
@@ -86,20 +76,15 @@ function getLocationParams() {
 
 /**
  * Intercept XMLHttpRequest to append location params to speed test results
- * Simple synchronous approach - appends current location to URL
  */
 (function() {
     var originalOpen = XMLHttpRequest.prototype.open;
 
     XMLHttpRequest.prototype.open = function(method, url) {
-        // Check if this is a request to save speed test results
         if (typeof url === 'string' && url.indexOf('/api/public/speedtest/results') !== -1) {
-            // Append location params if available
             var locationParams = getLocationParams();
             if (locationParams) {
-                // URL already ends with ? so just append params
                 url = url + locationParams;
-                console.log("Appended location to speed test result URL:", url);
             }
         }
         return originalOpen.apply(this, [method, url].concat(Array.prototype.slice.call(arguments, 2)));
