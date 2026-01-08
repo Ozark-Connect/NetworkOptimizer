@@ -87,14 +87,40 @@ function getLocationFormData() {
     };
 
     XMLHttpRequest.prototype.send = function(body) {
+        var xhr = this;
+        var args = arguments;
+
         if (this._isSpeedTestResult && body) {
+            // If we already have location, send immediately
             var locationData = getLocationFormData();
             if (locationData) {
-                // Append location to POST body
                 body = body + locationData;
+                return originalSend.call(xhr, body);
+            }
+
+            // No location yet - try one quick getCurrentPosition before sending
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        geoLocation.latitude = position.coords.latitude;
+                        geoLocation.longitude = position.coords.longitude;
+                        geoLocation.accuracy = position.coords.accuracy;
+                        var locData = getLocationFormData();
+                        if (locData) {
+                            body = body + locData;
+                        }
+                        originalSend.call(xhr, body);
+                    },
+                    function(error) {
+                        // Failed - send without location
+                        originalSend.call(xhr, body);
+                    },
+                    { enableHighAccuracy: true, timeout: 2000, maximumAge: 60000 }
+                );
+                return; // Don't call send yet - callback will do it
             }
         }
-        return originalSend.call(this, body);
+        return originalSend.call(xhr, body);
     };
 })();
 
