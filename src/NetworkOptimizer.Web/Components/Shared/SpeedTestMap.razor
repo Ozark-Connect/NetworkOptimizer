@@ -120,25 +120,35 @@
             // Load the Leaflet library dynamically
             await JS.InvokeVoidAsync("eval", @"
                 if (!window.leafletLoaded) {
-                    window.leafletLoaded = new Promise((resolve) => {
+                    window.leafletLoaded = new Promise((resolve, reject) => {
                         if (window.L) { resolve(); return; }
                         const script = document.createElement('script');
                         script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                        script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
                         script.crossOrigin = '';
-                        script.onload = resolve;
+                        script.onload = () => { console.log('Leaflet loaded'); resolve(); };
+                        script.onerror = (e) => { console.error('Failed to load Leaflet', e); reject(e); };
                         document.head.appendChild(script);
                     });
                 }
             ");
             await JS.InvokeVoidAsync("eval", "await window.leafletLoaded");
+            Console.WriteLine("Leaflet library loaded");
 
             // Initialize map module
             mapModule = await JS.InvokeAsync<IJSObjectReference>("eval", $@"
                 (function() {{
+                    console.log('Initializing map for container: {mapId}');
                     const mapContainer = document.getElementById('{mapId}');
-                    if (!mapContainer || mapContainer._leafletMap) return null;
+                    if (!mapContainer) {{
+                        console.error('Map container not found: {mapId}');
+                        return null;
+                    }}
+                    if (mapContainer._leafletMap) {{
+                        console.log('Map already initialized');
+                        return null;
+                    }}
 
+                    console.log('Creating Leaflet map...');
                     const map = L.map('{mapId}').setView([36.17, -92.68], 13);
                     mapContainer._leafletMap = map;
 
@@ -148,6 +158,7 @@
                     }}).addTo(map);
 
                     map._markers = [];
+                    console.log('Map created successfully');
 
                     return {{
                         addMarker: function(lat, lng, color, popup, isExternal) {{
