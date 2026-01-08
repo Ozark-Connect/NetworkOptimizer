@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi.Models
 @inject IJSRuntime JS
 
 <HeadContent>
@@ -237,14 +238,22 @@
         var badge = isExternal ? "External" : "LAN";
         var badgeColor = isExternal ? "#475569" : "#22c55e";
 
+        // Get AP name from path analysis
+        var apName = result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.AccessPoint)?.DeviceName;
+
         // Escape for JS string
         deviceName = deviceName?.Replace("'", "\\'").Replace("\"", "&quot;") ?? "Unknown";
+        apName = apName?.Replace("'", "\\'").Replace("\"", "&quot;");
+
+        var apLine = !string.IsNullOrEmpty(apName) ? $"AP: {apName}<br/>" : "";
 
         return $"<div style='font-size:13px;line-height:1.5;'>" +
                $"<span style='background:{badgeColor};color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;'>{badge}</span><br/>" +
                $"<strong>{deviceName}</strong><br/>" +
                $"<span style='color:#22c55e;'>↓ {result.DownloadMbps:F0}</span> / " +
                $"<span style='color:#3b82f6;'>↑ {result.UploadMbps:F0}</span> Mbps<br/>" +
+               $"{apLine}" +
                $"Signal: {signal}<br/>" +
                $"<span style='color:#888;'>{time}</span></div>";
     }
