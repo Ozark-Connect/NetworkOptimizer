@@ -58,7 +58,7 @@
     private string mapId = $"map-{Guid.NewGuid():N}";
     private bool mapInitialized = false;
     private bool ShowLan { get; set; } = true;
-    private bool ShowExternal { get; set; } = true;
+    private bool ShowExternal { get; set; } = false;
     private int lastResultCount = 0;
 
     // All tests with valid location data
@@ -172,7 +172,7 @@
 
                     // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
-                        maxClusterRadius: 25,
+                        maxClusterRadius: 19,
                         spiderfyOnMaxZoom: true,
                         showCoverageOnHover: false,
                         zoomToBoundsOnClick: true,
