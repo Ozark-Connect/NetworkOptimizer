@@ -914,10 +914,11 @@ public class ConfigAuditEngineTests
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
-        // Should flag printer with Informational severity suggesting Printer VLAN
+        // Should flag printer with Informational severity suggesting Printer VLAN (no score impact)
         result.Issues.Should().Contain(i => i.Type == "OFFLINE-PRINTER-VLAN");
         var issue = result.Issues.First(i => i.Type == "OFFLINE-PRINTER-VLAN");
         issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.ScoreImpact.Should().Be(0);
         issue.RecommendedNetwork.Should().Be("Printing");
     }
 

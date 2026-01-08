@@ -177,10 +177,10 @@ public static class VlanPlacementChecker
             recommendedLabel = "Printer or IoT VLAN";
         }
 
-        // If allowed: Informational (no score impact)
+        // If allowed: Informational (no score impact, purely advisory)
         // If not allowed: Recommended severity with score impact
         var severity = isAllowed ? AuditSeverity.Informational : AuditSeverity.Recommended;
-        var scoreImpact = isAllowed ? ScoreConstants.InformationalImpact : defaultScoreImpact;
+        var scoreImpact = isAllowed ? 0 : defaultScoreImpact;
 
         return new PlacementResult(
             IsCorrectlyPlaced: isCorrectlyPlaced,
