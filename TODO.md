@@ -25,6 +25,22 @@
 
 ## Security Audit / PDF Report
 
+### Printer/Scanner Audit Logic Consolidation
+- **Issue:** Printer/Scanner VLAN placement logic is duplicated across multiple files
+- **Current state:**
+  - `IotVlanRule.cs` - wired devices, checks `isPrinter` inline
+  - `WirelessIotVlanRule.cs` - wireless devices, checks `isPrinter` inline
+  - `ConfigAuditEngine.cs` - offline wireless via `CheckOfflinePrinterPlacement()`
+  - `VlanPlacementChecker.cs` - shared placement logic
+- **Problems:**
+  1. `isPrinter` check duplicated: `Category == Printer || Category == Scanner`
+  2. Offline wired printers handled differently (via `HistoricalClient` in `IotVlanRule`) than offline wireless (separate method in `ConfigAuditEngine`)
+  3. No dedicated `PrinterVlanRule` - piggybacks on IoT rules
+- **Proposed fix:**
+  - Add `IsPrinterOrScanner()` extension method to `ClientDeviceCategoryExtensions`
+  - Consider dedicated `PrinterVlanRule` and `WirelessPrinterVlanRule` classes
+  - Unify offline handling for wired/wireless printers
+
 ### ~~Collapsible Audit Findings by Category~~ (DONE)
 - ~~Collapse multiple findings of the same audit category into a single expandable row~~
 - ~~Example: "10 IoT devices on wrong VLAN" instead of 10 separate rows~~
