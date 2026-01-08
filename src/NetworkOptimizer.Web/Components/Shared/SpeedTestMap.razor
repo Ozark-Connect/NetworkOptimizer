@@ -367,7 +367,7 @@
         // AP name if available
         if (!string.IsNullOrEmpty(apName))
         {
-            html += $"<div class='wifi-tooltip-link'>AP: {apName}</div>";
+            html += $"<div class='wifi-tooltip-link map-tooltip-ap'>AP: {apName}</div>";
         }
 
         // Band and signal if available
@@ -517,6 +517,11 @@
     .map-popup-link:hover {
         color: #93c5fd;
         text-decoration: underline;
+    }
+
+    .map-tooltip-ap {
+        padding-left: 0.5rem;
+        margin-bottom: 0.35rem;
     }
 
     /* Dark theme for Leaflet */
