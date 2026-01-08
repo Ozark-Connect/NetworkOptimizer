@@ -337,6 +337,10 @@
                             );
                             if (clickedOnSpider) return;
 
+                            // Check if click is on a popup - if so, don't fade
+                            var clickedOnPopup = e.target.closest && e.target.closest('.leaflet-popup');
+                            if (clickedOnPopup) return;
+
                             // Fade out spider when clicking outside
                             markers.forEach(m => {{
                                 if (m._path) {{
