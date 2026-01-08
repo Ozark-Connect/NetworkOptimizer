@@ -285,6 +285,13 @@
                     map.getContainer().addEventListener('mousedown', function(e) {{
                         if (currentSpider) {{
                             var markers = currentSpider.getAllChildMarkers();
+                            // Check if click is on a spider element - if so, don't fade
+                            var clickedOnSpider = markers.some(m =>
+                                e.target === m._path ||
+                                (m._spiderLeg && e.target === m._spiderLeg._path)
+                            );
+                            if (clickedOnSpider) return;
+
                             markers.forEach(m => {{
                                 // Fade the dot
                                 if (m._path) {{
