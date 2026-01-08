@@ -145,12 +145,31 @@
                         attribution: '© OpenStreetMap'
                     }}).addTo(map);
 
-                    // Create marker cluster group
+                    // Create marker cluster group with speed-based coloring
                     const clusterGroup = L.markerClusterGroup({{
-                        maxClusterRadius: 40,
+                        maxClusterRadius: 25,
                         spiderfyOnMaxZoom: true,
                         showCoverageOnHover: false,
-                        zoomToBoundsOnClick: true
+                        zoomToBoundsOnClick: true,
+                        iconCreateFunction: function(cluster) {{
+                            const markers = cluster.getAllChildMarkers();
+                            let totalSpeed = 0;
+                            markers.forEach(m => {{ totalSpeed += m.options.speed || 0; }});
+                            const avgSpeed = totalSpeed / markers.length;
+
+                            let color;
+                            if (avgSpeed < 50) color = '#ef4444';
+                            else if (avgSpeed < 100) color = '#f97316';
+                            else if (avgSpeed < 200) color = '#eab308';
+                            else if (avgSpeed < 500) color = '#84cc16';
+                            else color = '#22c55e';
+
+                            return L.divIcon({{
+                                html: '<div style=\"background:' + color + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:12px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3);\">' + markers.length + '</div>',
+                                className: 'speed-cluster-icon',
+                                iconSize: L.point(40, 40)
+                            }});
+                        }}
                     }});
                     map.addLayer(clusterGroup);
 
@@ -178,6 +197,7 @@
             {
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
+                speed = r.DownloadMbps,
                 color = GetSpeedColor(r.DownloadMbps),
                 isExternal = r.PathAnalysis?.Path?.IsValid != true,
                 popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true)
@@ -207,7 +227,8 @@
                             color: m.isExternal ? '#888' : '#fff',
                             weight: 2,
                             opacity: 1,
-                            fillOpacity: 0.8
+                            fillOpacity: 0.8,
+                            speed: m.speed
                         }});
 
                         marker.bindPopup(m.popup);
