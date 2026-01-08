@@ -168,7 +168,7 @@
                             const color = getSpeedColor(avgSpeed);
 
                             return L.divIcon({{
-                                html: '<div style=\"background:' + color + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3);\">' + markers.length + '</div>',
+                                html: ""<div class='speed-cluster' style='background:"" + color + ""'>"" + markers.length + ""</div>"",
                                 className: 'speed-cluster-icon',
                                 iconSize: L.point(40, 40)
                             }});
@@ -367,6 +367,25 @@
 
     .leaflet-container a.leaflet-popup-close-button:hover {
         color: #f1f5f9;
+    }
+
+    /* Speed-colored cluster icons */
+    .speed-cluster {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 12px;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .speed-cluster-icon {
+        background: transparent !important;
     }
 
     /* Dark theme for marker clusters */
