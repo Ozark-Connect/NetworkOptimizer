@@ -45,17 +45,17 @@
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private bool mapInitialized = false;
-    private bool initialBoundsSet = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = true;
+    private int lastResultCount = 0;
 
     // All tests with valid location data
     private IEnumerable<Iperf3Result> LocationResults => Results
         .Where(r => r.Latitude.HasValue && r.Longitude.HasValue);
 
-    // LAN = has valid L2 path
+    // LAN = has valid L2 path AND has Wi-Fi signal (excludes wired clients)
     private IEnumerable<Iperf3Result> LanResults => LocationResults
-        .Where(r => r.PathAnalysis?.Path?.IsValid == true);
+        .Where(r => r.PathAnalysis?.Path?.IsValid == true && r.WifiSignalDbm.HasValue);
 
     // External = no valid L2 path (Tailscale, remote, etc.)
     private IEnumerable<Iperf3Result> ExternalResults => LocationResults
@@ -112,8 +112,11 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (mapInitialized)
+        // Only update markers if results actually changed (new tests added)
+        var currentCount = Results.Count();
+        if (mapInitialized && currentCount != lastResultCount)
         {
+            lastResultCount = currentCount;
             await UpdateMarkers(fitBounds: false);
         }
     }
@@ -162,8 +165,8 @@
             ");
 
             mapInitialized = true;
+            lastResultCount = Results.Count();
             await UpdateMarkers(fitBounds: true);
-            initialBoundsSet = true;
         }
         catch (Exception ex)
         {
