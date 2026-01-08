@@ -649,4 +649,9 @@
         to { opacity: 1; }
     }
 
+    /* Speed up spider leg animation on close to match instant dot removal */
+    .leaflet-cluster-spider-leg {
+        transition: stroke-dashoffset 0.1s ease-out, stroke-opacity 0.1s ease-out !important;
+    }
+
 </style>
