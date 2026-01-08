@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y \
     sshpass \
     libssl3 \
     gosu \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy iperf3 from build stage
