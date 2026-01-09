@@ -23,6 +23,13 @@
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
+### Speed Test Map Auto-Display After Data Cleared
+- **Bug:** Map doesn't auto-display when new results come in after all results were cleared
+- **Affected pages:** Client Speed Test, LAN Speed Test (both have SpeedTestMap component)
+- **Repro:** Clear all speed test results (manually or external), map hides, run new test, map stays hidden
+- **Expected:** Map should auto-display when first result with location data arrives
+- **Fix:** Reset map visibility state when results are cleared, or check on each poll if map should show
+
 ### Speed Test Map Time Range Filters
 - Add time range filter to speed test map (default: last 30 days)
 - Options: 7 days, 30 days, 90 days, 1 year, all time
