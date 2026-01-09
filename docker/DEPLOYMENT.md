@@ -7,10 +7,43 @@ Production deployment guide for Network Optimizer.
 | Option | Best For | Guide |
 |--------|----------|-------|
 | Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
+| Proxmox LXC | Homelab virtualization, one-liner install | [Proxmox Guide](#proxmox-lxc-recommended) |
 | Linux + Docker | Self-built servers, VMs, cloud | [Below](#1-linux-docker-recommended) |
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
+
+---
+
+### Proxmox LXC (Recommended)
+
+The easiest way to deploy on Proxmox. Run this one-liner on your **Proxmox VE host**:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
+```
+
+The interactive script will:
+1. Create an unprivileged Debian 12 LXC container
+2. Install Docker and Docker Compose
+3. Deploy Network Optimizer with Docker Compose
+4. Configure auto-start on boot
+
+**Requirements:**
+- Proxmox VE 7.0 or later
+- 10GB disk space, 2GB RAM minimum
+- Internet access for downloading images
+
+**After Installation:**
+```bash
+# Get the auto-generated admin password
+pct exec <CT_ID> -- docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
+
+# Access the web UI
+http://<container-ip>:8042
+```
+
+For advanced configuration, troubleshooting, and manual installation see the [full Proxmox guide](../scripts/proxmox/README.md).
 
 ---
 

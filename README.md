@@ -89,12 +89,19 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 | Platform | Method | Guide |
 |----------|--------|-------|
 | Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
-| Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
+| Proxmox VE | LXC one-liner | [Proxmox Guide](scripts/proxmox/README.md) |
+| Linux Server | Docker | [Deployment Guide](docker/DEPLOYMENT.md) |
 | Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#nas-deployment) |
 | macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
 
 Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
+
+### Quick Start (Proxmox)
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
+```
 
 ### Quick Start (Linux Docker)
 
