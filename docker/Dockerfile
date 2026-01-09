@@ -4,7 +4,6 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 # Version passed from CI/CD (MinVer can't access .git in Docker context)
 ARG VERSION=0.0.0-alpha.0
-ENV MINVER_VERSION=$VERSION
 
 WORKDIR /src
 
@@ -28,10 +27,12 @@ RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj"
 COPY src/ src/
 
 # Build and publish Web UI (includes all dependent projects)
+# MinVerVersionOverride tells MinVer to use this version instead of reading git tags
 RUN dotnet publish "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" \
     -c Release \
     -o /app/publish \
-    --no-restore
+    --no-restore \
+    -p:MinVerVersionOverride=${VERSION}
 
 # Stage 2: Build iperf3 from source for latest version
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS iperf-build
