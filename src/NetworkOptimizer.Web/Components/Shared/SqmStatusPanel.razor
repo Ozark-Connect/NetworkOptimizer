@@ -1,9 +1,7 @@
 @using NetworkOptimizer.Web.Services
 @implements IDisposable
-@inject SqmService SqmService
 @inject GatewaySpeedTestService GatewayService
 @inject TcMonitorClient TcMonitorClient
-@inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 
 <div class="sqm-status-panel">
     @if (isLoading)
