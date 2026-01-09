@@ -9,6 +9,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ozark-connect/network-optimizer
+  SPEEDTEST_IMAGE_NAME: ozark-connect/speedtest
 
 jobs:
   test:
@@ -74,5 +75,28 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Extract metadata for speedtest image
+        id: speedtest-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.SPEEDTEST_IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push speedtest image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/openspeedtest/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.speedtest-meta.outputs.tags }}
+          labels: ${{ steps.speedtest-meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
