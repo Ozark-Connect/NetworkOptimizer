@@ -142,16 +142,24 @@
         <div class="card sqm-dashboard-card">
             <div class="card-header">
                 <h2 class="card-title">Live SQM Status</h2>
-                <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
-                    @if (isRefreshingDashboard)
+                <div class="card-header-actions">
+                    @if (sqmMonitorData?.Timestamp != default)
                     {
-                        <span class="spinner-border spinner-border-sm"></span>
+                        <div class="tc-timestamp">
+                            <small>Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
                     }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
+                        @if (isRefreshingDashboard)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                </div>
             </div>
             <div class="card-body">
         <div class="sqm-live-dashboard">
@@ -697,6 +705,12 @@
 </div>
 
 <style>
+    .card-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
     .sqm-container {
         display: flex;
         flex-direction: column;
@@ -1619,7 +1633,7 @@
                     var gatewayHost = await GetGatewayHostAsync();
                     if (!string.IsNullOrEmpty(gatewayHost))
                     {
-                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
                         tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                     }
                 }
@@ -2068,7 +2082,7 @@
             var gatewayHost = await GetGatewayHostAsync();
             if (!string.IsNullOrEmpty(gatewayHost))
             {
-                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
             }
         }

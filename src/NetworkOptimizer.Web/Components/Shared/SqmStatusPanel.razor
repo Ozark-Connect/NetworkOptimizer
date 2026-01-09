@@ -1,6 +1,7 @@
 @using NetworkOptimizer.Web.Services
-@inject SqmService SqmService
+@implements IDisposable
 @inject GatewaySpeedTestService GatewayService
+@inject TcMonitorClient TcMonitorClient
 
 <div class="sqm-status-panel">
     @if (isLoading)
@@ -89,29 +90,49 @@
 </div>
 
 @code {
-    private SqmStatusData? statusData;
+    private TcMonitorResponse? tcMonitorData;
+    private List<TcInterfaceStats>? tcInterfaces;
     private bool isLoading = true;
     private bool isRefreshing = false;
-    private bool _forceRefresh = false;
     private string statusLabel = "";
     private string statusClass = "";
     private string? errorMessage;
     private bool needsGatewayConfig = false;
+    private DateTime? lastUpdate;
+
+    // Track if we've ever seen active status (don't flip to "Not Deployed" on transient failures)
+    private bool _hasSeenActive = false;
+
+    // Auto-refresh timer (60 seconds)
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadStatus();
+
+        // Start auto-refresh timer
+        _refreshTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(async () =>
+            {
+                if (!isRefreshing && !needsGatewayConfig)
+                {
+                    await LoadStatus();
+                    StateHasChanged();
+                }
+            }),
+            null,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(60));
     }
 
-    private async Task LoadStatus()
+    private async Task LoadStatus(bool forceRefresh = false)
     {
-        isLoading = true;
         errorMessage = null;
         needsGatewayConfig = false;
 
         try
         {
-            // First check if gateway SSH is configured
+            // Get gateway host from settings (fast - just DB lookup)
             var gatewaySettings = await GatewayService.GetSettingsAsync();
 
             if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
@@ -120,37 +141,65 @@
                 statusClass = "not-configured";
                 errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
                 needsGatewayConfig = true;
+                isLoading = false;
                 return;
             }
 
-            // Try to get live TC stats (fast - just HTTP to TC Monitor)
-            // Uses cache if available (5 min)
-            statusData = await SqmService.GetSqmStatusAsync(forceRefresh: _forceRefresh);
+            // Poll TC Monitor directly (fast HTTP call, 2s timeout)
+            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
 
-            // Determine status based on TC monitor response
-            if (statusData?.TcInterfaces?.Any() == true)
+            if (response != null)
             {
-                statusLabel = "Active";
-                statusClass = "active";
-            }
-            else if (statusData?.Status == "Offline")
-            {
-                statusLabel = "Not Deployed";
-                statusClass = "offline";
-                errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                // Got a response - update our state
+                tcMonitorData = response;
+                tcInterfaces = response.GetAllInterfaces();
+
+                if (tcInterfaces?.Any() == true)
+                {
+                    statusLabel = "Active";
+                    statusClass = "active";
+                    lastUpdate = response.Timestamp;
+                    _hasSeenActive = true;
+                }
+                else
+                {
+                    // TC Monitor responded but no interfaces configured
+                    statusLabel = "Not Deployed";
+                    statusClass = "offline";
+                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                }
             }
             else
             {
-                statusLabel = statusData?.Status ?? "Unknown";
-                statusClass = "warning";
-                errorMessage = statusData?.StatusMessage;
+                // TC Monitor unreachable (null response)
+                if (_hasSeenActive && tcInterfaces?.Any() == true)
+                {
+                    // Keep showing last known good state, just mark as stale
+                    statusLabel = "Active";
+                    statusClass = "warning";  // Yellow to indicate stale
+                }
+                else
+                {
+                    // Never seen active, show as not deployed
+                    statusLabel = "Not Deployed";
+                    statusClass = "offline";
+                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                }
             }
         }
         catch (Exception ex)
         {
-            statusLabel = "Error";
-            statusClass = "offline";
-            errorMessage = $"Failed to load status: {ex.Message}";
+            // On error, preserve last state if we had one
+            if (_hasSeenActive && tcInterfaces?.Any() == true)
+            {
+                statusClass = "warning";  // Keep showing active but mark as stale
+            }
+            else
+            {
+                statusLabel = "Error";
+                statusClass = "offline";
+                errorMessage = $"Failed to load status: {ex.Message}";
+            }
         }
         finally
         {
@@ -161,18 +210,28 @@
     private async Task RefreshStats()
     {
         isRefreshing = true;
-        _forceRefresh = true;  // Bypass cache on manual refresh
         StateHasChanged();
 
         try
         {
-            await LoadStatus();
+            await LoadStatus(forceRefresh: true);
         }
         finally
         {
             isRefreshing = false;
-            _forceRefresh = false;
             StateHasChanged();
         }
+    }
+
+    // Helper property for template compatibility
+    private SqmStatusData? statusData => tcMonitorData != null ? new SqmStatusData
+    {
+        TcInterfaces = tcInterfaces,
+        TcMonitorTimestamp = tcMonitorData.Timestamp
+    } : null;
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }

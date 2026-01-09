@@ -105,8 +105,9 @@ public static class VlanPlacementChecker
 
     /// <summary>
     /// Check if a printer is correctly placed.
-    /// If AllowPrintersOnMainNetwork is true (lenient): IoT or Security is acceptable.
-    /// If false (strict) and Printer VLAN exists: must be on Printer VLAN.
+    /// If Printer VLAN exists, device is always flagged as incorrectly placed unless on Printer VLAN.
+    /// AllowPrintersOnMainNetwork controls severity: true = Informational, false = Recommended.
+    /// If no Printer VLAN exists, IoT or Security is acceptable.
     /// </summary>
     /// <param name="currentNetwork">The network the device is currently on</param>
     /// <param name="allNetworks">All available networks</param>

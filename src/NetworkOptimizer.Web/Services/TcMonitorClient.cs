@@ -16,6 +16,14 @@ public class TcMonitorClient : ITcMonitorClient
 
     public const int DefaultPort = 8088;
 
+    // Cache to avoid hammering the single-threaded TC Monitor server
+    private static TcMonitorResponse? _cachedResponse;
+    private static DateTime _cacheTime = DateTime.MinValue;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
+
+    // Serialize requests - the netcat-based server can only handle one connection at a time
+    private static readonly SemaphoreSlim _requestLock = new(1, 1);
+
     public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
@@ -23,59 +31,87 @@ public class TcMonitorClient : ITcMonitorClient
     }
 
     /// <summary>
-    /// Poll TC statistics from a gateway running the tc-monitor script
+    /// Poll TC statistics from a gateway running the tc-monitor script.
     /// </summary>
     /// <param name="host">Gateway IP or hostname</param>
     /// <param name="port">Port number (default 8088)</param>
+    /// <param name="forceRefresh">Bypass cache and fetch fresh data</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable</returns>
-    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort)
+    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort, bool forceRefresh = false)
     {
         var url = $"http://{host}:{port}/";
-        const int maxRetries = 1;  // No retries - fail fast if unreachable
-        const int retryDelayMs = 100;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        // Return cached if valid and not forcing refresh
+        if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
         {
-            try
-            {
-                _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxRetries);
-
-                // Create fresh HttpClient for each request to avoid DNS caching issues in Docker
-                using var httpClient = _httpClientFactory.CreateClient("TcMonitor");
-                httpClient.Timeout = TimeSpan.FromSeconds(2);  // Fast fail - it's a local call
-                var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
-
-                if (response != null)
-                {
-                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
-                        response.Interfaces?.Count ?? 0);
-                    return response;
-                }
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogWarning("Failed to reach TC monitor at {Url} (attempt {Attempt}/{Max}): {Message}",
-                    url, attempt, maxRetries, ex.Message);
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("TC monitor request timed out for {Url} (attempt {Attempt}/{Max})",
-                    url, attempt, maxRetries);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error polling TC monitor at {Url} (attempt {Attempt}/{Max})",
-                    url, attempt, maxRetries);
-            }
-
-            // Wait before retrying (unless last attempt)
-            if (attempt < maxRetries)
-            {
-                await Task.Delay(retryDelayMs);
-            }
+            _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
+            return _cachedResponse;
         }
 
-        return null;
+        // Serialize requests - if another is in progress, return cached data
+        if (!await _requestLock.WaitAsync(TimeSpan.FromMilliseconds(100)))
+        {
+            _logger.LogDebug("TC monitor request already in progress, returning cached data");
+            return _cachedResponse;
+        }
+
+        try
+        {
+            // Double-check cache after acquiring lock
+            if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+            {
+                return _cachedResponse;
+            }
+
+            // Retry once on failure (netcat server briefly unavailable between requests)
+            const int maxAttempts = 2;
+
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
+                {
+                    _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxAttempts);
+
+                    using var httpClient = _httpClientFactory.CreateClient("TcMonitor");
+                    httpClient.Timeout = TimeSpan.FromSeconds(5);
+                    var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
+
+                    if (response != null)
+                    {
+                        _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", response.GetAllInterfaces().Count);
+                        _cachedResponse = response;
+                        _cacheTime = DateTime.UtcNow;
+                        return response;
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    _logger.LogDebug("TC monitor attempt {Attempt} failed: {Message}", attempt, ex.Message);
+                    if (attempt < maxAttempts)
+                    {
+                        await Task.Delay(500);
+                        continue;
+                    }
+                    _logger.LogWarning("Failed to reach TC monitor at {Url}: {Message}", url, ex.Message);
+                }
+                catch (TaskCanceledException)
+                {
+                    _logger.LogWarning("TC monitor request timed out for {Url}", url);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
+                    break;
+                }
+            }
+
+            return _cachedResponse; // Return stale cache on failure
+        }
+        finally
+        {
+            _requestLock.Release();
+        }
     }
 
     /// <summary>

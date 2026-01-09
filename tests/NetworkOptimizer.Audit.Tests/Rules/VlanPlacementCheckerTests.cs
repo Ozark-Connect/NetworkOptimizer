@@ -401,27 +401,29 @@ public class VlanPlacementCheckerTests
     }
 
     [Fact]
-    public void CheckPrinterPlacement_LenientMode_AcceptsIoT()
+    public void CheckPrinterPlacement_LenientMode_OnIoT_FlagsWithInformationalSeverity()
     {
         var iotNetwork = new NetworkInfo { Id = "2", Name = "IoT", VlanId = 20, Purpose = NetworkPurpose.IoT };
         var allowance = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = true };
 
         var result = VlanPlacementChecker.CheckPrinterPlacement(iotNetwork, NetworksWithPrinter, 10, allowance);
 
-        result.IsCorrectlyPlaced.Should().BeTrue();
+        // When Printer VLAN exists, device is flagged but with Informational severity and no score impact
+        result.IsCorrectlyPlaced.Should().BeFalse();
         result.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.ScoreImpact.Should().Be(0);
     }
 
     [Fact]
-    public void CheckPrinterPlacement_LenientMode_AcceptsSecurity()
+    public void CheckPrinterPlacement_LenientMode_OnSecurity_FlagsWithInformationalSeverity()
     {
         var securityNetwork = new NetworkInfo { Id = "3", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
         var allowance = new DeviceAllowanceSettings { AllowPrintersOnMainNetwork = true };
 
         var result = VlanPlacementChecker.CheckPrinterPlacement(securityNetwork, NetworksWithPrinter, 10, allowance);
 
-        result.IsCorrectlyPlaced.Should().BeTrue();
+        // When Printer VLAN exists, device is flagged but with Informational severity in lenient mode
+        result.IsCorrectlyPlaced.Should().BeFalse();
         result.Severity.Should().Be(AuditSeverity.Informational);
     }
 
@@ -477,14 +479,15 @@ public class VlanPlacementCheckerTests
     }
 
     [Fact]
-    public void CheckPrinterPlacement_DefaultAllowance_IsLenient()
+    public void CheckPrinterPlacement_DefaultAllowance_UsesInformationalSeverity()
     {
         var iotNetwork = new NetworkInfo { Id = "2", Name = "IoT", VlanId = 20, Purpose = NetworkPurpose.IoT };
 
         // null allowance defaults to lenient (AllowPrintersOnMainNetwork = true)
         var result = VlanPlacementChecker.CheckPrinterPlacement(iotNetwork, NetworksWithPrinter, 10, null);
 
-        result.IsCorrectlyPlaced.Should().BeTrue();
+        // When Printer VLAN exists, device is flagged but with Informational severity by default
+        result.IsCorrectlyPlaced.Should().BeFalse();
         result.Severity.Should().Be(AuditSeverity.Informational);
     }
 
