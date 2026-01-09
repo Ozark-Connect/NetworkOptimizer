@@ -39,6 +39,11 @@ public class TcMonitorClient : ITcMonitorClient
 
     public const int DefaultPort = 8088;
 
+    // Simple cache to handle transient failures - return last known good result
+    private static TcMonitorResponse? _cachedResponse;
+    private static DateTime _cacheTime = DateTime.MinValue;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
+
     public TcMonitorClient(ILogger<TcMonitorClient> logger)
     {
         _logger = logger;
@@ -76,8 +81,13 @@ public class TcMonitorClient : ITcMonitorClient
 
                 if (response != null)
                 {
-                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
-                        response.Interfaces?.Count ?? 0);
+                    var interfaces = response.GetAllInterfaces();
+                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", interfaces.Count);
+
+                    // Cache successful response
+                    _cachedResponse = response;
+                    _cacheTime = DateTime.UtcNow;
+
                     return response;
                 }
             }
@@ -99,6 +109,13 @@ public class TcMonitorClient : ITcMonitorClient
             {
                 _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
             }
+        }
+
+        // On failure, return cached response if still valid
+        if (_cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+        {
+            _logger.LogDebug("Returning cached TC stats (age: {Age}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
+            return _cachedResponse;
         }
 
         return null;
