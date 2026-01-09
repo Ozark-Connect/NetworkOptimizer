@@ -57,16 +57,18 @@ public class TcMonitorClient : ITcMonitorClient
     /// </summary>
     /// <param name="host">Gateway IP or hostname</param>
     /// <param name="port">Port number (default 8088)</param>
+    /// <param name="forceRefresh">Bypass cache and fetch fresh data</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable</returns>
     /// <remarks>
     /// Creates a fresh HttpClient per request. See class remarks for why this is intentional.
     /// </remarks>
-    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort)
+    public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort, bool forceRefresh = false)
     {
         var url = $"http://{host}:{port}/";
 
         // Return cached if still valid (avoids hammering the single-threaded server)
-        if (_cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+        // Skip cache check if forceRefresh is requested
+        if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
         {
             _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
             return _cachedResponse;
@@ -82,7 +84,7 @@ public class TcMonitorClient : ITcMonitorClient
         try
         {
             // Double-check cache after acquiring lock (another request may have just completed)
-            if (_cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
+            if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
             {
                 return _cachedResponse;
             }

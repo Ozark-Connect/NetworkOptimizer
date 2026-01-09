@@ -12,8 +12,9 @@ public interface ITcMonitorClient
     /// </summary>
     /// <param name="host">Gateway IP or hostname.</param>
     /// <param name="port">Port number (default 8088).</param>
+    /// <param name="forceRefresh">Bypass cache and fetch fresh data.</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable.</returns>
-    Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = TcMonitorClient.DefaultPort);
+    Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = TcMonitorClient.DefaultPort, bool forceRefresh = false);
 
     /// <summary>
     /// Check if a gateway has the tc-monitor script running.

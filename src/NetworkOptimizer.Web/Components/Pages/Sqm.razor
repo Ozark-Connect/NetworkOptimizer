@@ -1619,7 +1619,7 @@
                     var gatewayHost = await GetGatewayHostAsync();
                     if (!string.IsNullOrEmpty(gatewayHost))
                     {
-                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                        sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
                         tcInterfaces = sqmMonitorData?.GetAllInterfaces();
                     }
                 }
@@ -2068,7 +2068,7 @@
             var gatewayHost = await GetGatewayHostAsync();
             if (!string.IsNullOrEmpty(gatewayHost))
             {
-                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost);
+                sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
             }
         }

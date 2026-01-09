@@ -127,7 +127,7 @@
             TimeSpan.FromSeconds(60));
     }
 
-    private async Task LoadStatus()
+    private async Task LoadStatus(bool forceRefresh = false)
     {
         errorMessage = null;
         needsGatewayConfig = false;
@@ -148,7 +148,7 @@
             }
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
-            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
+            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
 
             if (response != null)
             {
@@ -216,7 +216,7 @@
 
         try
         {
-            await LoadStatus();
+            await LoadStatus(forceRefresh: true);
         }
         finally
         {
