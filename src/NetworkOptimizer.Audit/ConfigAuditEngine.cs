@@ -457,6 +457,10 @@ public class ConfigAuditEngine
         DeviceDetectionResult detection,
         long twoWeeksAgo)
     {
+        // Skip cloud cameras - they're handled by CheckOfflineCameraPlacement
+        if (detection.Category.IsCloudCamera())
+            return;
+
         var placement = Rules.VlanPlacementChecker.CheckIoTPlacement(
             detection.Category, lastNetwork, ctx.Networks, 10, ctx.AllowanceSettings, detection.VendorName);
 
@@ -483,7 +487,12 @@ public class ConfigAuditEngine
         DeviceDetectionResult detection,
         long twoWeeksAgo)
     {
-        var placement = Rules.VlanPlacementChecker.CheckCameraPlacement(lastNetwork, ctx.Networks, 8);
+        // Cloud cameras (Ring, Nest, Wyze, Blink, Arlo) should go on IoT VLAN, not Security VLAN
+        var isCloudCamera = detection.Category.IsCloudCamera();
+        var placement = isCloudCamera
+            ? Rules.VlanPlacementChecker.CheckIoTPlacement(
+                detection.Category, lastNetwork, ctx.Networks, 8, ctx.AllowanceSettings, detection.VendorName)
+            : Rules.VlanPlacementChecker.CheckCameraPlacement(lastNetwork, ctx.Networks, 8);
 
         if (placement.IsCorrectlyPlaced)
             return;
@@ -491,13 +500,20 @@ public class ConfigAuditEngine
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
         var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
 
+        var ruleId = isCloudCamera ? "OFFLINE-CLOUD-CAMERA-VLAN" : "OFFLINE-CAMERA-VLAN";
+        var message = isCloudCamera
+            ? $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated"
+            : $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be on security VLAN";
+        var fallbackAction = isCloudCamera ? "Create IoT VLAN" : "Create Security VLAN";
+
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
-            "OFFLINE-CAMERA-VLAN",
-            $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be on security VLAN",
+            ruleId,
+            message,
             displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
-            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : "Create Security VLAN",
-            isRecent ? Models.AuditSeverity.Critical : Models.AuditSeverity.Informational,
-            isRecent ? placement.ScoreImpact : 0));
+            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : fallbackAction,
+            isRecent ? (isCloudCamera ? placement.Severity : Models.AuditSeverity.Critical) : Models.AuditSeverity.Informational,
+            isRecent ? placement.ScoreImpact : 0,
+            isCloudCamera ? placement.IsLowRisk : false));
     }
 
     private void CheckOfflinePrinterPlacement(

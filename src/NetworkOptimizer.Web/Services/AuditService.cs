@@ -952,8 +952,10 @@ public class AuditService
             Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" or "OFFLINE-PRINTER-VLAN" =>
                 message.StartsWith("Printer") || message.StartsWith("Scanner")
                     ? (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN")
-                    : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
-            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" =>
+                    : message.StartsWith("Cloud Camera")
+                        ? (isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN")
+                        : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
+            Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" or "OFFLINE-CLOUD-CAMERA-VLAN" =>
                 isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN",
             Audit.IssueTypes.InfraNotOnMgmt => "Infrastructure Device on Wrong VLAN",
 

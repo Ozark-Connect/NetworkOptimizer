@@ -990,6 +990,116 @@ public class ConfigAuditEngineTests
         issue.ScoreImpact.Should().Be(0);
     }
 
+    [Fact]
+    public async Task RunAudit_OfflineCloudCameraOnCorporate_RecommendsIoTVlan()
+    {
+        // Bug fix test: Offline cloud cameras (Nest, Ring, etc.) should recommend
+        // IoT VLAN, not Security VLAN. Only self-hosted cameras go on Security.
+        var deviceJson = CreateDeviceJsonWithNetworks();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55", // Unknown OUI - name-based detection
+                IsWired = false,
+                LastConnectionNetworkId = "net-corp",
+                DisplayName = "Nest Cam Backyard", // Cloud camera detected by name
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds() // Recent
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Should create cloud camera issue, NOT regular camera issue
+        result.Issues.Should().Contain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+
+        var issue = result.Issues.First(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        issue.DeviceName.Should().Contain("(offline)");
+        issue.CurrentNetwork.Should().Be("Corporate");
+        issue.RecommendedNetwork.Should().Be("IoT"); // Should recommend IoT, NOT Security
+        issue.Message.Should().Contain("should be isolated");
+        issue.Message.Should().NotContain("security VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflineCloudCameraOnIoTVlan_NoIssue()
+    {
+        var deviceJson = CreateDeviceJsonWithNetworks();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-iot", // Already on IoT VLAN
+                DisplayName = "Ring Doorbell", // Cloud camera
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Cloud camera already on IoT VLAN - no issue
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflineSelfHostedCameraOnCorporate_RecommendsSecurityVlan()
+    {
+        // Self-hosted cameras (UniFi, Reolink) should still recommend Security VLAN
+        var deviceJson = CreateDeviceJsonWithNetworks();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-corp",
+                DisplayName = "Reolink Camera", // Self-hosted camera, not cloud
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Should create regular camera issue recommending Security VLAN
+        result.Issues.Should().Contain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+
+        var issue = result.Issues.First(i => i.Type == "OFFLINE-CAMERA-VLAN");
+        issue.RecommendedNetwork.Should().Be("Security");
+        issue.Message.Should().Contain("security VLAN");
+    }
+
     #endregion
 
     #region Helper Methods
