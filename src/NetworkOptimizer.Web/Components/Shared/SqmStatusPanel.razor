@@ -102,6 +102,9 @@
     private bool needsGatewayConfig = false;
     private DateTime? lastUpdate;
 
+    // Track if we've ever seen active status (don't flip to "Not Deployed" on transient failures)
+    private bool _hasSeenActive = false;
+
     // Auto-refresh timer (60 seconds)
     private System.Threading.Timer? _refreshTimer;
 
@@ -145,29 +148,60 @@
             }
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
-            tcMonitorData = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
-            tcInterfaces = tcMonitorData?.GetAllInterfaces();
+            var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
 
-            // Determine status based on TC monitor response
-            if (tcInterfaces?.Any() == true)
+            if (response != null)
             {
-                statusLabel = "Active";
-                statusClass = "active";
-                lastUpdate = tcMonitorData?.Timestamp;
+                // Got a response - update our state
+                tcMonitorData = response;
+                tcInterfaces = response.GetAllInterfaces();
+
+                if (tcInterfaces?.Any() == true)
+                {
+                    statusLabel = "Active";
+                    statusClass = "active";
+                    lastUpdate = response.Timestamp;
+                    _hasSeenActive = true;
+                }
+                else
+                {
+                    // TC Monitor responded but no interfaces configured
+                    statusLabel = "Not Deployed";
+                    statusClass = "offline";
+                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                }
             }
             else
             {
-                // TC Monitor not responding - SQM likely not deployed
-                statusLabel = "Not Deployed";
-                statusClass = "offline";
-                errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                // TC Monitor unreachable (null response)
+                if (_hasSeenActive && tcInterfaces?.Any() == true)
+                {
+                    // Keep showing last known good state, just mark as stale
+                    statusLabel = "Active";
+                    statusClass = "warning";  // Yellow to indicate stale
+                }
+                else
+                {
+                    // Never seen active, show as not deployed
+                    statusLabel = "Not Deployed";
+                    statusClass = "offline";
+                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                }
             }
         }
         catch (Exception ex)
         {
-            statusLabel = "Error";
-            statusClass = "offline";
-            errorMessage = $"Failed to load status: {ex.Message}";
+            // On error, preserve last state if we had one
+            if (_hasSeenActive && tcInterfaces?.Any() == true)
+            {
+                statusClass = "warning";  // Keep showing active but mark as stale
+            }
+            else
+            {
+                statusLabel = "Error";
+                statusClass = "offline";
+                errorMessage = $"Failed to load status: {ex.Message}";
+            }
         }
         finally
         {

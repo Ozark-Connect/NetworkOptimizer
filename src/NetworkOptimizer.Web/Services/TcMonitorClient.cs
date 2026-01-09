@@ -12,14 +12,12 @@ namespace NetworkOptimizer.Web.Services;
 public class TcMonitorClient : ITcMonitorClient
 {
     private readonly ILogger<TcMonitorClient> _logger;
-    private readonly IHttpClientFactory _httpClientFactory;
 
     public const int DefaultPort = 8088;
 
-    public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory)
+    public TcMonitorClient(ILogger<TcMonitorClient> logger)
     {
         _logger = logger;
-        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
@@ -31,48 +29,33 @@ public class TcMonitorClient : ITcMonitorClient
     public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort)
     {
         var url = $"http://{host}:{port}/";
-        const int maxRetries = 1;  // No retries - fail fast if unreachable
-        const int retryDelayMs = 100;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        try
         {
-            try
-            {
-                _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxRetries);
+            _logger.LogDebug("Polling TC stats from {Url}", url);
 
-                // Create fresh HttpClient for each request to avoid DNS caching issues in Docker
-                using var httpClient = _httpClientFactory.CreateClient("TcMonitor");
-                httpClient.Timeout = TimeSpan.FromSeconds(2);  // Fast fail - it's a local call
-                var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
+            // Use simple HttpClient - no connection pooling issues
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
 
-                if (response != null)
-                {
-                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
-                        response.Interfaces?.Count ?? 0);
-                    return response;
-                }
-            }
-            catch (HttpRequestException ex)
+            if (response != null)
             {
-                _logger.LogWarning("Failed to reach TC monitor at {Url} (attempt {Attempt}/{Max}): {Message}",
-                    url, attempt, maxRetries, ex.Message);
+                _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
+                    response.Interfaces?.Count ?? 0);
+                return response;
             }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("TC monitor request timed out for {Url} (attempt {Attempt}/{Max})",
-                    url, attempt, maxRetries);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error polling TC monitor at {Url} (attempt {Attempt}/{Max})",
-                    url, attempt, maxRetries);
-            }
-
-            // Wait before retrying (unless last attempt)
-            if (attempt < maxRetries)
-            {
-                await Task.Delay(retryDelayMs);
-            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning("Failed to reach TC monitor at {Url}: {Message}", url, ex.Message);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogWarning("TC monitor request timed out for {Url}", url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
         }
 
         return null;
