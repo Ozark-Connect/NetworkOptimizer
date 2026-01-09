@@ -1,6 +1,11 @@
 # Multi-stage build for Network Optimizer
 # Stage 1: Build stage with full .NET SDK
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+# Version passed from CI/CD (MinVer can't access .git in Docker context)
+ARG VERSION=0.0.0-alpha.0
+ENV MINVER_VERSION=$VERSION
+
 WORKDIR /src
 
 # Copy solution file, build props, and all project files first for layer caching
