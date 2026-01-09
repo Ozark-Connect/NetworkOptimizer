@@ -141,23 +141,25 @@
     {
         <div class="card sqm-dashboard-card">
             <div class="card-header">
-                <div class="card-title-group">
-                    <h2 class="card-title">Live SQM Status</h2>
+                <h2 class="card-title">Live SQM Status</h2>
+                <div class="card-header-actions">
                     @if (sqmMonitorData?.Timestamp != default)
                     {
-                        <small class="text-muted">Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                        <div class="tc-timestamp">
+                            <small>Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                        </div>
                     }
+                    <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
+                        @if (isRefreshingDashboard)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
                 </div>
-                <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
-                    @if (isRefreshingDashboard)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
             </div>
             <div class="card-body">
         <div class="sqm-live-dashboard">
@@ -703,6 +705,12 @@
 </div>
 
 <style>
+    .card-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
     .sqm-container {
         display: flex;
         flex-direction: column;
