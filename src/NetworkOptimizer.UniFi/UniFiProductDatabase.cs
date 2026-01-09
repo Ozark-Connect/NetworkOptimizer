@@ -67,7 +67,7 @@ public static class UniFiProductDatabase
         // UniFi Dream Machine family
         { "UDMPRO", "UDM-Pro" },
         { "UDM-PRO", "UDM-Pro" },
-        { "UDMPROSE", "UDM-Pro-SE" },
+        { "UDMPROSE", "UDM-SE" },
         { "UDM-PRO-SE", "UDM-Pro-SE" },
         { "UDMPROMAX", "UDM-Pro-Max" },
         { "UDM-PRO-MAX", "UDM-Pro-Max" },
@@ -162,11 +162,11 @@ public static class UniFiProductDatabase
         { "USWLITE16", "USW-Lite-16-PoE" },
         { "USL8LP", "USW-Lite-8-PoE" },
         { "USL8LPB", "USW-Lite-8-PoE" },              // Hardware revision B
-        { "USL8MP", "USW-Lite-8-PoE" },
         { "USL16LP", "USW-Lite-16-PoE" },
         { "USL16LPB", "USW-Lite-16-PoE" },            // Hardware revision B
-        { "USL16P", "USW-Lite-16-PoE" },
-        { "USL16PB", "USW-Lite-16-PoE" },             // Hardware revision B
+
+        // ----- USW Mission Critical Series -----
+        { "USL8MP", "USW-Mission-Critical" },
 
         // ----- USW Standard Series (Gen2) -----
         { "USW8", "USW-8" },
@@ -177,6 +177,8 @@ public static class UniFiProductDatabase
         { "USC8P150", "USW-8-150W" },
         { "USC8P450", "USW-Industrial" },
         { "USW16P150", "USW-16-PoE" },
+        { "USL16P", "USW-16-PoE" },
+        { "USL16PB", "USW-16-PoE" },                  // Hardware revision B
         { "USW24", "USW-24" },
         { "USL24", "USW-24" },
         { "USL24B", "USW-24" },                       // Hardware revision B
@@ -255,7 +257,7 @@ public static class UniFiProductDatabase
         { "USAGGPRO", "USW-Pro-Aggregation" },
         { "US16XG", "USW-16-XG" },
         { "USXG", "USW-16-XG" },
-        { "US6XG150", "USW-6-XG-PoE" },
+        { "US6XG150", "US-XG-6PoE" },
 
         // ----- Enterprise Campus Series -----
         { "EAS24", "ECS-24" },
@@ -290,7 +292,7 @@ public static class UniFiProductDatabase
         { "USPPDUP", "USP-PDU-Pro" },
         { "USPPDUHD", "USP-PDU-HD" },
         { "USPRPS", "USP-RPS" },
-        { "USPRPSP", "USP-RPS-Pro" },
+        { "USPRPSP", "USP-RPS" },
 
         // ----- Hardware Revision Codes (USWED/USWF series - map to best guess) -----
         { "USWED72", "USW-Enterprise" },
@@ -359,7 +361,7 @@ public static class UniFiProductDatabase
         { "UALR6V2", "U6-LR" },
         { "UALR6V3", "U6-LR" },
         { "UAP6", "U6-LR" },
-        { "UALRPL6", "U6-LR+" },
+        { "UALRPL6", "U6-PLUS-LR" },
         { "U6LITE", "U6-Lite" },
         { "UAL6", "U6-Lite" },
         { "U6PLUS", "U6+" },
@@ -372,9 +374,9 @@ public static class UniFiProductDatabase
         { "UAM6", "U6-Mesh" },
 
         // ----- AC Wave 2 / HD Series -----
-        { "U7HD", "UAP-HD" },
+        { "U7HD", "UAP-AC-HD" },
         { "UAPHD", "UAP-HD" },
-        { "U7SHD", "UAP-SHD" },
+        { "U7SHD", "UAP-AC-SHD" },
         { "UAPSHD", "UAP-SHD" },
         { "U7NHD", "UAP-nanoHD" },
         { "UAPNANOHD", "UAP-nanoHD" },
