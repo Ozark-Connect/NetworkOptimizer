@@ -457,6 +457,10 @@ public class ConfigAuditEngine
         DeviceDetectionResult detection,
         long twoWeeksAgo)
     {
+        // Skip cloud cameras - they're handled by CheckOfflineCameraPlacement
+        if (detection.Category.IsCloudCamera())
+            return;
+
         var placement = Rules.VlanPlacementChecker.CheckIoTPlacement(
             detection.Category, lastNetwork, ctx.Networks, 10, ctx.AllowanceSettings, detection.VendorName);
 
