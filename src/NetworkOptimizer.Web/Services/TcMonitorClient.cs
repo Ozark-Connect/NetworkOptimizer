@@ -9,6 +9,30 @@ namespace NetworkOptimizer.Web.Services;
 /// The gateway must have the tc-monitor script deployed, which exposes
 /// SQM/FQ_CoDel rates via a simple HTTP endpoint on port 8088.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>INTENTIONAL DESIGN: This class uses <c>new HttpClient()</c> instead of IHttpClientFactory.</strong>
+/// </para>
+/// <para>
+/// The TC Monitor endpoint is a simple shell script using netcat to serve JSON over HTTP.
+/// It's a stateless, single-request-response server running on the local network (gateway).
+/// Using IHttpClientFactory's connection pooling caused intermittent "Connection refused" errors,
+/// likely due to how the factory manages socket connections for such a simple server.
+/// </para>
+/// <para>
+/// This is safe because:
+/// <list type="bullet">
+///   <item>Requests are infrequent (every 60 seconds for auto-refresh)</item>
+///   <item>The server is local (low latency, no DNS caching concerns)</item>
+///   <item>Each HttpClient is disposed immediately after use</item>
+///   <item>No socket exhaustion risk at this call frequency</item>
+/// </list>
+/// </para>
+/// <para>
+/// DO NOT refactor this to use IHttpClientFactory without testing thoroughly against
+/// the actual TC Monitor endpoint under repeated polling conditions.
+/// </para>
+/// </remarks>
 public class TcMonitorClient : ITcMonitorClient
 {
     private readonly ILogger<TcMonitorClient> _logger;
@@ -21,41 +45,60 @@ public class TcMonitorClient : ITcMonitorClient
     }
 
     /// <summary>
-    /// Poll TC statistics from a gateway running the tc-monitor script
+    /// Poll TC statistics from a gateway running the tc-monitor script.
     /// </summary>
     /// <param name="host">Gateway IP or hostname</param>
     /// <param name="port">Port number (default 8088)</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable</returns>
+    /// <remarks>
+    /// Creates a fresh HttpClient per request. See class remarks for why this is intentional.
+    /// </remarks>
     public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort)
     {
         var url = $"http://{host}:{port}/";
 
-        try
+        // TC Monitor is a netcat-based server that briefly becomes unavailable after
+        // each request (restarts the listen loop). Retry once after a short delay.
+        const int maxAttempts = 2;
+        const int retryDelayMs = 500;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            _logger.LogDebug("Polling TC stats from {Url}", url);
-
-            // Use simple HttpClient - no connection pooling issues
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
-
-            if (response != null)
+            try
             {
-                _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
-                    response.Interfaces?.Count ?? 0);
-                return response;
+                _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxAttempts);
+
+                // INTENTIONAL: Using new HttpClient() instead of IHttpClientFactory.
+                // The TC Monitor is a simple netcat-based server that doesn't play well
+                // with connection pooling. See class-level remarks for full explanation.
+                using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
+
+                if (response != null)
+                {
+                    _logger.LogDebug("TC stats received: {InterfaceCount} interfaces",
+                        response.Interfaces?.Count ?? 0);
+                    return response;
+                }
             }
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogWarning("Failed to reach TC monitor at {Url}: {Message}", url, ex.Message);
-        }
-        catch (TaskCanceledException)
-        {
-            _logger.LogWarning("TC monitor request timed out for {Url}", url);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
+            catch (HttpRequestException ex)
+            {
+                _logger.LogDebug("TC monitor attempt {Attempt} failed: {Message}", attempt, ex.Message);
+                if (attempt < maxAttempts)
+                {
+                    await Task.Delay(retryDelayMs);
+                    continue;
+                }
+                _logger.LogWarning("Failed to reach TC monitor at {Url} after {Max} attempts: {Message}", url, maxAttempts, ex.Message);
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("TC monitor request timed out for {Url}", url);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
+            }
         }
 
         return null;
