@@ -280,6 +280,12 @@ public class ConfigAuditEngine
         var effectiveSettings = request.AllowanceSettings ?? DeviceAllowanceSettings.Default;
         securityEngine.SetAllowanceSettings(effectiveSettings);
 
+        // Set Protect cameras for network ID override (uses connection_network_id from Protect API)
+        if (request.ProtectCameras != null && request.ProtectCameras.Count > 0)
+        {
+            securityEngine.SetProtectCameras(request.ProtectCameras);
+        }
+
         return new AuditContext
         {
             DeviceData = deviceData,

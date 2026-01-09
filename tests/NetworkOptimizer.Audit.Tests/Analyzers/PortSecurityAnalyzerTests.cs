@@ -6,6 +6,7 @@ using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -697,6 +698,161 @@ public class PortSecurityAnalyzerTests
         var result = _engine.ExtractWirelessClients(clients, networks);
 
         result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractWirelessClients_ProtectDeviceWithDifferentNetworkId_UsesProtectNetworkId()
+    {
+        // Arrange: Create networks
+        var iotNetwork = new NetworkInfo { Id = "iot-network-id", Name = "IoT", VlanId = 3, Purpose = NetworkPurpose.IoT };
+        var securityNetwork = new NetworkInfo { Id = "security-network-id", Name = "Security", VlanId = 5, Purpose = NetworkPurpose.Security };
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+
+        // Create a wireless client that Network API reports on IoT network
+        var clients = new List<UniFiClientResponse>
+        {
+            new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Camera",
+                IsWired = false,
+                NetworkId = "iot-network-id", // Network API says IoT
+                DevCat = 57 // Camera fingerprint
+            }
+        };
+
+        // Create Protect camera collection with Security network (Virtual Network Override)
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Test Camera", "security-network-id"); // Protect API says Security
+
+        // Create engine with detection service
+        var detectionLoggerMock = new Mock<ILogger<DeviceTypeDetectionService>>();
+        var detectionService = new DeviceTypeDetectionService(detectionLoggerMock.Object, null);
+        detectionService.SetProtectCameras(protectCameras);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object, detectionService);
+        engine.SetProtectCameras(protectCameras);
+
+        // Act
+        var result = engine.ExtractWirelessClients(clients, networks);
+
+        // Assert: Client should be assigned to Security network (from Protect API), not IoT (from Network API)
+        result.Should().HaveCount(1);
+        result[0].Network.Should().NotBeNull();
+        result[0].Network!.Id.Should().Be("security-network-id");
+        result[0].Network.Name.Should().Be("Security");
+    }
+
+    [Fact]
+    public void ExtractWirelessClients_ProtectDeviceWithSameNetworkId_UsesNetworkId()
+    {
+        // Arrange: Both APIs report same network
+        var securityNetwork = new NetworkInfo { Id = "security-network-id", Name = "Security", VlanId = 5, Purpose = NetworkPurpose.Security };
+        var networks = new List<NetworkInfo> { securityNetwork };
+
+        var clients = new List<UniFiClientResponse>
+        {
+            new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Camera",
+                IsWired = false,
+                NetworkId = "security-network-id",
+                DevCat = 57
+            }
+        };
+
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Test Camera", "security-network-id"); // Same as Network API
+
+        var detectionLoggerMock = new Mock<ILogger<DeviceTypeDetectionService>>();
+        var detectionService = new DeviceTypeDetectionService(detectionLoggerMock.Object, null);
+        detectionService.SetProtectCameras(protectCameras);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object, detectionService);
+        engine.SetProtectCameras(protectCameras);
+
+        // Act
+        var result = engine.ExtractWirelessClients(clients, networks);
+
+        // Assert: Should work normally
+        result.Should().HaveCount(1);
+        result[0].Network.Should().NotBeNull();
+        result[0].Network!.Id.Should().Be("security-network-id");
+    }
+
+    [Fact]
+    public void ExtractWirelessClients_ProtectDeviceWithNullNetworkId_FallsBackToNetworkApiId()
+    {
+        // Arrange: Protect device has no connection_network_id
+        var iotNetwork = new NetworkInfo { Id = "iot-network-id", Name = "IoT", VlanId = 3, Purpose = NetworkPurpose.IoT };
+        var networks = new List<NetworkInfo> { iotNetwork };
+
+        var clients = new List<UniFiClientResponse>
+        {
+            new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Camera",
+                IsWired = false,
+                NetworkId = "iot-network-id",
+                DevCat = 57
+            }
+        };
+
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Test Camera", null); // No network ID from Protect
+
+        var detectionLoggerMock = new Mock<ILogger<DeviceTypeDetectionService>>();
+        var detectionService = new DeviceTypeDetectionService(detectionLoggerMock.Object, null);
+        detectionService.SetProtectCameras(protectCameras);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object, detectionService);
+        engine.SetProtectCameras(protectCameras);
+
+        // Act
+        var result = engine.ExtractWirelessClients(clients, networks);
+
+        // Assert: Should fall back to Network API's network_id
+        result.Should().HaveCount(1);
+        result[0].Network.Should().NotBeNull();
+        result[0].Network!.Id.Should().Be("iot-network-id");
+    }
+
+    [Fact]
+    public void ExtractWirelessClients_NonProtectDevice_UsesNetworkApiId()
+    {
+        // Arrange: Regular device (not a Protect camera)
+        var iotNetwork = new NetworkInfo { Id = "iot-network-id", Name = "IoT", VlanId = 3, Purpose = NetworkPurpose.IoT };
+        var securityNetwork = new NetworkInfo { Id = "security-network-id", Name = "Security", VlanId = 5, Purpose = NetworkPurpose.Security };
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+
+        var clients = new List<UniFiClientResponse>
+        {
+            new UniFiClientResponse
+            {
+                Mac = "bb:cc:dd:ee:ff:00", // Different MAC - not in Protect collection
+                Name = "Smart Plug",
+                IsWired = false,
+                NetworkId = "iot-network-id",
+                DevCat = 9 // IoT device
+            }
+        };
+
+        // Protect collection has a different device
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Camera", "security-network-id");
+
+        var detectionLoggerMock = new Mock<ILogger<DeviceTypeDetectionService>>();
+        var detectionService = new DeviceTypeDetectionService(detectionLoggerMock.Object, null);
+        detectionService.SetProtectCameras(protectCameras);
+        var engine = new PortSecurityAnalyzer(_loggerMock.Object, detectionService);
+        engine.SetProtectCameras(protectCameras);
+
+        // Act
+        var result = engine.ExtractWirelessClients(clients, networks);
+
+        // Assert: Should use Network API's network_id (no Protect override)
+        result.Should().HaveCount(1);
+        result[0].Network.Should().NotBeNull();
+        result[0].Network!.Id.Should().Be("iot-network-id");
     }
 
     #endregion
