@@ -14,7 +14,8 @@ var geoLocation = {
  * Start watching location with high accuracy
  */
 function startLocationWatch() {
-    if (!navigator.geolocation) {
+    // Geolocation requires HTTPS (secure context)
+    if (!navigator.geolocation || !window.isSecureContext) {
         return;
     }
 
@@ -99,25 +100,30 @@ function getLocationFormData() {
             }
 
             // No location yet - try one quick getCurrentPosition before sending
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    function(position) {
-                        geoLocation.latitude = position.coords.latitude;
-                        geoLocation.longitude = position.coords.longitude;
-                        geoLocation.accuracy = position.coords.accuracy;
-                        var locData = getLocationFormData();
-                        if (locData) {
-                            body = body + locData;
-                        }
-                        originalSend.call(xhr, body);
-                    },
-                    function(error) {
-                        // Failed - send without location
-                        originalSend.call(xhr, body);
-                    },
-                    { enableHighAccuracy: true, timeout: 2000, maximumAge: 60000 }
-                );
-                return; // Don't call send yet - callback will do it
+            // Geolocation requires HTTPS - wrap in try-catch to handle security errors
+            if (navigator.geolocation && window.isSecureContext) {
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        function(position) {
+                            geoLocation.latitude = position.coords.latitude;
+                            geoLocation.longitude = position.coords.longitude;
+                            geoLocation.accuracy = position.coords.accuracy;
+                            var locData = getLocationFormData();
+                            if (locData) {
+                                body = body + locData;
+                            }
+                            originalSend.call(xhr, body);
+                        },
+                        function(error) {
+                            // Failed - send without location
+                            originalSend.call(xhr, body);
+                        },
+                        { enableHighAccuracy: true, timeout: 2000, maximumAge: 60000 }
+                    );
+                    return; // Don't call send yet - callback will do it
+                } catch (e) {
+                    // Security error or other exception - continue without location
+                }
             }
         }
         return originalSend.call(xhr, body);
