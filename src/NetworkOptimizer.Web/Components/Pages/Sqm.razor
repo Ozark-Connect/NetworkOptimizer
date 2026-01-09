@@ -658,6 +658,10 @@
                     for real-time latency optimization.
                 </p>
 
+                <div class="alert alert-warning" style="margin: 1rem 0 1.5rem;">
+                    <strong>Disclaimer:</strong> Using Adaptive SQM may affect your ability to receive tech support from Ubiquiti. If tech support ever needs a support file, you may be required to factory reset and restore from a backup. We've tested this on several device combinations, but deploy at your own risk.
+                </div>
+
                 <div class="action-buttons">
                     <button class="btn btn-primary" @onclick="DeploySqm" disabled="@isDeploying">
                         @if (isDeploying)
