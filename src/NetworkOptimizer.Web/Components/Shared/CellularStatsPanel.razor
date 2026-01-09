@@ -95,7 +95,7 @@
                     <div class="metric-content">
                         <div class="metric-row">
                             <span class="metric-label">RSRP:</span>
-                            <span class="metric-value @GetSignalClass(modemStats.Nr5g.Rsrp, -80, -100)">@modemStats.Nr5g.Rsrp?.ToString("F1") dBm</span>
+                            <span class="metric-value @GetRsrpClass(modemStats.Nr5g.Rsrp, is5g: true)">@modemStats.Nr5g.Rsrp?.ToString("F1") dBm</span>
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">RSRQ:</span>
@@ -115,7 +115,7 @@
                     <div class="metric-content">
                         <div class="metric-row">
                             <span class="metric-label">RSRP:</span>
-                            <span class="metric-value @GetSignalClass(modemStats.Lte.Rsrp, -80, -100)">@modemStats.Lte.Rsrp?.ToString("F1") dBm</span>
+                            <span class="metric-value @GetRsrpClass(modemStats.Lte.Rsrp, is5g: false)">@modemStats.Lte.Rsrp?.ToString("F1") dBm</span>
                         </div>
                         <div class="metric-row">
                             <span class="metric-label">RSRQ:</span>
@@ -496,12 +496,38 @@
         return "warning";
     }
 
-    private string GetSignalClass(double? rsrp, double good, double poor)
+    /// <summary>
+    /// Get CSS class for RSRP signal strength based on industry-standard thresholds.
+    /// 5G NR has tighter thresholds than LTE due to higher frequency bands.
+    ///
+    /// 5G NR RSRP:
+    ///   Excellent/Good: >= -90 dBm (green)
+    ///   Fair: -90 to -100 dBm (yellow)
+    ///   Poor: < -100 dBm (red)
+    ///
+    /// LTE RSRP:
+    ///   Excellent/Good: >= -100 dBm (green)
+    ///   Fair: -100 to -110 dBm (yellow)
+    ///   Poor: < -110 dBm (red)
+    /// </summary>
+    private string GetRsrpClass(double? rsrp, bool is5g)
     {
         if (!rsrp.HasValue) return "";
-        if (rsrp >= good) return "good";
-        if (rsrp >= poor) return "fair";
-        return "poor";
+
+        if (is5g)
+        {
+            // 5G NR has tighter thresholds (higher frequencies)
+            if (rsrp >= -90) return "good";
+            if (rsrp >= -100) return "fair";
+            return "poor";
+        }
+        else
+        {
+            // LTE has more relaxed thresholds
+            if (rsrp >= -100) return "good";
+            if (rsrp >= -110) return "fair";
+            return "poor";
+        }
     }
 
     private string GetSnrClass(double? snr)
