@@ -666,14 +666,14 @@ public class UniFiApiClient : IDisposable
             if (device.RequiresSecurityVlan)
             {
                 var name = !string.IsNullOrEmpty(device.Name) ? device.Name : device.Model ?? "Protect Device";
-                result.Add(device.Mac, name);
+                result.Add(device.Mac, name, device.ConnectionNetworkId);
 
                 var deviceType = device.IsCamera ? "camera" :
                                  device.IsDoorbell ? "doorbell" :
                                  device.IsNvr ? "NVR" :
                                  device.IsVideoProcessor ? "AI processor" : "device";
-                _logger.LogDebug("Found Protect {DeviceType}: {Name} ({Model}) - MAC: {Mac}",
-                    deviceType, device.Name, device.Model, device.Mac);
+                _logger.LogDebug("Found Protect {DeviceType}: {Name} ({Model}) - MAC: {Mac}, NetworkId: {NetworkId}",
+                    deviceType, device.Name, device.Model, device.Mac, device.ConnectionNetworkId ?? "null");
             }
         }
 
