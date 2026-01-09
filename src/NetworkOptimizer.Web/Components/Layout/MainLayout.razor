@@ -59,7 +59,7 @@
         </main>
 
         <footer class="app-footer">
-            <p>&copy; 2025 Ozark Connect - Network Optimizer v@(Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0")</p>
+            <p>&copy; 2025 Ozark Connect - Network Optimizer @(Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion is string v && v != "0.0.0" ? $"v{v}" : "(source build)")</p>
         </footer>
     </div>
 </div>

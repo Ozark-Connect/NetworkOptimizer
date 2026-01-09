@@ -1,8 +1,9 @@
 <Project>
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="6.*" PrivateAssets="all" />
+  </ItemGroup>
   <PropertyGroup>
-    <Version>0.7.3</Version>
-    <AssemblyVersion>0.7.3.0</AssemblyVersion>
-    <FileVersion>0.7.3.0</FileVersion>
-    <InformationalVersion>0.7.3</InformationalVersion>
+    <!-- MinVer derives version from git tags (e.g., v0.7.3 -> 0.7.3) -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 </Project>
