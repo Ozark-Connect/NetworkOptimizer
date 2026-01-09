@@ -141,7 +141,13 @@
     {
         <div class="card sqm-dashboard-card">
             <div class="card-header">
-                <h2 class="card-title">Live SQM Status</h2>
+                <div class="card-title-group">
+                    <h2 class="card-title">Live SQM Status</h2>
+                    @if (sqmMonitorData?.Timestamp != default)
+                    {
+                        <small class="text-muted">Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                    }
+                </div>
                 <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
                     @if (isRefreshingDashboard)
                     {

@@ -9,47 +9,25 @@ namespace NetworkOptimizer.Web.Services;
 /// The gateway must have the tc-monitor script deployed, which exposes
 /// SQM/FQ_CoDel rates via a simple HTTP endpoint on port 8088.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <strong>INTENTIONAL DESIGN: This class uses <c>new HttpClient()</c> instead of IHttpClientFactory.</strong>
-/// </para>
-/// <para>
-/// The TC Monitor endpoint is a simple shell script using netcat to serve JSON over HTTP.
-/// It's a stateless, single-request-response server running on the local network (gateway).
-/// Using IHttpClientFactory's connection pooling caused intermittent "Connection refused" errors,
-/// likely due to how the factory manages socket connections for such a simple server.
-/// </para>
-/// <para>
-/// This is safe because:
-/// <list type="bullet">
-///   <item>Requests are infrequent (every 60 seconds for auto-refresh)</item>
-///   <item>The server is local (low latency, no DNS caching concerns)</item>
-///   <item>Each HttpClient is disposed immediately after use</item>
-///   <item>No socket exhaustion risk at this call frequency</item>
-/// </list>
-/// </para>
-/// <para>
-/// DO NOT refactor this to use IHttpClientFactory without testing thoroughly against
-/// the actual TC Monitor endpoint under repeated polling conditions.
-/// </para>
-/// </remarks>
 public class TcMonitorClient : ITcMonitorClient
 {
     private readonly ILogger<TcMonitorClient> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public const int DefaultPort = 8088;
 
-    // Simple cache to handle transient failures - return last known good result
+    // Cache to avoid hammering the single-threaded TC Monitor server
     private static TcMonitorResponse? _cachedResponse;
     private static DateTime _cacheTime = DateTime.MinValue;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 
-    // Semaphore to serialize requests - the netcat server can only handle one at a time
+    // Serialize requests - the netcat-based server can only handle one connection at a time
     private static readonly SemaphoreSlim _requestLock = new(1, 1);
 
-    public TcMonitorClient(ILogger<TcMonitorClient> logger)
+    public TcMonitorClient(ILogger<TcMonitorClient> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
@@ -59,22 +37,18 @@ public class TcMonitorClient : ITcMonitorClient
     /// <param name="port">Port number (default 8088)</param>
     /// <param name="forceRefresh">Bypass cache and fetch fresh data</param>
     /// <returns>TC monitor response with interface rates, or null if unreachable</returns>
-    /// <remarks>
-    /// Creates a fresh HttpClient per request. See class remarks for why this is intentional.
-    /// </remarks>
     public async Task<TcMonitorResponse?> GetTcStatsAsync(string host, int port = DefaultPort, bool forceRefresh = false)
     {
         var url = $"http://{host}:{port}/";
 
-        // Return cached if still valid (avoids hammering the single-threaded server)
-        // Skip cache check if forceRefresh is requested
+        // Return cached if valid and not forcing refresh
         if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
         {
             _logger.LogDebug("Returning cached TC stats (age: {Age:F1}s)", (DateTime.UtcNow - _cacheTime).TotalSeconds);
             return _cachedResponse;
         }
 
-        // Try to acquire lock - if another request is in progress, wait briefly then return cache
+        // Serialize requests - if another is in progress, return cached data
         if (!await _requestLock.WaitAsync(TimeSpan.FromMilliseconds(100)))
         {
             _logger.LogDebug("TC monitor request already in progress, returning cached data");
@@ -83,16 +57,14 @@ public class TcMonitorClient : ITcMonitorClient
 
         try
         {
-            // Double-check cache after acquiring lock (another request may have just completed)
+            // Double-check cache after acquiring lock
             if (!forceRefresh && _cachedResponse != null && DateTime.UtcNow - _cacheTime < CacheDuration)
             {
                 return _cachedResponse;
             }
 
-            // TC Monitor is a netcat-based server that briefly becomes unavailable after
-            // each request (restarts the listen loop). Retry once after a short delay.
+            // Retry once on failure (netcat server briefly unavailable between requests)
             const int maxAttempts = 2;
-            const int retryDelayMs = 500;
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
@@ -100,21 +72,15 @@ public class TcMonitorClient : ITcMonitorClient
                 {
                     _logger.LogDebug("Polling TC stats from {Url} (attempt {Attempt}/{Max})", url, attempt, maxAttempts);
 
-                    // INTENTIONAL: Using new HttpClient() instead of IHttpClientFactory.
-                    // The TC Monitor is a simple netcat-based server that doesn't play well
-                    // with connection pooling. See class-level remarks for full explanation.
-                    using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                    using var httpClient = _httpClientFactory.CreateClient("TcMonitor");
+                    httpClient.Timeout = TimeSpan.FromSeconds(5);
                     var response = await httpClient.GetFromJsonAsync<TcMonitorResponse>(url);
 
                     if (response != null)
                     {
-                        var interfaces = response.GetAllInterfaces();
-                        _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", interfaces.Count);
-
-                        // Cache successful response
+                        _logger.LogDebug("TC stats received: {InterfaceCount} interfaces", response.GetAllInterfaces().Count);
                         _cachedResponse = response;
                         _cacheTime = DateTime.UtcNow;
-
                         return response;
                     }
                 }
@@ -123,23 +89,24 @@ public class TcMonitorClient : ITcMonitorClient
                     _logger.LogDebug("TC monitor attempt {Attempt} failed: {Message}", attempt, ex.Message);
                     if (attempt < maxAttempts)
                     {
-                        await Task.Delay(retryDelayMs);
+                        await Task.Delay(500);
                         continue;
                     }
-                    _logger.LogWarning("Failed to reach TC monitor at {Url} after {Max} attempts: {Message}", url, maxAttempts, ex.Message);
+                    _logger.LogWarning("Failed to reach TC monitor at {Url}: {Message}", url, ex.Message);
                 }
                 catch (TaskCanceledException)
                 {
                     _logger.LogWarning("TC monitor request timed out for {Url}", url);
+                    break;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error polling TC monitor at {Url}", url);
+                    break;
                 }
             }
 
-            // On failure, return stale cached response if we have one
-            return _cachedResponse;
+            return _cachedResponse; // Return stale cache on failure
         }
         finally
         {
