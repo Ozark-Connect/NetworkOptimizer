@@ -1219,7 +1219,7 @@
     {
         try
         {
-            testHistory = await SpeedTestService.GetRecentResultsAsync(100);
+            testHistory = await SpeedTestService.GetRecentResultsAsync(1000);
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)

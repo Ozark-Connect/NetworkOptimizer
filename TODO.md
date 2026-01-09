@@ -23,6 +23,12 @@
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
 
+### Speed Test Map Time Range Filters
+- Add time range filter to speed test map (default: last 30 days)
+- Options: 7 days, 30 days, 90 days, 1 year, all time
+- Currently shows up to 1000 most recent results regardless of age
+- Allows focusing on recent coverage data vs historical trends
+
 ## Security Audit / PDF Report
 
 ### Printer/Scanner Audit Logic Consolidation

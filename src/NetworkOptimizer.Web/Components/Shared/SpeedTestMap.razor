@@ -63,11 +63,11 @@
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
-    private bool pendingInitialize = false;
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
     private int lastResultCount = 0;
+    private int? lastNewestResultId = null;
     private List<NetworkInfo>? _networks;
 
     // All tests with valid location data
@@ -156,10 +156,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Initialize map after render when we have data and DOM is ready
-        if (!mapInitialized && (firstRender && HasLocationData || pendingInitialize))
+        // Initialize map when we have location data and DOM is ready
+        if (!mapInitialized && HasLocationData)
         {
-            pendingInitialize = false;
             await InitializeMap();
         }
     }
@@ -167,18 +166,15 @@
     protected override async Task OnParametersSetAsync()
     {
         var currentCount = Results.Count();
+        var newestId = Results.FirstOrDefault()?.Id;
 
-        // If map not initialized but we now have location data, flag for init after render
-        if (!mapInitialized && HasLocationData)
-        {
-            pendingInitialize = true;
-            StateHasChanged(); // Trigger render so OnAfterRenderAsync runs
-        }
-        // Only update markers if results actually changed (new tests added)
-        else if (mapInitialized && currentCount != lastResultCount)
+        // Update markers if data changed (count or newest result ID)
+        if (mapInitialized && (currentCount != lastResultCount || newestId != lastNewestResultId))
         {
             lastResultCount = currentCount;
+            lastNewestResultId = newestId;
             await UpdateMarkers(fitBounds: false);
+            StateHasChanged();
         }
     }
 
@@ -291,15 +287,15 @@
                     }});
                     map.addLayer(clusterGroup);
 
-                    // Track current spider state
-                    var currentSpider = null;
+                    // Track switching state (currentSpider is initialized on mapData object below)
                     var switchingSpider = false;
 
                     // Fade out existing spider and set z-index on cluster click
                     clusterGroup.on('clusterclick', function(e) {{
-                        if (currentSpider) {{
+                        const mapData = window._speedTestMaps['{mapId}'];
+                        if (mapData.currentSpider) {{
                             switchingSpider = true;
-                            var markers = currentSpider.getAllChildMarkers();
+                            var markers = mapData.currentSpider.getAllChildMarkers();
                             markers.forEach(m => {{
                                 if (m._path) {{
                                     m._path.style.transition = 'opacity 0.2s ease-out';
@@ -316,7 +312,7 @@
                     }});
 
                     clusterGroup.on('spiderfied', function(e) {{
-                        currentSpider = e.cluster;
+                        window._speedTestMaps['{mapId}'].currentSpider = e.cluster;
                         switchingSpider = false;
                         // Disable clicks on the spiderfied cluster icon
                         if (e.cluster._icon) {{
@@ -343,7 +339,7 @@
                                 m._spiderLeg._path.style.pointerEvents = '';
                             }}
                         }});
-                        currentSpider = null;
+                        window._speedTestMaps['{mapId}'].currentSpider = null;
                         // Only reset z-index if not switching to a new spider
                         if (!switchingSpider) {{
                             map.getPane('overlayPane').style.zIndex = '';
@@ -352,8 +348,9 @@
 
                     // Use mousedown on container to fade spider when clicking outside
                     map.getContainer().addEventListener('mousedown', function(e) {{
-                        if (currentSpider) {{
-                            var markers = currentSpider.getAllChildMarkers();
+                        const mapData = window._speedTestMaps['{mapId}'];
+                        if (mapData.currentSpider) {{
+                            var markers = mapData.currentSpider.getAllChildMarkers();
                             // Check if click is on a spider element - if so, don't fade
                             var clickedOnSpider = markers.some(m =>
                                 e.target === m._path ||
@@ -379,7 +376,7 @@
                         }}
                     }}, true);
 
-                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup }};
+                    window._speedTestMaps['{mapId}'] = {{ map: map, clusterGroup: clusterGroup, currentSpider: null }};
                 }})();
             ");
 
@@ -393,8 +390,19 @@
             ");
             await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef);
 
+            // Verify the map was actually created (JS returns early if container not found)
+            var mapCreated = await JS.InvokeAsync<bool>("eval", $"!!(window._speedTestMaps && window._speedTestMaps['{mapId}'])");
+            if (!mapCreated)
+            {
+                // Trigger another render cycle to retry
+                await Task.Delay(50);
+                StateHasChanged();
+                return;
+            }
+
             mapInitialized = true;
             lastResultCount = Results.Count();
+            lastNewestResultId = Results.FirstOrDefault()?.Id;
             await UpdateMarkers(fitBounds: true);
         }
         catch (Exception ex)
@@ -411,6 +419,7 @@
         {
             var markers = FilteredResults.Select(r => new
             {
+                id = r.Id,
                 lat = r.Latitude!.Value,
                 lng = r.Longitude!.Value,
                 speed = (r.DownloadMbps + r.UploadMbps) / 2,
@@ -430,11 +439,32 @@
                     const map = mapData.map;
                     const clusterGroup = mapData.clusterGroup;
 
-                    // Clear existing markers
+                    // Save state before clearing (open popup, spiderfied cluster)
+                    let openPopupId = null;
+                    let spiderfiedMarkerIds = [];
+
+                    clusterGroup.eachLayer(layer => {{
+                        if (layer.isPopupOpen && layer.isPopupOpen()) {{
+                            openPopupId = layer.options.resultId;
+                        }}
+                    }});
+
+                    if (mapData.currentSpider) {{
+                        const childMarkers = mapData.currentSpider.getAllChildMarkers();
+                        childMarkers.forEach(m => {{
+                            spiderfiedMarkerIds.push(m.options.resultId);
+                            if (m.isPopupOpen && m.isPopupOpen()) {{
+                                openPopupId = m.options.resultId;
+                            }}
+                        }});
+                    }}
+
                     clusterGroup.clearLayers();
 
                     const markers = {markersJson};
                     const bounds = [];
+                    let markerToReopen = null;
+                    const markerMap = {{}};
 
                     markers.forEach(m => {{
                         const marker = L.circleMarker([m.lat, m.lng], {{
@@ -444,13 +474,50 @@
                             weight: 2,
                             opacity: 1,
                             fillOpacity: 0.8,
-                            speed: m.speed
+                            speed: m.speed,
+                            resultId: m.id
                         }});
 
                         marker.bindPopup(m.popup);
                         clusterGroup.addLayer(marker);
                         bounds.push([m.lat, m.lng]);
+                        markerMap[m.id] = marker;
+
+                        if (openPopupId && m.id === openPopupId) {{
+                            markerToReopen = marker;
+                        }}
                     }});
+
+                    // Restore spider and/or popup
+                    if (spiderfiedMarkerIds.length > 0) {{
+                        setTimeout(() => {{
+                            let clusterToSpiderfy = null;
+                            for (const id of spiderfiedMarkerIds) {{
+                                const marker = markerMap[id];
+                                if (marker) {{
+                                    const parent = clusterGroup.getVisibleParent(marker);
+                                    if (parent && parent !== marker && parent.spiderfy) {{
+                                        clusterToSpiderfy = parent;
+                                        break;
+                                    }}
+                                }}
+                            }}
+
+                            if (clusterToSpiderfy) {{
+                                clusterToSpiderfy.spiderfy();
+                                if (openPopupId) {{
+                                    setTimeout(() => {{
+                                        const marker = markerMap[openPopupId];
+                                        if (marker) marker.openPopup();
+                                    }}, 100);
+                                }}
+                            }} else if (markerToReopen) {{
+                                markerToReopen.openPopup();
+                            }}
+                        }}, 50);
+                    }} else if (markerToReopen) {{
+                        markerToReopen.openPopup();
+                    }}
 
                     if ({shouldFitBounds} && bounds.length > 0) {{
                         if (bounds.length === 1) {{
