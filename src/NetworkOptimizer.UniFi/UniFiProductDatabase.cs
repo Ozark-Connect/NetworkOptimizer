@@ -295,10 +295,8 @@ public static class UniFiProductDatabase
         { "USPRPSP", "USP-RPS" },
 
         // ----- Hardware Revision Codes (USWED/USWF series - map to best guess) -----
-        { "USWED72", "USW-Enterprise" },
-        { "USWED73", "USW-Enterprise" },
-        { "USWED74", "USW-Enterprise" },
-        { "USWED75", "USW-Enterprise" },
+        { "USWED72", "USW-Pro-HD-24-PoE" },
+        { "USWED73", "USW-Pro-HD-24" },
         { "USWF067", "USW-Pro" },
         { "USWF068", "USW-Pro" },
         { "USWF069", "USW-Pro" },
@@ -334,7 +332,7 @@ public static class UniFiProductDatabase
         { "G7IW", "U7-IW" },
         { "U7ENT", "U7-Enterprise" },
         { "U7MSH", "U7-Mesh" },
-        { "U7UKU", "U7-Ultra" },
+        { "U7UKU", "UK-Ultra" },
         { "UKPW", "U7-Outdoor" },
 
         // ----- Enterprise WiFi 7 (E7) Series -----
