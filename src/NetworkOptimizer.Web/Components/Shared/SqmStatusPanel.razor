@@ -1,6 +1,9 @@
 @using NetworkOptimizer.Web.Services
+@implements IDisposable
 @inject SqmService SqmService
 @inject GatewaySpeedTestService GatewayService
+@inject TcMonitorClient TcMonitorClient
+@inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 
 <div class="sqm-status-panel">
     @if (isLoading)
@@ -89,29 +92,46 @@
 </div>
 
 @code {
-    private SqmStatusData? statusData;
+    private TcMonitorResponse? tcMonitorData;
+    private List<TcInterfaceStats>? tcInterfaces;
     private bool isLoading = true;
     private bool isRefreshing = false;
-    private bool _forceRefresh = false;
     private string statusLabel = "";
     private string statusClass = "";
     private string? errorMessage;
     private bool needsGatewayConfig = false;
+    private DateTime? lastUpdate;
+
+    // Auto-refresh timer (60 seconds)
+    private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadStatus();
+
+        // Start auto-refresh timer
+        _refreshTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(async () =>
+            {
+                if (!isRefreshing && !needsGatewayConfig)
+                {
+                    await LoadStatus();
+                    StateHasChanged();
+                }
+            }),
+            null,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(60));
     }
 
     private async Task LoadStatus()
     {
-        isLoading = true;
         errorMessage = null;
         needsGatewayConfig = false;
 
         try
         {
-            // First check if gateway SSH is configured
+            // Get gateway host from settings (fast - just DB lookup)
             var gatewaySettings = await GatewayService.GetSettingsAsync();
 
             if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
@@ -120,30 +140,27 @@
                 statusClass = "not-configured";
                 errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
                 needsGatewayConfig = true;
+                isLoading = false;
                 return;
             }
 
-            // Try to get live TC stats (fast - just HTTP to TC Monitor)
-            // Uses cache if available (5 min)
-            statusData = await SqmService.GetSqmStatusAsync(forceRefresh: _forceRefresh);
+            // Poll TC Monitor directly (fast HTTP call, 2s timeout)
+            tcMonitorData = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
+            tcInterfaces = tcMonitorData?.GetAllInterfaces();
 
             // Determine status based on TC monitor response
-            if (statusData?.TcInterfaces?.Any() == true)
+            if (tcInterfaces?.Any() == true)
             {
                 statusLabel = "Active";
                 statusClass = "active";
-            }
-            else if (statusData?.Status == "Offline")
-            {
-                statusLabel = "Not Deployed";
-                statusClass = "offline";
-                errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                lastUpdate = tcMonitorData?.Timestamp;
             }
             else
             {
-                statusLabel = statusData?.Status ?? "Unknown";
-                statusClass = "warning";
-                errorMessage = statusData?.StatusMessage;
+                // TC Monitor not responding - SQM likely not deployed
+                statusLabel = "Not Deployed";
+                statusClass = "offline";
+                errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
             }
         }
         catch (Exception ex)
@@ -161,7 +178,6 @@
     private async Task RefreshStats()
     {
         isRefreshing = true;
-        _forceRefresh = true;  // Bypass cache on manual refresh
         StateHasChanged();
 
         try
@@ -171,8 +187,19 @@
         finally
         {
             isRefreshing = false;
-            _forceRefresh = false;
             StateHasChanged();
         }
+    }
+
+    // Helper property for template compatibility
+    private SqmStatusData? statusData => tcMonitorData != null ? new SqmStatusData
+    {
+        TcInterfaces = tcInterfaces,
+        TcMonitorTimestamp = tcMonitorData.Timestamp
+    } : null;
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
     }
 }

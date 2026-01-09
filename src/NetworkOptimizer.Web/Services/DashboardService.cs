@@ -14,20 +14,20 @@ public class DashboardService : IDashboardService
     private readonly UniFiConnectionService _connectionService;
     private readonly AuditService _auditService;
     private readonly GatewaySpeedTestService _gatewayService;
-    private readonly SqmService _sqmService;
+    private readonly TcMonitorClient _tcMonitorClient;
 
     public DashboardService(
         ILogger<DashboardService> logger,
         UniFiConnectionService connectionService,
         AuditService auditService,
         GatewaySpeedTestService gatewayService,
-        SqmService sqmService)
+        TcMonitorClient tcMonitorClient)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditService = auditService;
         _gatewayService = gatewayService;
-        _sqmService = sqmService;
+        _tcMonitorClient = tcMonitorClient;
     }
 
     /// <summary>
@@ -103,7 +103,7 @@ public class DashboardService : IDashboardService
             _logger.LogWarning(ex, "Failed to load audit summary");
         }
 
-        // Get SQM status (quick check - just TC monitor, no SSH)
+        // Get SQM status (quick check - just TC monitor HTTP poll, no SSH)
         try
         {
             var gatewaySettings = await _gatewayService.GetSettingsAsync();
@@ -113,9 +113,10 @@ public class DashboardService : IDashboardService
             }
             else
             {
-                // Try to get TC monitor status (this is fast - just HTTP)
-                var sqmData = await _sqmService.GetSqmStatusAsync();
-                data.SqmStatus = sqmData.Status;
+                // Poll TC Monitor directly (fast HTTP call, 2s timeout, no static cache)
+                var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
+                var interfaces = tcStats?.GetAllInterfaces();
+                data.SqmStatus = interfaces?.Any() == true ? "Active" : "Not Deployed";
             }
         }
         catch (Exception ex)
