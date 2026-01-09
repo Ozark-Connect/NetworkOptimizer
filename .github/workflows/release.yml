@@ -3,8 +3,6 @@ name: Release
 on:
   release:
     types: [published]
-  push:
-    tags: ['v*']
 
 env:
   REGISTRY: ghcr.io
