@@ -68,11 +68,6 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
-    [Parameter]
-    public EventCallback<int> OnDateRangeChanged { get; set; }
-
-    [Parameter]
-    public int SelectedDateRange { get; set; } = 720; // Default 30 days in hours
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
@@ -101,10 +96,26 @@
     };
     private int sliderValue = 6; // Default to 30 days (index 6)
 
-    // All tests with valid location data
-    private IEnumerable<Iperf3Result> LocationResults => Results
-        .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
-        .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
+    // All tests with valid location data, filtered by time slider
+    private IEnumerable<Iperf3Result> LocationResults
+    {
+        get
+        {
+            var results = Results
+                .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
+                .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
+
+            // Apply time filter from slider (0 = all time)
+            var hours = TimeBreakpoints[sliderValue].hours;
+            if (hours > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-hours);
+                results = results.Where(r => r.TestTime >= cutoff);
+            }
+
+            return results;
+        }
+    }
 
     // LAN = has valid L2 path AND has Wi-Fi signal (excludes wired clients)
     private IEnumerable<Iperf3Result> LanResults => LocationResults
@@ -167,8 +178,12 @@
 
     private async Task OnSliderChanged()
     {
-        var hours = TimeBreakpoints[sliderValue].hours;
-        await OnDateRangeChanged.InvokeAsync(hours);
+        // Time filter is applied internally via LocationResults property
+        // Just refresh the map markers with the new filter
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: true);
+        }
     }
 
     private async Task RefreshMap()
@@ -191,13 +206,6 @@
     {
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
-
-        // Sync slider with SelectedDateRange parameter (in hours)
-        var matchIndex = Array.FindIndex(TimeBreakpoints, t => t.hours == SelectedDateRange);
-        if (matchIndex >= 0)
-        {
-            sliderValue = matchIndex;
-        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -220,8 +228,7 @@
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
             await UpdateMarkers(fitBounds: false);
-            // Note: Don't call StateHasChanged() here - parameter changes already trigger re-render
-            // and extra StateHasChanged can cause unwanted scroll behavior
+            StateHasChanged();
         }
     }
 
