@@ -591,7 +591,7 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP/TCP port 53 to Internet for all VLANs (except gateway)",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway)",
                 RuleId = "DNS-LEAK-001",
                 ScoreImpact = 12
             });
