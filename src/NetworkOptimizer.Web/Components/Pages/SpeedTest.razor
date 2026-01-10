@@ -483,27 +483,30 @@
                         <span class="form-help">Enable for devices that don't have iperf3 running persistently</span>
                     </div>
 
-                    <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                        <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
-                        <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
-                    </div>
+                    @if (editingDevice.StartIperf3Server)
+                    {
+                        <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
+                            <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Username</label>
-                        <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
-                    </div>
+                        <div class="form-group">
+                            <label class="form-label">SSH Username</label>
+                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Password</label>
-                        <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
-                        <span class="form-help">Password is encrypted at rest</span>
-                    </div>
+                        <div class="form-group">
+                            <label class="form-label">SSH Password</label>
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
+                            <span class="form-help">Password is encrypted at rest</span>
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Private Key Path</label>
-                        <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
-                        <span class="form-help">Path to private key file on the server (e.g., /root/.ssh/id_rsa)</span>
-                    </div>
+                        <div class="form-group">
+                            <label class="form-label">SSH Private Key Path</label>
+                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
+                            <span class="form-help">Path to private key file on the server (e.g., /root/.ssh/id_rsa)</span>
+                        </div>
+                    }
 
                     <div class="action-buttons">
                         <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
