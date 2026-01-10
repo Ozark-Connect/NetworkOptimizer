@@ -86,6 +86,19 @@ public class FirewallRuleParser
         var predefinedNames = rules.Where(r => r.Predefined).Select(r => r.Name).Take(20).ToList();
         _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API ({Predefined} predefined: {Names})",
             rules.Count, predefinedCount, string.Join(", ", predefinedNames));
+
+        // Debug: log "Isolated Networks" rule details
+        var isolatedNetworksRule = rules.FirstOrDefault(r => r.Name == "Isolated Networks");
+        if (isolatedNetworksRule != null)
+        {
+            _logger.LogInformation("Isolated Networks rule: Action={Action}, SourceMatch={SourceMatch}, DestMatch={DestMatch}, SourceNets={SourceNets}, DestNets={DestNets}",
+                isolatedNetworksRule.ActionType,
+                isolatedNetworksRule.SourceMatchingTarget,
+                isolatedNetworksRule.DestinationMatchingTarget,
+                isolatedNetworksRule.SourceNetworkIds != null ? string.Join(",", isolatedNetworksRule.SourceNetworkIds) : "null",
+                isolatedNetworksRule.DestinationNetworkIds != null ? string.Join(",", isolatedNetworksRule.DestinationNetworkIds) : "null");
+        }
+
         return rules;
     }
 
