@@ -451,6 +451,28 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
+    public async Task Analyze_WithCombinedDns53AndDotBlockRule_DetectsBoth()
+    {
+        // A single rule with tcp_udp protocol and ports "53,853" blocks both DNS (UDP 53) and DoT (TCP 853)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS and DoT"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp_udp"",
+                ""destination"": { ""port"": ""53,853"" }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block DNS and DoT");
+        result.DotRuleName.Should().Be("Block DNS and DoT");
+    }
+
+    [Fact]
     public async Task Analyze_WithDisabledFirewallRule_IgnoresRule()
     {
         var firewall = JsonDocument.Parse(@"[

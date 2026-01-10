@@ -380,7 +380,7 @@ public class DnsSecurityAnalyzer
 
             // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP)
             // Valid protocols: udp, tcp_udp, all
-            if (isBlockAction && destPort?.Contains("53") == true && !destPort.Contains("853"))
+            if (isBlockAction && IncludesPort(destPort, "53"))
             {
                 if (IncludesUdp(protocol))
                 {
@@ -396,7 +396,7 @@ public class DnsSecurityAnalyzer
 
             // Check for DNS over TLS (port 853) blocking - must be TCP only
             // Valid protocols: tcp, tcp_udp, all
-            if (isBlockAction && destPort?.Contains("853") == true)
+            if (isBlockAction && IncludesPort(destPort, "853"))
             {
                 if (IncludesTcp(protocol))
                 {
@@ -413,7 +413,7 @@ public class DnsSecurityAnalyzer
             // Check for DoH/DoQ blocking (port 443 with web domains containing DNS providers)
             // DoH = TCP 443, DoQ = UDP 443 (QUIC)
             // Rules can block either or both depending on protocol setting
-            if (isBlockAction && destPort?.Contains("443") == true && matchingTarget == "WEB" && webDomains?.Count > 0)
+            if (isBlockAction && IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
@@ -474,6 +474,20 @@ public class DnsSecurityAnalyzer
             return true; // Default "all" includes TCP
 
         return protocol is "tcp" or "tcp_udp" or "all";
+    }
+
+    /// <summary>
+    /// Check if a port specification includes a specific port.
+    /// Handles comma-separated lists (e.g., "53,853") and single ports.
+    /// </summary>
+    private static bool IncludesPort(string? portSpec, string port)
+    {
+        if (string.IsNullOrEmpty(portSpec))
+            return false;
+
+        // Split by comma and check each port in the list
+        var ports = portSpec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return ports.Any(p => p == port);
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
