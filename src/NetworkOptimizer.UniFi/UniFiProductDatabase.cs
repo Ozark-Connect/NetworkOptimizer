@@ -13,8 +13,8 @@ namespace NetworkOptimizer.UniFi;
 public static class UniFiProductDatabase
 {
     /// <summary>
-    /// MIPS architecture devices that cannot run iperf3.
-    /// These devices use MIPS processors with incompatible binary loaders.
+    /// Devices that cannot run iperf3.
+    /// Note: Not all of these are MIPS architecture, but they are all known to not include iperf3.
     /// </summary>
     private static readonly HashSet<string> MipsDevices = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -46,13 +46,20 @@ public static class UniFiProductDatabase
         "US-8-60W",
         "US-8-150W",
 
-        // Older AC APs (MIPS-based)
+        // Enterprise/Aggregation switches (no iperf3)
+        "USW-24-PoE",
+        "USW-Enterprise-8-PoE",
+        "USW-Aggregation",
+
+        // AC APs (no iperf3)
         "UAP",
         "UAP-LR",
         "UAP-IW",
         "UAP-Outdoor",
         "UAP-Outdoor+",
         "UAP-Outdoor5",
+        "UAP-AC-Pro",
+        "UAP-AC-Lite",
     };
 
     /// <summary>
