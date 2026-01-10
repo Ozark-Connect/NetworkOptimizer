@@ -90,7 +90,8 @@ public class PortSecurityAnalyzer
         return new List<IWirelessAuditRule>
         {
             new WirelessIotVlanRule(),
-            new WirelessCameraVlanRule()
+            new WirelessCameraVlanRule(),
+            new VlanSubnetMismatchRule()
         };
     }
 
@@ -642,22 +643,36 @@ public class PortSecurityAnalyzer
             if (detection.Category == ClientDeviceCategory.Unknown)
                 continue;
 
-            // Determine effective network ID - prefer Protect API's connection_network_id if available
-            // This handles cases where Virtual Network Override is configured but the Network API
-            // reports the wrong network_id (observed in UniFi Network 10.0.162)
-            var effectiveNetworkId = client.NetworkId;
+            // Determine effective network ID using this priority:
+            // 1. Client's EffectiveNetworkId (handles virtual_network_override_id when override is enabled)
+            // 2. Protect API's connection_network_id (for UniFi Protect cameras)
+            // 3. Match by VLAN number if available
+            var effectiveNetworkId = client.EffectiveNetworkId;
+
+            // For UniFi Protect cameras, also check if Protect API has different network info
             if (_protectCameras?.TryGetNetworkId(client.Mac, out var protectNetworkId) == true)
             {
-                if (protectNetworkId != client.NetworkId)
+                if (protectNetworkId != effectiveNetworkId)
                 {
                     _logger.LogDebug("Network override for {Mac}: Network API reported {NetworkApiId}, using Protect API's {ProtectApiId}",
-                        client.Mac, client.NetworkId, protectNetworkId);
+                        client.Mac, effectiveNetworkId, protectNetworkId);
+                    effectiveNetworkId = protectNetworkId;
                 }
-                effectiveNetworkId = protectNetworkId;
             }
 
             // Lookup network by effective NetworkId
             var network = networks.FirstOrDefault(n => n.Id == effectiveNetworkId);
+
+            // If network not found by ID but we have a VLAN number, try matching by VLAN
+            if (network == null && client.Vlan.HasValue)
+            {
+                network = networks.FirstOrDefault(n => n.VlanId == client.Vlan.Value);
+                if (network != null)
+                {
+                    _logger.LogDebug("Matched client {Mac} to network {Network} by VLAN {Vlan}",
+                        client.Mac, network.Name, client.Vlan.Value);
+                }
+            }
 
             // Lookup AP info
             ApInfo? apInfo = null;

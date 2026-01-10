@@ -41,6 +41,30 @@ public class UniFiClientResponse
     [JsonPropertyName("network_id")]
     public string NetworkId { get; set; } = string.Empty;
 
+    // Virtual network override (client assigned to different VLAN than SSID's native network)
+    [JsonPropertyName("virtual_network_override_enabled")]
+    public bool VirtualNetworkOverrideEnabled { get; set; }
+
+    [JsonPropertyName("virtual_network_override_id")]
+    public string? VirtualNetworkOverrideId { get; set; }
+
+    /// <summary>
+    /// The actual VLAN number the client is assigned to.
+    /// This is the most reliable indicator of VLAN assignment.
+    /// </summary>
+    [JsonPropertyName("vlan")]
+    public int? Vlan { get; set; }
+
+    /// <summary>
+    /// Gets the effective network ID for this client.
+    /// Uses virtual_network_override_id when override is enabled, otherwise falls back to network_id.
+    /// </summary>
+    [JsonIgnore]
+    public string EffectiveNetworkId =>
+        VirtualNetworkOverrideEnabled && !string.IsNullOrEmpty(VirtualNetworkOverrideId)
+            ? VirtualNetworkOverrideId
+            : NetworkId;
+
     [JsonPropertyName("use_fixedip")]
     public bool UseFixedIp { get; set; }
 
