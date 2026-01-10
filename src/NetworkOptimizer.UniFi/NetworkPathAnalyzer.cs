@@ -45,7 +45,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const string RawDevicesCacheKey = "RawDevices";
 
     // Cache duration
-    private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
 
