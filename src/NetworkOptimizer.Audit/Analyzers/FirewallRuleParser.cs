@@ -82,25 +82,7 @@ public class FirewallRuleParser
                 rules.Add(parsed);
         }
 
-        var predefinedCount = rules.Count(r => r.Predefined);
-        var predefinedNames = rules.Where(r => r.Predefined).Select(r => r.Name).Take(20).ToList();
-        _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API ({Predefined} predefined: {Names})",
-            rules.Count, predefinedCount, string.Join(", ", predefinedNames));
-
-        // Debug: log "Isolated Networks" rule details
-        var isolatedNetworksRule = rules.FirstOrDefault(r => r.Name == "Isolated Networks");
-        if (isolatedNetworksRule != null)
-        {
-            _logger.LogInformation("Isolated Networks rule: Action={Action}, SourceMatch={SourceMatch}, DestMatch={DestMatch}, SourceNets={SourceNets}, DestNets={DestNets}, SourceIPs={SourceIPs}, DestIPs={DestIPs}",
-                isolatedNetworksRule.ActionType,
-                isolatedNetworksRule.SourceMatchingTarget,
-                isolatedNetworksRule.DestinationMatchingTarget,
-                isolatedNetworksRule.SourceNetworkIds != null ? string.Join(",", isolatedNetworksRule.SourceNetworkIds) : "null",
-                isolatedNetworksRule.DestinationNetworkIds != null ? string.Join(",", isolatedNetworksRule.DestinationNetworkIds) : "null",
-                isolatedNetworksRule.SourceIps != null ? string.Join(",", isolatedNetworksRule.SourceIps) : "null",
-                isolatedNetworksRule.DestinationIps != null ? string.Join(",", isolatedNetworksRule.DestinationIps) : "null");
-        }
-
+        _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API", rules.Count);
         return rules;
     }
 
