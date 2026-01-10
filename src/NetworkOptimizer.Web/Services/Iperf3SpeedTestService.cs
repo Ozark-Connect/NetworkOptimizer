@@ -88,7 +88,14 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     /// <summary>
     /// Check if iperf3 is available on a device (using device-specific credentials if configured)
     /// </summary>
-    public Task<(bool available, string version)> CheckIperf3AvailableAsync(DeviceSshConfiguration device) => _sshService.CheckToolAvailableAsync(device, "iperf3");
+    public Task<(bool available, string version)> CheckIperf3AvailableAsync(DeviceSshConfiguration device)
+    {
+        // Use custom binary path if configured, otherwise default to "iperf3"
+        var iperf3Bin = !string.IsNullOrWhiteSpace(device.Iperf3BinaryPath)
+            ? device.Iperf3BinaryPath
+            : "iperf3";
+        return _sshService.CheckToolAvailableAsync(device, iperf3Bin);
+    }
 
     /// <summary>
     /// Detect if the remote host is running Windows
