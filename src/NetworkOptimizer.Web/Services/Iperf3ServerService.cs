@@ -84,6 +84,7 @@ public class Iperf3ServerService : BackgroundService
         };
 
         _iperf3Process = new Process { StartInfo = startInfo };
+        var startTime = DateTime.UtcNow;
 
         // Buffer to accumulate JSON
         var jsonBuffer = new StringBuilder();
@@ -154,6 +155,22 @@ public class Iperf3ServerService : BackgroundService
         try
         {
             await _iperf3Process.WaitForExitAsync(stoppingToken);
+
+            var runtime = DateTime.UtcNow - startTime;
+            var exitCode = _iperf3Process.ExitCode;
+
+            if (runtime.TotalSeconds < 2)
+            {
+                _logger.LogWarning(
+                    "iperf3 server exited immediately (exit code {ExitCode}, ran for {Runtime:F1}s) - port {Port} may already be in use, will restart",
+                    exitCode, runtime.TotalSeconds, Iperf3Port);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "iperf3 server exited (exit code {ExitCode}, ran for {Runtime:F1}s), restarting",
+                    exitCode, runtime.TotalSeconds);
+            }
         }
         catch (OperationCanceledException)
         {
