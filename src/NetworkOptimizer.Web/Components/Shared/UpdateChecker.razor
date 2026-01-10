@@ -1,0 +1,62 @@
+@using System.Reflection
+@inject IJSRuntime JS
+
+@if (updateAvailable && !string.IsNullOrEmpty(latestVersion))
+{
+    <div class="connection-banner" style="background: linear-gradient(135deg, #1a3a2e 0%, #0d261e 100%); border-color: #2d5a45;">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: #2d8a5e; color: white;">⬆</span>
+            <div class="banner-text">
+                <strong style="color: #90EE90;">Update Available: v@(latestVersion)</strong>
+                <span style="color: #a8d5ba;">A new version of Network Optimizer is available.</span>
+            </div>
+            <a href="https://github.com/Ozark-Connect/NetworkOptimizer/blob/main/docker/DEPLOYMENT.md#upgrade-procedure" target="_blank" rel="noopener noreferrer" class="btn btn-outline-light" style="margin-right: 0.5rem;">Upgrade Guide</a>
+            <a href="@releaseUrl" target="_blank" rel="noopener noreferrer" class="btn btn-success">View Release</a>
+        </div>
+    </div>
+}
+
+@code {
+    private bool updateAvailable = false;
+    private string? latestVersion;
+    private string? releaseUrl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckForUpdateAsync();
+        }
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        try
+        {
+            var currentVersion = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion ?? "0.0.0";
+
+            var result = await JS.InvokeAsync<UpdateCheckResult?>("updateChecker.checkForUpdate", currentVersion);
+
+            if (result?.UpdateAvailable == true)
+            {
+                updateAvailable = true;
+                latestVersion = result.LatestVersion;
+                releaseUrl = result.ReleaseUrl ?? "https://github.com/Ozark-Connect/NetworkOptimizer/releases/latest";
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // Silently fail - update check is non-critical
+        }
+    }
+
+    private class UpdateCheckResult
+    {
+        public bool UpdateAvailable { get; set; }
+        public string? LatestVersion { get; set; }
+        public string? ReleaseUrl { get; set; }
+    }
+}
