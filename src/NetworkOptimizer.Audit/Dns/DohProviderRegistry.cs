@@ -91,6 +91,16 @@ public static class DohProviderRegistry
             SupportsFiltering = false,
             HasCustomConfig = false,
             Description = "LibreDNS - Privacy-focused"
+        },
+        ["ControlD"] = new DohProviderInfo
+        {
+            Name = "ControlD",
+            StampPrefix = "controld",
+            Hostnames = new[] { "controld.com", "dns.controld.com" },
+            DnsIps = new[] { "76.76." }, // Prefix match fallback for ControlD anycast
+            SupportsFiltering = true,
+            HasCustomConfig = true,
+            Description = "ControlD - Privacy-focused DNS with filtering"
         }
     };
 
