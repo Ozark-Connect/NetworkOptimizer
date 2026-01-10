@@ -478,15 +478,15 @@
         </div>
     </div>
 
-    <!-- 5. TC Monitor -->
+    <!-- 5. Adaptive SQM Monitor -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">TC Monitor</h2>
+            <h2 class="card-title">Adaptive SQM Monitor</h2>
             <span class="status-badge status-@tcMonitorStatus.ToLower()">@tcMonitorStatus</span>
         </div>
         <div class="card-body">
             <p class="section-description">
-                TC Monitor runs on your gateway and exposes SQM rates via HTTP. Deploy it from the SQM Manager page.
+                The Adaptive SQM Monitor runs on your gateway and exposes current SQM rates via HTTP for the dashboard. Deploy it from the SQM Manager page.
             </p>
 
             <div class="form-row">
@@ -1900,13 +1900,13 @@
             if (available)
             {
                 tcMonitorStatus = "Connected";
-                tcMonitorMessage = "TC Monitor is responding";
+                tcMonitorMessage = "Adaptive SQM Monitor is responding";
                 tcMonitorMessageClass = "success";
             }
             else
             {
                 tcMonitorStatus = "Offline";
-                tcMonitorMessage = error ?? "TC Monitor is not responding";
+                tcMonitorMessage = error ?? "Adaptive SQM Monitor is not responding";
                 tcMonitorMessageClass = "danger";
             }
         }
