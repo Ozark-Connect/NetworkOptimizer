@@ -728,7 +728,9 @@
     </div>
 
     <!-- Test Locations Map -->
-    <SpeedTestMap Results="testHistory" OnRefresh="LoadHistory" OnResultClick="ScrollToResult" />
+    <SpeedTestMap Results="testHistory"
+                  OnRefresh="LoadHistory"
+                  OnResultClick="ScrollToResult" />
 
     <!-- How it Works -->
     <div class="card">
@@ -1219,7 +1221,8 @@
     {
         try
         {
-            testHistory = await SpeedTestService.GetRecentResultsAsync(1000);
+            // Load all results (map handles its own time filtering)
+            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)

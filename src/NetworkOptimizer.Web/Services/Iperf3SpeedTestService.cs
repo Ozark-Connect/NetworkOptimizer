@@ -467,11 +467,11 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     /// <summary>
     /// Get recent speed test results
     /// </summary>
-    public async Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50)
+    public async Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int hours = 0)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-        return await repository.GetRecentIperf3ResultsAsync(count);
+        return await repository.GetRecentIperf3ResultsAsync(count, hours);
     }
 
     /// <summary>

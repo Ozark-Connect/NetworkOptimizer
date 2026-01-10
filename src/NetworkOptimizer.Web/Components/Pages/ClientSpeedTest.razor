@@ -286,7 +286,9 @@
 
     <!-- Test Locations Map -->
     <div id="coverage-map">
-        <SpeedTestMap Results="testHistory" OnRefresh="() => LoadHistory()" OnResultClick="ScrollToResult" />
+        <SpeedTestMap Results="testHistory"
+                      OnRefresh="() => LoadHistory()"
+                      OnResultClick="ScrollToResult" />
     </div>
 
     <!-- How it Works -->
@@ -701,7 +703,8 @@
 
         try
         {
-            testHistory = await ClientSpeedTestService.GetResultsAsync(100);
+            // Load all results (map handles its own time filtering)
+            testHistory = await ClientSpeedTestService.GetResultsAsync(count: 0);
             if (resetPage)
             {
                 historyPage = 1;

@@ -202,15 +202,31 @@ public class ClientSpeedTestService
     /// Get recent client speed test results (ClientToServer and BrowserToServer directions).
     /// Retries path analysis for results missing valid paths.
     /// </summary>
-    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50)
+    /// <param name="count">Maximum number of results (0 = no limit)</param>
+    /// <param name="hours">Filter to results within the last N hours (0 = all time)</param>
+    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var results = await db.Iperf3Results
+        var query = db.Iperf3Results
             .Where(r => r.Direction == SpeedTestDirection.ClientToServer
-                     || r.Direction == SpeedTestDirection.BrowserToServer)
-            .OrderByDescending(r => r.TestTime)
-            .Take(count)
-            .ToListAsync();
+                     || r.Direction == SpeedTestDirection.BrowserToServer);
+
+        // Apply date filter if specified
+        if (hours > 0)
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-hours);
+            query = query.Where(r => r.TestTime >= cutoff);
+        }
+
+        query = query.OrderByDescending(r => r.TestTime);
+
+        // Apply count limit if specified
+        if (count > 0)
+        {
+            query = query.Take(count);
+        }
+
+        var results = await query.ToListAsync();
 
         // Retry path analysis for recent results (last 30 min) without a valid path
         // Skip IPs that will never be in UniFi topology (Tailscale, external VPNs, etc.)
