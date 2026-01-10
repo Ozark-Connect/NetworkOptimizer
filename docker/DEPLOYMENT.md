@@ -33,10 +33,14 @@ sudo usermod -aG docker $USER
 # Log out and back in for group changes
 ```
 
+> **Choose a stable location:** Deploy to a permanent directory like `/opt/network-optimizer`. Avoid home directories or `/tmp` which may cause issues with permissions, cleanup, or migrations.
+
 **Option A: Pull Docker Image (Recommended)**
 
 ```bash
-mkdir network-optimizer && cd network-optimizer
+# Create directory in /opt (recommended)
+sudo mkdir -p /opt/network-optimizer && sudo chown $USER:$USER /opt/network-optimizer
+cd /opt/network-optimizer
 curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
@@ -47,7 +51,9 @@ docker compose up -d
 **Option B: Build from Source**
 
 ```bash
-git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+cd /opt  # or your preferred stable location
+sudo git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+sudo chown -R $USER:$USER NetworkOptimizer
 cd NetworkOptimizer/docker
 cp .env.example .env
 nano .env  # Set timezone and other options (optional)
@@ -199,6 +205,8 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 These detailed steps are for NAS deployment. For other deployment options, see the guides above.
 
 > **Note:** If `docker compose` doesn't work on older NAS firmware, try `docker-compose` (hyphenated).
+
+> **Choose a stable location:** Deploy to a permanent directory like `/volume1/docker/network-optimizer` (Synology) or equivalent. Avoid temporary locations that may be cleaned up or have permission issues.
 
 ### 1. Download Files
 
