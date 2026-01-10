@@ -413,12 +413,18 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 }
             }
 
+            // Perform path analysis first - this resolves hostname to IP and finds the client
+            await AnalyzePathAsync(result, host);
+
+            // Copy MAC from path analysis if available (needed for hostname-based tests)
+            if (string.IsNullOrEmpty(result.ClientMac) && !string.IsNullOrEmpty(result.PathAnalysis?.Path?.DestinationMac))
+            {
+                result.ClientMac = result.PathAnalysis.Path.DestinationMac;
+            }
+
             // Enrich with client info (MAC, name, Wi-Fi signal) if target is a UniFi client
             // Don't overwrite DeviceName (SSH tests have name from config), but do capture Wi-Fi/MAC
             await _connectionService.EnrichSpeedTestWithClientInfoAsync(result, setDeviceName: false, overwriteMac: false);
-
-            // Perform path analysis
-            await AnalyzePathAsync(result, host);
 
             // Save result to database
             await SaveResultAsync(result);

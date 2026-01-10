@@ -633,6 +633,13 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             var clients = await _client.GetClientsAsync();
             var client = clients?.FirstOrDefault(c => c.Ip == result.DeviceHost);
 
+            // If IP match failed, try matching by MAC (for hostname-based tests where MAC was set by path analysis)
+            if (client == null && !string.IsNullOrEmpty(result.ClientMac))
+            {
+                client = clients?.FirstOrDefault(c =>
+                    c.Mac.Equals(result.ClientMac, StringComparison.OrdinalIgnoreCase));
+            }
+
             if (client == null)
                 return;
 
