@@ -220,7 +220,8 @@
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
             await UpdateMarkers(fitBounds: false);
-            StateHasChanged();
+            // Note: Don't call StateHasChanged() here - parameter changes already trigger re-render
+            // and extra StateHasChanged can cause unwanted scroll behavior
         }
     }
 
