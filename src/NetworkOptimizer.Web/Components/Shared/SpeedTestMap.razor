@@ -73,6 +73,7 @@
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
     private bool userHasZoomed = false; // Track if user manually zoomed/panned
+    private bool initialSetupComplete = false; // Ignore zoom events during initial setup
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
@@ -474,6 +475,10 @@
             lastResultCount = Results.Count();
             lastNewestResultId = Results.FirstOrDefault()?.Id;
             await UpdateMarkers(fitBounds: true);
+
+            // Allow time for initial fitBounds animation to complete before tracking user interactions
+            await Task.Delay(500);
+            initialSetupComplete = true;
         }
         catch (Exception ex)
         {
@@ -778,7 +783,11 @@
     [JSInvokable]
     public void OnUserMapInteraction()
     {
-        userHasZoomed = true;
+        // Only track user interactions after initial setup is complete
+        if (initialSetupComplete)
+        {
+            userHasZoomed = true;
+        }
     }
 
     public void Dispose()
