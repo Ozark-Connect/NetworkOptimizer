@@ -132,4 +132,11 @@ public class NetworkInfo
     /// Whether internet access is enabled for this network
     /// </summary>
     public bool InternetAccessEnabled { get; init; }
+
+    /// <summary>
+    /// Whether this is an official UniFi Guest network (purpose="guest" in API).
+    /// These networks have implicit isolation at the switch/AP level that doesn't
+    /// appear in firewall rules, so we skip firewall isolation checks for them.
+    /// </summary>
+    public bool IsUniFiGuestNetwork { get; init; }
 }
