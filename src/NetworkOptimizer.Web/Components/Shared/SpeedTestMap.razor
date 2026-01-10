@@ -13,13 +13,6 @@
         <div class="card-header">
             <h2 class="card-title">Speed / Coverage Map</h2>
             <div class="map-filters">
-                <select class="form-select form-select-sm map-date-filter" @bind="SelectedDateRange" @bind:after="HandleDateRangeChanged">
-                    <option value="7">Last 7 days</option>
-                    <option value="30">Last 30 days</option>
-                    <option value="90">Last 90 days</option>
-                    <option value="365">Last year</option>
-                    <option value="0">All time</option>
-                </select>
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
                     LAN (@LanCount)
@@ -46,7 +39,13 @@
             </div>
         </div>
         <div class="card-body">
-            <div id="@mapId" class="speed-test-map"></div>
+            <div class="map-container">
+                <div id="@mapId" class="speed-test-map"></div>
+                <div class="map-time-slider">
+                    <input type="range" min="0" max="8" step="1" @bind="sliderValue" @bind:after="OnSliderChanged" />
+                    <span class="time-label">@GetTimeLabel()</span>
+                </div>
+            </div>
             <div class="map-legend">
                 <span class="legend-item"><span class="legend-dot" style="background: #ef4444;"></span>&lt;50 Mbps</span>
                 <span class="legend-item"><span class="legend-dot" style="background: #facc15;"></span>50-200</span>
@@ -82,6 +81,21 @@
     private int lastResultCount = 0;
     private int? lastNewestResultId = null;
     private List<NetworkInfo>? _networks;
+
+    // Time slider: log scale breakpoints (slider value -> days, 0 = all time)
+    private static readonly (int days, string label)[] TimeBreakpoints = new[]
+    {
+        (1, "24h"),        // 0
+        (3, "3 days"),     // 1
+        (7, "1 week"),     // 2
+        (14, "2 weeks"),   // 3
+        (30, "30 days"),   // 4
+        (90, "90 days"),   // 5
+        (180, "6 months"), // 6
+        (365, "1 year"),   // 7
+        (0, "All time")    // 8
+    };
+    private int sliderValue = 4; // Default to 30 days (index 4)
 
     // All tests with valid location data
     private IEnumerable<Iperf3Result> LocationResults => Results
@@ -145,9 +159,12 @@
         }
     }
 
-    private async Task HandleDateRangeChanged()
+    private string GetTimeLabel() => TimeBreakpoints[sliderValue].label;
+
+    private async Task OnSliderChanged()
     {
-        await OnDateRangeChanged.InvokeAsync(SelectedDateRange);
+        var days = TimeBreakpoints[sliderValue].days;
+        await OnDateRangeChanged.InvokeAsync(days);
     }
 
     private async Task RefreshMap()
@@ -170,6 +187,13 @@
     {
         // Load networks for VPN detection
         _networks = await ConnectionService.GetNetworksAsync();
+
+        // Sync slider with SelectedDateRange parameter
+        var matchIndex = Array.FindIndex(TimeBreakpoints, t => t.days == SelectedDateRange);
+        if (matchIndex >= 0)
+        {
+            sliderValue = matchIndex;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -747,19 +771,60 @@
         align-items: center;
     }
 
-    .map-date-filter {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.8rem;
-        border-radius: 4px;
-        border: 1px solid var(--border-color, #444);
-        background: var(--bg-secondary, #2d2d2d);
-        color: var(--text-primary, #fff);
+    .map-container {
+        position: relative;
+    }
+
+    .map-time-slider {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(30, 30, 30, 0.9);
+        padding: 0.4rem 0.75rem;
+        border-radius: 6px;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .map-time-slider input[type="range"] {
+        width: 120px;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: linear-gradient(to right, #3b82f6, #60a5fa);
+        border-radius: 2px;
         cursor: pointer;
     }
 
-    .map-date-filter:focus {
-        outline: none;
-        border-color: var(--primary-color, #3b82f6);
+    .map-time-slider input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .map-time-slider input[type="range"]::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .map-time-slider .time-label {
+        font-size: 0.75rem;
+        color: var(--text-primary, #fff);
+        white-space: nowrap;
+        min-width: 60px;
     }
 
     .map-action-btn {
