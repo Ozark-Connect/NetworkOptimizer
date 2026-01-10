@@ -318,14 +318,16 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Check for missing inter-VLAN isolation rules.
     /// Networks with NetworkIsolationEnabled are already isolated by the system "Isolated Networks" rule.
+    /// UniFi Guest networks (purpose="guest") have implicit isolation at switch/AP level.
     /// </summary>
     public List<AuditIssue> CheckInterVlanIsolation(List<FirewallRule> rules, List<NetworkInfo> networks)
     {
         var issues = new List<AuditIssue>();
 
         // Find networks by purpose (only those without system isolation enabled need manual firewall rules)
+        // UniFi Guest networks have implicit isolation at switch/AP level, so skip them too
         var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
-        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled).ToList();
+        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
         var securityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && !n.NetworkIsolationEnabled).ToList();
 
         // Trusted networks that untrusted networks should be isolated FROM

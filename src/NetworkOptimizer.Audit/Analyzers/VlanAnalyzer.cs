@@ -115,10 +115,15 @@ public class VlanAnalyzer
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
         var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
         var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
+
+        // Check if this is an official UniFi Guest network (has implicit isolation at switch/AP level)
+        var isUniFiGuestNetwork = purposeStr?.Equals("guest", StringComparison.OrdinalIgnoreCase) == true
+            || network.GetBoolOrDefault("is_guest");
+
         var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
 
-        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}",
-            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}, UniFiGuest: {UniFiGuest}",
+            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled, isUniFiGuestNetwork);
 
         var rawSubnet = network.GetStringOrNull("ip_subnet");
 
@@ -147,7 +152,8 @@ public class VlanAnalyzer
             DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
             DhcpEnabled = dhcpEnabled,
             NetworkIsolationEnabled = networkIsolationEnabled,
-            InternetAccessEnabled = internetAccessEnabled
+            InternetAccessEnabled = internetAccessEnabled,
+            IsUniFiGuestNetwork = isUniFiGuestNetwork
         };
     }
 
