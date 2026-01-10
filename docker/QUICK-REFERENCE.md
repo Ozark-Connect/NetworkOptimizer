@@ -7,10 +7,10 @@
 **Linux / Windows:**
 ```bash
 mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 **macOS:**

@@ -80,10 +80,10 @@ Docker Desktop on macOS and Windows adds virtualization overhead that limits net
 
 ```bash
 mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 
 # Check logs for the auto-generated admin password
 docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
