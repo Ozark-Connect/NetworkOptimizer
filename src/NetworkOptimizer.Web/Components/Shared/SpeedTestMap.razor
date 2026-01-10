@@ -72,6 +72,7 @@
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
+    private bool userHasZoomed = false; // Track if user manually zoomed/panned
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
@@ -179,10 +180,10 @@
     private async Task OnSliderChanged()
     {
         // Time filter is applied internally via LocationResults property
-        // Just refresh the map markers with the new filter
+        // Only fit bounds if user hasn't manually zoomed/panned
         if (mapInitialized)
         {
-            await UpdateMarkers(fitBounds: true);
+            await UpdateMarkers(fitBounds: !userHasZoomed);
         }
     }
 
@@ -198,6 +199,7 @@
     {
         if (mapInitialized)
         {
+            userHasZoomed = false; // Reset so slider will auto-fit again
             await UpdateMarkers(fitBounds: true);
         }
     }
@@ -434,15 +436,28 @@
                 }})();
             ");
 
-            // Register click handler with .NET callback
-            await JS.InvokeVoidAsync("eval", @"
-                window._registerSpeedTestMapCallback = function(dotNetRef) {
-                    window._speedTestMapClick = function(id) {
+            // Register click handler and zoom/drag listeners with .NET callback
+            await JS.InvokeVoidAsync("eval", $@"
+                window._registerSpeedTestMapCallback = function(dotNetRef, mapId) {{
+                    window._speedTestMapClick = function(id) {{
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
-                    };
-                };
+                    }};
+
+                    // Track user zoom/drag interactions
+                    var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                    if (mapData && mapData.map) {{
+                        var programmaticMove = false;
+                        mapData.setProgrammaticMove = function(val) {{ programmaticMove = val; }};
+
+                        mapData.map.on('zoomend dragend', function() {{
+                            if (!programmaticMove) {{
+                                dotNetRef.invokeMethodAsync('OnUserMapInteraction');
+                            }}
+                        }});
+                    }}
+                }};
             ");
-            await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef);
+            await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef, mapId);
 
             // Verify the map was actually created (JS returns early if container not found)
             var mapCreated = await JS.InvokeAsync<bool>("eval", $"!!(window._speedTestMaps && window._speedTestMaps['{mapId}'])");
@@ -574,11 +589,17 @@
                     }}
 
                     if ({shouldFitBounds} && bounds.length > 0) {{
+                        // Mark as programmatic so zoom/drag listeners don't fire
+                        if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
                         if (bounds.length === 1) {{
                             map.setView(bounds[0], 18);
                         }} else {{
                             map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 22 }});
                         }}
+                        // Reset after a short delay (after zoomend fires)
+                        setTimeout(() => {{
+                            if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(false);
+                        }}, 300);
                     }}
 
                     setTimeout(() => map.invalidateSize(), 100);
@@ -751,6 +772,12 @@
         {
             await OnResultClick.InvokeAsync(resultId);
         }
+    }
+
+    [JSInvokable]
+    public void OnUserMapInteraction()
+    {
+        userHasZoomed = true;
     }
 
     public void Dispose()
