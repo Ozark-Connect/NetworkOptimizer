@@ -1,0 +1,70 @@
+services:
+  network-optimizer:
+    image: ghcr.io/ozark-connect/network-optimizer:latest
+    container_name: network-optimizer
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/app/data              # SQLite, configs, license
+      - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment
+      - ./logs:/app/logs              # Application logs
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      # Bind to localhost only (for reverse proxy) or all interfaces (direct access)
+      - BIND_LOCALHOST_ONLY=${BIND_LOCALHOST_ONLY:-false}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - DEMO_MODE_MAPPINGS=${DEMO_MODE_MAPPINGS:-}
+      # Host IP/name for path analysis and CORS (required for client speed tests)
+      - HOST_IP=${HOST_IP:-}
+      - HOST_NAME=${HOST_NAME:-}
+      # Reverse proxy hostname (e.g., optimizer.example.com) - overrides HOST_NAME for API URLs
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      # OpenSpeedTest configuration (for UI display and CORS)
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      # iperf3 server mode - enable to accept client-initiated speed tests on port 5201
+      - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
+      # Logging (Trace, Debug, Information, Warning, Error, Critical)
+      - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
+      - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
+      # Point to existing InfluxDB if desired (optional)
+      # - INFLUXDB_URL=http://localhost:8086
+      # - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      # - INFLUXDB_ORG=${INFLUXDB_ORG:-network-optimizer}
+      # - INFLUXDB_BUCKET=${INFLUXDB_BUCKET:-network_optimizer}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Network Optimizer Speed Test - customized OpenSpeedTest that sends results to Network Optimizer
+  # Requires HOST_IP or HOST_NAME to be set in .env for result reporting
+  network-optimizer-speedtest:
+    image: ghcr.io/ozark-connect/speedtest:latest
+    container_name: network-optimizer-speedtest
+    restart: unless-stopped
+    ports:
+      - "${OPENSPEEDTEST_PORT:-3005}:3000"
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      # For URL construction and host enforcement redirect
+      - HOST_NAME=${HOST_NAME:-}
+      - HOST_IP=${HOST_IP:-}
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      # For result reporting URL
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Production config - pre-built images from GHCR, host network mode
+# For local dev with build from source, use docker-compose.yml

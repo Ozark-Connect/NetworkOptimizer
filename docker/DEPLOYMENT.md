@@ -37,11 +37,11 @@ sudo usermod -aG docker $USER
 
 ```bash
 mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
 nano .env  # Set timezone and other options (optional)
-docker compose up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 **Option B: Build from Source**
@@ -202,7 +202,7 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 
 ```bash
 mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 ```
 
