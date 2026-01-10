@@ -82,7 +82,10 @@ public class FirewallRuleParser
                 rules.Add(parsed);
         }
 
-        _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API", rules.Count);
+        var predefinedCount = rules.Count(r => r.Predefined);
+        var predefinedNames = rules.Where(r => r.Predefined).Select(r => r.Name).Take(20).ToList();
+        _logger.LogInformation("Extracted {RuleCount} firewall rules from policies API ({Predefined} predefined: {Names})",
+            rules.Count, predefinedCount, string.Join(", ", predefinedNames));
         return rules;
     }
 
