@@ -99,27 +99,29 @@
                 <!-- iperf3 Option -->
                 <div class="test-option">
                     <div class="test-option-header">
-                        <h3>iperf3 Client</h3>
+                        <h3>iperf3 to Server</h3>
                         <span class="badge badge-secondary">Advanced</span>
                     </div>
-                    <p>Use the iperf3 command-line tool for precise measurements.</p>
+                    <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
 
                     @if (iperf3ServerEnabled)
                     {
                         <div class="code-block">
                             <code>
-                                <span class="code-comment"># Test upload speed (client to server, 4 streams)</span><br />
+                                <span class="code-comment"># Run from another device (laptop, phone, etc.) to test LAN speed</span><br />
+                                <br />
+                                <span class="code-comment"># Test upload speed (your device to this server, 4 streams)</span><br />
                                 iperf3 -c @serverHost -P 4<br />
                                 <br />
-                                <span class="code-comment"># Test download speed (server to client, 4 streams)</span><br />
+                                <span class="code-comment"># Test download speed (this server to your device, 4 streams)</span><br />
                                 iperf3 -c @serverHost -P 4 -R<br />
                                 <br />
-                                <span class="code-comment"># Full bidirectional test (runs both directions simultaneously)</span><br />
+                                <span class="code-comment"># OR full bidirectional test (runs both directions simultaneously)</span><br />
                                 iperf3 -c @serverHost -P 4 --bidir
                             </code>
                         </div>
                         <div class="form-help install-help">
-                            <div class="install-header">Install iperf3:</div>
+                            <div class="install-header">Install iperf3 on client device:</div>
                             <div class="install-item"><code>sudo apt install iperf3</code> <span class="text-muted">(Linux)</span></div>
                             <div class="install-item"><code>brew install iperf3</code> <span class="text-muted">(Mac)</span></div>
                             <div class="install-item"><a href="https://iperf.fr/iperf-download.php" target="_blank">iperf.fr</a> <span class="text-muted">(Windows)</span></div>
@@ -284,7 +286,9 @@
 
     <!-- Test Locations Map -->
     <div id="coverage-map">
-        <SpeedTestMap Results="testHistory" OnRefresh="() => LoadHistory()" OnResultClick="ScrollToResult" />
+        <SpeedTestMap Results="testHistory"
+                      OnRefresh="() => LoadHistory()"
+                      OnResultClick="ScrollToResult" />
     </div>
 
     <!-- How it Works -->
@@ -302,9 +306,9 @@
                     <li>Device is identified by IP address and matched to UniFi client list</li>
                 </ol>
 
-                <h4 style="margin-top: 1.5rem;">iperf3 Client</h4>
+                <h4 style="margin-top: 1.5rem;">iperf3 to Server</h4>
                 <ol>
-                    <li>Install iperf3 on your device</li>
+                    <li>Install iperf3 on another device (laptop, phone, etc.)</li>
                     <li>Run the command to connect to this server on port 5201</li>
                     <li>Server automatically captures and records results</li>
                     <li>Device is identified by the connecting IP address</li>
@@ -699,7 +703,8 @@
 
         try
         {
-            testHistory = await ClientSpeedTestService.GetResultsAsync(100);
+            // Load all results (map handles its own time filtering)
+            testHistory = await ClientSpeedTestService.GetResultsAsync(count: 0);
             if (resetPage)
             {
                 historyPage = 1;

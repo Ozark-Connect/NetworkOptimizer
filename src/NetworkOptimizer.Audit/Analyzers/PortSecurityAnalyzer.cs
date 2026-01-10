@@ -7,6 +7,7 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
+using ProtectCameraCollection = NetworkOptimizer.Core.Models.ProtectCameraCollection;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -20,11 +21,26 @@ public class PortSecurityAnalyzer
     private readonly List<IAuditRule> _rules;
     private readonly List<IWirelessAuditRule> _wirelessRules;
     private readonly DeviceTypeDetectionService? _detectionService;
+    private ProtectCameraCollection? _protectCameras;
 
     /// <summary>
     /// The device type detection service used by this analyzer
     /// </summary>
     public DeviceTypeDetectionService? DetectionService => _detectionService;
+
+    /// <summary>
+    /// Set the Protect camera collection for network ID override.
+    /// When a wireless client matches a Protect device, the Protect API's connection_network_id
+    /// will be used instead of the Network API's network_id for VLAN determination.
+    /// </summary>
+    public void SetProtectCameras(ProtectCameraCollection? protectCameras)
+    {
+        _protectCameras = protectCameras;
+        if (protectCameras != null && protectCameras.Count > 0)
+        {
+            _logger.LogDebug("PortSecurityAnalyzer: Protect camera collection set with {Count} devices for network override", protectCameras.Count);
+        }
+    }
 
     public PortSecurityAnalyzer(ILogger<PortSecurityAnalyzer> logger)
         : this(logger, null)
@@ -74,7 +90,8 @@ public class PortSecurityAnalyzer
         return new List<IWirelessAuditRule>
         {
             new WirelessIotVlanRule(),
-            new WirelessCameraVlanRule()
+            new WirelessCameraVlanRule(),
+            new VlanSubnetMismatchRule()
         };
     }
 
@@ -626,8 +643,36 @@ public class PortSecurityAnalyzer
             if (detection.Category == ClientDeviceCategory.Unknown)
                 continue;
 
-            // Lookup network by client's NetworkId
-            var network = networks.FirstOrDefault(n => n.Id == client.NetworkId);
+            // Determine effective network ID using this priority:
+            // 1. Client's EffectiveNetworkId (handles virtual_network_override_id when override is enabled)
+            // 2. Protect API's connection_network_id (for UniFi Protect cameras)
+            // 3. Match by VLAN number if available
+            var effectiveNetworkId = client.EffectiveNetworkId;
+
+            // For UniFi Protect cameras, also check if Protect API has different network info
+            if (_protectCameras?.TryGetNetworkId(client.Mac, out var protectNetworkId) == true)
+            {
+                if (protectNetworkId != effectiveNetworkId)
+                {
+                    _logger.LogDebug("Network override for {Mac}: Network API reported {NetworkApiId}, using Protect API's {ProtectApiId}",
+                        client.Mac, effectiveNetworkId, protectNetworkId);
+                    effectiveNetworkId = protectNetworkId;
+                }
+            }
+
+            // Lookup network by effective NetworkId
+            var network = networks.FirstOrDefault(n => n.Id == effectiveNetworkId);
+
+            // If network not found by ID but we have a VLAN number, try matching by VLAN
+            if (network == null && client.Vlan.HasValue)
+            {
+                network = networks.FirstOrDefault(n => n.VlanId == client.Vlan.Value);
+                if (network != null)
+                {
+                    _logger.LogDebug("Matched client {Mac} to network {Network} by VLAN {Vlan}",
+                        client.Mac, network.Name, client.Vlan.Value);
+                }
+            }
 
             // Lookup AP info
             ApInfo? apInfo = null;

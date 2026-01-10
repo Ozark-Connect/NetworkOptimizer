@@ -16,10 +16,17 @@ public sealed record ProtectCamera
     public required string Name { get; init; }
 
     /// <summary>
+    /// Network ID from the Protect API (connection_network_id).
+    /// This is the authoritative network assignment for Protect devices,
+    /// which may differ from the Network API's network_id when Virtual Network Override is used.
+    /// </summary>
+    public string? ConnectionNetworkId { get; init; }
+
+    /// <summary>
     /// Create a ProtectCamera from MAC and name
     /// </summary>
-    public static ProtectCamera Create(string mac, string name)
-        => new() { Mac = mac.ToLowerInvariant(), Name = name };
+    public static ProtectCamera Create(string mac, string name, string? connectionNetworkId = null)
+        => new() { Mac = mac.ToLowerInvariant(), Name = name, ConnectionNetworkId = connectionNetworkId };
 }
 
 /// <summary>
@@ -48,6 +55,14 @@ public sealed class ProtectCameraCollection
     public void Add(string mac, string name)
     {
         Add(ProtectCamera.Create(mac, name));
+    }
+
+    /// <summary>
+    /// Add a camera by MAC, name, and connection network ID
+    /// </summary>
+    public void Add(string mac, string name, string? connectionNetworkId)
+    {
+        Add(ProtectCamera.Create(mac, name, connectionNetworkId));
     }
 
     /// <summary>
@@ -84,6 +99,24 @@ public sealed class ProtectCameraCollection
     {
         TryGetName(mac, out var name);
         return name;
+    }
+
+    /// <summary>
+    /// Try to get the connection network ID for a MAC address.
+    /// This is the authoritative network from the Protect API.
+    /// </summary>
+    public bool TryGetNetworkId(string? mac, out string? networkId)
+    {
+        networkId = null;
+        if (string.IsNullOrEmpty(mac))
+            return false;
+
+        if (_cameras.TryGetValue(mac, out var camera))
+        {
+            networkId = camera.ConnectionNetworkId;
+            return !string.IsNullOrEmpty(networkId);
+        }
+        return false;
     }
 
     /// <summary>

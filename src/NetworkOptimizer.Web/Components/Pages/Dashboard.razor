@@ -37,12 +37,14 @@
             <span class="banner-icon">!</span>
             <div class="banner-text">
                 <strong>Not Connected</strong>
-                <span>Connect to your UniFi controller to view real network data.</span>
+                <span>Connect to your UniFi Console (Controller) to view network data.</span>
             </div>
             <a href="/settings" class="btn btn-primary">Connect Now</a>
         </div>
     </div>
 }
+
+<NetworkOptimizer.Web.Components.Shared.UpdateChecker />
 
 <div class="dashboard-grid">
     <!-- Quick Stats -->
@@ -272,7 +274,7 @@
                 else if (devices.Count == 0)
                 {
                     <div class="empty-state">
-                        <p>No devices found. Connect to your UniFi controller to see devices.</p>
+                        <p>No devices found. Connect to your UniFi Console to see devices.</p>
                     </div>
                 }
                 else

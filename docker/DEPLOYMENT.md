@@ -33,11 +33,15 @@ sudo usermod -aG docker $USER
 # Log out and back in for group changes
 ```
 
+> **Choose a stable location:** Deploy to a permanent directory like `/opt/network-optimizer`. Avoid home directories or `/tmp` which may cause issues with permissions, cleanup, or migrations.
+
 **Option A: Pull Docker Image (Recommended)**
 
 ```bash
-mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.yml
+# Create directory in /opt (recommended)
+sudo mkdir -p /opt/network-optimizer && sudo chown $USER: /opt/network-optimizer
+cd /opt/network-optimizer
+curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 cp .env.example .env
 nano .env  # Set timezone and other options (optional)
@@ -47,7 +51,9 @@ docker compose up -d
 **Option B: Build from Source**
 
 ```bash
-git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+cd /opt  # or your preferred stable location
+sudo git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+sudo chown -R $USER: NetworkOptimizer
 cd NetworkOptimizer/docker
 cp .env.example .env
 nano .env  # Set timezone and other options (optional)
@@ -194,7 +200,13 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 - [ ] SSL certificates ready (if using HTTPS)
 - [ ] SSH enabled on UniFi devices (required for SQM and LAN speed testing, see below)
 
-## Installation Steps
+## Installation Steps (NAS)
+
+These detailed steps are for NAS deployment. For other deployment options, see the guides above.
+
+> **Note:** If `docker compose` doesn't work on older NAS firmware, try `docker-compose` (hyphenated).
+
+> **Choose a stable location:** Deploy to a permanent directory like `/volume1/docker/network-optimizer` (Synology) or equivalent. Avoid temporary locations that may be cleaned up or have permission issues.
 
 ### 1. Download Files
 
@@ -202,7 +214,7 @@ See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
 
 ```bash
 mkdir network-optimizer && cd network-optimizer
-curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
 curl -O https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/.env.example
 ```
 
@@ -241,17 +253,17 @@ Optionally, set `APP_PASSWORD` in `.env` if you want to configure a password bef
 ### 3. Deploy Stack
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 4. Verify Deployment
 
 ```bash
 # Check service health
-docker-compose ps
+docker compose ps
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Test health endpoint
 curl http://localhost:8042/api/health
@@ -402,13 +414,13 @@ Add to crontab:
 
 ```bash
 # Stop services
-docker-compose down
+docker compose down
 
 # Restore data
 tar xzf /backups/network-optimizer/data-20240101-020000.tar.gz -C /path/to/docker/
 
 # Start services
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Monitoring and Alerting
@@ -418,7 +430,7 @@ docker-compose up -d
 Use Docker healthchecks:
 ```bash
 # Check all services
-watch docker-compose ps
+watch docker compose ps
 
 # Monitor resource usage
 docker stats
@@ -470,7 +482,7 @@ services:
 
 Apply with:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Logging Configuration

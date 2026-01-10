@@ -22,15 +22,15 @@
 </div>
 
 <div class="settings-container">
-    <!-- 1. UniFi Controller Connection -->
+    <!-- 1. UniFi Console Connection -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">UniFi Controller Connection</h2>
+            <h2 class="card-title">UniFi Console (Controller) Connection</h2>
             <span class="status-badge status-@controllerStatus.ToLower()">@controllerStatus</span>
         </div>
         <div class="card-body">
             <div class="form-group">
-                <label class="form-label">Controller URL</label>
+                <label class="form-label">Console URL</label>
                 <input type="text" class="form-control" @bind="controllerUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
                 <small class="form-help">UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted Network Server. Use local-only credentials for security.</small>
             </div>
@@ -48,7 +48,7 @@
             <div class="form-group">
                 <label class="form-label">Site</label>
                 <input type="text" class="form-control" @bind="controllerSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                <small class="form-help">Usually "default" for local UniFi OS devices</small>
+                <small class="form-help">Leave as "default" for local UniFi OS devices, usually only needs to be set for MSPs running UniFi OS Server.</small>
             </div>
 
             <div class="form-group">
@@ -63,7 +63,7 @@
                     <input type="checkbox" @bind="ignoreControllerSSLErrors" />
                     <span>Ignore SSL certificate errors</span>
                 </label>
-                <small class="form-help">Enable this for UniFi controllers with self-signed certificates (default)</small>
+                <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
             </div>
 
             <div class="action-buttons">
@@ -106,7 +106,7 @@
             <details class="setup-guide" open="@(!ConnectionService.IsConnected)">
                 <summary>How to Create a UniFi Local Account</summary>
                 <div class="setup-guide-content">
-                    <p>Network Optimizer requires a <strong>Local Access Only</strong> account on your UniFi controller. Ubiquiti SSO accounts will not work.</p>
+                    <p>Network Optimizer requires a <strong>Local Access Only</strong> account on your UniFi Console (Controller). Ubiquiti SSO accounts will not work.</p>
 
                     <h4>Quick Setup</h4>
                     <p>For the easiest setup, create a <strong>Local Access Only</strong> account with <strong>Super Admin</strong> role.</p>
@@ -115,7 +115,7 @@
                     <p>For a more secure, least-privilege configuration:</p>
                     <ol>
                         <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
-                        <li>Sign in to your controller</li>
+                        <li>Sign in to your Console</li>
                         <li>Click <strong>Admin &amp; Users</strong> at the bottom of the side menu</li>
                         <li>Click <strong>Create New</strong> at the top</li>
                         <li>Select <strong>Create New User</strong></li>
@@ -362,7 +362,7 @@
                     <p><strong>For Cloud Gateways (UCG, UDM, UDM Pro, etc.):</strong></p>
                     <ol>
                         <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
-                        <li>Sign in to your controller</li>
+                        <li>Sign in to your Console</li>
                         <li>Click <strong>Settings</strong> on the bottom portion of the side menu</li>
                         <li>Navigate to <strong>Control Plane</strong> → <strong>Console</strong></li>
                         <li>Enable <strong>SSH</strong> and set a secure password</li>
@@ -464,7 +464,7 @@
                 <div class="setup-guide-content">
                     <ol>
                         <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
-                        <li>Sign in to your controller</li>
+                        <li>Sign in to your Console</li>
                         <li>Click <strong>UniFi Devices</strong> on the side menu</li>
                         <li>In the left-hand filter menu, select <strong>Device Updates and Settings</strong> at the bottom</li>
                         <li>Expand <strong>Device SSH Settings</strong> at the bottom</li>
@@ -538,7 +538,7 @@
                 </div>
             }
 
-            <!-- Discovered Modems from UniFi Controller -->
+            <!-- Discovered Modems from UniFi Console -->
             <h4>Auto-Discovered Modems</h4>
             <div class="action-buttons" style="margin-bottom: 1rem;">
                 <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected || loadingDiscoveredModems)">
@@ -556,7 +556,7 @@
 
             @if (!ConnectionService.IsConnected)
             {
-                <p class="form-help">Connect to UniFi controller above to discover modems automatically.</p>
+                <p class="form-help">Connect to UniFi Console above to discover modems automatically.</p>
             }
             else if (discoveredModems.Count > 0)
             {

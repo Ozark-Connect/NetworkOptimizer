@@ -51,11 +51,38 @@ public class Iperf3ServerService : BackgroundService
 
         _logger.LogInformation("Starting iperf3 server on port {Port}", Iperf3Port);
 
+        var consecutiveImmediateExits = 0;
+        const int maxImmediateExitRetries = 5;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await RunIperf3ServerAsync(stoppingToken);
+                var ranSuccessfully = await RunIperf3ServerAsync(stoppingToken);
+
+                if (ranSuccessfully)
+                {
+                    consecutiveImmediateExits = 0;
+                }
+                else
+                {
+                    consecutiveImmediateExits++;
+
+                    if (consecutiveImmediateExits >= maxImmediateExitRetries)
+                    {
+                        _logger.LogError(
+                            "iperf3 server failed to start {Count} consecutive times, giving up. Check if port {Port} is in use.",
+                            consecutiveImmediateExits, Iperf3Port);
+                        break;
+                    }
+
+                    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                    var delaySeconds = (int)Math.Pow(2, consecutiveImmediateExits - 1);
+                    _logger.LogWarning(
+                        "Waiting {Delay}s before retry (attempt {Attempt}/{Max})",
+                        delaySeconds, consecutiveImmediateExits, maxImmediateExitRetries);
+                    await Task.Delay(delaySeconds * 1000, stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -71,7 +98,11 @@ public class Iperf3ServerService : BackgroundService
         _logger.LogInformation("iperf3 server stopped");
     }
 
-    private async Task RunIperf3ServerAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Runs the iperf3 server process until it exits or cancellation is requested.
+    /// </summary>
+    /// <returns>True if the process ran for more than 2 seconds (successful), false if it exited immediately.</returns>
+    private async Task<bool> RunIperf3ServerAsync(CancellationToken stoppingToken)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -84,6 +115,7 @@ public class Iperf3ServerService : BackgroundService
         };
 
         _iperf3Process = new Process { StartInfo = startInfo };
+        var startTime = DateTime.UtcNow;
 
         // Buffer to accumulate JSON
         var jsonBuffer = new StringBuilder();
@@ -154,6 +186,25 @@ public class Iperf3ServerService : BackgroundService
         try
         {
             await _iperf3Process.WaitForExitAsync(stoppingToken);
+
+            var runtime = DateTime.UtcNow - startTime;
+            var exitCode = _iperf3Process.ExitCode;
+            var ranSuccessfully = runtime.TotalSeconds >= 2;
+
+            if (!ranSuccessfully)
+            {
+                _logger.LogWarning(
+                    "iperf3 server exited immediately (exit code {ExitCode}, ran for {Runtime:F1}s) - port {Port} may already be in use",
+                    exitCode, runtime.TotalSeconds, Iperf3Port);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "iperf3 server exited (exit code {ExitCode}, ran for {Runtime:F1}s), restarting",
+                    exitCode, runtime.TotalSeconds);
+            }
+
+            return ranSuccessfully;
         }
         catch (OperationCanceledException)
         {

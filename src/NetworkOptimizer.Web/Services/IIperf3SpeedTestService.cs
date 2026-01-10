@@ -79,9 +79,10 @@ public interface IIperf3SpeedTestService
     /// <summary>
     /// Gets recent speed test results across all devices.
     /// </summary>
-    /// <param name="count">The maximum number of results to return (default 50).</param>
+    /// <param name="count">The maximum number of results to return (0 = no limit, default 50).</param>
+    /// <param name="days">Filter to results within the last N days (0 = all time).</param>
     /// <returns>A list of recent Iperf3Result entries.</returns>
-    Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50);
+    Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int days = 0);
 
     /// <summary>
     /// Gets speed test results for a specific device.

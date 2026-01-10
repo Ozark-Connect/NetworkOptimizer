@@ -2,39 +2,10 @@
 
 ## LAN Speed Test
 
-### ~~Non-SSH Device Speed Testing~~ (DONE)
-- ~~Current limitation: LAN speed tests require SSH access to target devices (UniFi equipment only)~~
-- ~~Goal: Enable speed testing from any device (phones, tablets, laptops, IoT) without SSH~~
-- DONE: Implemented both approaches:
-  - Server-side iperf3 server with automatic result capture
-  - OpenSpeedTest integration with branded instance and result correlation
-  - Device identification via source IP matched to UniFi client list
-  - Full path analysis integration for browser-based tests
-
-### ~~Retransmit Analysis~~ (FIXED)
-- ~~Flag high retransmit counts as a separate insight~~
-- ~~Example: "High packet loss detected on return path" when retransmits are asymmetric~~
-- ~~Observation: Front Yard AP test showed 3181 retransmits "to device" but 0 "from device"~~
-- ~~This asymmetry on wireless mesh links makes sense (mesh uplink contention)~~
-- FIXED: PathAnalysisResult.AnalyzeRetransmits() detects high/asymmetric retransmits and generates insights
-
 ### Path Analysis Enhancements
 - Direction-aware bottleneck calculation: TX and RX rates can differ significantly on Wi-Fi (e.g., client may have 800 Mbps TX but 400 Mbps RX); path analysis should use direction-appropriate rate for separate from/to max speeds
 - More gateway models in routing limits table as we gather data
 - Threshold tuning based on real-world data collection
-
-### Speed Test Map Auto-Display After Data Cleared
-- **Bug:** Map doesn't auto-display when new results come in after all results were cleared
-- **Affected pages:** Client Speed Test, LAN Speed Test (both have SpeedTestMap component)
-- **Repro:** Clear all speed test results (manually or external), map hides, run new test, map stays hidden
-- **Expected:** Map should auto-display when first result with location data arrives
-- **Fix:** Reset map visibility state when results are cleared, or check on each poll if map should show
-
-### Speed Test Map Time Range Filters
-- Add time range filter to speed test map (default: last 30 days)
-- Options: 7 days, 30 days, 90 days, 1 year, all time
-- Currently shows up to 1000 most recent results regardless of age
-- Allows focusing on recent coverage data vs historical trends
 
 ## Security Audit / PDF Report
 
@@ -54,36 +25,56 @@
   - Consider dedicated `PrinterVlanRule` and `WirelessPrinterVlanRule` classes
   - Unify offline handling for wired/wireless printers
 
-### ~~Collapsible Audit Findings by Category~~ (DONE)
-- ~~Collapse multiple findings of the same audit category into a single expandable row~~
-- ~~Example: "10 IoT devices on wrong VLAN" instead of 10 separate rows~~
-- ~~Click to expand and view all individual findings in that category~~
-- ~~Benefits:~~
-  - ~~Cleaner UI when many findings of same type exist~~
-  - ~~Faster scanning of audit results~~
-  - ~~Still allows drill-down to specific devices/issues~~
-- ~~Affected components: AlertsList, Audit.razor~~
-- DONE: Implemented collapsible category groups in Audit.razor with expand/collapse functionality
+## Performance Audit
 
-### ~~Excluded Features Still Affecting Score~~ (FIXED)
-- ~~Features unchecked in the Security Audit analysis are still factoring into scoring~~
-- ~~Expected behavior: Excluding a feature should not display results AND not affect the score~~
-- ~~Current behavior: Excluded features still deduct/add scoring amounts~~
-- ~~Fix: Scoring calculation should skip any checks for features that are disabled~~
-- FIXED: Score now recalculated based only on enabled features in AuditService.CalculateFilteredScore()
+New audit section focused on network performance issues (distinct from security audit).
 
-### ~~Wireless Client Band Info~~ (FIXED)
-- ~~Show WiFi band (2.4 GHz/5 GHz/6 GHz) in the Port column for wireless issues~~
-- ~~Example: "on [AP] Tiny Home (5 GHz)" instead of just "on [AP] Tiny Home"~~
-- ~~Data source: UniFi client response has radio/channel info~~
-- FIXED: WirelessClientInfo.WifiBand computed from radio type, displayed in GetPortDisplay()
+### Port Link Speed Analysis
+- Crawl the entire network topology and identify port link speeds that don't make sense
+- Reuse the logic from Speed Test network path tracing
+- Examples of issues to detect:
+  - 1 Gbps uplink on a switch with 2.5/10 Gbps devices behind it
+  - Mismatched duplex settings
+  - Ports negotiated below their capability (e.g., 100 Mbps on a Gbps port)
+  - Bottleneck chains where downstream capacity exceeds upstream link
+- Display as performance findings with recommendations
 
-### ~~Port Audit - Down Ports with MAC Restriction~~ (FIXED)
-- ~~Support VLAN placement analysis for ports that are currently down~~
-- ~~Use the MAC restriction setting to identify the normally connected device~~
-- ~~This allows auditing device placement even when the device is offline/disconnected~~
-- ~~Currently: Down ports may be skipped or show no connected MAC for analysis~~
-- FIXED: IotVlanRule and CameraVlanRule now analyze down ports with MAC restrictions using MAC OUI detection
+### AP Pinning Report
+- Report all devices that are pinned to specific APs
+- For each pinned device, show:
+  - Device name/type
+  - Pinned AP name
+  - How long it's been pinned
+- Flag devices that probably shouldn't be pinned:
+  - **Obvious cases:** Phones, tablets, wearables, laptops (mobile devices that roam)
+  - **Borderline:** IoT devices (user prerogative, but often unnecessary)
+  - **Acceptable:** Fixed cameras, sensors, stationary equipment
+- Default stance: Pinning is the user's prerogative, but it's often not recommended because:
+  - Device stays offline if its pinned AP goes down (no failover)
+  - Prevents roaming to better AP when signal degrades
+  - Can cause connectivity issues during AP firmware updates
+- Severity: Informational for acceptable pins, Recommended for mobile device pins
+
+### AP / RF Performance Analysis (Design Session Needed)
+- **Goal:** Provide RF performance insights beyond what UniFi Network offers natively
+- **Prerequisite:** Reuse all device classification logic from Security Audit
+- **Potential features to explore:**
+  - Channel utilization analysis per AP
+  - Client distribution balance across APs
+  - Signal strength / SNR reporting per client
+  - Interference detection (co-channel, adjacent channel)
+  - Band steering effectiveness (are 5 GHz capable devices on 2.4 GHz?)
+  - Roaming analysis (frequent roamers, sticky clients)
+  - Airtime fairness issues (slow clients impacting fast clients)
+  - AP placement recommendations based on client distribution
+- **Data sources to investigate:**
+  - UniFi API: What RF metrics are available?
+  - SNMP: Additional metrics not exposed via API?
+  - Client connection history: Roaming patterns
+- **Design questions:**
+  - What problems do users actually face that UniFi doesn't surface well?
+  - What's actionable vs just informational?
+  - How do we present RF data to non-experts?
 
 ## SQM (Smart Queue Management)
 
@@ -185,23 +176,6 @@
 - Consider user timezone preferences
 - Affected areas: Speed test results, audit history, device last seen, logs
 
-### ~~Replace Severity String Constants with Enums~~ (DONE)
-- ~~Current: Severity comparisons use string literals like `"Critical"`, `"Recommended"`, `"Informational"`~~
-- ~~Example: `i.Severity == "Critical"` scattered throughout codebase~~
-- ~~Target: Use `AuditSeverity` enum consistently from backend to frontend~~
-- ~~Benefits: Type safety, refactoring support, no string typos~~
-- ~~Affected areas: AuditService, AlertsList, Audit.razor filtering/sorting~~
-- DONE: Changed `AuditService.AuditIssue.Severity` to `AuditSeverity` enum, updated all comparisons
-
-### ~~Unify Device Type System~~ (FIXED)
-- ~~Multiple competing device type systems need consolidation~~
-- FIXED: Consolidated to single `DeviceType` enum in `NetworkOptimizer.Core.Enums`
-  - Includes all UniFi device types: Gateway, Switch, AccessPoint, CellularModem, BuildingBridge, CloudKey
-  - Includes non-UniFi device types: Server, Desktop, Laptop
-  - Extension methods: `ToDisplayName()`, `IsGateway()`, `IsUniFiNetworkDevice()`, `FromUniFiApiType()`
-  - Stored as string in database via EF Core conversion for backwards compatibility
-  - Deleted redundant `DeviceTypes` string constants and `UniFiDeviceTypes` helper class
-
 ## UniFi Device Classification (v2 API)
 
 The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns multiple device arrays for improved device classification and VLAN security auditing.
@@ -211,40 +185,11 @@ The UniFi v2 device API (`/proxy/network/v2/api/site/{site}/device`) returns mul
 | Array | Description | VLAN Recommendation | Status |
 |-------|-------------|---------------------|--------|
 | `network_devices` | APs, Switches, Gateways | Management VLAN | Existing |
-| `protect_devices` | Cameras, Doorbells, NVRs, Sensors | Security VLAN | **In Progress** |
+| `protect_devices` | Cameras, Doorbells, NVRs, Sensors | Security VLAN | Done |
 | `access_devices` | Door locks, readers | Security VLAN | TODO |
 | `connect_devices` | EV chargers, other Connect devices | IoT VLAN | TODO |
 | `talk_devices` | Intercoms, phones | IoT/VoIP VLAN | TODO |
 | `led_devices` | LED controllers, lighting | IoT VLAN | TODO |
-
-### Phase 1: Protect Devices (Current)
-- [x] Create `UniFiProtectDeviceResponse` model
-- [x] Add `GetAllDevicesV2Async()` API method
-- [x] Add `GetProtectCameraMacsAsync()` helper
-- [x] Update `DeviceTypeDetectionService` to check Protect MACs first
-- [x] Wire up in audit engine to fetch and use Protect MACs
-- [x] Test camera detection with 100% confidence
-
-### ~~Cloud vs Self-Hosted Camera Detection~~ (DONE)
-- ~~Differentiate between cloud cameras and self-hosted/local cameras for VLAN recommendations~~
-- ~~**Cloud Cameras** (should recommend IoT VLAN):~~
-  - ~~Ring, Nest/Google, Wyze, Blink, Arlo (cloud-dependent)~~
-  - ~~These require internet access and cloud services to function~~
-  - ~~IoT VLAN with internet access is appropriate~~
-- ~~**Self-Hosted Cameras** (should recommend Security/Camera VLAN):~~
-  - ~~UniFi Protect / Ubiquiti cameras~~
-  - ~~Eufy (local storage models)~~
-  - ~~ONVIF/RTSP cameras recording to local NVR~~
-  - ~~These can operate without internet, benefit from isolated security VLAN~~
-- ~~Detection methods:~~
-  - ~~MAC OUI lookup for manufacturer identification~~
-  - ~~UniFi Protect API (already integrated) for Ubiquiti cameras~~
-  - ~~Hostname/fingerprint patterns for cloud services~~
-- ~~Implementation:~~
-  - ~~Extend `DeviceTypeDetectionService` with cloud vs local camera classification~~
-  - ~~Update `CameraVlanRule` to provide different recommendations based on camera type~~
-  - ~~Consider new category: `ClientDeviceCategory.CloudCamera` vs existing camera category~~
-- DONE: Added `ClientDeviceCategory.CloudCamera` enum, updated MacOuiDetector and DeviceTypeDetectionService for cloud vendor detection, CameraVlanRule skips cloud cameras (handled by IoT rules)
 
 ### Phase 2: Access Devices (Door Access)
 - [ ] Parse `access_devices` array

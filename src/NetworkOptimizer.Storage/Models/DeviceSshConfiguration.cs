@@ -31,6 +31,10 @@ public class DeviceSshConfiguration
     /// <summary>Whether to start iperf3 server before running test (for devices without persistent iperf3)</summary>
     public bool StartIperf3Server { get; set; } = false;
 
+    /// <summary>Optional path to iperf3 binary on the remote device (uses "iperf3" if null/empty)</summary>
+    [MaxLength(500)]
+    public string? Iperf3BinaryPath { get; set; }
+
     /// <summary>Optional SSH username override (uses global settings if null/empty)</summary>
     [MaxLength(100)]
     public string? SshUsername { get; set; }

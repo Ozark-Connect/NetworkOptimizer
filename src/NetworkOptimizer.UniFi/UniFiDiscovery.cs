@@ -182,6 +182,9 @@ public class UniFiDiscovery
             IpAddress = c.Ip,
             Network = c.Network,
             NetworkId = c.NetworkId,
+            VirtualNetworkOverrideEnabled = c.VirtualNetworkOverrideEnabled,
+            VirtualNetworkOverrideId = c.VirtualNetworkOverrideId,
+            Vlan = c.Vlan,
             IsWired = c.IsWired,
             IsGuest = c.IsGuest,
             IsBlocked = c.Blocked,
@@ -460,6 +463,20 @@ public class DiscoveredClient
     public string IpAddress { get; set; } = string.Empty;
     public string Network { get; set; } = string.Empty;
     public string NetworkId { get; set; } = string.Empty;
+    // Virtual network override (client assigned to different VLAN than SSID's native network)
+    public bool VirtualNetworkOverrideEnabled { get; set; }
+    public string? VirtualNetworkOverrideId { get; set; }
+    /// <summary>
+    /// The actual VLAN number the client is assigned to
+    /// </summary>
+    public int? Vlan { get; set; }
+    /// <summary>
+    /// Gets the effective network ID (considers virtual network override)
+    /// </summary>
+    public string EffectiveNetworkId =>
+        VirtualNetworkOverrideEnabled && !string.IsNullOrEmpty(VirtualNetworkOverrideId)
+            ? VirtualNetworkOverrideId
+            : NetworkId;
     public bool IsWired { get; set; }
     public bool IsGuest { get; set; }
     public bool IsBlocked { get; set; }

@@ -19,7 +19,7 @@ services:
     container_name: network-optimizer
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8042}:8080"      # Blazor web UI
+      - "${WEB_PORT:-8042}:8042"      # Blazor web UI
     volumes:
       - ./data:/app/data              # SQLite, configs, license
       - ./ssh-keys:/app/ssh-keys:ro   # Optional: SSH keys for agent deployment
@@ -44,7 +44,7 @@ services:
       - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
       - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -83,17 +83,17 @@ RUN mkdir -p /app/data /app/ssh-keys /app/logs
 
 # Set environment variables
 ENV ASPNETCORE_ENVIRONMENT=Production \
-    ASPNETCORE_HTTP_PORTS=8080 \
+    ASPNETCORE_HTTP_PORTS=8042 \
     DOTNET_RUNNING_IN_CONTAINER=true \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 # Expose ports
-EXPOSE 8080
+EXPOSE 8042
 EXPOSE 5201
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8080/api/health || exit 1
+    CMD curl -f http://localhost:8042/api/health || exit 1
 
 # Set ownership for app directories
 RUN chown -R app:app /app

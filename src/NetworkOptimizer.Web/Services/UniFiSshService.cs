@@ -338,7 +338,9 @@ public class UniFiSshService : IUniFiSshService
             var result = await RunCommandWithDeviceAsync(device, $"{toolName} --version");
             _logger.LogDebug("CheckToolAvailable({Host}, {Tool}) with device creds: success={Success}, output={Output}",
                 device.Host, toolName, result.success, result.output);
-            var checkName = toolName.Replace("3", "").Replace("2", "");
+            // Extract just the filename if a path was provided (e.g., /usr/local/bin/iperf3 -> iperf3)
+            var baseName = Path.GetFileName(toolName);
+            var checkName = baseName.Replace("3", "").Replace("2", "");
             if (result.success && result.output.ToLower().Contains(checkName.ToLower()))
             {
                 var firstLine = result.output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();

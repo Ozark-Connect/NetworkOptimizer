@@ -13,8 +13,8 @@ namespace NetworkOptimizer.UniFi;
 public static class UniFiProductDatabase
 {
     /// <summary>
-    /// MIPS architecture devices that cannot run iperf3.
-    /// These devices use MIPS processors with incompatible binary loaders.
+    /// Devices that cannot run iperf3.
+    /// Note: Not all of these are MIPS architecture, but they are all known to not include iperf3.
     /// </summary>
     private static readonly HashSet<string> MipsDevices = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -46,13 +46,20 @@ public static class UniFiProductDatabase
         "US-8-60W",
         "US-8-150W",
 
-        // Older AC APs (MIPS-based)
+        // Enterprise/Aggregation switches (no iperf3)
+        "USW-24-PoE",
+        "USW-Enterprise-8-PoE",
+        "USW-Aggregation",
+
+        // AC APs (no iperf3)
         "UAP",
         "UAP-LR",
         "UAP-IW",
         "UAP-Outdoor",
         "UAP-Outdoor+",
         "UAP-Outdoor5",
+        "UAP-AC-Pro",
+        "UAP-AC-Lite",
     };
 
     /// <summary>
@@ -67,7 +74,7 @@ public static class UniFiProductDatabase
         // UniFi Dream Machine family
         { "UDMPRO", "UDM-Pro" },
         { "UDM-PRO", "UDM-Pro" },
-        { "UDMPROSE", "UDM-Pro-SE" },
+        { "UDMPROSE", "UDM-SE" },
         { "UDM-PRO-SE", "UDM-Pro-SE" },
         { "UDMPROMAX", "UDM-Pro-Max" },
         { "UDM-PRO-MAX", "UDM-Pro-Max" },
@@ -162,11 +169,11 @@ public static class UniFiProductDatabase
         { "USWLITE16", "USW-Lite-16-PoE" },
         { "USL8LP", "USW-Lite-8-PoE" },
         { "USL8LPB", "USW-Lite-8-PoE" },              // Hardware revision B
-        { "USL8MP", "USW-Lite-8-PoE" },
         { "USL16LP", "USW-Lite-16-PoE" },
         { "USL16LPB", "USW-Lite-16-PoE" },            // Hardware revision B
-        { "USL16P", "USW-Lite-16-PoE" },
-        { "USL16PB", "USW-Lite-16-PoE" },             // Hardware revision B
+
+        // ----- USW Mission Critical Series -----
+        { "USL8MP", "USW-Mission-Critical" },
 
         // ----- USW Standard Series (Gen2) -----
         { "USW8", "USW-8" },
@@ -177,6 +184,8 @@ public static class UniFiProductDatabase
         { "USC8P150", "USW-8-150W" },
         { "USC8P450", "USW-Industrial" },
         { "USW16P150", "USW-16-PoE" },
+        { "USL16P", "USW-16-PoE" },
+        { "USL16PB", "USW-16-PoE" },                  // Hardware revision B
         { "USW24", "USW-24" },
         { "USL24", "USW-24" },
         { "USL24B", "USW-24" },                       // Hardware revision B
@@ -255,7 +264,7 @@ public static class UniFiProductDatabase
         { "USAGGPRO", "USW-Pro-Aggregation" },
         { "US16XG", "USW-16-XG" },
         { "USXG", "USW-16-XG" },
-        { "US6XG150", "USW-6-XG-PoE" },
+        { "US6XG150", "US-XG-6PoE" },
 
         // ----- Enterprise Campus Series -----
         { "EAS24", "ECS-24" },
@@ -290,13 +299,11 @@ public static class UniFiProductDatabase
         { "USPPDUP", "USP-PDU-Pro" },
         { "USPPDUHD", "USP-PDU-HD" },
         { "USPRPS", "USP-RPS" },
-        { "USPRPSP", "USP-RPS-Pro" },
+        { "USPRPSP", "USP-RPS" },
 
         // ----- Hardware Revision Codes (USWED/USWF series - map to best guess) -----
-        { "USWED72", "USW-Enterprise" },
-        { "USWED73", "USW-Enterprise" },
-        { "USWED74", "USW-Enterprise" },
-        { "USWED75", "USW-Enterprise" },
+        { "USWED72", "USW-Pro-HD-24-PoE" },
+        { "USWED73", "USW-Pro-HD-24" },
         { "USWF067", "USW-Pro" },
         { "USWF068", "USW-Pro" },
         { "USWF069", "USW-Pro" },
@@ -310,29 +317,21 @@ public static class UniFiProductDatabase
 
         // ----- WiFi 7 (U7) Series -----
         { "U7PRO", "U7-Pro" },
-        { "U7P", "U7-Pro" },
         { "U7PROMAX", "U7-Pro-Max" },
-        { "U7MP", "U7-Pro-Max" },
         { "U7PROMAXB", "U7-Pro-Max" },
-        { "U7PROXGSB", "U7-Pro-XGS" },
+        { "U7ENT", "U7-Pro-Max" },
+        { "U7PROXGSB", "U7-Pro-XGS-B" },
         { "U7PROXGS", "U7-Pro-XGS" },
+        { "U7PROXGB", "U7-Pro-XG-B" },
         { "U7PROXG", "U7-Pro-XG" },
         { "U7PIW", "U7-Pro-Wall" },
-        { "U7IW", "U7-IW" },
-        { "U7IWP", "U7-IW-Pro" },
         { "U7PO", "U7-Pro-Outdoor" },
         { "U7POEU", "U7-Pro-Outdoor" },
-        { "U7O", "U7-Outdoor" },
-        { "U7LR", "U7-LR" },
+        // Note: G7* are internal short codes for WiFi 7 APs
         { "G7LR", "U7-LR" },
         { "G7LRV2", "U7-LR" },
-        { "U7LT", "U7-Lite" },
-        { "U7LITE", "U7-Lite" },
         { "G7LT", "U7-Lite" },
         { "G7IW", "U7-IW" },
-        { "U7ENT", "U7-Enterprise" },
-        { "U7MSH", "U7-Mesh" },
-        { "U7UKU", "U7-Ultra" },
         { "UKPW", "U7-Outdoor" },
 
         // ----- Enterprise WiFi 7 (E7) Series -----
@@ -359,7 +358,7 @@ public static class UniFiProductDatabase
         { "UALR6V2", "U6-LR" },
         { "UALR6V3", "U6-LR" },
         { "UAP6", "U6-LR" },
-        { "UALRPL6", "U6-LR+" },
+        { "UALRPL6", "U6-PLUS-LR" },
         { "U6LITE", "U6-Lite" },
         { "UAL6", "U6-Lite" },
         { "U6PLUS", "U6+" },
@@ -372,9 +371,9 @@ public static class UniFiProductDatabase
         { "UAM6", "U6-Mesh" },
 
         // ----- AC Wave 2 / HD Series -----
-        { "U7HD", "UAP-HD" },
+        { "U7HD", "UAP-AC-HD" },
         { "UAPHD", "UAP-HD" },
-        { "U7SHD", "UAP-SHD" },
+        { "U7SHD", "UAP-AC-SHD" },
         { "UAPSHD", "UAP-SHD" },
         { "U7NHD", "UAP-nanoHD" },
         { "UAPNANOHD", "UAP-nanoHD" },
@@ -388,13 +387,22 @@ public static class UniFiProductDatabase
         // ----- AC Series -----
         { "UAPPRO", "UAP-AC-Pro" },
         { "U7PG2", "UAP-AC-Pro" },
+        { "U7P", "UAP-AC-Pro" },
         { "UAPLR", "UAP-AC-LR" },
+        { "U7LR", "UAP-AC-LR" },
         { "UAPLITE", "UAP-AC-Lite" },
+        { "U7LT", "UAP-AC-Lite" },
         { "UAPM", "UAP-AC-M" },
         { "UAPMESH", "UAP-AC-Mesh" },
+        { "U7MSH", "UAP-AC-Mesh" },
         { "UAPMESHPRO", "UAP-AC-Mesh-Pro" },
+        { "U7MP", "UAP-AC-Mesh-Pro" },
         { "UAPIW", "UAP-AC-IW" },
+        { "U7IW", "UAP-AC-IW" },
         { "UAPIWPRO", "UAP-AC-IW-Pro" },
+        { "U7IWP", "UAP-AC-IW-Pro" },
+        { "U7O", "UAP-AC-Outdoor" },
+        { "U7UKU", "UK-Ultra" },
         { "UAPXG", "UAP-XG" },
         { "UCXG", "UAP-XG" },
         { "UAPBASESTATION", "UAP-BaseStationXG" },

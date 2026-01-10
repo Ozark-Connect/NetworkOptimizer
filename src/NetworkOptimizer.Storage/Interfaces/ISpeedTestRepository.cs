@@ -13,7 +13,7 @@ public interface ISpeedTestRepository
 
     // Iperf3 Results
     Task SaveIperf3ResultAsync(Iperf3Result result, CancellationToken cancellationToken = default);
-    Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, CancellationToken cancellationToken = default);
+    Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, int hours = 0, CancellationToken cancellationToken = default);
     Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(string deviceHost, int count = 50, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
 

@@ -110,18 +110,32 @@ public class SpeedTestRepository : ISpeedTestRepository
     /// <summary>
     /// Retrieves the most recent iperf3 test results.
     /// </summary>
-    /// <param name="count">Maximum number of results to return.</param>
+    /// <param name="count">Maximum number of results to return (0 = no limit).</param>
+    /// <param name="hours">Filter to results within the last N hours (0 = all time).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of recent results ordered by time descending.</returns>
-    public async Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, CancellationToken cancellationToken = default)
+    public async Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, int hours = 0, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await _context.Iperf3Results
-                .AsNoTracking()
-                .OrderByDescending(r => r.TestTime)
-                .Take(count)
-                .ToListAsync(cancellationToken);
+            var query = _context.Iperf3Results.AsNoTracking();
+
+            // Apply date filter if specified
+            if (hours > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-hours);
+                query = query.Where(r => r.TestTime >= cutoff);
+            }
+
+            query = query.OrderByDescending(r => r.TestTime);
+
+            // Apply count limit if specified
+            if (count > 0)
+            {
+                query = query.Take(count);
+            }
+
+            return await query.ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {

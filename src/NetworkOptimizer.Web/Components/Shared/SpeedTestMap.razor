@@ -39,12 +39,20 @@
             </div>
         </div>
         <div class="card-body">
-            <div id="@mapId" class="speed-test-map"></div>
-            <div class="map-legend">
-                <span class="legend-item"><span class="legend-dot" style="background: #ef4444;"></span>&lt;50 Mbps</span>
-                <span class="legend-item"><span class="legend-dot" style="background: #facc15;"></span>50-200</span>
-                <span class="legend-item"><span class="legend-dot" style="background: #84cc16;"></span>200-500</span>
-                <span class="legend-item"><span class="legend-dot" style="background: #22c55e;"></span>&gt;500 Mbps</span>
+            <div class="map-container">
+                <div id="@mapId" class="speed-test-map"></div>
+            </div>
+            <div class="map-footer">
+                <div class="map-legend">
+                    <span class="legend-item"><span class="legend-dot" style="background: #ef4444;"></span>&lt;50 Mbps</span>
+                    <span class="legend-item"><span class="legend-dot" style="background: #facc15;"></span>50-200</span>
+                    <span class="legend-item"><span class="legend-dot" style="background: #84cc16;"></span>200-500</span>
+                    <span class="legend-item"><span class="legend-dot" style="background: #22c55e;"></span>&gt;500 Mbps</span>
+                </div>
+                <div class="map-time-slider">
+                    <input type="range" min="0" max="10" step="1" @bind="sliderValue" @bind:after="OnSliderChanged" />
+                    <span class="time-label">@GetTimeLabel()</span>
+                </div>
             </div>
         </div>
     </div>
@@ -60,9 +68,12 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
+
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
+    private bool userHasZoomed = false; // Track if user manually zoomed/panned
+    private bool initialSetupComplete = false; // Ignore zoom events during initial setup
     private bool ShowLan { get; set; } = true;
     private bool ShowExternal { get; set; } = false;
     private bool HighAccuracyOnly { get; set; } = false;
@@ -70,10 +81,43 @@
     private int? lastNewestResultId = null;
     private List<NetworkInfo>? _networks;
 
-    // All tests with valid location data
-    private IEnumerable<Iperf3Result> LocationResults => Results
-        .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
-        .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
+    // Time slider: log scale breakpoints (slider value -> hours, 0 = all time)
+    private static readonly (int hours, string label)[] TimeBreakpoints = new[]
+    {
+        (1, "1 hr"),         // 0
+        (4, "4 hrs"),        // 1
+        (24, "24 hrs"),      // 2
+        (72, "3 days"),      // 3
+        (168, "1 week"),     // 4
+        (336, "2 weeks"),    // 5
+        (720, "30 days"),    // 6
+        (2160, "90 days"),   // 7
+        (4320, "6 months"),  // 8
+        (8760, "1 year"),    // 9
+        (0, "All time")      // 10
+    };
+    private int sliderValue = 6; // Default to 30 days (index 6)
+
+    // All tests with valid location data, filtered by time slider
+    private IEnumerable<Iperf3Result> LocationResults
+    {
+        get
+        {
+            var results = Results
+                .Where(r => r.Latitude.HasValue && r.Longitude.HasValue)
+                .Where(r => !HighAccuracyOnly || (r.LocationAccuracyMeters.HasValue && r.LocationAccuracyMeters.Value <= 15));
+
+            // Apply time filter from slider (0 = all time)
+            var hours = TimeBreakpoints[sliderValue].hours;
+            if (hours > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-hours);
+                results = results.Where(r => r.TestTime >= cutoff);
+            }
+
+            return results;
+        }
+    }
 
     // LAN = has valid L2 path AND has Wi-Fi signal (excludes wired clients)
     private IEnumerable<Iperf3Result> LanResults => LocationResults
@@ -98,7 +142,8 @@
         }
     }
 
-    private bool HasLocationData => LocationResults.Any();
+    // Check raw results for any location data (not time-filtered) - determines if map shows at all
+    private bool HasLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
 
     private async Task ToggleFilter(bool isLan)
     {
@@ -132,6 +177,18 @@
         }
     }
 
+    private string GetTimeLabel() => TimeBreakpoints[sliderValue].label;
+
+    private async Task OnSliderChanged()
+    {
+        // Time filter is applied internally via LocationResults property
+        // Only fit bounds if user hasn't manually zoomed/panned
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: !userHasZoomed);
+        }
+    }
+
     private async Task RefreshMap()
     {
         if (OnRefresh.HasDelegate)
@@ -144,6 +201,7 @@
     {
         if (mapInitialized)
         {
+            userHasZoomed = false; // Reset so slider will auto-fit again
             await UpdateMarkers(fitBounds: true);
         }
     }
@@ -380,15 +438,28 @@
                 }})();
             ");
 
-            // Register click handler with .NET callback
-            await JS.InvokeVoidAsync("eval", @"
-                window._registerSpeedTestMapCallback = function(dotNetRef) {
-                    window._speedTestMapClick = function(id) {
+            // Register click handler and zoom/drag listeners with .NET callback
+            await JS.InvokeVoidAsync("eval", $@"
+                window._registerSpeedTestMapCallback = function(dotNetRef, mapId) {{
+                    window._speedTestMapClick = function(id) {{
                         dotNetRef.invokeMethodAsync('OnMapResultClick', id);
-                    };
-                };
+                    }};
+
+                    // Track user zoom/drag interactions
+                    var mapData = window._speedTestMaps && window._speedTestMaps[mapId];
+                    if (mapData && mapData.map) {{
+                        var programmaticMove = false;
+                        mapData.setProgrammaticMove = function(val) {{ programmaticMove = val; }};
+
+                        mapData.map.on('zoomend dragend', function() {{
+                            if (!programmaticMove) {{
+                                dotNetRef.invokeMethodAsync('OnUserMapInteraction');
+                            }}
+                        }});
+                    }}
+                }};
             ");
-            await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef);
+            await JS.InvokeVoidAsync("_registerSpeedTestMapCallback", dotNetRef, mapId);
 
             // Verify the map was actually created (JS returns early if container not found)
             var mapCreated = await JS.InvokeAsync<bool>("eval", $"!!(window._speedTestMaps && window._speedTestMaps['{mapId}'])");
@@ -404,6 +475,10 @@
             lastResultCount = Results.Count();
             lastNewestResultId = Results.FirstOrDefault()?.Id;
             await UpdateMarkers(fitBounds: true);
+
+            // Allow time for initial fitBounds animation to complete before tracking user interactions
+            await Task.Delay(500);
+            initialSetupComplete = true;
         }
         catch (Exception ex)
         {
@@ -520,11 +595,17 @@
                     }}
 
                     if ({shouldFitBounds} && bounds.length > 0) {{
+                        // Mark as programmatic so zoom/drag listeners don't fire
+                        if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
                         if (bounds.length === 1) {{
                             map.setView(bounds[0], 18);
                         }} else {{
                             map.fitBounds(bounds, {{ padding: [20, 20], maxZoom: 22 }});
                         }}
+                        // Reset after a short delay (after zoomend fires)
+                        setTimeout(() => {{
+                            if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(false);
+                        }}, 300);
                     }}
 
                     setTimeout(() => map.invalidateSize(), 100);
@@ -699,6 +780,16 @@
         }
     }
 
+    [JSInvokable]
+    public void OnUserMapInteraction()
+    {
+        // Only track user interactions after initial setup is complete
+        if (initialSetupComplete)
+        {
+            userHasZoomed = true;
+        }
+    }
+
     public void Dispose()
     {
         dotNetRef?.Dispose();
@@ -726,6 +817,63 @@
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .map-container {
+        position: relative;
+    }
+
+    .map-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+
+    .map-time-slider {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .map-time-slider input[type="range"] {
+        width: 140px;
+        height: 4px;
+        -webkit-appearance: none;
+        appearance: none;
+        background: linear-gradient(to right, #3b82f6, #60a5fa);
+        border-radius: 2px;
+        cursor: pointer;
+    }
+
+    .map-time-slider input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .map-time-slider input[type="range"]::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        background: #fff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .map-time-slider .time-label {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        min-width: 60px;
     }
 
     .map-action-btn {
@@ -748,7 +896,6 @@
         display: flex;
         flex-wrap: wrap;
         gap: 1rem;
-        margin-top: 0.75rem;
         font-size: 0.8rem;
         color: var(--text-muted);
     }
@@ -771,14 +918,27 @@
             justify-content: center;
         }
 
+        .speed-test-map-card .card-body {
+            padding: 1rem 0;
+        }
+
         .map-filters {
             justify-content: center;
+        }
+
+        .map-footer {
+            flex-direction: column;
+            align-items: center;
         }
 
         .map-legend {
             justify-content: center;
             gap: 0.8rem;
             font-size: 0.75rem;
+        }
+
+        .map-time-slider {
+            order: 1;
         }
     }
 

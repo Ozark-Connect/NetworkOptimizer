@@ -244,7 +244,7 @@
         </div>
     }
 
-    <!-- Discovered Devices from UniFi Controller -->
+    <!-- Discovered Devices from UniFi Console -->
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">UniFi Device Speed Test</h2>
@@ -369,8 +369,8 @@
         <div class="card-header">
             <h2 class="card-title">Other Device Speed Test</h2>
             <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="() => showAddDevice = !showAddDevice">
-                    @(showAddDevice ? "Cancel" : "Add Device")
+                <button class="btn btn-sm btn-secondary" @onclick="ToggleAddDevice">
+                    @(showAddDevice && editingDevice.Id == 0 ? "Cancel" : "Add Device")
                 </button>
             </div>
         </div>
@@ -483,27 +483,36 @@
                         <span class="form-help">Enable for devices that don't have iperf3 running persistently</span>
                     </div>
 
-                    <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-                        <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
-                        <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
-                    </div>
+                    @if (editingDevice.StartIperf3Server)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">iperf3 Binary Path</label>
+                            <input type="text" class="form-control" @bind="editingDevice.Iperf3BinaryPath" placeholder="iperf3" />
+                            <span class="form-help">Full path to iperf3 on the remote device (e.g., /usr/local/bin/iperf3). Leave blank to use "iperf3" from PATH.</span>
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Username</label>
-                        <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
-                    </div>
+                        <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
+                            <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Password</label>
-                        <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
-                        <span class="form-help">Password is encrypted at rest</span>
-                    </div>
+                        <div class="form-group">
+                            <label class="form-label">SSH Username</label>
+                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
+                        </div>
 
-                    <div class="form-group">
-                        <label class="form-label">SSH Private Key Path</label>
-                        <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
-                        <span class="form-help">Path to private key file on the server (e.g., /root/.ssh/id_rsa)</span>
-                    </div>
+                        <div class="form-group">
+                            <label class="form-label">SSH Password</label>
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
+                            <span class="form-help">Password is encrypted at rest</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">SSH Private Key Path</label>
+                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
+                            <span class="form-help">Path to private key file on the server (e.g., /root/.ssh/id_rsa)</span>
+                        </div>
+                    }
 
                     <div class="action-buttons">
                         <button class="btn btn-primary" @onclick="SaveDevice" disabled="@savingDevice">
@@ -728,7 +737,9 @@
     </div>
 
     <!-- Test Locations Map -->
-    <SpeedTestMap Results="testHistory" OnRefresh="LoadHistory" OnResultClick="ScrollToResult" />
+    <SpeedTestMap Results="testHistory"
+                  OnRefresh="LoadHistory"
+                  OnResultClick="ScrollToResult" />
 
     <!-- How it Works -->
     <div class="card">
@@ -1219,7 +1230,8 @@
     {
         try
         {
-            testHistory = await SpeedTestService.GetRecentResultsAsync(1000);
+            // Load all results (map handles its own time filtering)
+            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)
@@ -1291,6 +1303,7 @@
             DeviceType = device.DeviceType,
             Enabled = device.Enabled,
             StartIperf3Server = device.StartIperf3Server,
+            Iperf3BinaryPath = device.Iperf3BinaryPath,
             SshUsername = device.SshUsername,
             SshPrivateKeyPath = device.SshPrivateKeyPath
             // Note: Don't copy SshPassword - leave blank to not change it
@@ -1298,6 +1311,29 @@
         editingDevicePassword = ""; // Clear password field (user must re-enter to change)
         savedDeviceMessage = "";
         StateHasChanged();
+    }
+
+    private void ToggleAddDevice()
+    {
+        if (showAddDevice && editingDevice.Id == 0)
+        {
+            // Already in add mode, cancel it
+            CancelEdit();
+        }
+        else
+        {
+            // Switch to add mode (reset any editing state)
+            editingDevice = new DeviceSshConfiguration
+            {
+                DeviceType = DeviceType.Server,
+                Enabled = true,
+                StartIperf3Server = false
+            };
+            editingDevicePassword = "";
+            savedDeviceMessage = "";
+            showAddDevice = true;
+            StateHasChanged();
+        }
     }
 
     private void CancelEdit()
