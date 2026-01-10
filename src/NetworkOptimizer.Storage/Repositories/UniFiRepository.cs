@@ -208,6 +208,7 @@ public class UniFiRepository : IUniFiRepository
                     existing.DeviceType = config.DeviceType;
                     existing.Enabled = config.Enabled;
                     existing.StartIperf3Server = config.StartIperf3Server;
+                    existing.Iperf3BinaryPath = config.Iperf3BinaryPath;
                     existing.SshUsername = config.SshUsername;
                     existing.SshPassword = config.SshPassword;
                     existing.SshPrivateKeyPath = config.SshPrivateKeyPath;
