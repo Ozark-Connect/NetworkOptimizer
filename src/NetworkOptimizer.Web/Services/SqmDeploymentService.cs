@@ -566,8 +566,8 @@ WantedBy=multi-user.target
 
         try
         {
-            // Normalize wan name for script path (lowercase, replace spaces with dashes)
-            var scriptName = wanName.ToLowerInvariant().Replace(" ", "-");
+            // Normalize wan name for script path (lowercase, no spaces/parens)
+            var scriptName = wanName.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
             var scriptPath = $"/data/sqm/{scriptName}-speedtest.sh";
 
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
@@ -822,9 +822,9 @@ WantedBy=multi-user.target
     /// </summary>
     private string GenerateSqmMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
     {
-        // Normalize names for log file lookup (lowercase, dashes for spaces)
-        var wan1LogName = wan1Name.ToLowerInvariant().Replace(" ", "-");
-        var wan2LogName = wan2Name.ToLowerInvariant().Replace(" ", "-");
+        // Normalize names for log file lookup (lowercase, no spaces/parens)
+        var wan1LogName = wan1Name.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
+        var wan2LogName = wan2Name.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
 
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/sh");

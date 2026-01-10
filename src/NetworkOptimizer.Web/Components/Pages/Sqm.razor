@@ -359,7 +359,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
-                    <input type="text" class="form-control" @bind="wan1Config.Name" placeholder="e.g., Yelcot, Comcast" />
+                    <input type="text" class="form-control" @bind="wan1Config.Name" @bind:event="onchange" @bind:after="() => wan1Config.Name = SanitizeWanName(wan1Config.Name)" placeholder="e.g., Yelcot, Comcast" />
                 </div>
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
@@ -499,7 +499,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
-                    <input type="text" class="form-control" @bind="wan2Config.Name" placeholder="e.g., Starlink" />
+                    <input type="text" class="form-control" @bind="wan2Config.Name" @bind:event="onchange" @bind:after="() => wan2Config.Name = SanitizeWanName(wan2Config.Name)" placeholder="e.g., Starlink" />
                 </div>
                 <div class="form-group">
                     <label class="form-label">WAN Interface</label>
@@ -1576,6 +1576,13 @@
 
             ApplyConnectionDefaults(config, wan.Name);
         }
+    }
+
+    private static string SanitizeWanName(string? input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return string.Empty;
+        return new string(input.Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '(' || c == ')' || c == '-' || c == '_').ToArray());
     }
 
     private void OnInterfaceChanged(WanConfigModel config)
