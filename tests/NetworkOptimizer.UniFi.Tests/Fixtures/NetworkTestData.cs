@@ -1,4 +1,5 @@
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi.Tests.Fixtures;
@@ -18,6 +19,11 @@ public static class NetworkTestData
     public const string ClientWirelessMac = "aa:bb:cc:00:01:02";
     public const string ServerMac = "aa:bb:cc:00:02:01";
 
+    // Daisy-chain topology MACs (Gateway -> Switch1 -> Switch2 -> Server)
+    public const string Switch1Mac = "aa:bb:cc:00:00:10";  // ProXG equivalent
+    public const string Switch2Mac = "aa:bb:cc:00:00:11";  // FlexXG equivalent
+    public const string NasMac = "aa:bb:cc:00:01:10";      // NAS on Switch1
+
     // Standard test IPs (RFC 5737)
     public const string GatewayIp = "192.0.2.1";
     public const string SwitchIp = "192.0.2.2";
@@ -26,6 +32,11 @@ public static class NetworkTestData
     public const string ClientWiredIp = "192.0.2.100";
     public const string ClientWirelessIp = "192.0.2.101";
     public const string ServerIp = "192.0.2.200";
+
+    // Daisy-chain topology IPs
+    public const string Switch1Ip = "192.0.2.10";
+    public const string Switch2Ip = "192.0.2.11";
+    public const string NasIp = "192.0.2.110";
 
     #region Device Creators
 
@@ -672,6 +683,158 @@ public static class NetworkTestData
         });
 
         return topology;
+    }
+
+    #endregion
+
+    #region Daisy-Chain Topology Creators
+
+    /// <summary>
+    /// Creates a daisy-chain topology where switches are connected in series:
+    /// Gateway -> Switch1 (ProXG) -> Switch2 (FlexXG) -> Server
+    ///                           \-> NAS (client)
+    ///
+    /// This tests the scenario where:
+    /// - Server is on Switch2
+    /// - NAS (client) is on Switch1
+    /// - Switch2 uplinks to Switch1
+    /// - Switch1 uplinks to Gateway
+    ///
+    /// Expected L2 path for NAS -> Server: NAS -> Switch1 -> Switch2 -> Server
+    /// (Gateway should NOT be in the path since they're on the same VLAN)
+    /// </summary>
+    public static NetworkTopology CreateDaisyChainTopology(int linkSpeedMbps = 10000)
+    {
+        return new NetworkTopology
+        {
+            Devices = new List<DiscoveredDevice>
+            {
+                // Gateway
+                CreateGateway(lanSpeed: linkSpeedMbps),
+
+                // Switch1 (ProXG) - uplinks to Gateway
+                new DiscoveredDevice
+                {
+                    Mac = Switch1Mac,
+                    IpAddress = Switch1Ip,
+                    Name = "Switch1-ProXG",
+                    Model = "USW-Pro-XG-8-PoE",
+                    ModelDisplay = "USW Pro XG 8 PoE",
+                    Type = DeviceType.Switch,
+                    Adopted = true,
+                    State = 1,
+                    UplinkMac = GatewayMac,
+                    UplinkPort = 1,
+                    UplinkSpeedMbps = linkSpeedMbps,
+                    UplinkType = "wire",
+                    IsUplinkConnected = true,
+                    PortCount = 8
+                },
+
+                // Switch2 (FlexXG) - uplinks to Switch1
+                new DiscoveredDevice
+                {
+                    Mac = Switch2Mac,
+                    IpAddress = Switch2Ip,
+                    Name = "Switch2-FlexXG",
+                    Model = "USW-Flex-XG",
+                    ModelDisplay = "USW Flex XG",
+                    Type = DeviceType.Switch,
+                    Adopted = true,
+                    State = 1,
+                    UplinkMac = Switch1Mac,
+                    UplinkPort = 2,
+                    UplinkSpeedMbps = linkSpeedMbps,
+                    UplinkType = "wire",
+                    IsUplinkConnected = true,
+                    PortCount = 4
+                }
+            },
+            Clients = new List<DiscoveredClient>
+            {
+                // NAS client on Switch1
+                new DiscoveredClient
+                {
+                    Mac = NasMac,
+                    IpAddress = NasIp,
+                    Hostname = "nas-mother",
+                    Name = "NAS Mother",
+                    IsWired = true,
+                    ConnectedToDeviceMac = Switch1Mac,
+                    SwitchPort = 3,
+                    Network = "Default",
+                    NetworkId = "1"
+                }
+            },
+            Networks = new List<NetworkInfo>
+            {
+                new NetworkInfo
+                {
+                    Id = "1",
+                    Name = "Default",
+                    VlanId = 1,
+                    IpSubnet = "192.0.2.0/24",
+                    Purpose = "corporate"
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    /// Creates a ServerPosition for testing where server is on Switch2 (FlexXG)
+    /// </summary>
+    public static ServerPosition CreateDaisyChainServerPosition()
+    {
+        return new ServerPosition
+        {
+            IpAddress = ServerIp,
+            Mac = ServerMac,
+            Name = "Server-Mac",
+            SwitchMac = Switch2Mac,
+            SwitchName = "Switch2-FlexXG",
+            SwitchPort = 3,
+            NetworkName = "Default",
+            VlanId = 1,
+            IsWired = true
+        };
+    }
+
+    /// <summary>
+    /// Creates a ServerPosition for testing where server is directly on the gateway
+    /// </summary>
+    public static ServerPosition CreateGatewayServerPosition()
+    {
+        return new ServerPosition
+        {
+            IpAddress = ServerIp,
+            Mac = ServerMac,
+            Name = "Server",
+            SwitchMac = GatewayMac,
+            SwitchName = "Gateway",
+            SwitchPort = 1,
+            NetworkName = "Default",
+            VlanId = 1,
+            IsWired = true
+        };
+    }
+
+    /// <summary>
+    /// Creates a ServerPosition for testing where server is on the same switch as client
+    /// </summary>
+    public static ServerPosition CreateSameSwitchServerPosition()
+    {
+        return new ServerPosition
+        {
+            IpAddress = ServerIp,
+            Mac = ServerMac,
+            Name = "Server",
+            SwitchMac = Switch1Mac,
+            SwitchName = "Switch1-ProXG",
+            SwitchPort = 4,
+            NetworkName = "Default",
+            VlanId = 1,
+            IsWired = true
+        };
     }
 
     #endregion

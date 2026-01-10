@@ -657,7 +657,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         return bytes1[0] != bytes2[0] || bytes1[1] != bytes2[1] || bytes1[2] != bytes2[2];
     }
 
-    private void BuildHopList(
+    internal void BuildHopList(
         NetworkPath path,
         ServerPosition serverPosition,
         DiscoveredDevice? targetDevice,
@@ -905,6 +905,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             int hopOrder = 1;
             int maxHops = 10;
             bool reachedGateway = false;
+            int commonAncestorIndex = -1; // Index in serverChain where we found the common ancestor
+
+            // Build a set of server chain MACs for O(1) lookup
+            var serverChainMacs = new HashSet<string>(
+                serverChain.Select(s => s.device.Mac),
+                StringComparer.OrdinalIgnoreCase);
 
             while (!string.IsNullOrEmpty(currentMac) && hopOrder < maxHops)
             {
@@ -915,9 +921,20 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 bool isServerSwitch = currentMac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase);
                 bool isGateway = device.Type == DeviceType.Gateway;
 
-                // For inter-VLAN routing: don't stop at server's switch, continue to gateway
+                // Check if this device is anywhere in the server's uplink chain (common ancestor)
+                // This handles the daisy-chain scenario where server is downstream from client's switch
+                bool isInServerChain = serverChainMacs.Contains(currentMac);
+                if (isInServerChain && !isServerSwitch)
+                {
+                    // Find the index in the server chain
+                    commonAncestorIndex = serverChain.FindIndex(s =>
+                        s.device.Mac.Equals(currentMac, StringComparison.OrdinalIgnoreCase));
+                }
+
+                // For inter-VLAN routing: don't stop at server's switch or common ancestor, continue to gateway
                 // Traffic must go to gateway for L3 routing even if it passes through server's switch
                 bool stopAtServerSwitch = isServerSwitch && !path.RequiresRouting;
+                bool stopAtCommonAncestor = commonAncestorIndex >= 0 && !path.RequiresRouting;
 
                 // Check if this device has a wireless uplink (for egress, not ingress)
                 bool isWirelessUplink = device.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true
@@ -948,6 +965,18 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     hop.EgressPort = serverPosition.SwitchPort;
                     hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, serverPosition.SwitchPort);
                     hop.EgressPortName = GetPortName(rawDevices, currentMac, serverPosition.SwitchPort);
+                }
+                else if (stopAtCommonAncestor)
+                {
+                    // Common ancestor in daisy-chain: traffic goes down to server's switch
+                    // Find the next device in the server chain (which uplinks to this device)
+                    if (commonAncestorIndex > 0)
+                    {
+                        var nextInChain = serverChain[commonAncestorIndex - 1];
+                        hop.EgressPort = nextInChain.device.UplinkPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, nextInChain.device.UplinkPort);
+                        hop.EgressPortName = GetPortName(rawDevices, currentMac, nextInChain.device.UplinkPort);
+                    }
                 }
                 else if (!string.IsNullOrEmpty(device.UplinkMac))
                 {
@@ -992,6 +1021,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (stopAtServerSwitch)
                     break;
 
+                // Stop at common ancestor for L2 traffic (same VLAN, daisy-chain topology)
+                if (stopAtCommonAncestor)
+                    break;
+
                 if (isGateway)
                 {
                     reachedGateway = true;
@@ -1014,6 +1047,50 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 currentMac = device.UplinkMac;
                 currentPort = device.UplinkPort;
                 hopOrder++;
+            }
+
+            // For L2 daisy-chain: after stopping at common ancestor, add path down to server's switch
+            if (commonAncestorIndex >= 0 && !path.RequiresRouting && serverChain.Count > 0)
+            {
+                // Add server chain from common ancestor down to server's switch
+                // Start from commonAncestorIndex - 1 (common ancestor already added) down to 0
+                for (int i = commonAncestorIndex - 1; i >= 0; i--)
+                {
+                    var (chainDevice, chainPort) = serverChain[i];
+                    hopOrder++;
+
+                    var hop = new NetworkHop
+                    {
+                        Order = hopOrder,
+                        Type = GetHopType(chainDevice.Type),
+                        DeviceMac = chainDevice.Mac,
+                        DeviceName = chainDevice.Name,
+                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname, chainDevice.ModelDisplay),
+                        DeviceIp = chainDevice.IpAddress,
+                        IngressPort = chainPort,
+                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort)
+                    };
+
+                    // Set egress based on position in chain
+                    if (chainDevice.Mac.Equals(serverPosition.SwitchMac, StringComparison.OrdinalIgnoreCase))
+                    {
+                        // This is server's switch - egress to server
+                        hop.EgressPort = serverPosition.SwitchPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                        hop.EgressPortName = GetPortName(rawDevices, chainDevice.Mac, serverPosition.SwitchPort);
+                    }
+                    else if (i > 0)
+                    {
+                        // There's another switch below - egress to next in chain
+                        var nextInChain = serverChain[i - 1];
+                        hop.EgressPort = nextInChain.device.UplinkPort;
+                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, nextInChain.device.UplinkPort);
+                        hop.EgressPortName = GetPortName(rawDevices, chainDevice.Mac, nextInChain.device.UplinkPort);
+                    }
+
+                    hops.Add(hop);
+                }
             }
 
             // For inter-VLAN: after reaching gateway, add path from gateway to server
