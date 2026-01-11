@@ -16,6 +16,17 @@
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/upnp-inspector">
+                <svg class="nav-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7v10l10 5 10-5V7L12 2z"/>
+                    <path d="M12 22V12"/>
+                    <path d="M2 7l10 5 10-5"/>
+                    <circle cx="12" cy="12" r="2"/>
+                </svg>
+                <span class="nav-text">UPnP Inspector</span>
+            </NavLink>
+        </li>
+        <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="/sqm">
                 <img src="/icons/sqm-v3.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Adaptive SQM</span>

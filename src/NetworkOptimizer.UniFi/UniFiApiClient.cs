@@ -827,6 +827,31 @@ public class UniFiApiClient : IDisposable
         return new List<UniFiFirewallGroup>();
     }
 
+    /// <summary>
+    /// GET stat/portforward - Get all port forwarding rules (UPnP and static)
+    /// Returns both dynamic UPnP mappings and configured static port forwards
+    /// </summary>
+    public async Task<List<UniFiPortForwardRule>> GetPortForwardRulesAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching port forwarding rules from site {Site}", _site);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiPortForwardRule>>(
+            () => _httpClient!.GetAsync(BuildApiPath("stat/portforward"), cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            var upnpCount = response.Data.Count(r => r.IsUpnp == 1);
+            var staticCount = response.Data.Count - upnpCount;
+            _logger.LogInformation("Retrieved {Count} port forwarding rules ({UpnpCount} UPnP, {StaticCount} static)",
+                response.Data.Count, upnpCount, staticCount);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to retrieve port forwarding rules or received non-ok response");
+        return new List<UniFiPortForwardRule>();
+    }
+
     #endregion
 
     #region Network Configuration APIs
