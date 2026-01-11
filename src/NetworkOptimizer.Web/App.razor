@@ -204,7 +204,6 @@
         // Back/forward navigation: restore previous scroll position
         const scrollPositions = new Map();
         let isPopState = false;
-        let lastClickedPath = null;
 
         // Disable browser's automatic scroll restoration - we'll handle it
         if ('scrollRestoration' in history) {
@@ -216,7 +215,7 @@
             isPopState = true;
         });
 
-        // Re-initialize after Blazor navigation
+        // Handle scroll on Blazor enhanced navigation
         if (typeof Blazor !== 'undefined') {
             Blazor.addEventListener('enhancedload', function() {
                 const newPath = window.location.pathname;
@@ -227,16 +226,13 @@
                         // Back/forward navigation: restore saved position
                         const savedPosition = scrollPositions.get(newPath);
                         if (savedPosition !== undefined) {
-                            window.scrollTo(0, savedPosition);
+                            window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
                         }
                         isPopState = false;
-                    } else if (lastClickedPath && lastClickedPath !== newPath) {
-                        // Forward navigation to different page: scroll to top (unless hash)
-                        if (!window.location.hash) {
-                            window.scrollTo(0, 0);
-                        }
+                    } else if (!window.location.hash) {
+                        // Forward navigation: scroll to top (unless hash link)
+                        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
                     }
-                    lastClickedPath = null;
                 });
 
                 setTimeout(initTooltips, 100);
@@ -249,7 +245,6 @@
             if (link) {
                 // Save current scroll position for back navigation
                 scrollPositions.set(window.location.pathname, window.scrollY);
-                lastClickedPath = window.location.pathname;
 
                 // Clean up tippy elements
                 document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
