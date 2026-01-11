@@ -55,4 +55,5 @@ public static class IssueTypes
     public const string DnsDeviceMisconfigured = "DNS_DEVICE_MISCONFIGURED";
     public const string DnsThirdPartyDetected = "DNS_THIRD_PARTY_DETECTED";
     public const string DnsUnknownConfig = "DNS_UNKNOWN_CONFIG";
+    public const string DnsInconsistentConfig = "DNS_INCONSISTENT_CONFIG";
 }

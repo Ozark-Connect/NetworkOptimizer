@@ -37,7 +37,9 @@ public class ThirdPartyDnsDetector
     /// <summary>
     /// Detect third-party LAN DNS servers across all networks
     /// </summary>
-    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks)
+    /// <param name="networks">List of networks to check</param>
+    /// <param name="customPiholePort">Optional custom port for Pi-hole admin interface</param>
+    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPiholePort = null)
     {
         var results = new List<ThirdPartyDnsInfo>();
         var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
@@ -93,7 +95,7 @@ public class ThirdPartyDnsDetector
                 if (!probedIps.Contains(dnsServer))
                 {
                     probedIps.Add(dnsServer);
-                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer);
+                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPiholePort);
                     if (isPihole)
                     {
                         providerName = "Pi-hole";
@@ -158,21 +160,33 @@ public class ThirdPartyDnsDetector
     /// <summary>
     /// Probe an IP address to detect if it's running Pi-hole
     /// </summary>
-    private async Task<(bool IsPihole, string? Version)> ProbePiholeAsync(string ipAddress)
+    /// <param name="ipAddress">IP address to probe</param>
+    /// <param name="customPort">Optional custom port to try (both HTTP and HTTPS)</param>
+    private async Task<(bool IsPihole, string? Version)> ProbePiholeAsync(string ipAddress, int? customPort = null)
     {
-        // Try standard HTTP port first
-        var result = await TryProbePiholeEndpointAsync(ipAddress, 80);
-        if (result.IsPihole)
-            return result;
+        // Build list of ports to try
+        var portsToTry = new List<(int Port, bool UseHttps)>();
 
-        // Try Pi-hole's alternate port
-        result = await TryProbePiholeEndpointAsync(ipAddress, 4711);
-        if (result.IsPihole)
-            return result;
+        // If custom port is specified, try it first (both HTTP and HTTPS)
+        if (customPort.HasValue && customPort.Value > 0)
+        {
+            portsToTry.Add((customPort.Value, false)); // Try HTTP first
+            portsToTry.Add((customPort.Value, true));  // Then HTTPS
+        }
 
-        // Try HTTPS on port 443
-        result = await TryProbePiholeEndpointAsync(ipAddress, 443, useHttps: true);
-        return result;
+        // Add default ports: 80 (default), 443 (HTTPS), 8080 (alternate)
+        portsToTry.Add((80, false));
+        portsToTry.Add((443, true));
+        portsToTry.Add((8080, false));
+
+        foreach (var (port, useHttps) in portsToTry)
+        {
+            var result = await TryProbePiholeEndpointAsync(ipAddress, port, useHttps);
+            if (result.IsPihole)
+                return result;
+        }
+
+        return (false, null);
     }
 
     private async Task<(bool IsPihole, string? Version)> TryProbePiholeEndpointAsync(string ipAddress, int port, bool useHttps = false)
@@ -180,7 +194,7 @@ public class ThirdPartyDnsDetector
         try
         {
             var scheme = useHttps ? "https" : "http";
-            var url = $"{scheme}://{ipAddress}:{port}/admin/api.php?summary";
+            var url = $"{scheme}://{ipAddress}:{port}/api/info/login";
 
             _logger.LogDebug("Probing Pi-hole at {Url}", url);
 
@@ -192,31 +206,23 @@ public class ThirdPartyDnsDetector
 
             var content = await response.Content.ReadAsStringAsync(cts.Token);
 
-            // Pi-hole API returns JSON with fields like "status", "dns_queries_today", etc.
-            if (content.Contains("dns_queries_today") || content.Contains("ads_blocked_today") || content.Contains("status"))
+            // Pi-hole /api/info/login returns {"dns":true,"https_port":...,"took":...}
+            if (content.Contains("\"dns\""))
             {
-                // Try to extract version from response
-                string? version = null;
                 try
                 {
                     using var doc = JsonDocument.Parse(content);
-                    if (doc.RootElement.TryGetProperty("version", out var versionProp))
+                    if (doc.RootElement.TryGetProperty("dns", out var dnsProp) && dnsProp.GetBoolean())
                     {
-                        version = versionProp.GetString();
-                    }
-                    else if (doc.RootElement.TryGetProperty("gravity_last_updated", out _))
-                    {
-                        // Definitely Pi-hole if it has gravity data
-                        version = "detected";
+                        _logger.LogInformation("Detected Pi-hole at {Url}", url);
+                        return (true, "detected");
                     }
                 }
                 catch
                 {
                     // JSON parsing failed, but content indicates Pi-hole
-                    version = "detected";
+                    return (true, "detected");
                 }
-
-                return (true, version);
             }
 
             return (false, null);

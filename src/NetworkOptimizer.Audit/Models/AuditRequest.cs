@@ -60,4 +60,9 @@ public class AuditRequest
     /// Optional: Client name for display purposes
     /// </summary>
     public string? ClientName { get; init; }
+
+    /// <summary>
+    /// Optional: Custom Pi-hole management port (defaults to auto-probe 80, 443, 8080)
+    /// </summary>
+    public int? PiholeManagementPort { get; init; }
 }

@@ -46,6 +46,7 @@ public class ConfigAuditEngine
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
+        public int? PiholeManagementPort { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -297,7 +298,8 @@ public class ConfigAuditEngine
             ClientName = request.ClientName,
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings,
-            PortProfiles = request.PortProfiles
+            PortProfiles = request.PortProfiles,
+            PiholeManagementPort = request.PiholeManagementPort
         };
     }
 
@@ -662,7 +664,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

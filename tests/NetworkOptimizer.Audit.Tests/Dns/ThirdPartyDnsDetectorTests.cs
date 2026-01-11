@@ -357,7 +357,8 @@ public class ThirdPartyDnsDetectorTests
     [Fact]
     public async Task DetectThirdPartyDnsAsync_PiholeDetected_SetsIsPiholeTrue()
     {
-        var piholeResponse = @"{""status"":""enabled"",""dns_queries_today"":1234,""ads_blocked_today"":567}";
+        // Pi-hole v6+ /api/info/login response format
+        var piholeResponse = @"{""dns"":true,""https_port"":0,""took"":0.00001}";
         var httpClient = CreateMockHttpClient(HttpStatusCode.OK, piholeResponse);
         var detector = CreateDetector(httpClient);
         var networks = new List<NetworkInfo>
@@ -381,9 +382,10 @@ public class ThirdPartyDnsDetectorTests
     }
 
     [Fact]
-    public async Task DetectThirdPartyDnsAsync_PiholeWithVersion_ExtractsVersion()
+    public async Task DetectThirdPartyDnsAsync_PiholeWithDnsTrue_DetectsAsPihole()
     {
-        var piholeResponse = @"{""status"":""enabled"",""dns_queries_today"":1234,""version"":""5.17.1""}";
+        // Pi-hole v6+ /api/info/login response with dns:true indicates Pi-hole
+        var piholeResponse = @"{""dns"":true,""https_port"":443,""took"":0.001}";
         var httpClient = CreateMockHttpClient(HttpStatusCode.OK, piholeResponse);
         var detector = CreateDetector(httpClient);
         var networks = new List<NetworkInfo>
@@ -403,14 +405,15 @@ public class ThirdPartyDnsDetectorTests
 
         result.Should().HaveCount(1);
         result[0].IsPihole.Should().BeTrue();
-        result[0].PiholeVersion.Should().Be("5.17.1");
+        result[0].PiholeVersion.Should().Be("detected");
     }
 
     [Fact]
-    public async Task DetectThirdPartyDnsAsync_PiholeWithGravity_DetectsAsPihole()
+    public async Task DetectThirdPartyDnsAsync_ResponseWithoutDnsProperty_NotDetectedAsPihole()
     {
-        var piholeResponse = @"{""gravity_last_updated"":{},""status"":""enabled""}";
-        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, piholeResponse);
+        // Response that doesn't contain "dns" property should not be detected as Pi-hole
+        var notPiholeResponse = @"{""https_port"":443,""took"":0.001}";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, notPiholeResponse);
         var detector = CreateDetector(httpClient);
         var networks = new List<NetworkInfo>
         {
@@ -428,7 +431,8 @@ public class ThirdPartyDnsDetectorTests
         var result = await detector.DetectThirdPartyDnsAsync(networks);
 
         result.Should().HaveCount(1);
-        result[0].IsPihole.Should().BeTrue();
+        result[0].IsPihole.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
     }
 
     [Fact]

@@ -54,7 +54,14 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
+    /// </summary>
+    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
     {
         var result = new DnsSecurityResult();
 
@@ -108,7 +115,7 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customPiholePort);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -512,30 +519,42 @@ public class DnsSecurityAnalyzer
         {
             if (result.HasThirdPartyDns)
             {
-                // Third-party DNS detected - create Info issue (neutral, not a security gap)
                 var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
                 var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
+
+                // Known providers (Pi-hole, AdGuard) are trusted - neutral score impact
+                // Unknown third-party DNS servers get a minor penalty since we can't verify their filtering
+                var isKnownProvider = result.IsPiholeDetected; // Add AdGuard detection in the future
+                var scoreImpact = isKnownProvider ? 0 : 3; // Minor penalty for unknown providers
+                var severity = isKnownProvider ? AuditSeverity.Informational : AuditSeverity.Recommended;
+                var recommendedAction = isKnownProvider
+                    ? "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass."
+                    : "Consider using a known DNS filtering solution like Pi-hole or AdGuard Home, or configure DoH with a trusted provider.";
 
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsThirdPartyDetected,
-                    Severity = AuditSeverity.Informational,
+                    Severity = severity,
                     DeviceName = result.GatewayName,
                     Message = $"{result.ThirdPartyDnsProviderName} detected handling DNS queries. Networks using third-party DNS: {string.Join(", ", networkNames)}. DNS server(s): {string.Join(", ", dnsServerIps)}.",
-                    RecommendedAction = "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass.",
+                    RecommendedAction = recommendedAction,
                     RuleId = "DNS-3RDPARTY-001",
-                    ScoreImpact = 0, // Neutral - not a security gap
+                    ScoreImpact = scoreImpact,
                     Metadata = new Dictionary<string, object>
                     {
                         { "third_party_dns_ips", dnsServerIps },
                         { "is_pihole", result.IsPiholeDetected },
+                        { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
                         { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" }
                     }
                 });
 
-                // Add hardening note for third-party DNS
-                result.HardeningNotes.Add($"{result.ThirdPartyDnsProviderName} configured as DNS resolver on {networkNames.Count} network(s)");
+                // Add hardening note only for known providers
+                if (isKnownProvider)
+                {
+                    result.HardeningNotes.Add($"{result.ThirdPartyDnsProviderName} configured as DNS resolver on {networkNames.Count} network(s)");
+                }
             }
             else
             {
@@ -1177,9 +1196,9 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPiholePort = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks);
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPiholePort);
 
         if (thirdPartyResults.Any())
         {
@@ -1199,6 +1218,82 @@ public class DnsSecurityAnalyzer
                 _logger.LogInformation("Third-party LAN DNS detected on {Count} network(s)",
                     thirdPartyResults.Count);
             }
+
+            // Check for DNS consistency across all DHCP-enabled networks
+            CheckDnsConsistencyAcrossNetworks(networks, thirdPartyResults, result);
+        }
+    }
+
+    /// <summary>
+    /// Check if all DHCP-enabled networks use the same third-party DNS server.
+    /// If a third-party DNS (like Pi-hole) is configured on some networks but not all,
+    /// this creates a security gap where DNS filtering can be bypassed.
+    /// </summary>
+    private void CheckDnsConsistencyAcrossNetworks(
+        List<NetworkInfo> networks,
+        List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> thirdPartyResults,
+        DnsSecurityResult result)
+    {
+        // Get the unique third-party DNS IPs that were detected
+        var thirdPartyDnsIps = thirdPartyResults
+            .Select(r => r.DnsServerIp)
+            .Distinct()
+            .ToHashSet();
+
+        // Get all DHCP-enabled networks
+        var dhcpNetworks = networks.Where(n => n.DhcpEnabled).ToList();
+
+        if (dhcpNetworks.Count == 0)
+        {
+            _logger.LogDebug("No DHCP-enabled networks found, skipping DNS consistency check");
+            return;
+        }
+
+        // Get the networks where third-party DNS was detected
+        var networksWithThirdPartyDns = thirdPartyResults
+            .Select(r => r.NetworkName)
+            .Distinct()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Get DHCP networks that are NOT using the third-party DNS
+        var networksWithoutThirdPartyDns = dhcpNetworks
+            .Where(n => !networksWithThirdPartyDns.Contains(n.Name))
+            .ToList();
+
+        if (networksWithoutThirdPartyDns.Any())
+        {
+            var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+            var missingNetworkNames = networksWithoutThirdPartyDns.Select(n => n.Name).ToList();
+            var configuredNetworkNames = networksWithThirdPartyDns.ToList();
+            var dnsServerIps = string.Join(", ", thirdPartyDnsIps);
+
+            _logger.LogWarning(
+                "DNS consistency issue: {ProviderName} ({DnsIps}) configured on {ConfiguredCount} networks but missing on {MissingCount} DHCP-enabled networks: {MissingNetworks}",
+                providerName, dnsServerIps, configuredNetworkNames.Count, missingNetworkNames.Count, string.Join(", ", missingNetworkNames));
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsInconsistentConfig,
+                Severity = AuditSeverity.Critical,
+                DeviceName = result.GatewayName,
+                Message = $"{providerName} is configured on {configuredNetworkNames.Count} network(s) but {missingNetworkNames.Count} DHCP-enabled network(s) are not using it: {string.Join(", ", missingNetworkNames)}. Devices on these networks can bypass DNS filtering.",
+                RecommendedAction = $"Configure all DHCP-enabled networks to use {providerName} ({dnsServerIps}) for consistent DNS filtering",
+                RuleId = "DNS-CONSISTENCY-001",
+                ScoreImpact = 15,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "third_party_dns_ips", thirdPartyDnsIps.ToList() },
+                    { "configured_networks", configuredNetworkNames },
+                    { "missing_networks", missingNetworkNames },
+                    { "provider_name", providerName }
+                }
+            });
+        }
+        else
+        {
+            _logger.LogInformation(
+                "DNS consistency check passed: All {Count} DHCP-enabled networks use {ProviderName}",
+                dhcpNetworks.Count, result.ThirdPartyDnsProviderName);
         }
     }
 

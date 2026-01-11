@@ -1063,6 +1063,12 @@
                 <small class="form-help">When unchecked, printers on main/corporate VLANs will trigger recommendations to move them to a Printer or IoT VLAN</small>
             </div>
 
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">Pi-hole Management Port (optional)</label>
+                <input type="number" class="form-control" @bind="piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 200px;" />
+                <small class="form-help">Custom HTTP port for Pi-hole admin interface. Leave empty to auto-probe ports 80, 443, 8080. Both HTTP and HTTPS are tried.</small>
+            </div>
+
             <div class="action-buttons">
                 <button class="btn btn-success" @onclick="SaveAuditSettings" disabled="@savingAuditSettings">
                     @if (savingAuditSettings)
@@ -1222,6 +1228,7 @@
     private bool allowNameBrandTVsOnMainNetwork = false;
     private bool allowAllTVsOnMainNetwork = false;
     private bool allowPrintersOnMainNetwork = true;
+    private int? piholeManagementPort = null;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -2326,6 +2333,7 @@
             var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
+            var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -2333,6 +2341,8 @@
             allowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
             // Printers default to true if not set
             allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
+            // Pi-hole port (null means auto-detect)
+            piholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
         }
         catch (Exception ex)
         {
@@ -2354,6 +2364,7 @@
             await SystemSettings.SetAsync("audit:allowNameBrandTVsOnMainNetwork", allowNameBrandTVsOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:piholeManagementPort", piholeManagementPort?.ToString() ?? "");
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";
