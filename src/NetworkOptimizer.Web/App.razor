@@ -216,10 +216,12 @@
         });
 
         // Handle scroll on Blazor enhanced navigation
-        console.log('[scroll] Blazor defined:', typeof Blazor !== 'undefined');
-        if (typeof Blazor !== 'undefined') {
-            console.log('[scroll] Registering enhancedload listener');
-            Blazor.addEventListener('enhancedload', function() {
+        // Delay registration to ensure Blazor is fully initialized
+        setTimeout(function() {
+            console.log('[scroll] Blazor defined:', typeof Blazor !== 'undefined');
+            if (typeof Blazor !== 'undefined') {
+                console.log('[scroll] Registering enhancedload listener');
+                Blazor.addEventListener('enhancedload', function() {
                 console.log('[scroll] enhancedload fired, isPopState:', isPopState);
                 const newPath = window.location.pathname;
 
@@ -243,6 +245,7 @@
                 setTimeout(initTooltips, 100);
             });
         }
+        }, 100);
 
         // Save scroll position before navigation and clean up tippy elements
         document.addEventListener('click', function(e) {
