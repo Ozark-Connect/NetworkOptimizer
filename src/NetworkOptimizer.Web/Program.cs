@@ -19,6 +19,15 @@ using NetworkOptimizer.Core.Helpers;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Windows Service support (no-op when running as console or on non-Windows)
+if (OperatingSystem.IsWindows())
+{
+    builder.Host.UseWindowsService(options =>
+    {
+        options.ServiceName = "NetworkOptimizer";
+    });
+}
+
 // Configure Data Protection to persist keys to the data volume
 var isDocker = string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
 var keysPath = isDocker
@@ -113,6 +122,9 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
 // Enable via environment variable: Iperf3Server__Enabled=true
 builder.Services.AddHostedService<Iperf3ServerService>();
+
+// Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
+builder.Services.AddHostedService<NginxHostedService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();

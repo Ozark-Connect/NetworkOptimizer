@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Service Component
+
+  Installs the main NetworkOptimizer.Web.exe as a Windows Service
+  with firewall exceptions for ports 8042 (web UI) and 5201 (iperf3).
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Fragment>
+    <ComponentGroup Id="ServiceComponents" Directory="INSTALLFOLDER">
+
+      <!-- Main executable and service registration -->
+      <Component Id="NetworkOptimizerService" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890" Bitness="always64">
+        <File Id="NetworkOptimizerExe"
+              Source="$(var.PublishDir)NetworkOptimizer.Web.exe"
+              KeyPath="yes" />
+
+        <!-- Install as Windows Service -->
+        <ServiceInstall
+            Id="NetworkOptimizerServiceInstall"
+            Name="NetworkOptimizer"
+            DisplayName="Network Optimizer"
+            Description="UniFi network analysis, security auditing, and SQM optimization service"
+            Type="ownProcess"
+            Start="auto"
+            ErrorControl="normal"
+            Account="NT AUTHORITY\LocalService">
+          <!-- Delayed auto-start for better boot performance -->
+          <ServiceConfig DelayedAutoStart="yes" OnInstall="yes" OnReinstall="yes" />
+        </ServiceInstall>
+
+        <!-- Service control: start on install, stop/remove on uninstall -->
+        <ServiceControl
+            Id="NetworkOptimizerServiceControl"
+            Name="NetworkOptimizer"
+            Start="install"
+            Stop="both"
+            Remove="uninstall"
+            Wait="yes" />
+
+        <!-- Firewall exception for Web UI (port 8042) -->
+        <fw:FirewallException
+            Id="WebUIFirewall"
+            Name="Network Optimizer Web UI"
+            Port="8042"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+
+        <!-- Firewall exception for iperf3 (port 5201) -->
+        <fw:FirewallException
+            Id="Iperf3Firewall"
+            Name="Network Optimizer iperf3"
+            Port="5201"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+      </Component>
+
+      <!-- Logs folder -->
+      <Component Id="LogsFolderComponent" Directory="LogsFolder" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567891" Bitness="always64">
+        <CreateFolder />
+        <RemoveFolder Id="RemoveLogsOnUninstall" On="uninstall" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- All published files from dotnet publish (auto-harvested) -->
+    <ComponentGroup Id="PublishedFiles" Directory="INSTALLFOLDER">
+      <!-- Use Files element to automatically include all files from publish directory -->
+      <Files Include="$(var.PublishDir)**">
+        <!-- Exclude the main exe (already included above with service registration) -->
+        <Exclude Files="$(var.PublishDir)NetworkOptimizer.Web.exe" />
+      </Files>
+    </ComponentGroup>
+
+  </Fragment>
+
+</Wix>

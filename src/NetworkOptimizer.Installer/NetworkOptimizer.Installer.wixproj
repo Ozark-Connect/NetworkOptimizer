@@ -1,0 +1,47 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+
+  <PropertyGroup>
+    <!-- Disable MinVer for WiX projects (not SDK-style compatible) -->
+    <MinVerSkip>true</MinVerSkip>
+    <!-- Platform: x64 only -->
+    <InstallerPlatform>x64</InstallerPlatform>
+
+    <!-- Output settings -->
+    <OutputName>NetworkOptimizer</OutputName>
+    <OutputType>Package</OutputType>
+
+    <!-- Compression -->
+    <DefaultCompressionLevel>high</DefaultCompressionLevel>
+
+    <!-- Suppress ICE60 warnings for .NET runtime DLLs without language metadata -->
+    <SuppressIces>ICE60</SuppressIces>
+
+    <!-- Suppress WIX1149 warning about ServiceConfig - delayed auto-start still works -->
+    <SuppressSpecificWarnings>1149</SuppressSpecificWarnings>
+
+    <!-- Define publish directory for file references -->
+    <PublishDir>$(MSBuildThisFileDirectory)..\NetworkOptimizer.Web\bin\Release\net10.0\win-x64\publish\</PublishDir>
+
+    <!-- SpeedTest directories -->
+    <InstallerDir>$(MSBuildThisFileDirectory)</InstallerDir>
+    <SpeedTestDir>$(MSBuildThisFileDirectory)SpeedTest\</SpeedTestDir>
+    <OpenSpeedTestDir>$(MSBuildThisFileDirectory)..\OpenSpeedTest\</OpenSpeedTestDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DefineConstants>PublishDir=$(PublishDir);InstallerDir=$(InstallerDir);SpeedTestDir=$(SpeedTestDir);OpenSpeedTestDir=$(OpenSpeedTestDir)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WiX extensions -->
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="6.*" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.*" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.*" />
+  </ItemGroup>
+
+  <!-- Download nginx before build -->
+  <Target Name="DownloadNginx" BeforeTargets="Build" Condition="!Exists('$(SpeedTestDir)nginx\nginx.exe')">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SpeedTestDir)Download-Nginx.ps1&quot;" />
+  </Target>
+
+</Project>

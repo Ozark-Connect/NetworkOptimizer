@@ -1,0 +1,5 @@
+// OpenSpeedTest Configuration
+// Generated at runtime by NetworkOptimizer service
+window.OPENSPEEDTEST_CONFIG = {
+    saveUrl: "{{SAVE_URL}}"
+};

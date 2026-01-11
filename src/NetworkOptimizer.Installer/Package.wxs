@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Main Package Definition
+
+  This file defines the MSI package structure, upgrade behavior,
+  and feature organization.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!-- Package metadata -->
+  <Package Name="Network Optimizer"
+           Manufacturer="Ozark Connect"
+           Version="!(bind.fileVersion.NetworkOptimizerExe)"
+           UpgradeCode="B7A8C9D0-E1F2-3456-7890-ABCDEF123456"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <SummaryInformation
+        Keywords="Installer"
+        Description="Network Optimizer - UniFi network analysis, security auditing, and SQM optimization" />
+
+    <!-- Upgrade handling - allows upgrading from older versions -->
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer version of Network Optimizer is already installed."
+        Schedule="afterInstallInitialize" />
+
+    <!-- Embed CAB files in MSI for single-file distribution -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Directory structure -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ManufacturerFolder" Name="Ozark Connect">
+        <Directory Id="INSTALLFOLDER" Name="Network Optimizer">
+          <Directory Id="LogsFolder" Name="logs" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Main feature - Network Optimizer core -->
+    <Feature Id="MainFeature"
+             Title="Network Optimizer"
+             Description="Network Optimizer Windows Service and all required files"
+             Level="1"
+             AllowAbsent="no"
+             Display="expand">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="PublishedFiles" />
+
+      <!-- SpeedTest feature - bundled OpenSpeedTest with nginx -->
+      <Feature Id="SpeedTestFeature"
+               Title="Browser Speed Test"
+               Description="OpenSpeedTest browser-based speed testing (nginx on port 3005)"
+               Level="1"
+               AllowAbsent="yes">
+        <ComponentGroupRef Id="SpeedTestComponents" />
+        <ComponentGroupRef Id="SpeedTestHtmlFiles" />
+        <ComponentGroupRef Id="SpeedTestCssFiles" />
+        <ComponentGroupRef Id="SpeedTestJsFiles" />
+        <ComponentGroupRef Id="SpeedTestImageFiles" />
+        <ComponentGroupRef Id="SpeedTestIconFiles" />
+        <ComponentGroupRef Id="SpeedTestFontFiles" />
+      </Feature>
+    </Feature>
+
+  </Package>
+
+</Wix>

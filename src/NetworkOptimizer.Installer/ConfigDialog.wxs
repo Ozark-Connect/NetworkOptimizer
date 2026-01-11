@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Configuration Dialog
+
+  Custom dialog for network configuration during installation.
+  Collects HOST_IP, HOST_NAME, and other settings.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Fragment>
+    <!-- Define properties with defaults (Secure=yes allows command-line override) -->
+    <Property Id="HOST_IP" Secure="yes" />
+    <Property Id="HOST_NAME" Secure="yes" />
+    <Property Id="REVERSE_PROXIED_HOST_NAME" Secure="yes" />
+    <Property Id="OPENSPEEDTEST_PORT" Value="3005" Secure="yes" />
+
+    <!-- Use WixUI_InstallDir with custom dialog sequence -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <!-- Custom dialog for network configuration -->
+    <UI>
+      <Dialog Id="NetworkConfigDlg" Width="370" Height="270" Title="Network Configuration">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Network Configuration" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure network settings for speed test result reporting." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <!-- HOST_IP -->
+        <Control Id="HostIPLabel" Type="Text" X="20" Y="60" Width="100" Height="15" Text="Server IP Address:" />
+        <Control Id="HostIPEdit" Type="Edit" X="130" Y="58" Width="200" Height="18" Property="HOST_IP" />
+        <Control Id="HostIPHelp" Type="Text" X="130" Y="78" Width="220" Height="20" Text="e.g., 192.168.1.100 (for path analysis)" NoPrefix="yes" />
+
+        <!-- HOST_NAME -->
+        <Control Id="HostNameLabel" Type="Text" X="20" Y="100" Width="100" Height="15" Text="Server Hostname:" />
+        <Control Id="HostNameEdit" Type="Edit" X="130" Y="98" Width="200" Height="18" Property="HOST_NAME" />
+        <Control Id="HostNameHelp" Type="Text" X="130" Y="118" Width="220" Height="20" Text="e.g., nas, server.local (requires DNS)" NoPrefix="yes" />
+
+        <!-- OPENSPEEDTEST_PORT -->
+        <Control Id="PortLabel" Type="Text" X="20" Y="140" Width="100" Height="15" Text="SpeedTest Port:" />
+        <Control Id="PortEdit" Type="Edit" X="130" Y="138" Width="60" Height="18" Property="OPENSPEEDTEST_PORT" />
+        <Control Id="PortHelp" Type="Text" X="200" Y="140" Width="150" Height="15" Text="Default: 3005" NoPrefix="yes" />
+
+        <!-- REVERSE_PROXIED_HOST_NAME -->
+        <Control Id="ProxyLabel" Type="Text" X="20" Y="170" Width="110" Height="15" Text="Reverse Proxy Host:" />
+        <Control Id="ProxyEdit" Type="Edit" X="130" Y="168" Width="200" Height="18" Property="REVERSE_PROXIED_HOST_NAME" />
+        <Control Id="ProxyHelp" Type="Text" X="130" Y="188" Width="220" Height="20" Text="e.g., optimizer.example.com (if using HTTPS proxy)" NoPrefix="yes" />
+
+        <!-- Info text -->
+        <Control Id="InfoText" Type="Text" X="20" Y="210" Width="330" Height="25" Text="Leave fields blank to use automatic detection. Speed test results will be sent to the main application on port 8042." NoPrefix="yes" />
+
+        <!-- Bottom line and buttons -->
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="&amp;Back">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Next">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Insert our dialog after InstallDirDlg -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="NetworkConfigDlg" Order="2" Condition="1" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="NetworkConfigDlg" Order="2" Condition="NOT Installed" />
+    </UI>
+
+  </Fragment>
+
+</Wix>
