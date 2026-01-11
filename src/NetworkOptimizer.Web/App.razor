@@ -203,11 +203,11 @@
         if (typeof Blazor !== 'undefined') {
             Blazor.addEventListener('enhancedload', function() {
                 // Hide all open tooltips immediately on navigation
-                document.querySelectorAll('.tooltip-icon').forEach(function(icon) {
-                    if (icon._tippy) {
-                        icon._tippy.hide();
-                    }
-                });
+                // document.querySelectorAll('.tooltip-icon').forEach(function(icon) {
+                //     if (icon._tippy) {
+                //         icon._tippy.hide();
+                //     }
+                // });
                 setTimeout(initTooltips, 100);
             });
         }
