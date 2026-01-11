@@ -9,22 +9,6 @@
 
 ## Security Audit / PDF Report
 
-### Port/Ethernet Profiles Not Considered (CRITICAL)
-- **Issue:** Port security checks don't account for UniFi port/ethernet profiles
-- **Impact:** False positives for users who configure port settings via profiles instead of per-port
-- **Current behavior:** Audit checks individual port settings directly
-- **Expected behavior:** Should resolve profile assignments and check the effective settings
-- **Affected checks:**
-  - MAC restriction analysis
-  - Port isolation settings
-  - VLAN assignments
-  - Possibly others that read port configuration
-- **Fix:**
-  - Fetch port/ethernet profiles from UniFi API
-  - When analyzing a port, check if it uses a profile
-  - If profile is assigned, use profile settings instead of (or merged with) port settings
-  - API endpoint: likely `/api/s/{site}/rest/portconf` or similar
-
 ### Manual Network Purpose Override
 - Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
 - Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns
@@ -193,20 +177,6 @@ New audit section focused on network performance issues (distinct from security 
   2. Route everything through direct env var reads (simpler for native)
   3. Support both patterns in app (check env var first, fall back to config)
 - Low priority but would improve consistency
-
-### Scroll Position Restoration Between Routes
-- Fix scroll position behavior when navigating between pages
-- **Expected behavior:**
-  - Navigating forward (clicking a link): Reset scroll to top
-  - Navigating back (browser back button): Restore previous scroll position
-- **Current behavior:** Scroll position is inconsistent/unpredictable
-- **Implementation notes:**
-  - Blazor Server doesn't have built-in scroll restoration
-  - Browser's native scroll restoration doesn't work with SPAs (content renders after navigation)
-  - Requires custom JS interop to save/restore scroll positions
-  - Use browser history state or client-side cache keyed by route
-  - Consider: `NavigationManager.LocationChanged` event + JS interop
-- **Reference:** Similar to how browsers handle multi-page apps, but needs manual implementation for SPA
 
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency
