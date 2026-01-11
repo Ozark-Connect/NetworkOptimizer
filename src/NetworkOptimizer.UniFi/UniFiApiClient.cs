@@ -868,6 +868,29 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET rest/portconf - Get all port profiles.
+    /// Port profiles define configuration templates that can be applied to switch ports.
+    /// When a port has a portconf_id, its settings (forward mode, isolation, etc.) come from the profile.
+    /// </summary>
+    public async Task<List<UniFiPortProfile>> GetPortProfilesAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching port profiles from site {Site}", _site);
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiPortProfile>>(
+            () => _httpClient!.GetAsync(BuildApiPath("rest/portconf"), cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogInformation("Retrieved {Count} port profiles", response.Data.Count);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to retrieve port profiles or received non-ok response");
+        return new List<UniFiPortProfile>();
+    }
+
+    /// <summary>
     /// PUT rest/networkconf/{id} - Update network configuration
     /// Used to enable/disable networks, VPNs, etc.
     /// </summary>

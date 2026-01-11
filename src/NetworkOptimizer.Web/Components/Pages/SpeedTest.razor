@@ -174,8 +174,9 @@
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
-                    <div class="alert alert-danger">
-                        <strong>Test Failed:</strong> @gatewayLastResult.Error
+                    <div class="alert alert-danger alert-with-tooltip">
+                        <span class="alert-text"><strong>Test Failed:</strong> @gatewayLastResult.Error</span>
+                        <SshTroubleshootingTooltip Context="gateway" />
                     </div>
                 }
 
@@ -226,8 +227,16 @@
                     }
                     else
                     {
-                        <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
-                            @gatewayMessage
+                        <div class="alert alert-@gatewayMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                            @if (gatewayMessageClass == "danger")
+                            {
+                                <span class="alert-text">@gatewayMessage</span>
+                                <SshTroubleshootingTooltip Context="gateway" />
+                            }
+                            else
+                            {
+                                @gatewayMessage
+                            }
                         </div>
                     }
                 }
@@ -356,8 +365,16 @@
                 }
                 else
                 {
-                    <div class="alert alert-@unifiMessageClass" style="margin-top: 1rem;">
-                        @unifiMessage
+                    <div class="alert alert-@unifiMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                        @if (unifiMessageClass == "danger")
+                        {
+                            <span class="alert-text">@unifiMessage</span>
+                            <SshTroubleshootingTooltip Context="devices" />
+                        }
+                        else
+                        {
+                            @unifiMessage
+                        }
                     </div>
                 }
             }
@@ -549,8 +566,16 @@
                 }
                 else
                 {
-                    <div class="alert alert-@savedDeviceMessageClass" style="margin-top: 1rem;">
-                        @savedDeviceMessage
+                    <div class="alert alert-@savedDeviceMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                        @if (savedDeviceMessageClass == "danger")
+                        {
+                            <span class="alert-text">@savedDeviceMessage</span>
+                            <SshTroubleshootingTooltip Context="devices" />
+                        }
+                        else
+                        {
+                            @savedDeviceMessage
+                        }
                     </div>
                 }
             }
@@ -574,8 +599,9 @@
                 }
                 else
                 {
-                    <div class="alert alert-danger">
-                        <strong>Test Failed:</strong> @currentResult.ErrorMessage
+                    <div class="alert alert-danger alert-with-tooltip">
+                        <span class="alert-text"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
+                        <SshTroubleshootingTooltip Context="devices" />
                     </div>
                 }
             </div>

@@ -65,6 +65,9 @@ public class PortSecurityAnalyzer
             }
             _logger.LogInformation("Enhanced device detection enabled for audit rules");
         }
+
+        // Inject logger into rules that support it
+        UnusedPortRule.SetLogger(_logger);
     }
 
     /// <summary>
@@ -142,7 +145,25 @@ public class PortSecurityAnalyzer
     /// <param name="clients">Connected clients for port correlation (optional)</param>
     /// <param name="clientHistory">Historical clients for offline port correlation (optional)</param>
     public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientHistoryResponse>? clientHistory)
+        => ExtractSwitches(deviceData, networks, clients, clientHistory, portProfiles: null);
+
+    /// <summary>
+    /// Extract switch and port information from UniFi device JSON with client, history, and port profile correlation
+    /// </summary>
+    /// <param name="deviceData">UniFi device JSON data</param>
+    /// <param name="networks">Network configuration list</param>
+    /// <param name="clients">Connected clients for port correlation (optional)</param>
+    /// <param name="clientHistory">Historical clients for offline port correlation (optional)</param>
+    /// <param name="portProfiles">Port profiles for resolving portconf_id settings (optional)</param>
+    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientHistoryResponse>? clientHistory, List<UniFiPortProfile>? portProfiles)
     {
+        // Build port profile lookup by ID
+        var profilesById = portProfiles?.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase);
+        if (profilesById.Count > 0)
+        {
+            _logger.LogDebug("Built port profile lookup with {Count} profiles", profilesById.Count);
+        }
         var switches = new List<SwitchInfo>();
 
         // Build lookup for clients by switch MAC + port for O(1) correlation
@@ -165,7 +186,7 @@ public class PortSecurityAnalyzer
             if (portTableItems.Count == 0)
                 continue;
 
-            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById);
             if (switchInfo != null)
             {
                 switches.Add(switchInfo);
@@ -259,6 +280,12 @@ public class PortSecurityAnalyzer
     /// Parse a single switch from JSON with client history
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort)
+        => ParseSwitch(device, networks, clientsByPort, historyByPort, new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Parse a single switch from JSON with client history and port profiles
+    /// </summary>
+    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort, Dictionary<string, UniFiPortProfile> portProfiles)
     {
         var deviceType = device.GetStringOrNull("type");
         var isGateway = FromUniFiApiType(deviceType).IsGateway();
@@ -299,7 +326,7 @@ public class PortSecurityAnalyzer
         };
 
         var ports = device.GetArrayOrEmpty("port_table")
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -346,6 +373,12 @@ public class PortSecurityAnalyzer
     /// Parse a single port from JSON
     /// </summary>
     private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort = null)
+        => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null);
+
+    /// <summary>
+    /// Parse a single port from JSON with port profile resolution
+    /// </summary>
+    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort, Dictionary<string, UniFiPortProfile>? portProfiles)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -353,6 +386,65 @@ public class PortSecurityAnalyzer
 
         var portName = port.GetStringOrDefault("name", $"Port {portIdx}");
         var forwardMode = port.GetStringOrDefault("forward", "all");
+
+        // Resolve port profile settings if a profile is assigned
+        var portconfId = port.GetStringOrNull("portconf_id");
+        string? profileName = null;
+        bool portSecurityEnabled = port.GetBoolOrDefault("port_security_enabled");
+        List<string>? allowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address")?.ToList();
+        string? nativeNetworkId = port.GetStringOrNull("native_networkconf_id");
+        bool isolationEnabled = port.GetBoolOrDefault("isolation");
+
+        if (!string.IsNullOrEmpty(portconfId) && portProfiles != null && portProfiles.TryGetValue(portconfId, out var profile))
+        {
+            // Profile found - use profile's forward mode if set
+            if (!string.IsNullOrEmpty(profile.Forward))
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving forward mode from profile '{ProfileName}': {PortForward} -> {ProfileForward}",
+                    switchInfo.Name, portIdx, profile.Name, forwardMode, profile.Forward);
+                forwardMode = profile.Forward;
+            }
+
+            // Use profile's native network ID if port doesn't have one
+            if (string.IsNullOrEmpty(nativeNetworkId) && !string.IsNullOrEmpty(profile.NativeNetworkId))
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving native_networkconf_id from profile '{ProfileName}': {ProfileNetworkId}",
+                    switchInfo.Name, portIdx, profile.Name, profile.NativeNetworkId);
+                nativeNetworkId = profile.NativeNetworkId;
+            }
+
+            // Use profile's port security settings
+            if (profile.PortSecurityEnabled)
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving port_security_enabled from profile '{ProfileName}': {PortValue} -> {ProfileValue}",
+                    switchInfo.Name, portIdx, profile.Name, portSecurityEnabled, profile.PortSecurityEnabled);
+                portSecurityEnabled = profile.PortSecurityEnabled;
+            }
+
+            // Use profile's MAC address restrictions if set
+            if (profile.PortSecurityMacAddresses?.Count > 0)
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving MAC restrictions from profile '{ProfileName}': {Count} MAC(s)",
+                    switchInfo.Name, portIdx, profile.Name, profile.PortSecurityMacAddresses.Count);
+                allowedMacAddresses = profile.PortSecurityMacAddresses;
+            }
+
+            // Use profile's isolation setting
+            if (profile.Isolation)
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving isolation from profile '{ProfileName}': {PortValue} -> {ProfileValue}",
+                    switchInfo.Name, portIdx, profile.Name, isolationEnabled, profile.Isolation);
+                isolationEnabled = profile.Isolation;
+            }
+
+            profileName = profile.Name;
+        }
+        else if (!string.IsNullOrEmpty(portconfId))
+        {
+            // Profile ID present but not found in lookup - log warning
+            _logger.LogWarning("Port {Switch} port {Port} has portconf_id '{PortconfId}' but profile not found in lookup",
+                switchInfo.Name, portIdx, portconfId);
+        }
         if (forwardMode == "customize")
             forwardMode = "custom";
 
@@ -405,11 +497,11 @@ public class PortSecurityAnalyzer
             ForwardMode = forwardMode,
             IsUplink = port.GetBoolOrDefault("is_uplink"),
             IsWan = isWan,
-            NativeNetworkId = port.GetStringOrNull("native_networkconf_id"),
+            NativeNetworkId = nativeNetworkId,
             ExcludedNetworkIds = port.GetStringArrayOrNull("excluded_networkconf_ids"),
-            PortSecurityEnabled = port.GetBoolOrDefault("port_security_enabled"),
-            AllowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address"),
-            IsolationEnabled = port.GetBoolOrDefault("isolation"),
+            PortSecurityEnabled = portSecurityEnabled,
+            AllowedMacAddresses = allowedMacAddresses,
+            IsolationEnabled = isolationEnabled,
             PoeEnabled = poeEnable || portPoe,
             PoePower = port.GetDoubleOrDefault("poe_power"),
             PoeMode = poeMode,

@@ -3865,7 +3865,7 @@ select.form-control {
 
 /* Links inside Tippy tooltips */
 .tippy-box[data-theme~='custom'] a {
-    color: var(--primary-color);
+    color: var(--primary-hover);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
@@ -3877,6 +3877,35 @@ select.form-control {
 .tippy-box[data-theme~='custom'] strong {
     color: var(--text-primary);
     font-weight: 600;
+}
+
+/* Alert with tooltip (SSH troubleshooting, etc.) */
+.alert-with-tooltip {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.alert-with-tooltip .alert-text {
+    flex: 1;
+}
+
+.alert-with-tooltip .tooltip-wrapper {
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.alert-with-tooltip .tooltip-icon {
+    width: 22px;
+    height: 22px;
+    font-size: 14px;
+    margin-left: 0;
+}
+
+/* Wide tooltip content for detailed help */
+.tippy-box[data-theme~='custom'].tooltip-wide {
+    max-width: 360px;
 }
 
 /* ============================================

@@ -9,6 +9,37 @@
 
 ## Security Audit / PDF Report
 
+### Port/Ethernet Profiles Not Considered (CRITICAL)
+- **Issue:** Port security checks don't account for UniFi port/ethernet profiles
+- **Impact:** False positives for users who configure port settings via profiles instead of per-port
+- **Current behavior:** Audit checks individual port settings directly
+- **Expected behavior:** Should resolve profile assignments and check the effective settings
+- **Affected checks:**
+  - MAC restriction analysis
+  - Port isolation settings
+  - VLAN assignments
+  - Possibly others that read port configuration
+- **Fix:**
+  - Fetch port/ethernet profiles from UniFi API
+  - When analyzing a port, check if it uses a profile
+  - If profile is assigned, use profile settings instead of (or merged with) port settings
+  - API endpoint: likely `/api/s/{site}/rest/portconf` or similar
+
+### Manual Network Purpose Override
+- Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
+- Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns
+- Problem: Users with non-standard naming conventions get incorrect VLAN placement recommendations
+- Implementation:
+  - Add "Network Classifications" section to Security Audit Settings page
+  - List all detected networks with current auto-detected purpose
+  - Allow override via dropdown: Corporate, Home, IoT, Security, Guest, Management, Printer, Unknown
+  - Store overrides in database (new table or extend existing settings)
+  - VlanAnalyzer should check for user overrides before applying name-based detection
+- Benefits:
+  - Users with custom naming schemes can get accurate audits
+  - Explicit classification removes ambiguity
+  - Auto-detection still works as default for users who don't configure
+
 ### Printer/Scanner Audit Logic Consolidation
 - **Issue:** Printer/Scanner VLAN placement logic is duplicated across multiple files
 - **Current state:**
@@ -83,8 +114,8 @@ New audit section focused on network performance issues (distinct from security 
 - Currently limited to two WAN connections
 - Should dynamically detect and configure all available WAN interfaces
 
-### GRE Tunnel Support
-- Support for GRE tunnel connections (e.g., UniFi 5G modem)
+### GRE/PPP Tunnel Support
+- Support for GRE and PPP tunnel connections (e.g., UniFi 5G modem, PPPoE)
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 

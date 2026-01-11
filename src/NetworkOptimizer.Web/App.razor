@@ -72,6 +72,7 @@
     </div>
 
     <script src="_framework/blazor.web.js"></script>
+    <script src="js/scrollRestoration.js"></script>
     <script src="js/updateCheck.js"></script>
     @if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS")))
     {
@@ -97,8 +98,11 @@
                 const contentEl = icon.nextElementSibling;
                 let content;
 
+                // Check for wide tooltip class
+                let isWide = false;
                 if (contentEl && contentEl.classList.contains('tooltip-content')) {
                     content = contentEl.innerHTML;
+                    isWide = contentEl.classList.contains('tooltip-wide');
                     contentEl.style.display = 'none'; // Hide the original content element
                 } else if (icon.dataset.tooltip) {
                     content = icon.dataset.tooltip;
@@ -117,13 +121,21 @@
                     placement: 'top',
                     theme: 'custom',
                     appendTo: document.body,
-                    maxWidth: 300,
+                    maxWidth: isWide ? 380 : 320,
                     onShow(instance) {
                         // Close other open tooltips
                         document.querySelectorAll('.tooltip-icon').forEach(function(other) {
                             if (other !== icon && other._tippy) {
                                 other._tippy.hide();
                             }
+                        });
+                    },
+                    onMount(instance) {
+                        // Hide tooltip when clicking links inside it (before Blazor navigation)
+                        instance.popper.querySelectorAll('a').forEach(function(link) {
+                            link.addEventListener('click', function() {
+                                instance.unmount();
+                            });
                         });
                     },
                     onClickOutside(instance, event) {
@@ -188,12 +200,15 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', initTooltips);
 
-        // Re-initialize after Blazor navigation
-        if (typeof Blazor !== 'undefined') {
-            Blazor.addEventListener('enhancedload', function() {
-                setTimeout(initTooltips, 100);
-            });
-        }
+        // Clean up tippy elements before navigation
+        document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[href^="/"]');
+            if (link) {
+                document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
+                    el.remove();
+                });
+            }
+        });
 
         // Also watch for DOM changes (for dynamic content)
         const observer = new MutationObserver(function(mutations) {

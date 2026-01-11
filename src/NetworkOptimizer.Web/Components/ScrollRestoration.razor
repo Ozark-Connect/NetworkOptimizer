@@ -1,0 +1,53 @@
+@implements IDisposable
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+@code {
+    private string? _previousPath;
+
+    protected override void OnInitialized()
+    {
+        _previousPath = GetPath(NavigationManager.Uri);
+        NavigationManager.RegisterLocationChangingHandler(OnLocationChanging);
+        NavigationManager.LocationChanged += OnLocationChanged;
+    }
+
+    private ValueTask OnLocationChanging(LocationChangingContext context)
+    {
+        // Save scroll position BEFORE navigation happens
+        if (_previousPath != null)
+        {
+            _ = JSRuntime.InvokeVoidAsync("scrollRestoration.savePosition", _previousPath);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        var newPath = GetPath(e.Location);
+
+        // Small delay to ensure DOM is ready after Blazor renders
+        await Task.Delay(50);
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("scrollRestoration.restoreOrScrollToTop", newPath);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit disconnected, ignore
+        }
+
+        _previousPath = newPath;
+    }
+
+    private static string GetPath(string uri)
+    {
+        return new Uri(uri).AbsolutePath;
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

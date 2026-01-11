@@ -45,6 +45,7 @@ public class ConfigAuditEngine
         public required string? ClientName { get; init; }
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
+        public required List<UniFiPortProfile>? PortProfiles { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -295,7 +296,8 @@ public class ConfigAuditEngine
             FirewallPoliciesData = request.FirewallPoliciesData,
             ClientName = request.ClientName,
             SecurityEngine = securityEngine,
-            AllowanceSettings = effectiveSettings
+            AllowanceSettings = effectiveSettings,
+            PortProfiles = request.PortProfiles
         };
     }
 
@@ -309,7 +311,9 @@ public class ConfigAuditEngine
     private void ExecutePhase2_ExtractSwitches(AuditContext ctx)
     {
         _logger.LogInformation("Phase 2: Extracting switch configurations");
-        ctx.Switches = ctx.SecurityEngine.ExtractSwitches(ctx.DeviceData, ctx.Networks, ctx.Clients, ctx.ClientHistory);
+        if (ctx.PortProfiles != null)
+            _logger.LogDebug("Port profiles available for resolution: {Count} profiles", ctx.PortProfiles.Count);
+        ctx.Switches = ctx.SecurityEngine.ExtractSwitches(ctx.DeviceData, ctx.Networks, ctx.Clients, ctx.ClientHistory, ctx.PortProfiles);
         _logger.LogInformation("Found {SwitchCount} switches with {PortCount} total ports",
             ctx.Switches.Count, ctx.Switches.Sum(s => s.Ports.Count));
     }

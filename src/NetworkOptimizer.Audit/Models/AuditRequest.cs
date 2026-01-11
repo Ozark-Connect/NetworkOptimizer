@@ -51,6 +51,12 @@ public class AuditRequest
     public ProtectCameraCollection? ProtectCameras { get; init; }
 
     /// <summary>
+    /// Optional: Port profiles from UniFi /rest/portconf endpoint.
+    /// Used to resolve port settings when ports reference a profile via portconf_id.
+    /// </summary>
+    public List<UniFiPortProfile>? PortProfiles { get; init; }
+
+    /// <summary>
     /// Optional: Client name for display purposes
     /// </summary>
     public string? ClientName { get; init; }
