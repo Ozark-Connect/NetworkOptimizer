@@ -213,17 +213,28 @@
         // Handle scroll on Blazor Server navigation
         // Note: .page-content is the scroll container, not window
         let lastPath = window.location.pathname;
+        console.log('[scroll] Init, lastPath:', lastPath);
 
         function getScrollContainer() {
             return document.querySelector('.page-content');
         }
 
+        function logScrollPositions() {
+            const entries = [];
+            scrollPositions.forEach((v, k) => entries.push(k + '=' + v));
+            return '{' + entries.join(', ') + '}';
+        }
+
         // Track back/forward navigation and save current scroll position
         window.addEventListener('popstate', function() {
-            // Save current page's scroll position before navigating away
             const scrollContainer = getScrollContainer();
+            const scrollTop = scrollContainer ? scrollContainer.scrollTop : 'N/A';
+            console.log('[scroll] POPSTATE fired, lastPath:', lastPath, 'scrollTop:', scrollTop, 'location:', window.location.pathname);
+
+            // Save current page's scroll position before navigating away
             if (scrollContainer && lastPath) {
                 scrollPositions.set(lastPath, scrollContainer.scrollTop);
+                console.log('[scroll] POPSTATE saved:', lastPath, '=', scrollContainer.scrollTop, 'all:', logScrollPositions());
             }
             isPopState = true;
         });
@@ -233,17 +244,27 @@
             const newPath = window.location.pathname;
             if (newPath !== lastPath) {
                 const scrollContainer = getScrollContainer();
-                if (!scrollContainer) return;
+                if (!scrollContainer) {
+                    console.log('[scroll] POLL no container!');
+                    return;
+                }
 
+                console.log('[scroll] POLL detected change:', lastPath, '->', newPath, 'isPopState:', isPopState, 'currentScrollTop:', scrollContainer.scrollTop);
+                console.log('[scroll] POLL positions before:', logScrollPositions());
+
+                const oldPath = lastPath;
                 lastPath = newPath;
 
                 if (isPopState) {
                     // Back/forward navigation: restore saved position or scroll to top
                     const savedPosition = scrollPositions.get(newPath);
+                    console.log('[scroll] POLL restoring (popstate), path:', newPath, 'savedPosition:', savedPosition);
                     scrollContainer.scrollTop = savedPosition !== undefined ? savedPosition : 0;
+                    console.log('[scroll] POLL after restore, scrollTop:', scrollContainer.scrollTop);
                     isPopState = false;
                 } else if (!window.location.hash) {
                     // Forward navigation via link click: scroll to top
+                    console.log('[scroll] POLL scrolling to top (link click)');
                     scrollContainer.scrollTop = 0;
                 }
                 setTimeout(initTooltips, 100);
@@ -257,7 +278,10 @@
                 // Save current scroll position for back navigation
                 const scrollContainer = getScrollContainer();
                 if (scrollContainer) {
-                    scrollPositions.set(window.location.pathname, scrollContainer.scrollTop);
+                    const path = window.location.pathname;
+                    const scrollTop = scrollContainer.scrollTop;
+                    scrollPositions.set(path, scrollTop);
+                    console.log('[scroll] CLICK saved:', path, '=', scrollTop, 'all:', logScrollPositions());
                 }
 
                 // Clean up tippy elements
