@@ -141,6 +141,13 @@ public class VlanAnalyzer
             }
         }
 
+        // DNS servers are in separate fields: dhcpd_dns_1, dhcpd_dns_2, dhcpd_dns_3, dhcpd_dns_4
+        var dnsServers = ExtractDnsServers(network);
+        if (dnsServers.Count > 0)
+        {
+            _logger.LogDebug("Network '{Name}' has DNS servers: {DnsServers}", name, string.Join(", ", dnsServers));
+        }
+
         return new NetworkInfo
         {
             Id = networkId,
@@ -149,12 +156,32 @@ public class VlanAnalyzer
             Purpose = purpose,
             Subnet = NormalizeSubnet(rawSubnet),
             Gateway = gateway,
-            DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
+            DnsServers = dnsServers.Count > 0 ? dnsServers : null,
             DhcpEnabled = dhcpEnabled,
             NetworkIsolationEnabled = networkIsolationEnabled,
             InternetAccessEnabled = internetAccessEnabled,
             IsUniFiGuestNetwork = isUniFiGuestNetwork
         };
+    }
+
+    /// <summary>
+    /// Extract DNS servers from network config.
+    /// UniFi stores these in separate fields: dhcpd_dns_1, dhcpd_dns_2, dhcpd_dns_3, dhcpd_dns_4
+    /// </summary>
+    private static List<string> ExtractDnsServers(JsonElement network)
+    {
+        var dnsServers = new List<string>();
+
+        for (int i = 1; i <= 4; i++)
+        {
+            var dns = network.GetStringOrNull($"dhcpd_dns_{i}");
+            if (!string.IsNullOrEmpty(dns))
+            {
+                dnsServers.Add(dns);
+            }
+        }
+
+        return dnsServers;
     }
 
     /// <summary>
