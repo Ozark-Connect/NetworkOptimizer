@@ -98,8 +98,8 @@ New audit section focused on network performance issues (distinct from security 
 - Currently limited to two WAN connections
 - Should dynamically detect and configure all available WAN interfaces
 
-### GRE Tunnel Support
-- Support for GRE tunnel connections (e.g., UniFi 5G modem)
+### GRE/PPP Tunnel Support
+- Support for GRE and PPP tunnel connections (e.g., UniFi 5G modem, PPPoE)
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 
