@@ -242,7 +242,8 @@
             setInterval(function() {
                 const newPath = window.location.pathname;
                 if (newPath !== lastPath) {
-                    console.log('[scroll] URL changed:', lastPath, '->', newPath);
+                    console.log('[scroll] URL changed:', lastPath, '->', newPath, 'scrollY:', window.scrollY);
+                    lastPath = newPath;
                     if (isPopState) {
                         const savedPosition = scrollPositions.get(newPath);
                         if (savedPosition !== undefined) {
@@ -250,9 +251,14 @@
                         }
                         isPopState = false;
                     } else if (!window.location.hash) {
+                        console.log('[scroll] Calling scrollTo(0)');
                         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+                        // Also try after a delay in case Blazor overwrites
+                        setTimeout(function() {
+                            console.log('[scroll] Delayed scrollTo(0), current scrollY:', window.scrollY);
+                            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+                        }, 100);
                     }
-                    lastPath = newPath;
                     setTimeout(initTooltips, 100);
                 }
             }, 50);
