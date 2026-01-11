@@ -583,6 +583,21 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch UniFi Protect cameras (v2 API may not be available)");
             }
 
+            // Fetch port profiles for resolving port configuration from profiles
+            List<NetworkOptimizer.UniFi.Models.UniFiPortProfile>? portProfiles = null;
+            try
+            {
+                portProfiles = await _connectionService.Client.GetPortProfilesAsync();
+                if (portProfiles.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} port profiles for port configuration resolution", portProfiles.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch port profiles");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -594,7 +609,19 @@ public class AuditService
             };
 
             // Run the audit engine with all available data for comprehensive analysis
-            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, clientHistory, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, protectCameras, "Network Audit");
+            var auditResult = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
+            {
+                DeviceDataJson = deviceDataJson,
+                Clients = clients,
+                ClientHistory = clientHistory,
+                FingerprintDb = fingerprintDb,
+                SettingsData = settingsData,
+                FirewallPoliciesData = firewallPoliciesData,
+                AllowanceSettings = allowanceSettings,
+                ProtectCameras = protectCameras,
+                PortProfiles = portProfiles,
+                ClientName = "Network Audit"
+            });
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
