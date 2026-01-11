@@ -65,6 +65,9 @@ public class PortSecurityAnalyzer
             }
             _logger.LogInformation("Enhanced device detection enabled for audit rules");
         }
+
+        // Inject logger into rules that support it
+        UnusedPortRule.SetLogger(_logger);
     }
 
     /// <summary>
@@ -353,6 +356,14 @@ public class PortSecurityAnalyzer
 
         var portName = port.GetStringOrDefault("name", $"Port {portIdx}");
         var forwardMode = port.GetStringOrDefault("forward", "all");
+
+        // Debug: Log port profile info if present
+        var portconfId = port.GetStringOrNull("portconf_id");
+        if (!string.IsNullOrEmpty(portconfId))
+        {
+            _logger.LogInformation("Port {Switch} port {Port} has portconf_id: {PortconfId}, forward={Forward}, name={Name}",
+                switchInfo.Name, portIdx, portconfId, forwardMode, portName);
+        }
         if (forwardMode == "customize")
             forwardMode = "custom";
 

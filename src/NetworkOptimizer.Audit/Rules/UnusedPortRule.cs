@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 
 namespace NetworkOptimizer.Audit.Rules;
@@ -9,6 +10,10 @@ namespace NetworkOptimizer.Audit.Rules;
 /// </summary>
 public class UnusedPortRule : AuditRuleBase
 {
+    private static ILogger? _logger;
+
+    public static void SetLogger(ILogger logger) => _logger = logger;
+
     public override string RuleId => "UNUSED-PORT-001";
     public override string RuleName => "Unused Port Disabled";
     public override string Description => "Unused ports should be disabled (forward: disabled) to prevent unauthorized access";
@@ -37,6 +42,10 @@ public class UnusedPortRule : AuditRuleBase
         // If port has a custom name (not default), skip it - device might just be off
         if (!string.IsNullOrEmpty(port.Name) && !IsDefaultPortName(port.Name))
             return null;
+
+        // Debug logging for flagged ports
+        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: name='{Name}', forward='{Forward}', isUp={IsUp}",
+            port.Switch.Name, port.PortIndex, port.Name, port.ForwardMode, port.IsUp);
 
         return CreateIssue(
             "Unused port not disabled - should set forward mode to 'disabled'",
