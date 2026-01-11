@@ -1409,18 +1409,28 @@
 
         try
         {
-            // Save settings first if password was entered
-            if (!string.IsNullOrEmpty(gatewayPassword))
+            // Build a DeviceSshConfiguration from form values to test current settings
+            // If password field is empty but we have a saved password, load it for the test
+            var testPassword = gatewayPassword;
+            if (string.IsNullOrEmpty(testPassword) && hasGatewayPassword)
             {
-                await SaveGatewaySettings();
+                var savedSettings = await GatewayService.GetSettingsAsync();
+                testPassword = savedSettings?.Password;
             }
 
-            var (success, message) = await GatewayService.TestConnectionAsync();
+            var testConfig = new DeviceSshConfiguration
+            {
+                Host = gatewayHost,
+                SshUsername = gatewayUsername,
+                SshPassword = testPassword,
+                SshPrivateKeyPath = gatewayPrivateKeyPath
+            };
+
+            var (success, message) = await SshService.TestConnectionAsync(testConfig);
             if (success)
             {
                 gatewayMessage = "SSH connection successful!";
                 gatewayMessageClass = "success";
-                await LoadGatewaySettings(); // Refresh to show last tested time
             }
             else
             {
@@ -1626,12 +1636,6 @@
 
         try
         {
-            // Save settings first if password was entered
-            if (!string.IsNullOrEmpty(sshPassword))
-            {
-                await SaveSshSettings();
-            }
-
             // Get devices from the controller and find an online AP
             var devices = await ConnectionService.Client.GetDevicesAsync();
             var onlineAp = devices
@@ -1650,12 +1654,28 @@
             sshMessage = $"Testing SSH connection to {onlineAp.Name} ({onlineAp.Ip})...";
             StateHasChanged();
 
-            var (success, message) = await SshService.TestConnectionAsync(onlineAp.Ip);
+            // Build a DeviceSshConfiguration from form values to test current settings
+            // If password field is empty but we have a saved password, load it for the test
+            var testPassword = sshPassword;
+            if (string.IsNullOrEmpty(testPassword) && hasSshPassword)
+            {
+                var savedSettings = await SshService.GetSettingsAsync();
+                testPassword = savedSettings?.Password;
+            }
+
+            var testConfig = new DeviceSshConfiguration
+            {
+                Host = onlineAp.Ip,
+                SshUsername = sshUsername,
+                SshPassword = testPassword,
+                SshPrivateKeyPath = sshPrivateKeyPath
+            };
+
+            var (success, message) = await SshService.TestConnectionAsync(testConfig);
             if (success)
             {
                 sshMessage = $"SSH connection to {onlineAp.Name} successful!";
                 sshMessageClass = "success";
-                await LoadSshSettings(); // Refresh to show last tested time
             }
             else
             {
