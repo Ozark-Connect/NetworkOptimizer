@@ -3889,6 +3889,7 @@ select.form-control {
 
 .alert-with-tooltip .alert-message {
     flex: 1;
+    color: inherit;
 }
 
 .alert-with-tooltip .tooltip-wrapper {
