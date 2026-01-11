@@ -72,6 +72,7 @@
     </div>
 
     <script src="_framework/blazor.web.js"></script>
+    <script src="js/scrollRestoration.js"></script>
     <script src="js/updateCheck.js"></script>
     @if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS")))
     {
@@ -199,119 +200,10 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', initTooltips);
 
-        // Scroll position restoration for SPA navigation
-        // Forward navigation: scroll to top (unless hash link)
-        // Back/forward navigation: restore previous scroll position
-        const scrollPositions = new Map();
-        let isPopState = false;
-
-        // Disable browser's automatic scroll restoration - we'll handle it
-        if ('scrollRestoration' in history) {
-            history.scrollRestoration = 'manual';
-        }
-
-        // Handle scroll on Blazor Server navigation
-        // Note: .page-content is the scroll container, not window
-        let lastPath = window.location.pathname;
-        console.log('[scroll] Init, lastPath:', lastPath);
-
-        function getScrollContainer() {
-            return document.querySelector('.page-content');
-        }
-
-        function logScrollPositions() {
-            const entries = [];
-            scrollPositions.forEach((v, k) => entries.push(k + '=' + v));
-            return '{' + entries.join(', ') + '}';
-        }
-
-        // Track back/forward navigation
-        window.addEventListener('popstate', function() {
-            console.log('[scroll] POPSTATE fired, lastPath:', lastPath, 'location:', window.location.pathname);
-            console.log('[scroll] POPSTATE positions:', logScrollPositions());
-            isPopState = true;
-        });
-
-        // Continuously save scroll position on scroll (debounced)
-        // This ensures we always have a recent value before navigation
-        let scrollSaveTimeout = null;
-        let skipNextScrollSave = false; // Skip save after programmatic scroll (restore)
-
-        function setupScrollListener() {
-            const scrollContainer = getScrollContainer();
-            if (!scrollContainer || scrollContainer._scrollListenerAttached) return;
-
-            scrollContainer.addEventListener('scroll', function() {
-                if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
-                scrollSaveTimeout = setTimeout(function() {
-                    if (skipNextScrollSave) {
-                        console.log('[scroll] SCROLL skipped (after restore)');
-                        skipNextScrollSave = false;
-                        return;
-                    }
-                    const path = window.location.pathname;
-                    const scrollTop = scrollContainer.scrollTop;
-                    scrollPositions.set(path, scrollTop);
-                    console.log('[scroll] SCROLL saved:', path, '=', scrollTop);
-                }, 100);
-            });
-            scrollContainer._scrollListenerAttached = true;
-            console.log('[scroll] Scroll listener attached');
-        }
-        setupScrollListener();
-
-        // Poll for URL changes (Blazor Server uses SignalR, not browser navigation)
-        setInterval(function() {
-            const newPath = window.location.pathname;
-            if (newPath !== lastPath) {
-                const scrollContainer = getScrollContainer();
-                if (!scrollContainer) {
-                    console.log('[scroll] POLL no container!');
-                    return;
-                }
-
-                console.log('[scroll] POLL detected change:', lastPath, '->', newPath, 'isPopState:', isPopState, 'currentScrollTop:', scrollContainer.scrollTop);
-                console.log('[scroll] POLL positions before:', logScrollPositions());
-
-                const oldPath = lastPath;
-                lastPath = newPath;
-
-                if (isPopState) {
-                    // Back/forward navigation: restore saved position or scroll to top
-                    const savedPosition = scrollPositions.get(newPath);
-                    console.log('[scroll] POLL restoring (popstate), path:', newPath, 'savedPosition:', savedPosition);
-                    skipNextScrollSave = true; // Don't save the restore scroll
-                    scrollContainer.scrollTop = savedPosition !== undefined ? savedPosition : 0;
-                    console.log('[scroll] POLL after restore, scrollTop:', scrollContainer.scrollTop);
-                    isPopState = false;
-                } else if (!window.location.hash) {
-                    // Forward navigation via link click: scroll to top
-                    console.log('[scroll] POLL scrolling to top (link click)');
-                    skipNextScrollSave = true; // Don't save the scroll-to-top
-                    scrollContainer.scrollTop = 0;
-                }
-                // Re-attach scroll listener in case container was recreated
-                setTimeout(function() {
-                    setupScrollListener();
-                    initTooltips();
-                }, 100);
-            }
-        }, 50);
-
-        // Save scroll position before navigation and clean up tippy elements
+        // Clean up tippy elements before navigation
         document.addEventListener('click', function(e) {
             var link = e.target.closest('a[href^="/"]');
             if (link) {
-                // Save current scroll position for back navigation
-                const scrollContainer = getScrollContainer();
-                if (scrollContainer) {
-                    const path = window.location.pathname;
-                    const scrollTop = scrollContainer.scrollTop;
-                    scrollPositions.set(path, scrollTop);
-                    console.log('[scroll] CLICK saved:', path, '=', scrollTop, 'all:', logScrollPositions());
-                }
-
-                // Clean up tippy elements
                 document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
                     el.remove();
                 });
