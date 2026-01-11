@@ -311,9 +311,22 @@
     protected override void OnInitialized()
     {
         NavigationManager.LocationChanged += OnLocationChanged;
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         // Fire and forget - page renders immediately with spinners, data loads in background
         _ = LoadAllDataAsync();
+    }
+
+    private async void OnConnectionChanged()
+    {
+        // Connection changed (new site, reconnect, etc.) - refresh all data
+        _sqmPanelKey++; // Force SqmStatusPanel to recreate
+        _alertsListKey++; // Force AlertsList to recreate
+        await Task.WhenAll(
+            LoadDashboardData(),
+            LoadSpeedTestData()
+        );
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadAllDataAsync()
@@ -358,6 +371,7 @@
     public void Dispose()
     {
         NavigationManager.LocationChanged -= OnLocationChanged;
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
     }
 
     private async Task LoadSpeedTestData()

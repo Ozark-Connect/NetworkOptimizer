@@ -44,6 +44,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     private Task? _initializationTask;
     private readonly object _initLock = new();
 
+    /// <summary>
+    /// Event fired when the connection state changes (connect, disconnect, or site change).
+    /// Subscribers should refresh any cached data from the controller.
+    /// </summary>
+    public event Action? OnConnectionChanged;
+
     public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
     {
         _logger = logger;
@@ -254,7 +260,14 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 // Save configuration to database
                 await SaveSettingsAsync(config);
 
+                // Clear cached data from previous connection/site
+                ClearCaches();
+
                 _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
+
+                // Notify subscribers to refresh their data
+                OnConnectionChanged?.Invoke();
+
                 return true;
             }
             else
@@ -403,6 +416,19 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
     }
 
     /// <summary>
+    /// Clears all cached data (devices, networks, etc.).
+    /// Called automatically on connection changes.
+    /// </summary>
+    public void ClearCaches()
+    {
+        _cachedDevices = null;
+        _deviceCacheTime = DateTime.MinValue;
+        _cachedNetworks = null;
+        _networkCacheTime = DateTime.MinValue;
+        _logger.LogDebug("Cleared device and network caches");
+    }
+
+    /// <summary>
     /// Disconnect from the controller
     /// </summary>
     public async Task DisconnectAsync()
@@ -423,7 +449,9 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
 
         _isConnected = false;
+        ClearCaches();
         _logger.LogInformation("Disconnected from UniFi controller");
+        OnConnectionChanged?.Invoke();
     }
 
     /// <summary>
