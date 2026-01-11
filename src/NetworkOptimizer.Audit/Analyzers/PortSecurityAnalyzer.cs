@@ -393,6 +393,7 @@ public class PortSecurityAnalyzer
         bool portSecurityEnabled = port.GetBoolOrDefault("port_security_enabled");
         List<string>? allowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address")?.ToList();
         string? nativeNetworkId = port.GetStringOrNull("native_networkconf_id");
+        bool isolationEnabled = port.GetBoolOrDefault("isolation");
 
         if (!string.IsNullOrEmpty(portconfId) && portProfiles != null && portProfiles.TryGetValue(portconfId, out var profile))
         {
@@ -426,6 +427,14 @@ public class PortSecurityAnalyzer
                 _logger.LogDebug("Port {Switch} port {Port}: resolving MAC restrictions from profile '{ProfileName}': {Count} MAC(s)",
                     switchInfo.Name, portIdx, profile.Name, profile.PortSecurityMacAddresses.Count);
                 allowedMacAddresses = profile.PortSecurityMacAddresses;
+            }
+
+            // Use profile's isolation setting
+            if (profile.Isolation)
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving isolation from profile '{ProfileName}': {PortValue} -> {ProfileValue}",
+                    switchInfo.Name, portIdx, profile.Name, isolationEnabled, profile.Isolation);
+                isolationEnabled = profile.Isolation;
             }
 
             profileName = profile.Name;
@@ -492,7 +501,7 @@ public class PortSecurityAnalyzer
             ExcludedNetworkIds = port.GetStringArrayOrNull("excluded_networkconf_ids"),
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacAddresses,
-            IsolationEnabled = port.GetBoolOrDefault("isolation"),
+            IsolationEnabled = isolationEnabled,
             PoeEnabled = poeEnable || portPoe,
             PoePower = port.GetDoubleOrDefault("poe_power"),
             PoeMode = poeMode,
