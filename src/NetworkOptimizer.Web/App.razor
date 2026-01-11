@@ -210,11 +210,6 @@
             history.scrollRestoration = 'manual';
         }
 
-        // Track back/forward navigation
-        window.addEventListener('popstate', function() {
-            isPopState = true;
-        });
-
         // Handle scroll on Blazor Server navigation
         // Note: .page-content is the scroll container, not window
         let lastPath = window.location.pathname;
@@ -222,6 +217,16 @@
         function getScrollContainer() {
             return document.querySelector('.page-content');
         }
+
+        // Track back/forward navigation and save current scroll position
+        window.addEventListener('popstate', function() {
+            // Save current page's scroll position before navigating away
+            const scrollContainer = getScrollContainer();
+            if (scrollContainer && lastPath) {
+                scrollPositions.set(lastPath, scrollContainer.scrollTop);
+            }
+            isPopState = true;
+        });
 
         // Poll for URL changes (Blazor Server uses SignalR, not browser navigation)
         setInterval(function() {
