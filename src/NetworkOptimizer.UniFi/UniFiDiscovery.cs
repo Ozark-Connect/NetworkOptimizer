@@ -51,6 +51,15 @@ public class UniFiDiscovery
         var discoveredDevices = devices.Select(d =>
         {
             var deviceType = DetermineDeviceType(d);
+
+            // Log device type classification for UDM-family devices (helps debug UX Express classification)
+            var baseType = DeviceTypeExtensions.FromUniFiApiType(d.Type);
+            if (baseType == DeviceType.Gateway)
+            {
+                _logger.LogInformation(
+                    "UDM-family device: {Name} ({Model}) - API type={ApiType}, HasConfigNetworkLan={HasLan}, ClassifiedAs={DeviceType}, IP={Ip}",
+                    d.Name, d.Shortname ?? d.Model, d.Type, d.ConfigNetworkLan != null, deviceType, d.Ip);
+            }
             return new DiscoveredDevice
             {
                 Id = d.Id,
