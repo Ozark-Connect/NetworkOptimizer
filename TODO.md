@@ -9,6 +9,21 @@
 
 ## Security Audit / PDF Report
 
+### Manual Network Purpose Override
+- Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
+- Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns
+- Problem: Users with non-standard naming conventions get incorrect VLAN placement recommendations
+- Implementation:
+  - Add "Network Classifications" section to Security Audit Settings page
+  - List all detected networks with current auto-detected purpose
+  - Allow override via dropdown: Corporate, Home, IoT, Security, Guest, Management, Printer, Unknown
+  - Store overrides in database (new table or extend existing settings)
+  - VlanAnalyzer should check for user overrides before applying name-based detection
+- Benefits:
+  - Users with custom naming schemes can get accurate audits
+  - Explicit classification removes ambiguity
+  - Auto-detection still works as default for users who don't configure
+
 ### Printer/Scanner Audit Logic Consolidation
 - **Issue:** Printer/Scanner VLAN placement logic is duplicated across multiple files
 - **Current state:**
