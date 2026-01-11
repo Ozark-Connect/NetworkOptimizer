@@ -299,7 +299,7 @@ public class PortSecurityAnalyzer
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort, Dictionary<string, UniFiPortProfile> portProfiles, HashSet<string>? allDeviceMacs = null)
     {
         var deviceType = device.GetStringOrNull("type");
-        var isGateway = DetermineIsGateway(device, deviceType, allDeviceMacs);
+        var (isGateway, isAccessPoint) = DetermineDeviceRole(device, deviceType, allDeviceMacs);
         var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
 
         var mac = device.GetStringOrNull("mac");
@@ -333,6 +333,7 @@ public class PortSecurityAnalyzer
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
+            IsAccessPoint = isAccessPoint,
             Capabilities = capabilities
         };
 
@@ -354,32 +355,34 @@ public class PortSecurityAnalyzer
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
+            IsAccessPoint = isAccessPoint,
             Capabilities = capabilities,
             Ports = ports
         };
     }
 
     /// <summary>
-    /// Determine if a device is acting as a gateway using uplink-based detection.
-    /// UDM-family devices (udm, uxg, etc.) that uplink to another UniFi device are mesh APs, not gateways.
+    /// Determine the effective device role using uplink-based detection.
+    /// Gateway-class devices (UDR, UX, UDM, etc.) that uplink to another UniFi device
+    /// are mesh APs, not gateways. UDR/UX devices have integrated APs.
     /// </summary>
     /// <remarks>
-    /// TODO: Commonize this logic with UniFiDiscovery.DetermineDeviceType to avoid duplication.
-    /// The audit engine receives raw JSON instead of pre-classified UniFiDevice objects.
+    /// This logic parallels UniFiDiscovery.DetermineDeviceType but works with raw JSON.
+    /// The audit engine receives raw JSON instead of pre-classified DiscoveredDevice objects.
     /// </remarks>
-    private bool DetermineIsGateway(JsonElement device, string? deviceType, HashSet<string>? allDeviceMacs)
+    private (bool IsGateway, bool IsAccessPoint) DetermineDeviceRole(JsonElement device, string? deviceType, HashSet<string>? allDeviceMacs)
     {
         var baseType = FromUniFiApiType(deviceType);
 
-        // Non-gateway types are never gateways
+        // Non-gateway types are switches (not gateway, not AP)
         if (!baseType.IsGateway())
-            return false;
+            return (false, false);
 
-        // If we don't have device MAC info, fall back to API type
+        // If we don't have device MAC info, fall back to API type (assume gateway)
         if (allDeviceMacs == null || allDeviceMacs.Count == 0)
-            return true;
+            return (true, false);
 
-        // Check if this UDM-family device uplinks to another UniFi device
+        // Check if this gateway-class device uplinks to another UniFi device
         // If so, it's acting as a mesh AP, not the network gateway
         string? uplinkMac = null;
         if (device.TryGetProperty("uplink", out var uplink))
@@ -391,12 +394,12 @@ public class PortSecurityAnalyzer
         {
             var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
             _logger.LogInformation(
-                "UDM-family device {Name} uplinks to another UniFi device ({UplinkMac}), treating as AP not gateway",
+                "Gateway-class device {Name} uplinks to another UniFi device ({UplinkMac}), classifying as AP",
                 name, uplinkMac);
-            return false;
+            return (false, true); // It's an AP
         }
 
-        return true;
+        return (true, false); // It's the gateway
     }
 
     /// <summary>

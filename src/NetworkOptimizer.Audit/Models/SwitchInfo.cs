@@ -56,6 +56,12 @@ public class SwitchInfo
     public bool IsGateway { get; init; }
 
     /// <summary>
+    /// Whether this is a UDM-family device acting as an Access Point (mesh AP).
+    /// When true, the device should be labeled as [AP] instead of [Switch].
+    /// </summary>
+    public bool IsAccessPoint { get; init; }
+
+    /// <summary>
     /// Switch capabilities
     /// </summary>
     public SwitchCapabilities Capabilities { get; init; } = new();

@@ -1670,11 +1670,12 @@
 
         try
         {
-            // Get devices from the controller and find an online AP
-            // Use DeviceType which accounts for UDM-family devices acting as mesh APs
-            var devices = await ConnectionService.Client.GetDevicesAsync();
+            // Get discovered devices which already have correct effective DeviceType
+            // (accounts for UDM-family devices acting as mesh APs)
+            var devices = await ConnectionService.GetDiscoveredDevicesAsync();
             var onlineAp = devices
-                .Where(d => d.DeviceType == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint && d.State == 1 && !string.IsNullOrEmpty(d.Ip))
+                .Where(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+                            && d.State == 1 && !string.IsNullOrEmpty(d.IpAddress))
                 .FirstOrDefault();
 
             if (onlineAp == null)
@@ -1686,7 +1687,7 @@
                 return;
             }
 
-            sshMessage = $"Testing SSH connection to {onlineAp.Name} ({onlineAp.Ip})...";
+            sshMessage = $"Testing SSH connection to {onlineAp.Name} ({onlineAp.IpAddress})...";
             StateHasChanged();
 
             // Build a DeviceSshConfiguration from form values to test current settings
@@ -1700,7 +1701,7 @@
 
             var testConfig = new DeviceSshConfiguration
             {
-                Host = onlineAp.Ip,
+                Host = onlineAp.IpAddress,
                 SshUsername = sshUsername,
                 SshPassword = testPassword,
                 SshPrivateKeyPath = sshPrivateKeyPath

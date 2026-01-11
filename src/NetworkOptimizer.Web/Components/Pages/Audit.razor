@@ -575,7 +575,7 @@
                         <div class="switch-section">
                             <h3 class="switch-title">
                                 <DeviceIcon Model="@sw.ModelName" Size="lg" />
-                                @FormatDeviceName(sw.Name, sw.IsGateway) <span class="switch-model">(@sw.ModelName)</span>
+                                @FormatDeviceName(sw.Name, sw.IsGateway, sw.IsAccessPoint) <span class="switch-model">(@sw.ModelName)</span>
                             </h3>
                             <div class="table-responsive">
                             <table class="data-table port-table">
@@ -1299,6 +1299,7 @@
     // Device name formatting uses shared DisplayFormatters class
     private static string ExtractNetworkName(string deviceName) => DisplayFormatters.ExtractNetworkName(deviceName);
     private static string FormatDeviceName(string deviceName, bool isGateway) => DisplayFormatters.FormatDeviceName(deviceName, isGateway);
+    private static string FormatDeviceName(string deviceName, bool isGateway, bool isAccessPoint) => DisplayFormatters.FormatDeviceName(deviceName, isGateway, isAccessPoint);
 
     private string GetDohStatusClass()
     {

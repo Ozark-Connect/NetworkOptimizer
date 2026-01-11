@@ -756,6 +756,7 @@ public class AuditService
                 ModelName = s.ModelName ?? s.Model,
                 DeviceType = s.Type,
                 IsGateway = s.IsGateway,
+                IsAccessPoint = s.IsAccessPoint,
                 MaxCustomMacAcls = s.Capabilities.MaxCustomMacAcls,
                 Ports = s.Ports
                     .OrderBy(p => p.PortIndex)
@@ -1228,6 +1229,7 @@ public class SwitchReference
     public string? ModelName { get; set; }
     public string? DeviceType { get; set; }
     public bool IsGateway { get; set; }
+    public bool IsAccessPoint { get; set; }
     public int MaxCustomMacAcls { get; set; }
     public List<PortReference> Ports { get; set; } = new();
 }
