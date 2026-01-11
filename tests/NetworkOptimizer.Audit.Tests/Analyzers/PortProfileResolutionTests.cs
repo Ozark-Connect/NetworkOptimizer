@@ -252,4 +252,153 @@ public class PortProfileResolutionTests
         result[0].Ports[1].ForwardMode.Should().Be("all", "port 2 should use trunk profile");
         result[0].Ports[2].ForwardMode.Should().Be("native", "port 3 should use its own forward mode");
     }
+
+    #region End-to-End Integration Tests
+
+    /// <summary>
+    /// Integration test: Verifies that a port with a "Disable Unused Ports" profile
+    /// is NOT flagged by UnusedPortRule after profile resolution.
+    /// This is the exact bug scenario from issue #63.
+    /// </summary>
+    [Fact]
+    public void Integration_PortWithDisabledProfile_NotFlaggedByUnusedPortRule()
+    {
+        // Arrange: Port 4 has forward="all" in port_table but profile sets forward="disabled"
+        // This matches the real-world scenario where UniFi returns forward="all" but the
+        // profile should override it to "disabled"
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Tiny Home - Main"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 4,
+                        ""name"": ""Port 4"",
+                        ""portconf_id"": ""6962eb8fbdb4d8de9a30f5c1"",
+                        ""forward"": ""all"",
+                        ""up"": false
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new()
+            {
+                Id = "6962eb8fbdb4d8de9a30f5c1",
+                Name = "Disable Unused Ports",
+                Forward = "disabled"
+            }
+        };
+
+        // Act: Extract switches with profile resolution, then analyze ports
+        var switches = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Assert: Port should have resolved forward mode and NOT be flagged
+        switches[0].Ports[0].ForwardMode.Should().Be("disabled",
+            "forward mode should be resolved from profile");
+
+        issues.Should().NotContain(i => i.Type == "UNUSED-PORT-001" && i.Port == "4",
+            "port with disabled profile should NOT be flagged as unused");
+    }
+
+    /// <summary>
+    /// Integration test: Verifies that without profile resolution, the same port
+    /// WOULD be flagged (proving the fix is necessary).
+    /// </summary>
+    [Fact]
+    public void Integration_PortWithoutProfileResolution_WouldBeFlagged()
+    {
+        // Arrange: Same port data but NO profiles provided
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Tiny Home - Main"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 4,
+                        ""name"": ""Port 4"",
+                        ""portconf_id"": ""6962eb8fbdb4d8de9a30f5c1"",
+                        ""forward"": ""all"",
+                        ""up"": false
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        // Act: Extract switches WITHOUT profiles, then analyze
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Assert: Port should retain forward="all" and BE flagged
+        switches[0].Ports[0].ForwardMode.Should().Be("all",
+            "without profile resolution, port keeps its base forward mode");
+
+        issues.Should().Contain(i => i.Type == "UNUSED-PORT-001" && i.Port == "4",
+            "port without profile resolution SHOULD be flagged as unused");
+    }
+
+    /// <summary>
+    /// Integration test: Multiple ports - some with profiles, some without.
+    /// Verifies selective profile resolution works correctly.
+    /// </summary>
+    [Fact]
+    public void Integration_MixedPorts_OnlyProfiledPortsResolved()
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Office Switch"",
+                ""mac"": ""11:22:33:44:55:66"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""Port 1"",
+                        ""portconf_id"": ""profile-disabled"",
+                        ""forward"": ""all"",
+                        ""up"": false
+                    },
+                    {
+                        ""port_idx"": 2,
+                        ""name"": ""Port 2"",
+                        ""forward"": ""all"",
+                        ""up"": false
+                    },
+                    {
+                        ""port_idx"": 3,
+                        ""name"": ""Printer"",
+                        ""forward"": ""native"",
+                        ""up"": false
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile-disabled", Name = "Disabled", Forward = "disabled" }
+        };
+
+        var switches = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Port 1: Has profile -> disabled -> NOT flagged
+        switches[0].Ports[0].ForwardMode.Should().Be("disabled");
+        issues.Should().NotContain(i => i.Port == "1", "port 1 has disabled profile");
+
+        // Port 2: No profile, default name, down, forward=all -> FLAGGED
+        switches[0].Ports[1].ForwardMode.Should().Be("all");
+        issues.Should().Contain(i => i.Type == "UNUSED-PORT-001" && i.Port == "2",
+            "port 2 has no profile and default name");
+
+        // Port 3: No profile but custom name -> NOT flagged (different rule)
+        issues.Should().NotContain(i => i.Port == "3", "port 3 has custom name 'Printer'");
+    }
+
+    #endregion
 }
