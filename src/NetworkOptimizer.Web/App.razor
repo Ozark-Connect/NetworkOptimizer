@@ -216,8 +216,11 @@
         });
 
         // Handle scroll on Blazor enhanced navigation
+        console.log('[scroll] Blazor defined:', typeof Blazor !== 'undefined');
         if (typeof Blazor !== 'undefined') {
+            console.log('[scroll] Registering enhancedload listener');
             Blazor.addEventListener('enhancedload', function() {
+                console.log('[scroll] enhancedload fired, isPopState:', isPopState);
                 const newPath = window.location.pathname;
 
                 // Handle scroll position after DOM is ready
@@ -225,12 +228,14 @@
                     if (isPopState) {
                         // Back/forward navigation: restore saved position
                         const savedPosition = scrollPositions.get(newPath);
+                        console.log('[scroll] Restoring position:', savedPosition);
                         if (savedPosition !== undefined) {
                             window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
                         }
                         isPopState = false;
                     } else if (!window.location.hash) {
                         // Forward navigation: scroll to top (unless hash link)
+                        console.log('[scroll] Scrolling to top');
                         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
                     }
                 });
