@@ -167,10 +167,18 @@ public class VlanAnalyzer
     /// <summary>
     /// Extract DNS servers from network config.
     /// UniFi stores these in separate fields: dhcpd_dns_1, dhcpd_dns_2, dhcpd_dns_3, dhcpd_dns_4
+    /// Only returns DNS servers if dhcpd_dns_enabled is true (custom DNS configured).
+    /// When dhcpd_dns_enabled is false, the network uses gateway DNS and these fields are ignored.
     /// </summary>
     private static List<string> ExtractDnsServers(JsonElement network)
     {
         var dnsServers = new List<string>();
+
+        // Check if custom DNS is enabled - if not, network uses gateway DNS
+        if (!network.GetBoolOrDefault("dhcpd_dns_enabled", false))
+        {
+            return dnsServers;
+        }
 
         for (int i = 1; i <= 4; i++)
         {
