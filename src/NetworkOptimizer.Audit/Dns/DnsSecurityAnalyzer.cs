@@ -575,12 +575,12 @@ public class DnsSecurityAnalyzer
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsNoDoh,
-                    Severity = AuditSeverity.Recommended,
+                    Severity = AuditSeverity.Critical,
                     DeviceName = result.GatewayName,
                     Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
-                    RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
+                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings with a trusted provider like NextDNS or Cloudflare",
                     RuleId = "DNS-DOH-001",
-                    ScoreImpact = 8
+                    ScoreImpact = 12
                 });
             }
         }
@@ -1275,12 +1275,12 @@ public class DnsSecurityAnalyzer
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsInconsistentConfig,
-                Severity = AuditSeverity.Critical,
+                Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
                 Message = $"{providerName} is configured on {configuredNetworkNames.Count} network(s) but {missingNetworkNames.Count} DHCP-enabled network(s) are not using it: {string.Join(", ", missingNetworkNames)}. Devices on these networks can bypass DNS filtering.",
-                RecommendedAction = $"Configure all DHCP-enabled networks to use {providerName} ({dnsServerIps}) for consistent DNS filtering",
+                RecommendedAction = $"Configure all DHCP-enabled networks to use {providerName} ({dnsServerIps}) for consistent DNS filtering, or verify this is intentional",
                 RuleId = "DNS-CONSISTENCY-001",
-                ScoreImpact = 15,
+                ScoreImpact = 5,
                 Metadata = new Dictionary<string, object>
                 {
                     { "third_party_dns_ips", thirdPartyDnsIps.ToList() },
