@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Interfaces;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -469,6 +470,71 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             // Parse common connection errors for user-friendly messages
             var error = ParseConnectionException(ex);
             return (false, error, null);
+        }
+        finally
+        {
+            testClient?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Get list of available sites from the controller using provided credentials.
+    /// Creates a temporary connection to fetch sites without affecting current connection state.
+    /// </summary>
+    public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetSitesAsync(UniFiConnectionConfig config)
+    {
+        _logger.LogInformation("Fetching sites from UniFi controller at {Url}", config.ControllerUrl);
+
+        UniFiApiClient? testClient = null;
+        try
+        {
+            var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
+            testClient = new UniFiApiClient(
+                clientLogger,
+                config.ControllerUrl,
+                config.Username,
+                config.Password,
+                config.Site,
+                config.IgnoreControllerSSLErrors
+            );
+
+            var success = await testClient.LoginAsync();
+
+            if (!success)
+            {
+                var error = testClient.LastLoginError ?? "Authentication failed. Check username and password.";
+                return (false, error, new List<UniFiSite>());
+            }
+
+            var sitesDoc = await testClient.GetSitesAsync();
+            if (sitesDoc == null)
+            {
+                return (false, "Failed to retrieve sites", new List<UniFiSite>());
+            }
+
+            var sites = new List<UniFiSite>();
+            if (sitesDoc.RootElement.TryGetProperty("data", out var dataArray))
+            {
+                foreach (var siteElement in dataArray.EnumerateArray())
+                {
+                    var site = new UniFiSite
+                    {
+                        Name = siteElement.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+                        Description = siteElement.TryGetProperty("desc", out var desc) ? desc.GetString() ?? "" : "",
+                        Role = siteElement.TryGetProperty("role", out var role) ? role.GetString() ?? "" : "",
+                        DeviceCount = siteElement.TryGetProperty("device_count", out var count) ? count.GetInt32() : 0
+                    };
+                    sites.Add(site);
+                }
+            }
+
+            _logger.LogInformation("Found {Count} sites", sites.Count);
+            return (true, null, sites);
+        }
+        catch (Exception ex)
+        {
+            var error = ParseConnectionException(ex);
+            return (false, error, new List<UniFiSite>());
         }
         finally
         {

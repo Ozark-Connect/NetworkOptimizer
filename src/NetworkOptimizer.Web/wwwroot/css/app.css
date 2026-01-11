@@ -1409,6 +1409,22 @@ select.form-control {
     gap: 0.75rem;
 }
 
+.input-with-button {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.input-with-button .form-control {
+    flex: 1;
+    min-width: 0;
+}
+
+.input-with-button .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 .checkbox-label,
 .radio-label {
     display: flex;
