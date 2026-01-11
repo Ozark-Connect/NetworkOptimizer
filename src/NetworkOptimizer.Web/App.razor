@@ -215,37 +215,48 @@
             isPopState = true;
         });
 
-        // Handle scroll on Blazor enhanced navigation
-        // Delay registration to ensure Blazor is fully initialized
-        setTimeout(function() {
-            console.log('[scroll] Blazor defined:', typeof Blazor !== 'undefined');
-            if (typeof Blazor !== 'undefined') {
-                console.log('[scroll] Registering enhancedload listener');
-                Blazor.addEventListener('enhancedload', function() {
-                console.log('[scroll] enhancedload fired, isPopState:', isPopState);
-                const newPath = window.location.pathname;
+        // Handle scroll on Blazor Server navigation using Navigation API
+        let lastPath = window.location.pathname;
 
-                // Handle scroll position after DOM is ready
-                requestAnimationFrame(function() {
+        if (typeof navigation !== 'undefined') {
+            // Modern Navigation API (Chrome 102+, Edge 102+)
+            navigation.addEventListener('navigatesuccess', function() {
+                const newPath = window.location.pathname;
+                if (newPath !== lastPath) {
+                    console.log('[scroll] navigatesuccess:', lastPath, '->', newPath);
                     if (isPopState) {
-                        // Back/forward navigation: restore saved position
                         const savedPosition = scrollPositions.get(newPath);
-                        console.log('[scroll] Restoring position:', savedPosition);
                         if (savedPosition !== undefined) {
                             window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
                         }
                         isPopState = false;
                     } else if (!window.location.hash) {
-                        // Forward navigation: scroll to top (unless hash link)
-                        console.log('[scroll] Scrolling to top');
                         window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
                     }
-                });
-
-                setTimeout(initTooltips, 100);
+                    lastPath = newPath;
+                    setTimeout(initTooltips, 100);
+                }
             });
+        } else {
+            // Fallback: poll for URL changes
+            setInterval(function() {
+                const newPath = window.location.pathname;
+                if (newPath !== lastPath) {
+                    console.log('[scroll] URL changed:', lastPath, '->', newPath);
+                    if (isPopState) {
+                        const savedPosition = scrollPositions.get(newPath);
+                        if (savedPosition !== undefined) {
+                            window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
+                        }
+                        isPopState = false;
+                    } else if (!window.location.hash) {
+                        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+                    }
+                    lastPath = newPath;
+                    setTimeout(initTooltips, 100);
+                }
+            }, 50);
         }
-        }, 100);
 
         // Save scroll position before navigation and clean up tippy elements
         document.addEventListener('click', function(e) {
