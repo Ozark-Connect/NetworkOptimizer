@@ -3887,9 +3887,8 @@ select.form-control {
     gap: 0.75rem;
 }
 
-.alert-with-tooltip .alert-message {
+.alert-with-tooltip .alert-text {
     flex: 1;
-    color: inherit;
 }
 
 .alert-with-tooltip .tooltip-wrapper {

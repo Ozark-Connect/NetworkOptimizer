@@ -303,7 +303,7 @@
             @if (!string.IsNullOrEmpty(gatewayMessage))
             {
                 <div class="alert alert-@gatewayMessageClass alert-with-tooltip">
-                    <span class="alert-message">@gatewayMessage</span>
+                    <span class="alert-text">@gatewayMessage</span>
                     @if (gatewayMessageClass == "danger")
                     {
                         <SshTroubleshootingTooltip Context="gateway" />
@@ -453,7 +453,7 @@
             @if (!string.IsNullOrEmpty(sshMessage))
             {
                 <div class="alert alert-@sshMessageClass alert-with-tooltip">
-                    <span class="alert-message">@sshMessage</span>
+                    <span class="alert-text">@sshMessage</span>
                     @if (sshMessageClass == "danger")
                     {
                         <SshTroubleshootingTooltip Context="devices" />

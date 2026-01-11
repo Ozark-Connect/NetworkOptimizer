@@ -175,7 +175,7 @@
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
                     <div class="alert alert-danger alert-with-tooltip">
-                        <span class="alert-message"><strong>Test Failed:</strong> @gatewayLastResult.Error</span>
+                        <span class="alert-text"><strong>Test Failed:</strong> @gatewayLastResult.Error</span>
                         <SshTroubleshootingTooltip Context="gateway" />
                     </div>
                 }
@@ -230,7 +230,7 @@
                         <div class="alert alert-@gatewayMessageClass alert-with-tooltip" style="margin-top: 1rem;">
                             @if (gatewayMessageClass == "danger")
                             {
-                                <span class="alert-message">@gatewayMessage</span>
+                                <span class="alert-text">@gatewayMessage</span>
                                 <SshTroubleshootingTooltip Context="gateway" />
                             }
                             else
@@ -368,7 +368,7 @@
                     <div class="alert alert-@unifiMessageClass alert-with-tooltip" style="margin-top: 1rem;">
                         @if (unifiMessageClass == "danger")
                         {
-                            <span class="alert-message">@unifiMessage</span>
+                            <span class="alert-text">@unifiMessage</span>
                             <SshTroubleshootingTooltip Context="devices" />
                         }
                         else
@@ -569,7 +569,7 @@
                     <div class="alert alert-@savedDeviceMessageClass alert-with-tooltip" style="margin-top: 1rem;">
                         @if (savedDeviceMessageClass == "danger")
                         {
-                            <span class="alert-message">@savedDeviceMessage</span>
+                            <span class="alert-text">@savedDeviceMessage</span>
                             <SshTroubleshootingTooltip Context="devices" />
                         }
                         else
@@ -600,7 +600,7 @@
                 else
                 {
                     <div class="alert alert-danger alert-with-tooltip">
-                        <span class="alert-message"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
+                        <span class="alert-text"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
                         <SshTroubleshootingTooltip Context="devices" />
                     </div>
                 }
