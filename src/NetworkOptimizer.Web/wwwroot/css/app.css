@@ -1412,7 +1412,7 @@ select.form-control {
 .input-with-button {
     display: flex;
     gap: 0.5rem;
-    align-items: stretch;
+    align-items: center;
 }
 
 .input-with-button .form-control {
