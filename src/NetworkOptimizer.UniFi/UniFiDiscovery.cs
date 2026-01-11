@@ -50,7 +50,7 @@ public class UniFiDiscovery
 
         var discoveredDevices = devices.Select(d =>
         {
-            var deviceType = DetermineDeviceType(d.Type);
+            var deviceType = DetermineDeviceType(d);
             return new DiscoveredDevice
             {
                 Id = d.Id,
@@ -347,8 +347,29 @@ public class UniFiDiscovery
         return controllerInfo;
     }
 
-    private static DeviceType DetermineDeviceType(string typeString) =>
-        DeviceTypeExtensions.FromUniFiApiType(typeString);
+    /// <summary>
+    /// Determines the device type, with special handling for UDM-family devices
+    /// that may be operating as access points rather than gateways.
+    /// </summary>
+    /// <remarks>
+    /// UX (Express) devices report type "udm" but may be configured as mesh APs
+    /// rather than gateways. The config_network_lan field is only present on
+    /// devices actually managing networks (the gateway). If absent on a UDM-type
+    /// device, it's functioning as an AP.
+    /// </remarks>
+    internal static DeviceType DetermineDeviceType(UniFiDeviceResponse device)
+    {
+        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
+
+        // UDM-family devices (including UX Express) without LAN network config
+        // are functioning as access points, not gateways
+        if (baseType == DeviceType.Gateway && device.ConfigNetworkLan == null)
+        {
+            return DeviceType.AccessPoint;
+        }
+
+        return baseType;
+    }
 
     private string DetermineConnectionType(UniFiClientResponse client)
     {
