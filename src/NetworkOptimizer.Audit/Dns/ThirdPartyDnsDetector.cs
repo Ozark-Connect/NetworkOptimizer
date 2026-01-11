@@ -42,13 +42,26 @@ public class ThirdPartyDnsDetector
         var results = new List<ThirdPartyDnsInfo>();
         var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
 
+        _logger.LogInformation("Checking {Count} networks for third-party DNS servers", networks.Count);
+
         foreach (var network in networks)
         {
             // Skip networks without DHCP or without custom DNS servers
-            if (!network.DhcpEnabled || network.DnsServers == null || !network.DnsServers.Any())
+            if (!network.DhcpEnabled)
+            {
+                _logger.LogDebug("Network {Network}: Skipping (DHCP not enabled)", network.Name);
                 continue;
+            }
+
+            if (network.DnsServers == null || !network.DnsServers.Any())
+            {
+                _logger.LogDebug("Network {Network}: Skipping (no custom DNS servers configured)", network.Name);
+                continue;
+            }
 
             var gatewayIp = network.Gateway;
+            _logger.LogDebug("Network {Network}: Gateway={Gateway}, DnsServers=[{DnsServers}]",
+                network.Name, gatewayIp, string.Join(", ", network.DnsServers));
 
             foreach (var dnsServer in network.DnsServers)
             {
@@ -57,13 +70,19 @@ public class ThirdPartyDnsDetector
 
                 // Skip if this DNS server is the gateway
                 if (dnsServer == gatewayIp)
+                {
+                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is gateway, skipping", network.Name, dnsServer);
                     continue;
+                }
 
                 // Check if this is a LAN IP (RFC1918 private address)
                 if (!IsRfc1918Address(dnsServer))
+                {
+                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is not RFC1918, skipping", network.Name, dnsServer);
                     continue;
+                }
 
-                _logger.LogDebug("Network {Network} uses third-party LAN DNS: {DnsServer} (gateway: {Gateway})",
+                _logger.LogInformation("Network {Network} uses third-party LAN DNS: {DnsServer} (gateway: {Gateway})",
                     network.Name, dnsServer, gatewayIp);
 
                 // Only probe each IP once
