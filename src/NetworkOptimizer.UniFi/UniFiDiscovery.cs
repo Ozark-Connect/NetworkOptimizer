@@ -48,18 +48,15 @@ public class UniFiDiscovery
         // Find the default LAN network gateway IP for gateways
         var defaultLanGatewayIp = GetDefaultLanGatewayIp(networks);
 
+        // Collect all device MACs for uplink-based gateway detection
+        var allDeviceMacs = new HashSet<string>(
+            devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
         var discoveredDevices = devices.Select(d =>
         {
-            var deviceType = DetermineDeviceType(d);
+            var deviceType = DetermineDeviceType(d, allDeviceMacs, _logger);
 
-            // Log device type classification for UDM-family devices (helps debug UX Express classification)
-            var baseType = DeviceTypeExtensions.FromUniFiApiType(d.Type);
-            if (baseType == DeviceType.Gateway)
-            {
-                _logger.LogInformation(
-                    "UDM-family device: {Name} ({Model}) - API type={ApiType}, HasConfigNetworkLan={HasLan}, ClassifiedAs={DeviceType}, IP={Ip}",
-                    d.Name, d.Shortname ?? d.Model, d.Type, d.ConfigNetworkLan != null, deviceType, d.Ip);
-            }
             return new DiscoveredDevice
             {
                 Id = d.Id,
@@ -362,22 +359,51 @@ public class UniFiDiscovery
     /// </summary>
     /// <remarks>
     /// UX (Express) devices report type "udm" but may be configured as mesh APs
-    /// rather than gateways. The config_network_lan field is only present on
-    /// devices actually managing networks (the gateway). If absent on a UDM-type
-    /// device, it's functioning as an AP.
+    /// rather than gateways. Detection uses uplink analysis: if a UDM-type device
+    /// has an uplink to another UniFi device, it's acting as a mesh AP, not the gateway.
+    /// The actual gateway either has no uplink or uplinks to a non-UniFi device (ISP modem).
     /// </remarks>
-    internal static DeviceType DetermineDeviceType(UniFiDeviceResponse device)
+    internal static DeviceType DetermineDeviceType(
+        UniFiDeviceResponse device,
+        HashSet<string> allDeviceMacs,
+        ILogger logger)
     {
         var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
 
-        // UDM-family devices (including UX Express) without LAN network config
-        // are functioning as access points, not gateways
-        if (baseType == DeviceType.Gateway && device.ConfigNetworkLan == null)
+        // Only apply special handling to UDM-family devices (type = udm, uxg, ucg, etc.)
+        if (baseType != DeviceType.Gateway)
         {
+            return baseType;
+        }
+
+        // Check if this device has an uplink to another UniFi device
+        var uplinkMac = device.Uplink?.UplinkMac;
+        var hasUplinkToUniFiDevice = !string.IsNullOrEmpty(uplinkMac) &&
+                                      allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
+
+        // Log classification details for UDM-family devices
+        logger.LogInformation(
+            "UDM-family device: {Name} ({Model}) - API type={ApiType}, IP={Ip}, " +
+            "UplinkMac={UplinkMac}, UplinkToUniFi={HasUplinkToUniFi}, HasConfigNetworkLan={HasLan}",
+            device.Name,
+            device.Shortname ?? device.Model,
+            device.Type,
+            device.Ip,
+            uplinkMac ?? "(none)",
+            hasUplinkToUniFiDevice,
+            device.ConfigNetworkLan != null);
+
+        // If the UDM-type device has an uplink to another UniFi device,
+        // it's acting as a mesh AP, not the network gateway
+        if (hasUplinkToUniFiDevice)
+        {
+            logger.LogInformation(
+                "Classifying {Name} as AccessPoint (uplinks to another UniFi device: {UplinkMac})",
+                device.Name, uplinkMac);
             return DeviceType.AccessPoint;
         }
 
-        return baseType;
+        return DeviceType.Gateway;
     }
 
     private string DetermineConnectionType(UniFiClientResponse client)
