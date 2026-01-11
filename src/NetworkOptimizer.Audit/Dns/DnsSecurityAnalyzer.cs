@@ -546,7 +546,8 @@ public class DnsSecurityAnalyzer
                         { "is_pihole", result.IsPiholeDetected },
                         { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
-                        { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" }
+                        { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" },
+                        { "configurable_setting", "Configure Pi-hole HTTP management port in Settings if detection fails" }
                     }
                 });
 
