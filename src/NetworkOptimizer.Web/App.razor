@@ -215,61 +215,44 @@
             isPopState = true;
         });
 
-        // Handle scroll on Blazor Server navigation using Navigation API
+        // Handle scroll on Blazor Server navigation
+        // Note: .page-content is the scroll container, not window
         let lastPath = window.location.pathname;
 
-        if (typeof navigation !== 'undefined') {
-            // Modern Navigation API (Chrome 102+, Edge 102+)
-            navigation.addEventListener('navigatesuccess', function() {
-                const newPath = window.location.pathname;
-                if (newPath !== lastPath) {
-                    console.log('[scroll] navigatesuccess:', lastPath, '->', newPath);
-                    if (isPopState) {
-                        const savedPosition = scrollPositions.get(newPath);
-                        if (savedPosition !== undefined) {
-                            window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
-                        }
-                        isPopState = false;
-                    } else if (!window.location.hash) {
-                        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-                    }
-                    lastPath = newPath;
-                    setTimeout(initTooltips, 100);
-                }
-            });
-        } else {
-            // Fallback: poll for URL changes
-            setInterval(function() {
-                const newPath = window.location.pathname;
-                if (newPath !== lastPath) {
-                    console.log('[scroll] URL changed:', lastPath, '->', newPath, 'scrollY:', window.scrollY);
-                    lastPath = newPath;
-                    if (isPopState) {
-                        const savedPosition = scrollPositions.get(newPath);
-                        if (savedPosition !== undefined) {
-                            window.scrollTo({ top: savedPosition, left: 0, behavior: 'instant' });
-                        }
-                        isPopState = false;
-                    } else if (!window.location.hash) {
-                        console.log('[scroll] Calling scrollTo(0)');
-                        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-                        // Also try after a delay in case Blazor overwrites
-                        setTimeout(function() {
-                            console.log('[scroll] Delayed scrollTo(0), current scrollY:', window.scrollY);
-                            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-                        }, 100);
-                    }
-                    setTimeout(initTooltips, 100);
-                }
-            }, 50);
+        function getScrollContainer() {
+            return document.querySelector('.page-content');
         }
+
+        // Poll for URL changes (Blazor Server uses SignalR, not browser navigation)
+        setInterval(function() {
+            const newPath = window.location.pathname;
+            if (newPath !== lastPath) {
+                const scrollContainer = getScrollContainer();
+                if (!scrollContainer) return;
+
+                lastPath = newPath;
+                if (isPopState) {
+                    const savedPosition = scrollPositions.get(newPath);
+                    if (savedPosition !== undefined) {
+                        scrollContainer.scrollTop = savedPosition;
+                    }
+                    isPopState = false;
+                } else if (!window.location.hash) {
+                    scrollContainer.scrollTop = 0;
+                }
+                setTimeout(initTooltips, 100);
+            }
+        }, 50);
 
         // Save scroll position before navigation and clean up tippy elements
         document.addEventListener('click', function(e) {
             var link = e.target.closest('a[href^="/"]');
             if (link) {
                 // Save current scroll position for back navigation
-                scrollPositions.set(window.location.pathname, window.scrollY);
+                const scrollContainer = getScrollContainer();
+                if (scrollContainer) {
+                    scrollPositions.set(window.location.pathname, scrollContainer.scrollTop);
+                }
 
                 // Clean up tippy elements
                 document.querySelectorAll('[data-tippy-root=""]').forEach(function(el) {
