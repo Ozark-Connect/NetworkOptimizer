@@ -1247,7 +1247,7 @@ public class DnsSecurityAnalyzerTests
     #region Issue Generation Tests
 
     [Fact]
-    public async Task Analyze_NoDoHConfigured_GeneratesRecommendedIssue()
+    public async Task Analyze_NoDoHConfigured_GeneratesCriticalIssue()
     {
         // Arrange
         var switches = new List<SwitchInfo>
@@ -1262,10 +1262,10 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: null);
 
-        // Assert
+        // Assert - DoH not configured is Critical severity
         result.Issues.Should().Contain(i =>
             i.Type == "DNS_NO_DOH" &&
-            i.Severity == AuditSeverity.Recommended);
+            i.Severity == AuditSeverity.Critical);
     }
 
     [Fact]
@@ -2149,7 +2149,7 @@ public class DnsSecurityAnalyzerTests
     #region DNS Consistency Check Tests
 
     [Fact]
-    public async Task Analyze_ThirdPartyDnsOnSomeNetworksNotAll_GeneratesCriticalIssue()
+    public async Task Analyze_ThirdPartyDnsOnSomeNetworksNotAll_GeneratesRecommendedIssue()
     {
         // Arrange - Third-party DNS on one network but not all DHCP networks
         var networks = new List<NetworkInfo>
@@ -2185,11 +2185,11 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: networks);
 
-        // Assert
+        // Assert - Inconsistent DNS config is Recommended (may be intentional)
         result.HasThirdPartyDns.Should().BeTrue();
         result.Issues.Should().Contain(i =>
             i.Type == IssueTypes.DnsInconsistentConfig &&
-            i.Severity == AuditSeverity.Critical);
+            i.Severity == AuditSeverity.Recommended);
     }
 
     [Fact]
@@ -2235,7 +2235,7 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_ThirdPartyDnsInconsistent_IssueHasHighScoreImpact()
+    public async Task Analyze_ThirdPartyDnsInconsistent_IssueHasModerateScoreImpact()
     {
         // Arrange
         var networks = new List<NetworkInfo>
@@ -2271,10 +2271,10 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: networks);
 
-        // Assert
+        // Assert - Moderate score impact (5) since inconsistency may be intentional
         var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
         inconsistentIssue.Should().NotBeNull();
-        inconsistentIssue!.ScoreImpact.Should().BeGreaterThanOrEqualTo(10);
+        inconsistentIssue!.ScoreImpact.Should().Be(5);
     }
 
     [Fact]
