@@ -3,6 +3,7 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
+@using NetworkOptimizer.Core.Interfaces
 @inject UniFiConnectionService ConnectionService
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
@@ -48,8 +49,32 @@
 
             <div class="form-group">
                 <label class="form-label">Site</label>
-                <input type="text" class="form-control" @bind="controllerSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
-                <small class="form-help">Leave as "default" for local UniFi OS devices, usually only needs to be set for MSPs running UniFi OS Server.</small>
+                <div class="input-with-button">
+                    @if (availableSites.Count > 0)
+                    {
+                        <select class="form-control" @bind="controllerSite">
+                            @foreach (var site in availableSites)
+                            {
+                                <option value="@site.Name">@site.Description (@site.Name) - @site.DeviceCount devices</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <input type="text" class="form-control" @bind="controllerSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                    }
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="ListSites" disabled="@loadingSites">
+                        @if (loadingSites)
+                        {
+                            <span class="spinner"></span>
+                        }
+                        else
+                        {
+                            <span>List Sites</span>
+                        }
+                    </button>
+                </div>
+                <small class="form-help">Leave as "default" for most local UniFi OS devices. If you have multiple sites or are unsure, click "List Sites" to fetch available sites.</small>
             </div>
 
             <div class="form-group">
@@ -1113,6 +1138,8 @@
     private string controllerMessage = "";
     private string controllerMessageClass = "";
     private string? controllerInfo = null;
+    private List<UniFiSite> availableSites = new();
+    private bool loadingSites = false;
 
     // TC Monitor
     private int tcMonitorPort = 8088;
@@ -1914,6 +1941,54 @@
         controllerMessageClass = "info";
         controllerInfo = null;
         StateHasChanged();
+    }
+
+    private async Task ListSites()
+    {
+        loadingSites = true;
+        controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = await BuildConfigAsync();
+            var (success, error, sites) = await ConnectionService.GetSitesAsync(config);
+
+            if (success)
+            {
+                availableSites = sites;
+                if (sites.Count == 1)
+                {
+                    controllerSite = sites[0].Name;
+                    controllerMessage = $"Found 1 site: {sites[0].Description}";
+                }
+                else
+                {
+                    controllerMessage = $"Found {sites.Count} sites. Select one from the dropdown.";
+                    // Keep current selection if it exists in the list, otherwise select first
+                    if (!sites.Any(s => s.Name == controllerSite) && sites.Count > 0)
+                    {
+                        controllerSite = sites[0].Name;
+                    }
+                }
+                controllerMessageClass = "success";
+            }
+            else
+            {
+                controllerMessage = $"Failed to list sites: {error}";
+                controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            controllerMessage = $"Error: {ex.Message}";
+            controllerMessageClass = "danger";
+        }
+        finally
+        {
+            loadingSites = false;
+            StateHasChanged();
+        }
     }
 
     private async Task TestTcMonitor()

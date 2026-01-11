@@ -130,4 +130,9 @@ public class UniFiSite
     /// Number of clients connected to the site.
     /// </summary>
     public int ClientCount { get; set; }
+
+    /// <summary>
+    /// User's role for this site (e.g., "admin", "readonly").
+    /// </summary>
+    public string Role { get; set; } = string.Empty;
 }
