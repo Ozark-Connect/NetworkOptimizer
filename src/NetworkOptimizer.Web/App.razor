@@ -235,6 +235,8 @@
         // Continuously save scroll position on scroll (debounced)
         // This ensures we always have a recent value before navigation
         let scrollSaveTimeout = null;
+        let skipNextScrollSave = false; // Skip save after programmatic scroll (restore)
+
         function setupScrollListener() {
             const scrollContainer = getScrollContainer();
             if (!scrollContainer || scrollContainer._scrollListenerAttached) return;
@@ -242,6 +244,11 @@
             scrollContainer.addEventListener('scroll', function() {
                 if (scrollSaveTimeout) clearTimeout(scrollSaveTimeout);
                 scrollSaveTimeout = setTimeout(function() {
+                    if (skipNextScrollSave) {
+                        console.log('[scroll] SCROLL skipped (after restore)');
+                        skipNextScrollSave = false;
+                        return;
+                    }
                     const path = window.location.pathname;
                     const scrollTop = scrollContainer.scrollTop;
                     scrollPositions.set(path, scrollTop);
@@ -273,12 +280,14 @@
                     // Back/forward navigation: restore saved position or scroll to top
                     const savedPosition = scrollPositions.get(newPath);
                     console.log('[scroll] POLL restoring (popstate), path:', newPath, 'savedPosition:', savedPosition);
+                    skipNextScrollSave = true; // Don't save the restore scroll
                     scrollContainer.scrollTop = savedPosition !== undefined ? savedPosition : 0;
                     console.log('[scroll] POLL after restore, scrollTop:', scrollContainer.scrollTop);
                     isPopState = false;
                 } else if (!window.location.hash) {
                     // Forward navigation via link click: scroll to top
                     console.log('[scroll] POLL scrolling to top (link click)');
+                    skipNextScrollSave = true; // Don't save the scroll-to-top
                     scrollContainer.scrollTop = 0;
                 }
                 // Re-attach scroll listener in case container was recreated
