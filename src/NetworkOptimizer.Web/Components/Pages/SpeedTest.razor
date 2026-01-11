@@ -176,14 +176,7 @@
                 {
                     <div class="alert alert-danger alert-with-tooltip">
                         <span class="alert-message"><strong>Test Failed:</strong> @gatewayLastResult.Error</span>
-                        <span class="tooltip-wrapper tooltip-left">
-                            <span class="tooltip-icon">?</span>
-                            <span class="tooltip-content tooltip-wide">
-                                <strong>SSH connections failing?</strong><br /><br />
-                                <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your gateway.<br /><br />
-                                <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
-                            </span>
-                        </span>
+                        <SshTroubleshootingTooltip Context="gateway" />
                     </div>
                 }
 
@@ -238,14 +231,7 @@
                             @if (gatewayMessageClass == "danger")
                             {
                                 <span class="alert-message">@gatewayMessage</span>
-                                <span class="tooltip-wrapper tooltip-left">
-                                    <span class="tooltip-icon">?</span>
-                                    <span class="tooltip-content tooltip-wide">
-                                        <strong>SSH connections failing?</strong><br /><br />
-                                        <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your gateway.<br /><br />
-                                        <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
-                                    </span>
-                                </span>
+                                <SshTroubleshootingTooltip Context="gateway" />
                             }
                             else
                             {
@@ -383,14 +369,7 @@
                         @if (unifiMessageClass == "danger")
                         {
                             <span class="alert-message">@unifiMessage</span>
-                            <span class="tooltip-wrapper tooltip-left">
-                                <span class="tooltip-icon">?</span>
-                                <span class="tooltip-content tooltip-wide">
-                                    <strong>SSH connections failing?</strong><br /><br />
-                                    <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your devices.<br /><br />
-                                    <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
-                                </span>
-                            </span>
+                            <SshTroubleshootingTooltip Context="devices" />
                         }
                         else
                         {
@@ -591,14 +570,7 @@
                         @if (savedDeviceMessageClass == "danger")
                         {
                             <span class="alert-message">@savedDeviceMessage</span>
-                            <span class="tooltip-wrapper tooltip-left">
-                                <span class="tooltip-icon">?</span>
-                                <span class="tooltip-content tooltip-wide">
-                                    <strong>SSH connections failing?</strong><br /><br />
-                                    <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your devices.<br /><br />
-                                    <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
-                                </span>
-                            </span>
+                            <SshTroubleshootingTooltip Context="devices" />
                         }
                         else
                         {
@@ -629,14 +601,7 @@
                 {
                     <div class="alert alert-danger alert-with-tooltip">
                         <span class="alert-message"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
-                        <span class="tooltip-wrapper tooltip-left">
-                            <span class="tooltip-icon">?</span>
-                            <span class="tooltip-content tooltip-wide">
-                                <strong>SSH connections failing?</strong><br /><br />
-                                <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your devices.<br /><br />
-                                <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
-                            </span>
-                        </span>
+                        <SshTroubleshootingTooltip Context="devices" />
                     </div>
                 }
             </div>

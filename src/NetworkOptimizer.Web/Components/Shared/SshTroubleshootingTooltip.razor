@@ -1,0 +1,17 @@
+@* SSH troubleshooting tooltip for error boxes *@
+<span class="tooltip-wrapper tooltip-left">
+    <span class="tooltip-icon">?</span>
+    <span class="tooltip-content tooltip-wide">
+        <strong>SSH connections failing?</strong><br /><br />
+        <strong>1. Check Firewall Rules</strong> in UniFi Network to ensure SSH traffic is allowed between this server and your @Context.<br /><br />
+        <strong>2. Check CyberSecure IPS</strong> — SSH may be blocked by the rule "ET SCAN Potential SSH Scan OUTBOUND". Look for blocked connections in <em>Insights → Flows</em>, then create a <em>Suppression</em> for this signature in the Logs section.
+    </span>
+</span>
+
+@code {
+    /// <summary>
+    /// Context for the tooltip (e.g., "gateway", "devices")
+    /// </summary>
+    [Parameter]
+    public string Context { get; set; } = "devices";
+}
