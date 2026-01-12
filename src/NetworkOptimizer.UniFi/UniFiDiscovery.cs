@@ -71,7 +71,7 @@ public class UniFiDiscovery
                 IpAddress = d.Ip,
                 // Set LAN IP for gateways from network config
                 LanIpAddress = effectiveType.IsGateway() ? defaultLanGatewayIp : null,
-                Firmware = d.Version,
+                Firmware = d.DisplayableVersion ?? d.Version,
                 Adopted = d.Adopted,
                 State = d.State,
                 Uptime = TimeSpan.FromSeconds(d.Uptime),

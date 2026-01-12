@@ -73,10 +73,22 @@
                     @for (var i = 0; i < PathAnalysis.Path.Hops.Count; i++)
                     {
                         var hop = PathAnalysis.Path.Hops[i];
-                        <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
-                            <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                            <span class="hop-name">@hop.DeviceName</span>
-                        </div>
+                        var deviceTooltip = GetDeviceTooltip(hop);
+                        @* Only add data-tooltip for UniFi devices (those with tooltip content) *@
+                        @if (!string.IsNullOrEmpty(deviceTooltip))
+                        {
+                            <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)" data-tooltip="@deviceTooltip">
+                                <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                <span class="hop-name">@hop.DeviceName</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
+                                <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                <span class="hop-name">@hop.DeviceName</span>
+                            </div>
+                        }
                         @if (i < PathAnalysis.Path.Hops.Count - 1)
                         {
                             @* Speed goes on the connector (link between devices) *@
@@ -262,6 +274,40 @@
         HopType.Gateway => "hop-gateway",
         HopType.Server => "hop-server",
         _ => ""
+    };
+
+    /// <summary>
+    /// Get device tooltip showing type, model, and firmware for UniFi devices
+    /// </summary>
+    private string? GetDeviceTooltip(NetworkHop hop)
+    {
+        // Only show tooltip for UniFi devices (those with a model)
+        if (string.IsNullOrEmpty(hop.DeviceModel))
+            return null;
+
+        var deviceType = GetDeviceTypeName(hop.Type);
+        var lines = new List<string>();
+
+        lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Type:</span> {deviceType}</div>");
+        lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Model:</span> {hop.DeviceModel}</div>");
+
+        if (!string.IsNullOrEmpty(hop.DeviceFirmware))
+        {
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Firmware:</span> {hop.DeviceFirmware}</div>");
+        }
+
+        return string.Join("", lines);
+    }
+
+    private string GetDeviceTypeName(HopType type) => type switch
+    {
+        HopType.Switch => "Switch",
+        HopType.AccessPoint => "Access Point",
+        HopType.Gateway => "Gateway",
+        HopType.Server => "Server",
+        HopType.Client => "Client",
+        HopType.WirelessClient => "Wireless Client",
+        _ => "Device"
     };
 
     private string GetHopIcon(HopType type) => type switch

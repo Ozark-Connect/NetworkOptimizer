@@ -76,6 +76,12 @@ public class UniFiDeviceResponse
     [JsonPropertyName("version")]
     public string Version { get; set; } = string.Empty;
 
+    /// <summary>
+    /// User-friendly firmware version string (e.g., "4.0.6" instead of internal build number)
+    /// </summary>
+    [JsonPropertyName("displayable_version")]
+    public string? DisplayableVersion { get; set; }
+
     [JsonPropertyName("adopted")]
     public bool Adopted { get; set; }
 

@@ -38,6 +38,13 @@
                     <span class="detail-value">@Device.Model</span>
                 </div>
             }
+            @if (!string.IsNullOrEmpty(Device.Firmware))
+            {
+                <div class="device-detail">
+                    <span class="detail-label">Firmware:</span>
+                    <span class="detail-value">@Device.Firmware</span>
+                </div>
+            }
             @if (!string.IsNullOrEmpty(Device.Uptime))
             {
                 <div class="device-detail">
