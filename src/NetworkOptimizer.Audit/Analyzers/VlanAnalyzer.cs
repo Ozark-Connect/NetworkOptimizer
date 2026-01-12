@@ -17,7 +17,7 @@ public class VlanAnalyzer
     // Network classification patterns (case-insensitive)
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
     private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
-    private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect" };
+    private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect", "cctv" };
     // Patterns that require word boundary matching (to avoid false positives like "Hotspot" matching "not")
     private static readonly string[] SecurityWordBoundaryPatterns = { "not" }; // "NoT" = "Network of Things"
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
@@ -115,10 +115,15 @@ public class VlanAnalyzer
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
         var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
         var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
+
+        // Check if this is an official UniFi Guest network (has implicit isolation at switch/AP level)
+        var isUniFiGuestNetwork = purposeStr?.Equals("guest", StringComparison.OrdinalIgnoreCase) == true
+            || network.GetBoolOrDefault("is_guest");
+
         var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
 
-        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}",
-            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}, UniFiGuest: {UniFiGuest}",
+            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled, isUniFiGuestNetwork);
 
         var rawSubnet = network.GetStringOrNull("ip_subnet");
 
@@ -136,6 +141,13 @@ public class VlanAnalyzer
             }
         }
 
+        // DNS servers are in separate fields: dhcpd_dns_1, dhcpd_dns_2, dhcpd_dns_3, dhcpd_dns_4
+        var dnsServers = ExtractDnsServers(network);
+        if (dnsServers.Count > 0)
+        {
+            _logger.LogDebug("Network '{Name}' has DNS servers: {DnsServers}", name, string.Join(", ", dnsServers));
+        }
+
         return new NetworkInfo
         {
             Id = networkId,
@@ -144,11 +156,40 @@ public class VlanAnalyzer
             Purpose = purpose,
             Subnet = NormalizeSubnet(rawSubnet),
             Gateway = gateway,
-            DnsServers = network.GetStringArrayOrNull("dhcpd_dns"),
+            DnsServers = dnsServers.Count > 0 ? dnsServers : null,
             DhcpEnabled = dhcpEnabled,
             NetworkIsolationEnabled = networkIsolationEnabled,
-            InternetAccessEnabled = internetAccessEnabled
+            InternetAccessEnabled = internetAccessEnabled,
+            IsUniFiGuestNetwork = isUniFiGuestNetwork
         };
+    }
+
+    /// <summary>
+    /// Extract DNS servers from network config.
+    /// UniFi stores these in separate fields: dhcpd_dns_1, dhcpd_dns_2, dhcpd_dns_3, dhcpd_dns_4
+    /// Only returns DNS servers if dhcpd_dns_enabled is true (custom DNS configured).
+    /// When dhcpd_dns_enabled is false, the network uses gateway DNS and these fields are ignored.
+    /// </summary>
+    private static List<string> ExtractDnsServers(JsonElement network)
+    {
+        var dnsServers = new List<string>();
+
+        // Check if custom DNS is enabled - if not, network uses gateway DNS
+        if (!network.GetBoolOrDefault("dhcpd_dns_enabled", false))
+        {
+            return dnsServers;
+        }
+
+        for (int i = 1; i <= 4; i++)
+        {
+            var dns = network.GetStringOrNull($"dhcpd_dns_{i}");
+            if (!string.IsNullOrEmpty(dns))
+            {
+                dnsServers.Add(dns);
+            }
+        }
+
+        return dnsServers;
     }
 
     /// <summary>

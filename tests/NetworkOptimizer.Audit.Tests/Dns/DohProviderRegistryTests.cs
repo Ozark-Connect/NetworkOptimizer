@@ -342,4 +342,136 @@ public class DohProviderRegistryTests
     }
 
     #endregion
+
+    #region IPv6 Support
+
+    [Theory]
+    [InlineData("2a07:a8c0::43:b56f", "NextDNS")]
+    [InlineData("2a07:a8c1::43:b56f", "NextDNS")]
+    [InlineData("2a07:a8c0::ab:cdef", "NextDNS")]
+    [InlineData("2a07:a8c1::12:3456", "NextDNS")]
+    public void IdentifyProviderFromIp_NextDnsIpv6_ReturnsNextDns(string ip, string expectedProvider)
+    {
+        var result = DohProviderRegistry.IdentifyProviderFromIp(ip);
+
+        result.Should().NotBeNull();
+        result!.Name.Should().Be(expectedProvider);
+    }
+
+    [Fact]
+    public void MatchesIp_NextDnsIpv6PrefixMatch_ReturnsTrue()
+    {
+        var provider = DohProviderRegistry.Providers["NextDNS"];
+
+        // NextDNS IPv6 uses prefix matching (2a07:a8c0:: and 2a07:a8c1::)
+        provider.MatchesIp("2a07:a8c0::43:b56f").Should().BeTrue();
+        provider.MatchesIp("2a07:a8c1::43:b56f").Should().BeTrue();
+    }
+
+    [Fact]
+    public void MatchesIp_Ipv6CaseInsensitive_ReturnsTrue()
+    {
+        var provider = DohProviderRegistry.Providers["NextDNS"];
+
+        // IPv6 matching should be case-insensitive
+        provider.MatchesIp("2A07:A8C0::43:B56F").Should().BeTrue();
+        provider.MatchesIp("2a07:a8c1::AB:CDEF").Should().BeTrue();
+    }
+
+    [Fact]
+    public void MatchesIp_UnknownIpv6_ReturnsFalse()
+    {
+        var provider = DohProviderRegistry.Providers["NextDNS"];
+
+        // Unknown IPv6 should not match
+        provider.MatchesIp("2001:4860:4860::8888").Should().BeFalse(); // Google DNS IPv6
+    }
+
+    [Fact]
+    public void IdentifyProviderFromIp_UnknownIpv6_ReturnsNull()
+    {
+        var result = DohProviderRegistry.IdentifyProviderFromIp("2001:4860:4860::8888");
+
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region NextDNS Profile ID Extraction
+
+    [Theory]
+    [InlineData("/43b56f", "43b56f")]
+    [InlineData("/abc123", "abc123")]
+    [InlineData("43b56f", "43b56f")]
+    [InlineData("/ABCDEF", "ABCDEF")]
+    public void ExtractNextDnsProfileId_ValidPath_ReturnsProfileId(string path, string expectedProfileId)
+    {
+        var result = DohProviderRegistry.ExtractNextDnsProfileId(path);
+
+        result.Should().Be(expectedProfileId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("/")]
+    public void ExtractNextDnsProfileId_InvalidPath_ReturnsNull(string? path)
+    {
+        var result = DohProviderRegistry.ExtractNextDnsProfileId(path);
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("2a07:a8c0::43:b56f", "43b56f")]
+    [InlineData("2a07:a8c1::43:b56f", "43b56f")]
+    [InlineData("2a07:a8c0::ab:cdef", "abcdef")]
+    [InlineData("2a07:a8c1::12:3456", "123456")]
+    [InlineData("2A07:A8C0::AB:CDEF", "abcdef")] // Case insensitive
+    public void ExtractProfileIdFromNextDnsIpv6_ValidIpv6_ReturnsProfileId(string ip, string expectedProfileId)
+    {
+        var result = DohProviderRegistry.ExtractProfileIdFromNextDnsIpv6(ip);
+
+        result.Should().Be(expectedProfileId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("2001:4860:4860::8888")] // Google DNS
+    [InlineData("45.90.28.109")] // IPv4
+    [InlineData("invalid")]
+    public void ExtractProfileIdFromNextDnsIpv6_InvalidIpv6_ReturnsNull(string? ip)
+    {
+        var result = DohProviderRegistry.ExtractProfileIdFromNextDnsIpv6(ip);
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("2a07:a8c0::43:b56f", "43b56f", true)]
+    [InlineData("2a07:a8c1::43:b56f", "43b56f", true)]
+    [InlineData("2a07:a8c0::ab:cdef", "abcdef", true)]
+    [InlineData("2a07:a8c0::43:b56f", "different", false)]
+    [InlineData("2a07:a8c0::43:b56f", null, true)] // No expected profile = prefix match only
+    public void NextDnsIpv6MatchesProfile_VariousScenarios_ReturnsExpected(
+        string ip, string? expectedProfileId, bool shouldMatch)
+    {
+        var result = DohProviderRegistry.NextDnsIpv6MatchesProfile(ip, expectedProfileId);
+
+        result.Should().Be(shouldMatch);
+    }
+
+    [Theory]
+    [InlineData("2A07:A8C0::43:B56F", "43b56f", true)] // Uppercase IP
+    [InlineData("2a07:a8c0::43:b56f", "43B56F", true)] // Uppercase profile
+    public void NextDnsIpv6MatchesProfile_CaseInsensitive_ReturnsTrue(
+        string ip, string expectedProfileId, bool shouldMatch)
+    {
+        var result = DohProviderRegistry.NextDnsIpv6MatchesProfile(ip, expectedProfileId);
+
+        result.Should().Be(shouldMatch);
+    }
+
+    #endregion
 }

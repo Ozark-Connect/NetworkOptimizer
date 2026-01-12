@@ -48,21 +48,29 @@ public class UniFiDiscovery
         // Find the default LAN network gateway IP for gateways
         var defaultLanGatewayIp = GetDefaultLanGatewayIp(networks);
 
+        // Collect all device MACs for uplink-based gateway detection
+        var allDeviceMacs = new HashSet<string>(
+            devices.Where(d => !string.IsNullOrEmpty(d.Mac)).Select(d => d.Mac.ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
         var discoveredDevices = devices.Select(d =>
         {
-            var deviceType = DetermineDeviceType(d.Type);
+            var hardwareType = DeviceTypeExtensions.FromUniFiApiType(d.Type);
+            var effectiveType = DetermineDeviceType(d, allDeviceMacs, _logger);
+
             return new DiscoveredDevice
             {
                 Id = d.Id,
                 Mac = d.Mac,
                 Name = d.Name,
-                Type = deviceType,
+                Type = effectiveType,
+                HardwareType = hardwareType,
                 Model = d.Model,
                 Shortname = d.Shortname,
                 ModelDisplay = d.ModelDisplay,
                 IpAddress = d.Ip,
                 // Set LAN IP for gateways from network config
-                LanIpAddress = deviceType.IsGateway() ? defaultLanGatewayIp : null,
+                LanIpAddress = effectiveType.IsGateway() ? defaultLanGatewayIp : null,
                 Firmware = d.Version,
                 Adopted = d.Adopted,
                 State = d.State,
@@ -347,8 +355,94 @@ public class UniFiDiscovery
         return controllerInfo;
     }
 
-    private static DeviceType DetermineDeviceType(string typeString) =>
-        DeviceTypeExtensions.FromUniFiApiType(typeString);
+    /// <summary>
+    /// Determines the device type, with special handling for UDM-family devices
+    /// that may be operating as access points rather than gateways.
+    /// </summary>
+    /// <remarks>
+    /// UX (Express) devices report type "udm" but may be configured as mesh APs
+    /// rather than gateways. Detection uses uplink analysis: if a UDM-type device
+    /// has an uplink to another UniFi device, it's acting as a mesh AP, not the gateway.
+    /// The actual gateway either has no uplink or uplinks to a non-UniFi device (ISP modem).
+    /// </remarks>
+    internal static DeviceType DetermineDeviceType(
+        UniFiDeviceResponse device,
+        HashSet<string> allDeviceMacs,
+        ILogger logger)
+    {
+        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
+
+        // Only apply special handling to UDM-family devices (type = udm, uxg, ucg, etc.)
+        if (baseType != DeviceType.Gateway)
+        {
+            return baseType;
+        }
+
+        // Check if this device has an uplink to another UniFi device
+        var uplinkMac = device.Uplink?.UplinkMac;
+        var hasUplinkToUniFiDevice = !string.IsNullOrEmpty(uplinkMac) &&
+                                      allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
+
+        // Log classification details for gateway-class devices (UDR, UX, UDM, etc.)
+        logger.LogInformation(
+            "Gateway-class device: {Name} ({Model}) - API type={ApiType}, IP={Ip}, " +
+            "UplinkMac={UplinkMac}, UplinkToUniFi={HasUplinkToUniFi}, HasConfigNetworkLan={HasLan}",
+            device.Name,
+            device.Shortname ?? device.Model,
+            device.Type,
+            device.Ip,
+            uplinkMac ?? "(none)",
+            hasUplinkToUniFiDevice,
+            device.ConfigNetworkLan != null);
+
+        // If the gateway-class device has an uplink to another UniFi device,
+        // it's acting as a mesh AP, not the network gateway (UDR/UX have integrated APs)
+        if (hasUplinkToUniFiDevice)
+        {
+            logger.LogInformation(
+                "Classifying {Name} as AccessPoint (uplinks to another UniFi device: {UplinkMac})",
+                device.Name, uplinkMac);
+            return DeviceType.AccessPoint;
+        }
+
+        return DeviceType.Gateway;
+    }
+
+    /// <summary>
+    /// Gets the effective device type for a device, considering uplink topology.
+    /// Use this when you have a list of devices and need to determine the correct
+    /// type for each (e.g., UDR/UX devices with integrated APs acting as mesh APs).
+    ///
+    /// DEPRECATED: Prefer using GetDiscoveredDevicesAsync() which returns DiscoveredDevice
+    /// with Type already set to the effective type.
+    /// </summary>
+    /// <param name="device">The device to classify</param>
+    /// <param name="allDevices">All devices in the network (to check uplink relationships)</param>
+    /// <returns>The effective device type</returns>
+    public static DeviceType GetEffectiveDeviceType(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices)
+    {
+        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
+
+        // Only apply special handling to gateway-class devices
+        if (baseType != DeviceType.Gateway)
+        {
+            return baseType;
+        }
+
+        // Build set of all device MACs
+        var allDeviceMacs = new HashSet<string>(
+            allDevices.Select(d => d.Mac.ToLowerInvariant()),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Check if this device has an uplink to another UniFi device
+        var uplinkMac = device.Uplink?.UplinkMac;
+        var hasUplinkToUniFiDevice = !string.IsNullOrEmpty(uplinkMac) &&
+                                      allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
+
+        // If the UDM-type device has an uplink to another UniFi device,
+        // it's acting as a mesh AP, not the network gateway
+        return hasUplinkToUniFiDevice ? DeviceType.AccessPoint : DeviceType.Gateway;
+    }
 
     private string DetermineConnectionType(UniFiClientResponse client)
     {
@@ -392,7 +486,25 @@ public class DiscoveredDevice
     public string Id { get; set; } = string.Empty;
     public string Mac { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The effective device type considering network topology.
+    /// For UDR/UX devices with integrated APs acting as mesh APs, this will be AccessPoint.
+    /// </summary>
     public DeviceType Type { get; set; }
+
+    /// <summary>
+    /// The original hardware type from the UniFi API (before uplink-based adjustment).
+    /// Use this to identify gateway-class hardware regardless of its current role.
+    /// </summary>
+    public DeviceType HardwareType { get; set; }
+
+    /// <summary>
+    /// True when this is a gateway-class device (UDR, UX, etc.) with HardwareType = Gateway
+    /// that is acting as a mesh Access Point due to uplink to another UniFi device.
+    /// </summary>
+    public bool IsActingAsAccessPoint => HardwareType == DeviceType.Gateway && Type == DeviceType.AccessPoint;
+
     public string Model { get; set; } = string.Empty;
     public string? Shortname { get; set; }
     public string ModelDisplay { get; set; } = string.Empty;
@@ -405,10 +517,10 @@ public class DiscoveredDevice
         UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
 
     /// <summary>
-    /// Whether this device uses MIPS architecture and cannot run iperf3
+    /// Whether this device can run iperf3 for LAN speed testing
     /// </summary>
-    public bool IsMipsArchitecture =>
-        UniFiProductDatabase.IsMipsArchitecture(FriendlyModelName);
+    public bool CanRunIperf3 =>
+        UniFiProductDatabase.CanRunIperf3(FriendlyModelName);
 
     public string IpAddress { get; set; } = string.Empty;
 

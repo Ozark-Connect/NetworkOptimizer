@@ -174,8 +174,9 @@
                 }
                 else if (gatewayLastResult != null && !gatewayLastResult.Success)
                 {
-                    <div class="alert alert-danger">
-                        <strong>Test Failed:</strong> @gatewayLastResult.Error
+                    <div class="alert alert-danger alert-with-tooltip">
+                        <span class="alert-text"><strong>Test Failed:</strong> @gatewayLastResult.Error</span>
+                        <SshTroubleshootingTooltip Context="gateway" />
                     </div>
                 }
 
@@ -226,8 +227,16 @@
                     }
                     else
                     {
-                        <div class="alert alert-@gatewayMessageClass" style="margin-top: 1rem;">
-                            @gatewayMessage
+                        <div class="alert alert-@gatewayMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                            @if (gatewayMessageClass == "danger")
+                            {
+                                <span class="alert-text">@gatewayMessage</span>
+                                <SshTroubleshootingTooltip Context="gateway" />
+                            }
+                            else
+                            {
+                                @gatewayMessage
+                            }
                         </div>
                     }
                 }
@@ -264,7 +273,13 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Select any non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+                Select any supported non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+                <span class="tooltip-wrapper">
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-content">
+                        Some devices with MIPS-based CPU architecture don't have an iperf3 binary available. Consider using <a href="/client-speedtest">client-based speed tests</a> instead.
+                    </span>
+                </span>
             </p>
 
             @if (!ConnectionService.IsConnected)
@@ -356,8 +371,16 @@
                 }
                 else
                 {
-                    <div class="alert alert-@unifiMessageClass" style="margin-top: 1rem;">
-                        @unifiMessage
+                    <div class="alert alert-@unifiMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                        @if (unifiMessageClass == "danger")
+                        {
+                            <span class="alert-text">@unifiMessage</span>
+                            <SshTroubleshootingTooltip Context="devices" />
+                        }
+                        else
+                        {
+                            @unifiMessage
+                        }
                     </div>
                 }
             }
@@ -549,8 +572,16 @@
                 }
                 else
                 {
-                    <div class="alert alert-@savedDeviceMessageClass" style="margin-top: 1rem;">
-                        @savedDeviceMessage
+                    <div class="alert alert-@savedDeviceMessageClass alert-with-tooltip" style="margin-top: 1rem;">
+                        @if (savedDeviceMessageClass == "danger")
+                        {
+                            <span class="alert-text">@savedDeviceMessage</span>
+                            <SshTroubleshootingTooltip Context="devices" />
+                        }
+                        else
+                        {
+                            @savedDeviceMessage
+                        }
                     </div>
                 }
             }
@@ -574,8 +605,9 @@
                 }
                 else
                 {
-                    <div class="alert alert-danger">
-                        <strong>Test Failed:</strong> @currentResult.ErrorMessage
+                    <div class="alert alert-danger alert-with-tooltip">
+                        <span class="alert-text"><strong>Test Failed:</strong> @currentResult.ErrorMessage</span>
+                        <SshTroubleshootingTooltip Context="devices" />
                     </div>
                 }
             </div>
@@ -1577,9 +1609,9 @@
             var allDevices = await ConnectionService.GetDiscoveredDevicesAsync();
 
             // Filter out gateway devices (have dedicated Gateway Speed Test section)
-            // and MIPS devices (can't run iperf3)
+            // and devices that can't run iperf3
             discoveredDevices = allDevices
-                .Where(d => d.Type != DeviceType.Gateway && !d.IsMipsArchitecture)
+                .Where(d => d.Type != DeviceType.Gateway && d.CanRunIperf3)
                 .OrderBy(d => d.Name)
                 .ToList();
         }

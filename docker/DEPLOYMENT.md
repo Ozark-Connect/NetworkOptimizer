@@ -155,8 +155,12 @@ For commercial NAS devices with container support.
 1. Install Container Manager from Package Center
 2. Clone or upload the repository to `/docker/network-optimizer`
 3. Copy `.env.example` to `.env` and configure
-4. Create project in Container Manager pointing to docker-compose.yml
-5. Start containers
+4. Create required directories (Synology won't auto-create them):
+   ```bash
+   mkdir -p data logs ssh-keys
+   ```
+5. Create project in Container Manager pointing to docker-compose.yml
+6. Start containers
 
 **Note:** If using bridge networking, set `HOST_IP` in `.env` to your NAS IP address.
 
@@ -171,8 +175,10 @@ For commercial NAS devices with container support.
 #### Unraid
 
 1. Install Community Applications plugin
-2. Search for "Network Optimizer" (when published)
-3. Or use manual Docker Compose deployment
+2. Search for "Network Optimizer"
+3. Deploy both network-optimizer and network-optimizer-speedtest container
+---
+Or use manual Docker Compose deployment (note: cannot be managed by UNRAID GUI if deployed via compose)
 
 ### 4. Native Deployment (No Docker)
 

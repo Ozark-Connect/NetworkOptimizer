@@ -160,7 +160,25 @@ public class IotVlanRule : AuditRuleBase
             }
         }
 
-        var message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated";
+        // Different messaging for allowed vs not-allowed devices
+        string message;
+        string recommendedAction;
+        if (placement.IsAllowedBySettings)
+        {
+            message = $"{detection.CategoryName} allowed per Settings on {network.Name} VLAN";
+            recommendedAction = "Change in Settings if you want to isolate this device type";
+        }
+        else
+        {
+            message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated";
+            recommendedAction = $"Move to {placement.RecommendedNetworkLabel}";
+        }
+
+        var metadata = VlanPlacementChecker.BuildMetadata(detection, network);
+        if (placement.IsAllowedBySettings)
+        {
+            metadata["allowed_by_settings"] = true;
+        }
 
         return new AuditIssue
         {
@@ -175,8 +193,8 @@ public class IotVlanRule : AuditRuleBase
             CurrentVlan = network.VlanId,
             RecommendedNetwork = placement.RecommendedNetwork?.Name,
             RecommendedVlan = placement.RecommendedNetwork?.VlanId,
-            RecommendedAction = $"Move to {placement.RecommendedNetworkLabel}",
-            Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
+            RecommendedAction = recommendedAction,
+            Metadata = metadata,
             RuleId = RuleId,
             ScoreImpact = scoreImpact
         };

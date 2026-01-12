@@ -13,6 +13,7 @@ using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Core.Helpers;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
 // TODO(i18n): Add internationalization/localization support. Community volunteers available for translations.
 // See: https://learn.microsoft.com/en-us/aspnet/core/blazor/globalization-localization
@@ -49,6 +50,9 @@ builder.Logging.AddDebug();
 
 // Add memory cache for path analysis caching
 builder.Services.AddMemoryCache();
+
+// Register file version provider for cache-busting static assets (CSS, JS)
+builder.Services.AddSingleton<IFileVersionProvider, NetworkOptimizer.Web.Services.FileVersionProvider>();
 
 // Register credential protection service (singleton - shared encryption key)
 builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProtectionService, NetworkOptimizer.Storage.Services.CredentialProtectionService>();

@@ -133,6 +133,7 @@ public class AuditService
             var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
+            var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -140,6 +141,8 @@ public class AuditService
             options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
             // Printers default to true (allowed) if not set
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
+            // Pi-hole port (null means auto-detect)
+            options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
 
             _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
@@ -583,6 +586,21 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch UniFi Protect cameras (v2 API may not be available)");
             }
 
+            // Fetch port profiles for resolving port configuration from profiles
+            List<NetworkOptimizer.UniFi.Models.UniFiPortProfile>? portProfiles = null;
+            try
+            {
+                portProfiles = await _connectionService.Client.GetPortProfilesAsync();
+                if (portProfiles.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} port profiles for port configuration resolution", portProfiles.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch port profiles");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -594,7 +612,20 @@ public class AuditService
             };
 
             // Run the audit engine with all available data for comprehensive analysis
-            var auditResult = await _auditEngine.RunAuditAsync(deviceDataJson, clients, clientHistory, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, protectCameras, "Network Audit");
+            var auditResult = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
+            {
+                DeviceDataJson = deviceDataJson,
+                Clients = clients,
+                ClientHistory = clientHistory,
+                FingerprintDb = fingerprintDb,
+                SettingsData = settingsData,
+                FirewallPoliciesData = firewallPoliciesData,
+                AllowanceSettings = allowanceSettings,
+                ProtectCameras = protectCameras,
+                PortProfiles = portProfiles,
+                ClientName = "Network Audit",
+                PiholeManagementPort = options.PiholeManagementPort
+            });
 
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
@@ -725,6 +756,7 @@ public class AuditService
                 ModelName = s.ModelName ?? s.Model,
                 DeviceType = s.Type,
                 IsGateway = s.IsGateway,
+                IsAccessPoint = s.IsAccessPoint,
                 MaxCustomMacAcls = s.Capabilities.MaxCustomMacAcls,
                 Ports = s.Ports
                     .OrderBy(p => p.PortIndex)
@@ -784,7 +816,9 @@ public class AuditService
                 DohConfigNames = dns.DohConfigNames.ToList(),
                 DnsLeakProtection = dns.DnsLeakProtection,
                 DotBlocked = dns.DotBlocked,
+                DoqBlocked = dns.DoqBlocked,
                 DohBypassBlocked = dns.DohBypassBlocked,
+                Doh3Blocked = dns.Doh3Blocked,
                 FullyProtected = dns.FullyProtected,
                 WanDnsServers = dns.WanDnsServers.ToList(),
                 WanDnsPtrResults = dns.WanDnsPtrResults.ToList(),
@@ -951,10 +985,14 @@ public class AuditService
             Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
             Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" or "OFFLINE-PRINTER-VLAN" =>
                 message.StartsWith("Printer") || message.StartsWith("Scanner")
-                    ? (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN")
+                    ? (message.Contains("allowed per Settings")
+                        ? "Printer Allowed on VLAN"
+                        : (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN"))
                     : message.StartsWith("Cloud Camera")
                         ? (isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN")
-                        : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
+                        : message.Contains("allowed per Settings")
+                            ? "IoT Device Allowed on VLAN"
+                            : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
             Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" or "OFFLINE-CLOUD-CAMERA-VLAN" =>
                 isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN",
             Audit.IssueTypes.InfraNotOnMgmt => "Infrastructure Device on Wrong VLAN",
@@ -979,6 +1017,7 @@ public class AuditService
             Audit.IssueTypes.DnsWanNoStatic => "DNS: WAN Not Configured",
             Audit.IssueTypes.DnsDeviceMisconfigured => "DNS: Device Misconfigured",
             Audit.IssueTypes.DnsThirdPartyDetected => "DNS: Third-Party Detected",
+            Audit.IssueTypes.DnsInconsistentConfig => "DNS: Inconsistent Configuration",
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
 
             _ => message.Split('.').FirstOrDefault() ?? type
@@ -1073,6 +1112,7 @@ public class AuditOptions
     public bool AllowNameBrandTVsOnMainNetwork { get; set; } = false;
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
+    public int? PiholeManagementPort { get; set; }
 }
 
 public class AuditResult
@@ -1102,7 +1142,9 @@ public class DnsSecurityReference
     public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool DotBlocked { get; set; }
+    public bool DoqBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
+    public bool Doh3Blocked { get; set; }
     public bool FullyProtected { get; set; }
     public List<string> WanDnsServers { get; set; } = new();
     public List<string?> WanDnsPtrResults { get; set; } = new();
@@ -1195,6 +1237,7 @@ public class SwitchReference
     public string? ModelName { get; set; }
     public string? DeviceType { get; set; }
     public bool IsGateway { get; set; }
+    public bool IsAccessPoint { get; set; }
     public int MaxCustomMacAcls { get; set; }
     public List<PortReference> Ports { get; set; } = new();
 }

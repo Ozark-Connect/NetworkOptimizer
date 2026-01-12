@@ -65,10 +65,10 @@ public class UniFiDeviceResponse
         UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
 
     /// <summary>
-    /// Whether this device uses MIPS architecture and cannot run iperf3
+    /// Whether this device can run iperf3 for LAN speed testing
     /// </summary>
-    public bool IsMipsArchitecture =>
-        UniFiProductDatabase.IsMipsArchitecture(FriendlyModelName);
+    public bool CanRunIperf3 =>
+        UniFiProductDatabase.CanRunIperf3(FriendlyModelName);
 
     [JsonPropertyName("ip")]
     public string Ip { get; set; } = string.Empty;
@@ -123,6 +123,13 @@ public class UniFiDeviceResponse
     // Configuration
     [JsonPropertyName("config_network")]
     public ConfigNetwork? ConfigNetwork { get; set; }
+
+    /// <summary>
+    /// LAN network configuration - only present on devices acting as the network gateway.
+    /// UDM-family devices (including UX Express) won't have this when operating as APs.
+    /// </summary>
+    [JsonPropertyName("config_network_lan")]
+    public ConfigNetworkLan? ConfigNetworkLan { get; set; }
 }
 
 public class EthernetPort
@@ -291,4 +298,17 @@ public class ConfigNetwork
 
     [JsonPropertyName("ip")]
     public string? Ip { get; set; }
+}
+
+/// <summary>
+/// LAN network configuration - only present on gateway devices that manage networks.
+/// Used to distinguish actual gateways from UDM-family devices operating as APs.
+/// </summary>
+public class ConfigNetworkLan
+{
+    [JsonPropertyName("dhcp_enabled")]
+    public bool? DhcpEnabled { get; set; }
+
+    [JsonPropertyName("cidr")]
+    public string? Cidr { get; set; }
 }

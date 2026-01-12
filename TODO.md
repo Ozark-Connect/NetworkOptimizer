@@ -9,6 +9,28 @@
 
 ## Security Audit / PDF Report
 
+### Manual Network Purpose Override
+- Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
+- Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns
+- Problem: Users with non-standard naming conventions get incorrect VLAN placement recommendations
+- Implementation:
+  - Add "Network Classifications" section to Security Audit Settings page
+  - List all detected networks with current auto-detected purpose
+  - Allow override via dropdown: Corporate, Home, IoT, Security, Guest, Management, Printer, Unknown
+  - Store overrides in database (new table or extend existing settings)
+  - VlanAnalyzer should check for user overrides before applying name-based detection
+- Benefits:
+  - Users with custom naming schemes can get accurate audits
+  - Explicit classification removes ambiguity
+  - Auto-detection still works as default for users who don't configure
+
+### Third-Party DNS Firewall Rule Check
+- When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
+- Without this rule, clients could bypass third-party DNS by using the gateway directly
+- Implementation: Look for firewall rules that DROP/REJECT UDP 53 from the affected VLANs to the gateway IP
+- Severity: Recommended (not Critical, since some users intentionally allow fallback)
+- **Status:** Awaiting user feedback on current third-party DNS feature before implementing
+
 ### Printer/Scanner Audit Logic Consolidation
 - **Issue:** Printer/Scanner VLAN placement logic is duplicated across multiple files
 - **Current state:**
@@ -83,8 +105,8 @@ New audit section focused on network performance issues (distinct from security 
 - Currently limited to two WAN connections
 - Should dynamically detect and configure all available WAN interfaces
 
-### GRE Tunnel Support
-- Support for GRE tunnel connections (e.g., UniFi 5G modem)
+### GRE/PPP Tunnel Support
+- Support for GRE and PPP tunnel connections (e.g., UniFi 5G modem, PPPoE)
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 
@@ -155,20 +177,6 @@ New audit section focused on network performance issues (distinct from security 
   2. Route everything through direct env var reads (simpler for native)
   3. Support both patterns in app (check env var first, fall back to config)
 - Low priority but would improve consistency
-
-### Scroll Position Restoration Between Routes
-- Fix scroll position behavior when navigating between pages
-- **Expected behavior:**
-  - Navigating forward (clicking a link): Reset scroll to top
-  - Navigating back (browser back button): Restore previous scroll position
-- **Current behavior:** Scroll position is inconsistent/unpredictable
-- **Implementation notes:**
-  - Blazor Server doesn't have built-in scroll restoration
-  - Browser's native scroll restoration doesn't work with SPAs (content renders after navigation)
-  - Requires custom JS interop to save/restore scroll positions
-  - Use browser history state or client-side cache keyed by route
-  - Consider: `NavigationManager.LocationChanged` event + JS interop
-- **Reference:** Similar to how browsers handle multi-page apps, but needs manual implementation for SPA
 
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency

@@ -107,8 +107,18 @@ public static class DisplayFormatters
     /// </summary>
     public static string FormatDeviceName(string? deviceName, bool isGateway)
     {
+        return FormatDeviceName(deviceName, isGateway, isAccessPoint: false);
+    }
+
+    /// <summary>
+    /// Format a device name with consistent prefix, supporting Gateway, AP, and Switch types.
+    /// Strips any existing prefix and adds the correct one.
+    /// Priority: Gateway > AccessPoint > Switch
+    /// </summary>
+    public static string FormatDeviceName(string? deviceName, bool isGateway, bool isAccessPoint)
+    {
         var cleanName = StripDevicePrefix(deviceName);
-        var prefix = isGateway ? "[Gateway]" : "[Switch]";
+        var prefix = isGateway ? "[Gateway]" : isAccessPoint ? "[AP]" : "[Switch]";
         return $"{prefix} {cleanName}";
     }
 

@@ -1132,14 +1132,15 @@ public class IotVlanRuleTests
     [Fact]
     public void Evaluate_OfflineDevice_Exactly2WeeksAgo_ReturnsCritical()
     {
-        // Arrange - high-risk offline device last seen exactly 2 weeks ago (edge case)
-        var exactlyTwoWeeksAgo = DateTimeOffset.UtcNow.AddDays(-14).ToUnixTimeSeconds();
+        // Arrange - high-risk offline device last seen just under 2 weeks ago (edge case)
+        // Use -14 days + 1 minute to avoid flaky timing issues at exact boundary
+        var justUnderTwoWeeksAgo = DateTimeOffset.UtcNow.AddDays(-14).AddMinutes(1).ToUnixTimeSeconds();
         var port = CreatePort(
             portName: "Smart Lock",
             isUp: false,
             deviceCategory: ClientDeviceCategory.SmartLock,
             lastConnectionMac: "00:11:22:33:44:55",
-            lastConnectionSeen: exactlyTwoWeeksAgo);
+            lastConnectionSeen: justUnderTwoWeeksAgo);
         var networks = CreateNetworkList();
 
         // Act

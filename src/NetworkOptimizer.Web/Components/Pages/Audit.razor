@@ -242,9 +242,17 @@
                                                         </svg>
                                                     </a>
                                                     <span class="tooltip-content">
-                                                        <strong>Configurable Alert</strong><br/>
-                                                        You can adjust how this device type is treated when found on your main network(s).
-                                                        <a href="/settings#security-audit">Configure in Settings →</a>
+                                                        @if (issue.ConfigurableSetting?.StartsWith("Configure") == true || issue.ConfigurableSetting?.Contains("Settings") == true)
+                                                        {
+                                                            <strong>Settings Hint</strong><br/>
+                                                            @issue.ConfigurableSetting
+                                                        }
+                                                        else
+                                                        {
+                                                            <strong>Configurable Alert</strong><br/>
+                                                            <text>You can adjust how this device type is treated when found on your main network(s).</text>
+                                                        }
+                                                        <br/><a href="/settings#security-audit">Configure in Settings →</a>
                                                     </span>
                                                 </span>
                                             }
@@ -316,9 +324,17 @@
                                                             </svg>
                                                         </a>
                                                         <span class="tooltip-content">
-                                                            <strong>Configurable Alert</strong><br/>
-                                                            You can adjust how this device type is treated when found on your main network(s).
-                                                            <a href="/settings#security-audit">Configure in Settings →</a>
+                                                            @if (firstIssue.ConfigurableSetting?.StartsWith("Configure") == true || firstIssue.ConfigurableSetting?.Contains("Settings") == true)
+                                                            {
+                                                                <strong>Settings Hint</strong><br/>
+                                                                @firstIssue.ConfigurableSetting
+                                                            }
+                                                            else
+                                                            {
+                                                                <strong>Configurable Alert</strong><br/>
+                                                                <text>You can adjust how this device type is treated when found on your main network(s).</text>
+                                                            }
+                                                            <br/><a href="/settings#security-audit">Configure in Settings →</a>
                                                         </span>
                                                     </span>
                                                 }
@@ -491,18 +507,25 @@
                                 <td>@(lastResult.DnsSecurity.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS")</td>
                             </tr>
                             <tr>
-                                <td>DNS-over-TLS (Port 853)</td>
+                                <td>DNS-over-TLS (TCP 853)</td>
                                 <td class="@(lastResult.DnsSecurity.DotBlocked ? "status-success" : "status-warning")">
                                     @(lastResult.DnsSecurity.DotBlocked ? "Blocked" : "Open")
                                 </td>
                                 <td>@(lastResult.DnsSecurity.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT")</td>
                             </tr>
                             <tr>
+                                <td>DNS-over-QUIC (UDP 853)</td>
+                                <td class="@(lastResult.DnsSecurity.DoqBlocked ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DoqBlocked ? "Blocked" : "Open")
+                                </td>
+                                <td>@(lastResult.DnsSecurity.DoqBlocked ? "DoQ queries blocked" : "Devices can use external DoQ")</td>
+                            </tr>
+                            <tr>
                                 <td>DoH Bypass Prevention</td>
                                 <td class="@(lastResult.DnsSecurity.DohBypassBlocked ? "status-success" : "status-warning")">
                                     @(lastResult.DnsSecurity.DohBypassBlocked ? "Blocked" : "Open")
                                 </td>
-                                <td>@(lastResult.DnsSecurity.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH")</td>
+                                <td>@GetDohBypassDetails()</td>
                             </tr>
                             <tr>
                                 <td>WAN DNS Configuration</td>
@@ -559,7 +582,7 @@
                         <div class="switch-section">
                             <h3 class="switch-title">
                                 <DeviceIcon Model="@sw.ModelName" Size="lg" />
-                                @FormatDeviceName(sw.Name, sw.IsGateway) <span class="switch-model">(@sw.ModelName)</span>
+                                @FormatDeviceName(sw.Name, sw.IsGateway, sw.IsAccessPoint) <span class="switch-model">(@sw.ModelName)</span>
                             </h3>
                             <div class="table-responsive">
                             <table class="data-table port-table">
@@ -1283,6 +1306,7 @@
     // Device name formatting uses shared DisplayFormatters class
     private static string ExtractNetworkName(string deviceName) => DisplayFormatters.ExtractNetworkName(deviceName);
     private static string FormatDeviceName(string deviceName, bool isGateway) => DisplayFormatters.FormatDeviceName(deviceName, isGateway);
+    private static string FormatDeviceName(string deviceName, bool isGateway, bool isAccessPoint) => DisplayFormatters.FormatDeviceName(deviceName, isGateway, isAccessPoint);
 
     private string GetDohStatusClass()
     {
@@ -1449,6 +1473,15 @@
             dns.MatchedDnsServers.ToList(), dns.MismatchedDnsServers.ToList(),
             dns.InterfacesWithMismatch.ToList(), dns.InterfacesWithoutDns.ToList(),
             dns.WanDnsProvider, dns.ExpectedDnsProvider, dns.WanDnsMatchesDoH, dns.WanDnsOrderCorrect);
+    }
+
+    private string GetDohBypassDetails()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.DohBypassBlocked) return "Devices can use external DoH";
+        if (dns.Doh3Blocked) return "Public DoH + DoH3 providers blocked";
+        return "Public DoH providers blocked";
     }
 
     private string GetDeviceDnsStatusClass()

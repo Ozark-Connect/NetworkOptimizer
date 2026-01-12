@@ -316,52 +316,40 @@ public class DnsSecurityAnalyzerTests
     [Fact]
     public async Task Analyze_WithDoqBlockRule_DetectsRule()
     {
-        // DoQ (DNS over QUIC) blocking requires UDP 443 + web domains with DNS providers
+        // DoQ (DNS over QUIC) uses UDP 853 per RFC 9250
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DoQ"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDoqBlockRule.Should().BeTrue();
-        result.DoqBlockedDomains.Should().Contain("dns.google");
-        result.DoqBlockedDomains.Should().Contain("cloudflare-dns.com");
     }
 
     [Fact]
-    public async Task Analyze_WithCombinedDohDoqBlockRule_DetectsBoth()
+    public async Task Analyze_WithCombinedDotDoqBlockRule_DetectsBoth()
     {
-        // A single rule with tcp_udp protocol blocks both DoH (TCP 443) and DoQ (UDP 443)
+        // A single rule with tcp_udp protocol on port 853 blocks both DoT (TCP) and DoQ (UDP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoH and DoQ"",
+                ""name"": ""Block DoT and DoQ"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""tcp_udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
-        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
         result.HasDoqBlockRule.Should().BeTrue();
-        result.DohBlockedDomains.Should().Contain("dns.google");
-        result.DoqBlockedDomains.Should().Contain("dns.google");
     }
 
     [Fact]
@@ -384,12 +372,12 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_WithDotUdpOnlyProtocol_DoesNotDetect()
+    public async Task Analyze_WithPort853UdpOnly_DetectsDoqNotDot()
     {
-        // DoT (853) blocking requires TCP protocol - UDP-only rules should NOT be detected
+        // UDP 853 is DoQ (DNS over QUIC), not DoT (which requires TCP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoT UDP Only"",
+                ""name"": ""Block DoQ UDP Only"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
@@ -400,15 +388,16 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
     }
 
     [Fact]
-    public async Task Analyze_WithDohUdpOnlyProtocol_DetectsOnlyDoq()
+    public async Task Analyze_WithUdp443AndDomains_DetectsDoH3NotDoH()
     {
-        // UDP-only 443 rule with web domains should detect DoQ but NOT DoH
+        // UDP 443 with web domains is DoH3 (HTTP/3 over QUIC), not DoH (which requires TCP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoQ Only"",
+                ""name"": ""Block DoH3 Only"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
@@ -423,13 +412,13 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDohBlockRule.Should().BeFalse();
-        result.HasDoqBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
     }
 
     [Fact]
     public async Task Analyze_WithDohTcpOnlyProtocol_DetectsOnlyDoh()
     {
-        // TCP-only 443 rule with web domains should detect DoH but NOT DoQ
+        // TCP-only 443 rule with web domains should detect DoH but NOT DoH3 (which requires UDP)
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DoH Only"",
@@ -447,7 +436,29 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDohBlockRule.Should().BeTrue();
-        result.HasDoqBlockRule.Should().BeFalse();
+        result.HasDoh3BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithCombinedDns53AndDotBlockRule_DetectsBoth()
+    {
+        // A single rule with tcp_udp protocol and ports "53,853" blocks both DNS (UDP 53) and DoT (TCP 853)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS and DoT"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp_udp"",
+                ""destination"": { ""port"": ""53,853"" }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block DNS and DoT");
+        result.DotRuleName.Should().Be("Block DNS and DoT");
     }
 
     [Fact]
@@ -1094,7 +1105,7 @@ public class DnsSecurityAnalyzerTests
     [Fact]
     public async Task Analyze_WithDoqBlockRule_DoesNotGenerateDoqBypassIssue()
     {
-        // DoH configured + DoQ block rule = no DoQ bypass issue
+        // DoH configured + DoQ block rule (UDP 853) = no DoQ bypass issue
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
@@ -1109,11 +1120,7 @@ public class DnsSecurityAnalyzerTests
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
@@ -1225,7 +1232,7 @@ public class DnsSecurityAnalyzerTests
     #region Issue Generation Tests
 
     [Fact]
-    public async Task Analyze_NoDoHConfigured_GeneratesRecommendedIssue()
+    public async Task Analyze_NoDoHConfigured_GeneratesCriticalIssue()
     {
         // Arrange
         var switches = new List<SwitchInfo>
@@ -1240,10 +1247,10 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: null);
 
-        // Assert
+        // Assert - DoH not configured is Critical severity
         result.Issues.Should().Contain(i =>
             i.Type == "DNS_NO_DOH" &&
-            i.Severity == AuditSeverity.Recommended);
+            i.Severity == AuditSeverity.Critical);
     }
 
     [Fact]
@@ -1308,9 +1315,9 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_WithThirdPartyDns_GeneratesInfoIssue()
+    public async Task Analyze_WithThirdPartyDns_GeneratesIssue()
     {
-        // Arrange
+        // Arrange - Unknown third-party DNS (not Pi-hole or AdGuard)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -1335,10 +1342,10 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: networks);
 
-        // Assert
+        // Assert - Unknown providers get Recommended severity (minor penalty)
         result.Issues.Should().Contain(i =>
             i.Type == IssueTypes.DnsThirdPartyDetected &&
-            i.Severity == AuditSeverity.Informational);
+            i.Severity == AuditSeverity.Recommended);
     }
 
     [Fact]
@@ -1484,9 +1491,9 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_ThirdPartyDnsIssue_HasZeroScoreImpact()
+    public async Task Analyze_UnknownThirdPartyDnsIssue_HasMinorScoreImpact()
     {
-        // Arrange
+        // Arrange - Unknown third-party DNS (not Pi-hole or AdGuard)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -1511,16 +1518,16 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: networks);
 
-        // Assert - Third-party DNS issue should have no score impact
+        // Assert - Unknown third-party DNS has minor score impact (not zero)
         var thirdPartyIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsThirdPartyDetected);
         thirdPartyIssue.Should().NotBeNull();
-        thirdPartyIssue!.ScoreImpact.Should().Be(0);
+        thirdPartyIssue!.ScoreImpact.Should().Be(3);
     }
 
     [Fact]
-    public async Task Analyze_ThirdPartyDns_AddsHardeningNote()
+    public async Task Analyze_UnknownThirdPartyDns_NoHardeningNote()
     {
-        // Arrange
+        // Arrange - Unknown third-party DNS (not Pi-hole or AdGuard) should NOT get hardening note
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -1545,8 +1552,8 @@ public class DnsSecurityAnalyzerTests
             switches: switches,
             networks: networks);
 
-        // Assert
-        result.HardeningNotes.Should().Contain(n => n.Contains("Third-Party LAN DNS"));
+        // Assert - Unknown providers don't get hardening notes (only known like Pi-hole)
+        result.HardeningNotes.Should().NotContain(n => n.Contains("Third-Party LAN DNS"));
     }
 
     #endregion
@@ -2120,6 +2127,379 @@ public class DnsSecurityAnalyzerTests
         // Assert
         result.DohConfigured.Should().BeTrue();
         result.ConfiguredServers.Should().HaveCount(3);
+    }
+
+    #endregion
+
+    #region DNS Consistency Check Tests
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsOnSomeNetworksNotAll_GeneratesRecommendedIssue()
+    {
+        // Arrange - Third-party DNS on one network but not all DHCP networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Third-party DNS
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.2.1",
+                DnsServers = new List<string> { "192.168.2.1" } // Gateway DNS (no third-party)
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Inconsistent DNS config is Recommended (may be intentional)
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().Contain(i =>
+            i.Type == IssueTypes.DnsInconsistentConfig &&
+            i.Severity == AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsOnAllDhcpNetworks_NoCriticalIssue()
+    {
+        // Arrange - Third-party DNS on ALL DHCP networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.2.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsInconsistent_IssueHasModerateScoreImpact()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Main",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Guest",
+                VlanId = 50,
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.50.1" } // Missing third-party DNS
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Moderate score impact (5) since inconsistency may be intentional
+        var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        inconsistentIssue.Should().NotBeNull();
+        inconsistentIssue!.ScoreImpact.Should().Be(5);
+    }
+
+    [Fact]
+    public async Task Analyze_NonDhcpNetworkWithoutThirdPartyDns_NotFlagged()
+    {
+        // Arrange - Third-party DNS on DHCP network, non-DHCP network without it
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "StaticNetwork",
+                VlanId = 99,
+                DhcpEnabled = false, // No DHCP - should not be checked
+                Gateway = "192.168.99.1",
+                DnsServers = new List<string> { "192.168.99.1" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Non-DHCP networks should not trigger consistency issue
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+    }
+
+    #endregion
+
+    #region Unknown vs Known Provider Rating Tests
+
+    [Fact]
+    public async Task Analyze_UnknownThirdPartyDns_HasScoreImpact()
+    {
+        // Arrange - Unknown third-party DNS (not Pi-hole or AdGuard)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Unknown provider should have score impact
+        var thirdPartyIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsThirdPartyDetected);
+        thirdPartyIssue.Should().NotBeNull();
+        thirdPartyIssue!.ScoreImpact.Should().BeGreaterThan(0);
+        thirdPartyIssue.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public async Task Analyze_UnknownThirdPartyDns_MetadataIncludesIsKnownProvider()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert
+        var thirdPartyIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsThirdPartyDetected);
+        thirdPartyIssue.Should().NotBeNull();
+        thirdPartyIssue!.Metadata.Should().ContainKey("is_known_provider");
+        thirdPartyIssue.Metadata!["is_known_provider"].Should().Be(false);
+    }
+
+    #endregion
+
+    #region Custom Pi-hole Port Tests
+
+    [Fact]
+    public async Task Analyze_WithCustomPiholePort_PassesToDetector()
+    {
+        // Arrange - Network with third-party DNS but custom port won't find Pi-hole
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act - With custom port (won't actually probe in tests)
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: 8080);
+
+        // Assert - Should still detect third-party DNS even if Pi-hole probe fails
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsServers.Should().NotBeEmpty();
+    }
+
+    #endregion
+
+    #region DoH Configuration Tests (CyberSecure)
+
+    [Fact]
+    public async Task Analyze_WithNextDnsDoH_IdentifiesProvider()
+    {
+        // Arrange - NextDNS DoH
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""nextdns""]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.DohConfigured.Should().BeTrue();
+        result.ConfiguredServers.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDoHAndAllFirewallRules_FullyProtected()
+    {
+        // Arrange - Complete DNS security setup
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var firewall = JsonDocument.Parse(@"[
+            { ""name"": ""Block DNS"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""udp"", ""destination"": { ""port"": ""53"" } },
+            { ""name"": ""Block DoT/DoQ"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp_udp"", ""destination"": { ""port"": ""853"" } },
+            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""1.1.1.1"", ""1.0.0.1""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, firewall, null, null, deviceData);
+
+        // Assert
+        result.DohConfigured.Should().BeTrue();
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDoHDisabled_GeneratesRecommendation()
+    {
+        // Arrange
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""disabled""
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.DohConfigured.Should().BeFalse();
+        result.DohState.Should().Be("disabled");
     }
 
     #endregion
