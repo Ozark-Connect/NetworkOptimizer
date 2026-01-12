@@ -121,8 +121,8 @@ public class DnsSecurityAnalyzer
         // Generate issues based on findings (includes async WAN DNS validation)
         await GenerateAuditIssuesAsync(result);
 
-        _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DoQ={DoQBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
-            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.HasDoqBlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
+        _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DoQ={DoQBlock}, DoH3={DoH3Block}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
+            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.HasDoqBlockRule, result.HasDoh3BlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
 
         return result;
     }
@@ -401,25 +401,30 @@ public class DnsSecurityAnalyzer
                 }
             }
 
-            // Check for DNS over TLS (port 853) blocking - must be TCP only
-            // Valid protocols: tcp, tcp_udp, all
+            // Check for DNS over TLS (port 853) blocking - TCP only
+            // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250)
+            // Valid protocols: tcp, udp, tcp_udp, all
             if (isBlockAction && IncludesPort(destPort, "853"))
             {
+                // DoT = TCP 853
                 if (IncludesTcp(protocol))
                 {
                     result.HasDotBlockRule = true;
                     result.DotRuleName = name;
                     _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol})", name, protocol);
                 }
-                else
+
+                // DoQ = UDP 853 (RFC 9250 standard port)
+                if (IncludesUdp(protocol))
                 {
-                    _logger.LogDebug("Skipping DoT rule {Name}: protocol {Protocol} doesn't include TCP", name, protocol);
+                    result.HasDoqBlockRule = true;
+                    result.DoqRuleName = name;
+                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol})", name, protocol);
                 }
             }
 
-            // Check for DoH/DoQ blocking (port 443 with web domains containing DNS providers)
-            // DoH = TCP 443, DoQ = UDP 443 (QUIC)
-            // Rules can block either or both depending on protocol setting
+            // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
+            // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
             if (isBlockAction && IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
@@ -429,7 +434,7 @@ public class DnsSecurityAnalyzer
 
                 if (dnsProviderDomains.Count > 0)
                 {
-                    // DoH blocking requires TCP (tcp, tcp_udp, all)
+                    // DoH blocking (TCP 443)
                     if (IncludesTcp(protocol))
                     {
                         result.HasDohBlockRule = true;
@@ -443,17 +448,12 @@ public class DnsSecurityAnalyzer
                             name, protocol, dnsProviderDomains.Count);
                     }
 
-                    // DoQ blocking requires UDP (udp, tcp_udp, all) - QUIC runs over UDP
+                    // DoH3 blocking (UDP 443 / HTTP/3 over QUIC)
                     if (IncludesUdp(protocol))
                     {
-                        result.HasDoqBlockRule = true;
-                        foreach (var domain in dnsProviderDomains)
-                        {
-                            if (!result.DoqBlockedDomains.Contains(domain))
-                                result.DoqBlockedDomains.Add(domain);
-                        }
-                        result.DoqRuleName = name;
-                        _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
+                        result.HasDoh3BlockRule = true;
+                        result.Doh3RuleName = name;
+                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
                             name, protocol, dnsProviderDomains.Count);
                     }
                 }
@@ -659,14 +659,10 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNoDoqBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS.",
-                RecommendedAction = "Create firewall rule: Block UDP 443 to known DoQ provider domains",
+                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS on UDP port 853.",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-004",
-                ScoreImpact = 4,
-                Metadata = new Dictionary<string, object>
-                {
-                    { "suggested_domains", "dns.google, cloudflare-dns.com, dns.quad9.net, dns.adguard.com" }
-                }
+                ScoreImpact = 4
             });
         }
 
@@ -688,7 +684,10 @@ public class DnsSecurityAnalyzer
         // Positive: All protections in place
         if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule)
         {
-            result.HardeningNotes.Add("DNS leak prevention fully configured with DoH and firewall blocking (DNS53, DoT, DoH, DoQ)");
+            var protocols = "DNS53, DoT, DoH, DoQ";
+            if (result.HasDoh3BlockRule)
+                protocols += ", DoH3";
+            result.HardeningNotes.Add($"DNS leak prevention fully configured with DoH and firewall blocking ({protocols})");
         }
         else if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule)
         {
@@ -1377,6 +1376,8 @@ public class DnsSecurityResult
     public string? DohRuleName { get; set; }
     public bool HasDoqBlockRule { get; set; }
     public string? DoqRuleName { get; set; }
+    public bool HasDoh3BlockRule { get; set; }
+    public string? Doh3RuleName { get; set; }
     public List<string> DohBlockedDomains { get; } = new();
     public List<string> DoqBlockedDomains { get; } = new();
 

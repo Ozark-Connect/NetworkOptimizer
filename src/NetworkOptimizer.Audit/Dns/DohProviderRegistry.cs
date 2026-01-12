@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 
 namespace NetworkOptimizer.Audit.Dns;
 
@@ -18,6 +19,7 @@ public static class DohProviderRegistry
             StampPrefix = "nextdns",
             Hostnames = new[] { "nextdns.io" }, // PTR returns dns1.nextdns.io, dns2.nextdns.io
             DnsIps = new[] { "45.90." }, // NextDNS anycast range - prefix match
+            Ipv6Prefixes = new[] { "2a07:a8c0:", "2a07:a8c1:" }, // NextDNS IPv6 anycast prefixes
             SupportsFiltering = true,
             HasCustomConfig = true,
             Description = "NextDNS - Privacy-focused DNS with filtering"
@@ -219,6 +221,62 @@ public static class DohProviderRegistry
             return null;
         }
     }
+
+    #region NextDNS Profile ID Helpers
+
+    /// <summary>
+    /// Extract NextDNS profile ID from a URL path (e.g., "/43b56f" -> "43b56f")
+    /// </summary>
+    public static string? ExtractNextDnsProfileId(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return null;
+
+        var profileId = path.TrimStart('/');
+        return string.IsNullOrEmpty(profileId) ? null : profileId;
+    }
+
+    /// <summary>
+    /// Extract NextDNS profile ID from an IPv6 address.
+    /// NextDNS IPv6 format: 2a07:a8c0::43:b56f where 43:b56f = profile ID "43b56f"
+    /// </summary>
+    public static string? ExtractProfileIdFromNextDnsIpv6(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip))
+            return null;
+
+        // Match NextDNS IPv6 pattern: 2a07:a8c0::XX:XXXX or 2a07:a8c1::XX:XXXX
+        var match = Regex.Match(ip, @"^2a07:a8c[01]::([0-9a-f]+):([0-9a-f]+)$", RegexOptions.IgnoreCase);
+        if (match.Success)
+            return (match.Groups[1].Value + match.Groups[2].Value).ToLowerInvariant();
+
+        return null;
+    }
+
+    /// <summary>
+    /// Check if a NextDNS IPv6 address matches an expected profile ID.
+    /// If expectedProfileId is null, only prefix matching is performed.
+    /// </summary>
+    public static bool NextDnsIpv6MatchesProfile(string ip, string? expectedProfileId)
+    {
+        if (string.IsNullOrEmpty(ip))
+            return false;
+
+        // First check if it's a NextDNS IPv6 address
+        var ipLower = ip.ToLowerInvariant();
+        if (!ipLower.StartsWith("2a07:a8c0:") && !ipLower.StartsWith("2a07:a8c1:"))
+            return false;
+
+        // If no expected profile, prefix match is sufficient
+        if (string.IsNullOrEmpty(expectedProfileId))
+            return true;
+
+        // Extract and compare profile ID
+        var actualProfileId = ExtractProfileIdFromNextDnsIpv6(ip);
+        return string.Equals(actualProfileId, expectedProfileId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
 }
 
 /// <summary>
@@ -230,19 +288,33 @@ public class DohProviderInfo
     public required string StampPrefix { get; init; }
     public required string[] Hostnames { get; init; }
     public required string[] DnsIps { get; init; }
+    public string[]? Ipv6Prefixes { get; init; }
     public required bool SupportsFiltering { get; init; }
     public required bool HasCustomConfig { get; init; }
     public required string Description { get; init; }
 
     /// <summary>
-    /// Check if a given IP matches this provider's expected DNS IPs
+    /// Check if a given IP matches this provider's expected DNS IPs (IPv4 or IPv6)
     /// </summary>
     public bool MatchesIp(string ip)
     {
         if (string.IsNullOrEmpty(ip)) return false;
-        return DnsIps.Any(expected =>
+
+        // IPv4 matching (existing logic)
+        if (DnsIps.Any(expected =>
             expected.EndsWith('.')
-                ? ip.StartsWith(expected) // Prefix match (e.g., "45.90.28.")
-                : ip == expected);        // Exact match
+                ? ip.StartsWith(expected) // Prefix match (e.g., "45.90.")
+                : ip == expected))        // Exact match
+            return true;
+
+        // IPv6 prefix matching
+        if (Ipv6Prefixes != null)
+        {
+            var ipLower = ip.ToLowerInvariant();
+            if (Ipv6Prefixes.Any(prefix => ipLower.StartsWith(prefix.ToLowerInvariant())))
+                return true;
+        }
+
+        return false;
     }
 }

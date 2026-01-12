@@ -40,144 +40,325 @@ public class FingerprintDetector
     /// </summary>
     private static readonly Dictionary<int, ClientDeviceCategory> DevTypeMapping = new()
     {
-        // Cameras/Surveillance
-        { 9, ClientDeviceCategory.Camera },         // IP Network Camera
-        { 57, ClientDeviceCategory.Camera },        // Smart Security Camera
-        { 106, ClientDeviceCategory.Camera },       // Camera
-        { 116, ClientDeviceCategory.SecuritySystem }, // Surveillance System
+        // ============================================================
+        // CAMERAS / SURVEILLANCE
+        // Note: Vendor-based reclassification to CloudCamera happens later
+        // ============================================================
+        { 9, ClientDeviceCategory.Camera },           // IP Network Camera
+        { 57, ClientDeviceCategory.Camera },          // Smart Security Camera
+        { 106, ClientDeviceCategory.Camera },         // Camera
+        { 124, ClientDeviceCategory.Camera },         // Network Video Recorder
+        { 147, ClientDeviceCategory.Camera },         // Doorbell Camera
+        { 161, ClientDeviceCategory.Camera },         // Video Doorbell
+
+        // Cloud Cameras (internet-dependent)
+        { 114, ClientDeviceCategory.CloudCamera },    // Baby Monitor
+        { 151, ClientDeviceCategory.CloudCamera },    // Video Door Phone
+        { 163, ClientDeviceCategory.CloudCamera },    // Dashcam
+
+        // Security Systems
         { 111, ClientDeviceCategory.SecuritySystem }, // Security Panel
-        { 124, ClientDeviceCategory.Camera },       // Network Video Recorder
-        { 147, ClientDeviceCategory.Camera },       // Doorbell Camera
-        { 161, ClientDeviceCategory.Camera },       // Video Doorbell
+        { 116, ClientDeviceCategory.SecuritySystem }, // Surveillance System
+        { 80, ClientDeviceCategory.SecuritySystem },  // Smart Home Security System
+        { 173, ClientDeviceCategory.SecuritySystem }, // Home Security System
+        { 199, ClientDeviceCategory.SecuritySystem }, // Smart Smoke Detector
+        { 248, ClientDeviceCategory.SecuritySystem }, // Smart Access Control
+        { 278, ClientDeviceCategory.SecuritySystem }, // Biometric Reader
 
-        // Smart Lighting
-        { 35, ClientDeviceCategory.SmartLighting }, // Wireless Lighting
-        { 53, ClientDeviceCategory.SmartLighting }, // Smart Lighting Device
-        { 179, ClientDeviceCategory.SmartLighting }, // LED Lighting
-        { 184, ClientDeviceCategory.SmartLighting }, // Smart Light Strip
+        // ============================================================
+        // SMART LIGHTING
+        // ============================================================
+        { 35, ClientDeviceCategory.SmartLighting },   // Wireless Lighting
+        { 53, ClientDeviceCategory.SmartLighting },   // Smart Lighting Device
+        { 102, ClientDeviceCategory.SmartLighting },  // Smart Dimmer
+        { 179, ClientDeviceCategory.SmartLighting },  // LED Lighting
+        { 184, ClientDeviceCategory.SmartLighting },  // Smart Light Strip
+        { 240, ClientDeviceCategory.SmartLighting },  // Flood Light
 
-        // Smart Plugs/Outlets
-        { 42, ClientDeviceCategory.SmartPlug },     // Smart Plug
-        { 97, ClientDeviceCategory.SmartPlug },     // Smart Power Strip
-        { 153, ClientDeviceCategory.SmartPlug },    // Smart Socket
+        // ============================================================
+        // SMART PLUGS / POWER
+        // ============================================================
+        { 33, ClientDeviceCategory.SmartPlug },       // Smart Switch
+        { 42, ClientDeviceCategory.SmartPlug },       // Smart Plug
+        { 97, ClientDeviceCategory.SmartPlug },       // Smart Power Strip
+        { 107, ClientDeviceCategory.SmartPlug },      // AC Switch
+        { 153, ClientDeviceCategory.SmartPlug },      // Smart Socket
+        { 236, ClientDeviceCategory.SmartSensor },    // Smart Meter
 
-        // Thermostats/HVAC
+        // ============================================================
+        // THERMOSTATS / HVAC
+        // ============================================================
         { 63, ClientDeviceCategory.SmartThermostat }, // Smart Thermostat
         { 70, ClientDeviceCategory.SmartThermostat }, // Smart Heating Device
+        { 253, ClientDeviceCategory.SmartThermostat }, // Smart Heater
+        { 277, ClientDeviceCategory.SmartThermostat }, // Heat Pump
+        { 279, ClientDeviceCategory.SmartThermostat }, // Smart Radiator
+
+        // ============================================================
+        // SMART LOCKS / ACCESS
+        // ============================================================
+        { 125, ClientDeviceCategory.SmartLock },      // Touch Screen Deadbolt
+        { 133, ClientDeviceCategory.SmartLock },      // Door Lock
+        { 159, ClientDeviceCategory.SmartLock },      // Rolling Shutter
+        { 172, ClientDeviceCategory.SmartLock },      // Gate Controller
+        { 275, ClientDeviceCategory.SmartLock },      // Door Fob
+
+        // ============================================================
+        // SMART SENSORS
+        // ============================================================
+        { 94, ClientDeviceCategory.SmartSensor },     // Smart Scale
+        { 100, ClientDeviceCategory.SmartSensor },    // Weather Station
+        { 109, ClientDeviceCategory.SmartSensor },    // Sleep Monitor
+        { 110, ClientDeviceCategory.SmartSensor },    // Blood Pressure Monitor
+        { 127, ClientDeviceCategory.SmartSensor },    // Solar Inverter Monitor
+        { 139, ClientDeviceCategory.SmartSensor },    // Water Monitor
+        { 148, ClientDeviceCategory.SmartSensor },    // Air Quality Monitor
+        { 158, ClientDeviceCategory.SmartSensor },    // Air Monitor
+        { 189, ClientDeviceCategory.SmartSensor },    // Meat Thermometer
+        { 201, ClientDeviceCategory.SmartSensor },    // Smart Temperature Sensor
+        { 202, ClientDeviceCategory.SmartSensor },    // Smart Thermometer
+        { 234, ClientDeviceCategory.SmartSensor },    // Weather Monitor
+        { 245, ClientDeviceCategory.SmartSensor },    // Smart Motion Sensor
+        { 267, ClientDeviceCategory.SmartSensor },    // Power Monitor
+        { 269, ClientDeviceCategory.SmartSensor },    // Home Energy Monitor
+
+        // ============================================================
+        // SMART APPLIANCES
+        // ============================================================
+        { 48, ClientDeviceCategory.SmartAppliance },  // Intelligent Home Appliances
         { 71, ClientDeviceCategory.SmartAppliance },  // Air Conditioner
-
-        // Smart Locks
-        { 133, ClientDeviceCategory.SmartLock },    // Door Lock
-        { 125, ClientDeviceCategory.SmartLock },    // Touch Screen Deadbolt
-
-        // Smart Sensors
-        { 100, ClientDeviceCategory.SmartSensor },  // Weather Station
-        { 148, ClientDeviceCategory.SmartSensor },  // Air Quality Monitor
-        { 234, ClientDeviceCategory.SmartSensor },  // Weather Monitor
-        { 139, ClientDeviceCategory.SmartSensor },  // Water Monitor
-        { 109, ClientDeviceCategory.SmartSensor },  // Sleep Monitor
-
-        // Smart Appliances
-        { 48, ClientDeviceCategory.SmartAppliance }, // Intelligent Home Appliances
-        { 131, ClientDeviceCategory.SmartAppliance }, // Washing Machine
-        { 140, ClientDeviceCategory.SmartAppliance }, // Dishwasher
-        { 118, ClientDeviceCategory.SmartAppliance }, // Dryer
+        { 74, ClientDeviceCategory.SmartAppliance },  // Machine Wash
+        { 86, ClientDeviceCategory.SmartAppliance },  // Smart Bed
         { 92, ClientDeviceCategory.SmartAppliance },  // Air Purifier
+        { 99, ClientDeviceCategory.SmartAppliance },  // Smart Ceiling Fan
+        { 113, ClientDeviceCategory.SmartAppliance }, // Water Filter
+        { 118, ClientDeviceCategory.SmartAppliance }, // Dryer
+        { 131, ClientDeviceCategory.SmartAppliance }, // Washing Machine
+        { 137, ClientDeviceCategory.SmartAppliance }, // Electric Cooktop
+        { 140, ClientDeviceCategory.SmartAppliance }, // Dishwasher
         { 149, ClientDeviceCategory.SmartAppliance }, // Smart Kettle
+        { 177, ClientDeviceCategory.SmartAppliance }, // Oven
+        { 181, ClientDeviceCategory.SmartAppliance }, // Smart Grill
+        { 195, ClientDeviceCategory.SmartAppliance }, // Smart Fragrance Device
+        { 235, ClientDeviceCategory.SmartAppliance }, // Wifi Fan
+        { 250, ClientDeviceCategory.SmartAppliance }, // Fan
+        { 262, ClientDeviceCategory.SmartAppliance }, // Air Diffuser
+        { 264, ClientDeviceCategory.SmartAppliance }, // Toothbrush
+        { 272, ClientDeviceCategory.SmartAppliance }, // Mattress
 
-        // Smart Hubs
-        { 144, ClientDeviceCategory.SmartHub },     // Smart Hub
-        { 93, ClientDeviceCategory.SmartHub },      // Home Automation
-        { 154, ClientDeviceCategory.SmartHub },     // Smart Bridge
+        // ============================================================
+        // SMART HUBS / CONTROLLERS
+        // ============================================================
+        { 93, ClientDeviceCategory.SmartHub },        // Home Automation
+        { 95, ClientDeviceCategory.SmartHub },        // System Controller
+        { 126, ClientDeviceCategory.SmartHub },       // Solar Communication Gateway
+        { 144, ClientDeviceCategory.SmartHub },       // Smart Hub
+        { 154, ClientDeviceCategory.SmartHub },       // Smart Bridge
+        { 187, ClientDeviceCategory.SmartHub },       // Smart Gateway
+        { 251, ClientDeviceCategory.SmartHub },       // Smart Controller
+        { 274, ClientDeviceCategory.SmartHub },       // Device Controller
 
-        // Robotic Vacuums
-        { 41, ClientDeviceCategory.RoboticVacuum }, // Robotic Vacuums
-        { 65, ClientDeviceCategory.RoboticVacuum }, // Smart Cleaning Device
+        // ============================================================
+        // ROBOTIC DEVICES
+        // ============================================================
+        { 41, ClientDeviceCategory.RoboticVacuum },   // Robotic Vacuums
+        { 65, ClientDeviceCategory.RoboticVacuum },   // Smart Cleaning Device
+        { 81, ClientDeviceCategory.RoboticVacuum },   // Robot
+        { 276, ClientDeviceCategory.RoboticVacuum },  // Smart Mower
 
-        // Smart TVs
-        { 31, ClientDeviceCategory.SmartTV },       // SmartTV
-        { 47, ClientDeviceCategory.SmartTV },       // Smart TV & Set-top box
-        { 50, ClientDeviceCategory.SmartTV },       // Smart TV & Set-top box
+        // ============================================================
+        // SMART TVS / DISPLAYS
+        // ============================================================
+        { 31, ClientDeviceCategory.SmartTV },         // SmartTV
+        { 34, ClientDeviceCategory.SmartTV },         // Projector
+        { 38, ClientDeviceCategory.SmartTV },         // Dashboard
+        { 47, ClientDeviceCategory.SmartTV },         // Smart TV & Set-top box
+        { 50, ClientDeviceCategory.SmartTV },         // Smart TV & Set-top box
+        { 143, ClientDeviceCategory.SmartTV },        // Picture Frame
+        { 188, ClientDeviceCategory.SmartTV },        // Digital Canvas
+        { 203, ClientDeviceCategory.SmartTV },        // Smart Display
+        { 254, ClientDeviceCategory.SmartTV },        // Smart Clock
+        { 259, ClientDeviceCategory.SmartTV },        // Collaboration Display
 
-        // Streaming Devices
-        { 5, ClientDeviceCategory.StreamingDevice }, // IPTV
+        // ============================================================
+        // STREAMING DEVICES
+        // ============================================================
+        { 5, ClientDeviceCategory.StreamingDevice },  // IPTV
+        { 186, ClientDeviceCategory.StreamingDevice }, // IPTV Set Top Box
+        { 190, ClientDeviceCategory.StreamingDevice }, // TV IP Media Receiver
         { 238, ClientDeviceCategory.StreamingDevice }, // Media Player
         { 242, ClientDeviceCategory.StreamingDevice }, // Streaming Media Device
-        { 186, ClientDeviceCategory.StreamingDevice }, // IPTV Set Top Box
+        { 271, ClientDeviceCategory.StreamingDevice }, // Media Streamer
 
-        // Smart Speakers
-        { 37, ClientDeviceCategory.SmartSpeaker },  // Smart Speaker
-        { 52, ClientDeviceCategory.SmartSpeaker },  // Smart Audio Device
-        { 170, ClientDeviceCategory.SmartSpeaker }, // Wifi Speaker
+        // ============================================================
+        // SMART SPEAKERS
+        // ============================================================
+        { 37, ClientDeviceCategory.SmartSpeaker },    // Smart Speaker
+        { 52, ClientDeviceCategory.SmartSpeaker },    // Smart Audio Device
+        { 170, ClientDeviceCategory.SmartSpeaker },   // Wifi Speaker
+        { 263, ClientDeviceCategory.SmartSpeaker },   // Network Speaker
 
-        // Media Players
-        { 20, ClientDeviceCategory.MediaPlayer },   // Multimedia Device
-        { 69, ClientDeviceCategory.MediaPlayer },   // AV Receiver
-        { 73, ClientDeviceCategory.MediaPlayer },   // Soundbar
-        { 96, ClientDeviceCategory.MediaPlayer },   // Audio Streamer
-        { 132, ClientDeviceCategory.MediaPlayer },  // Music Server
-        { 152, ClientDeviceCategory.MediaPlayer },  // Blu Ray Player
+        // ============================================================
+        // MEDIA PLAYERS / AUDIO
+        // ============================================================
+        { 20, ClientDeviceCategory.MediaPlayer },     // Multimedia Device
+        { 69, ClientDeviceCategory.MediaPlayer },     // AV Receiver
+        { 73, ClientDeviceCategory.MediaPlayer },     // Soundbar
+        { 96, ClientDeviceCategory.MediaPlayer },     // Audio Streamer
+        { 103, ClientDeviceCategory.MediaPlayer },    // Radio
+        { 122, ClientDeviceCategory.MediaPlayer },    // Digital Radio
+        { 132, ClientDeviceCategory.MediaPlayer },    // Music Server
+        { 141, ClientDeviceCategory.MediaPlayer },    // Digital Mixer
+        { 152, ClientDeviceCategory.MediaPlayer },    // Blu Ray Player
+        { 155, ClientDeviceCategory.MediaPlayer },    // Amplifier
+        { 178, ClientDeviceCategory.MediaPlayer },    // Home Entertainment System
+        { 191, ClientDeviceCategory.MediaPlayer },    // Headphone AMP
+        { 192, ClientDeviceCategory.MediaPlayer },    // Smart Home Theater Device
+        { 193, ClientDeviceCategory.MediaPlayer },    // Music Streamer
+        { 247, ClientDeviceCategory.MediaPlayer },    // Receiver
+        { 260, ClientDeviceCategory.MediaPlayer },    // Sound Machine
 
-        // Game Consoles
-        { 17, ClientDeviceCategory.GameConsole },   // Game Console
+        // ============================================================
+        // GAME CONSOLES
+        // ============================================================
+        { 17, ClientDeviceCategory.GameConsole },     // Game Console
+        { 164, ClientDeviceCategory.GameConsole },    // Joystick
 
-        // Computers
-        { 1, ClientDeviceCategory.Laptop },         // Desktop/Laptop
-        { 46, ClientDeviceCategory.Desktop },       // Computer
-        { 56, ClientDeviceCategory.Server },        // Server
-        { 28, ClientDeviceCategory.Desktop },       // Workstation
-        { 25, ClientDeviceCategory.Desktop },       // Thin Client
+        // ============================================================
+        // COMPUTERS
+        // ============================================================
+        { 1, ClientDeviceCategory.Laptop },           // Desktop/Laptop
+        { 25, ClientDeviceCategory.Desktop },         // Thin Client
+        { 28, ClientDeviceCategory.Desktop },         // Workstation
+        { 46, ClientDeviceCategory.Desktop },         // Computer
+        { 76, ClientDeviceCategory.Desktop },         // Computer Stick Board
+        { 104, ClientDeviceCategory.Desktop },        // Motherboard
+        { 117, ClientDeviceCategory.Desktop },        // Single Board Computer
+        { 265, ClientDeviceCategory.Desktop },        // Docking Station
 
-        // NAS
-        { 18, ClientDeviceCategory.NAS },           // NAS
-        { 91, ClientDeviceCategory.NAS },           // Network Storage
+        // Servers
+        { 56, ClientDeviceCategory.Server },          // Server
+        { 225, ClientDeviceCategory.Server },         // Operating System
 
-        // Mobile Devices
-        { 6, ClientDeviceCategory.Smartphone },     // Smartphone
-        { 44, ClientDeviceCategory.Smartphone },    // Handheld
-        { 29, ClientDeviceCategory.Smartphone },    // Apple iOS Device
-        { 32, ClientDeviceCategory.Smartphone },    // Android Device
-        { 30, ClientDeviceCategory.Tablet },        // Tablet
+        // ============================================================
+        // NAS / STORAGE
+        // ============================================================
+        { 18, ClientDeviceCategory.NAS },             // NAS
+        { 91, ClientDeviceCategory.NAS },             // Network Storage
+        { 134, ClientDeviceCategory.NAS },            // Media Server
+        { 157, ClientDeviceCategory.NAS },            // Wireless Storage
 
-        // VoIP (specific VoIP types only)
-        { 3, ClientDeviceCategory.VoIP },           // VoIP Phone
-        { 10, ClientDeviceCategory.VoIP },          // VoIP Gateway
-        { 27, ClientDeviceCategory.VoIP },          // Video Phone
+        // ============================================================
+        // MOBILE / WEARABLES
+        // ============================================================
+        { 6, ClientDeviceCategory.Smartphone },       // Smartphone
+        { 19, ClientDeviceCategory.Smartphone },      // PDA
+        { 26, ClientDeviceCategory.Smartphone },      // Phone (generic)
+        { 29, ClientDeviceCategory.Smartphone },      // Apple iOS Device
+        { 32, ClientDeviceCategory.Smartphone },      // Android Device
+        { 36, ClientDeviceCategory.Smartphone },      // Smart Watch
+        { 39, ClientDeviceCategory.Smartphone },      // Tizen Device
+        { 44, ClientDeviceCategory.Smartphone },      // Handheld
+        { 45, ClientDeviceCategory.Smartphone },      // Wearable devices
+        { 112, ClientDeviceCategory.Smartphone },     // VR
+        { 123, ClientDeviceCategory.Smartphone },     // Earphones
+        { 160, ClientDeviceCategory.Smartphone },     // Social Media Device
+        { 167, ClientDeviceCategory.Smartphone },     // GPS Bike
+        { 198, ClientDeviceCategory.Smartphone },     // GPS
+        { 243, ClientDeviceCategory.Smartphone },     // Navigation System
+        { 256, ClientDeviceCategory.Smartphone },     // Spatial Computer
+        { 266, ClientDeviceCategory.Smartphone },     // Head Mounted Device
 
-        // Generic "Phone" - more likely smartphone than VoIP
-        // VoIP phones have specific dev_cat values (3, 10, 27)
-        { 26, ClientDeviceCategory.Smartphone },    // Phone (generic)
+        // Tablets
+        { 21, ClientDeviceCategory.Tablet },          // eBook Reader
+        { 30, ClientDeviceCategory.Tablet },          // Tablet
 
-        // Network Infrastructure
-        { 12, ClientDeviceCategory.AccessPoint },   // Access Point
-        { 14, ClientDeviceCategory.AccessPoint },   // Wireless Controller
-        { 13, ClientDeviceCategory.Switch },        // Switch
-        { 2, ClientDeviceCategory.Router },         // Router
-        { 8, ClientDeviceCategory.Router },         // Router
-        { 82, ClientDeviceCategory.Router },        // Firewall System
+        // ============================================================
+        // VOIP / COMMUNICATION
+        // ============================================================
+        { 3, ClientDeviceCategory.VoIP },             // VoIP Phone
+        { 10, ClientDeviceCategory.VoIP },            // VoIP Gateway
+        { 23, ClientDeviceCategory.VoIP },            // Video Conferencing
+        { 27, ClientDeviceCategory.VoIP },            // Video Phone
+        { 85, ClientDeviceCategory.VoIP },            // IP Station
+        { 87, ClientDeviceCategory.VoIP },            // Conference Camera
+        { 121, ClientDeviceCategory.VoIP },           // Smart Video Caller
+        { 145, ClientDeviceCategory.VoIP },           // VoIP Server
+        { 156, ClientDeviceCategory.VoIP },           // Call Station
+        { 249, ClientDeviceCategory.VoIP },           // Conference Phone
+        { 268, ClientDeviceCategory.VoIP },           // Intercom
+        { 270, ClientDeviceCategory.VoIP },           // Conference System
 
-        // Printers
-        { 11, ClientDeviceCategory.Printer },       // Printer
-        { 22, ClientDeviceCategory.Scanner },       // Scanner
-        { 146, ClientDeviceCategory.Printer },      // 3D Printer
-        { 171, ClientDeviceCategory.Printer },      // Label Printer
+        // ============================================================
+        // NETWORK INFRASTRUCTURE
+        // ============================================================
+        // Access Points / Wireless
+        { 12, ClientDeviceCategory.AccessPoint },     // Access Point
+        { 14, ClientDeviceCategory.AccessPoint },     // Wireless Controller
+        { 55, ClientDeviceCategory.AccessPoint },     // Wireless Antenna
+        { 128, ClientDeviceCategory.AccessPoint },    // Wifi Extender
+        { 135, ClientDeviceCategory.AccessPoint },    // Powerline
+        { 185, ClientDeviceCategory.AccessPoint },    // Wireless Hot Spot
+        { 255, ClientDeviceCategory.AccessPoint },    // Bluetooth Extender
+        { 258, ClientDeviceCategory.AccessPoint },    // Wifi Module
 
-        // Generic IoT
-        { 51, ClientDeviceCategory.IoTGeneric },    // Smart Device
-        { 66, ClientDeviceCategory.IoTGeneric },    // IoT Device
-        { 64, ClientDeviceCategory.IoTGeneric },    // Smart Garden Device
-        { 60, ClientDeviceCategory.IoTGeneric },    // Alarm System
-        { 80, ClientDeviceCategory.SecuritySystem }, // Smart Home Security System
-        { 120, ClientDeviceCategory.IoTGeneric },   // Garage Opener
-        { 83, ClientDeviceCategory.IoTGeneric },    // Garage Door
-        { 77, ClientDeviceCategory.IoTGeneric },    // Sprinkler Controller
-        { 130, ClientDeviceCategory.IoTGeneric },   // Irrigation Controller
-        { 45, ClientDeviceCategory.SmartSensor },   // Wearable devices
-        { 36, ClientDeviceCategory.SmartSensor },   // Smart Watch
+        // Switches
+        { 13, ClientDeviceCategory.Switch },          // Switch
+        { 54, ClientDeviceCategory.Switch },          // Wired Ethernet
 
-        // Miscellaneous/Generic (low confidence - rely on dev_id_override lookup)
-        { 4, ClientDeviceCategory.IoTGeneric },     // Miscellaneous
-        { 49, ClientDeviceCategory.IoTGeneric },    // Network & Peripheral
+        // Routers / Gateways
+        { 2, ClientDeviceCategory.Router },           // Router
+        { 8, ClientDeviceCategory.Router },           // Router
+        { 16, ClientDeviceCategory.Router },          // Network Diagnostics
+        { 82, ClientDeviceCategory.Router },          // Firewall System
+        { 142, ClientDeviceCategory.Router },         // IP Gateway
+        { 237, ClientDeviceCategory.Router },         // Wireless Modem
+        { 239, ClientDeviceCategory.Router },         // Routerboard
+        { 273, ClientDeviceCategory.Router },         // Ad Blocker
+
+        // ============================================================
+        // PRINTERS / SCANNERS
+        // ============================================================
+        { 11, ClientDeviceCategory.Printer },         // Printer
+        { 146, ClientDeviceCategory.Printer },        // 3D Printer
+        { 171, ClientDeviceCategory.Printer },        // Label Printer
+        { 176, ClientDeviceCategory.Printer },        // Print Server
+        { 22, ClientDeviceCategory.Scanner },         // Scanner
+
+        // ============================================================
+        // IOT GENERIC
+        // ============================================================
+        { 4, ClientDeviceCategory.IoTGeneric },       // Miscellaneous
+        { 7, ClientDeviceCategory.IoTGeneric },       // UPS
+        { 49, ClientDeviceCategory.IoTGeneric },      // Network & Peripheral
+        { 51, ClientDeviceCategory.IoTGeneric },      // Smart Device
+        { 60, ClientDeviceCategory.IoTGeneric },      // Alarm System
+        { 64, ClientDeviceCategory.IoTGeneric },      // Smart Garden Device
+        { 66, ClientDeviceCategory.IoTGeneric },      // IoT Device
+        { 67, ClientDeviceCategory.IoTGeneric },      // Smart Cars
+        { 72, ClientDeviceCategory.IoTGeneric },      // EV Charging Station
+        { 77, ClientDeviceCategory.IoTGeneric },      // Sprinkler Controller
+        { 78, ClientDeviceCategory.IoTGeneric },      // Inverter System
+        { 83, ClientDeviceCategory.IoTGeneric },      // Garage Door
+        { 88, ClientDeviceCategory.IoTGeneric },      // Energy System
+        { 89, ClientDeviceCategory.IoTGeneric },      // Smart Remote Control
+        { 115, ClientDeviceCategory.IoTGeneric },     // Solar Power
+        { 119, ClientDeviceCategory.IoTGeneric },     // Generator
+        { 120, ClientDeviceCategory.IoTGeneric },     // Garage Opener
+        { 130, ClientDeviceCategory.IoTGeneric },     // Irrigation Controller
+        { 136, ClientDeviceCategory.IoTGeneric },     // Vehicle Charger
+        { 138, ClientDeviceCategory.IoTGeneric },     // Network Doorbell
+        { 165, ClientDeviceCategory.IoTGeneric },     // Fireplace
+        { 166, ClientDeviceCategory.IoTGeneric },     // Home Battery
+        { 168, ClientDeviceCategory.IoTGeneric },     // Vehicles
+        { 169, ClientDeviceCategory.IoTGeneric },     // Toy
+        { 174, ClientDeviceCategory.IoTGeneric },     // Smart Garden
+        { 180, ClientDeviceCategory.IoTGeneric },     // Smart Payment Solution
+        { 183, ClientDeviceCategory.IoTGeneric },     // Smart Pet Device
+        { 196, ClientDeviceCategory.IoTGeneric },     // Solar Energy System
+        { 200, ClientDeviceCategory.IoTGeneric },     // Smart Pool Control
+        { 244, ClientDeviceCategory.IoTGeneric },     // Smart Pool Device
+        { 246, ClientDeviceCategory.IoTGeneric },     // Parking System
     };
 
     public FingerprintDetector(UniFiFingerprintDatabase? database = null)

@@ -196,7 +196,7 @@ public class VlanPlacementCheckerTests
             vendorName: "Apple Inc");
 
         result.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.ScoreImpact.Should().Be(0); // User explicitly allowed - no score penalty
         result.IsLowRisk.Should().BeTrue();
     }
 
@@ -233,7 +233,7 @@ public class VlanPlacementCheckerTests
             vendorName: "Roku Inc");
 
         result.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.ScoreImpact.Should().Be(0); // User explicitly allowed - no score penalty
     }
 
     [Theory]
@@ -254,7 +254,7 @@ public class VlanPlacementCheckerTests
             vendorName: vendor);
 
         result.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.ScoreImpact.Should().Be(0); // User explicitly allowed - no score penalty
     }
 
     [Fact]
@@ -290,7 +290,7 @@ public class VlanPlacementCheckerTests
             vendorName: "Hisense");
 
         result.Severity.Should().Be(AuditSeverity.Informational);
-        result.ScoreImpact.Should().Be(ScoreConstants.InformationalImpact);
+        result.ScoreImpact.Should().Be(0); // User explicitly allowed - no score penalty
     }
 
     [Fact]

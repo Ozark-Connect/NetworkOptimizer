@@ -316,52 +316,40 @@ public class DnsSecurityAnalyzerTests
     [Fact]
     public async Task Analyze_WithDoqBlockRule_DetectsRule()
     {
-        // DoQ (DNS over QUIC) blocking requires UDP 443 + web domains with DNS providers
+        // DoQ (DNS over QUIC) uses UDP 853 per RFC 9250
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DoQ"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google"", ""cloudflare-dns.com""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDoqBlockRule.Should().BeTrue();
-        result.DoqBlockedDomains.Should().Contain("dns.google");
-        result.DoqBlockedDomains.Should().Contain("cloudflare-dns.com");
     }
 
     [Fact]
-    public async Task Analyze_WithCombinedDohDoqBlockRule_DetectsBoth()
+    public async Task Analyze_WithCombinedDotDoqBlockRule_DetectsBoth()
     {
-        // A single rule with tcp_udp protocol blocks both DoH (TCP 443) and DoQ (UDP 443)
+        // A single rule with tcp_udp protocol on port 853 blocks both DoT (TCP) and DoQ (UDP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoH and DoQ"",
+                ""name"": ""Block DoT and DoQ"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""tcp_udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
-        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
         result.HasDoqBlockRule.Should().BeTrue();
-        result.DohBlockedDomains.Should().Contain("dns.google");
-        result.DoqBlockedDomains.Should().Contain("dns.google");
     }
 
     [Fact]
@@ -384,12 +372,12 @@ public class DnsSecurityAnalyzerTests
     }
 
     [Fact]
-    public async Task Analyze_WithDotUdpOnlyProtocol_DoesNotDetect()
+    public async Task Analyze_WithPort853UdpOnly_DetectsDoqNotDot()
     {
-        // DoT (853) blocking requires TCP protocol - UDP-only rules should NOT be detected
+        // UDP 853 is DoQ (DNS over QUIC), not DoT (which requires TCP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoT UDP Only"",
+                ""name"": ""Block DoQ UDP Only"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
@@ -400,15 +388,16 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
     }
 
     [Fact]
-    public async Task Analyze_WithDohUdpOnlyProtocol_DetectsOnlyDoq()
+    public async Task Analyze_WithUdp443AndDomains_DetectsDoH3NotDoH()
     {
-        // UDP-only 443 rule with web domains should detect DoQ but NOT DoH
+        // UDP 443 with web domains is DoH3 (HTTP/3 over QUIC), not DoH (which requires TCP)
         var firewall = JsonDocument.Parse(@"[
             {
-                ""name"": ""Block DoQ Only"",
+                ""name"": ""Block DoH3 Only"",
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
@@ -423,13 +412,13 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDohBlockRule.Should().BeFalse();
-        result.HasDoqBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
     }
 
     [Fact]
     public async Task Analyze_WithDohTcpOnlyProtocol_DetectsOnlyDoh()
     {
-        // TCP-only 443 rule with web domains should detect DoH but NOT DoQ
+        // TCP-only 443 rule with web domains should detect DoH but NOT DoH3 (which requires UDP)
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DoH Only"",
@@ -447,7 +436,7 @@ public class DnsSecurityAnalyzerTests
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
         result.HasDohBlockRule.Should().BeTrue();
-        result.HasDoqBlockRule.Should().BeFalse();
+        result.HasDoh3BlockRule.Should().BeFalse();
     }
 
     [Fact]
@@ -1116,7 +1105,7 @@ public class DnsSecurityAnalyzerTests
     [Fact]
     public async Task Analyze_WithDoqBlockRule_DoesNotGenerateDoqBypassIssue()
     {
-        // DoH configured + DoQ block rule = no DoQ bypass issue
+        // DoH configured + DoQ block rule (UDP 853) = no DoQ bypass issue
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
@@ -1131,11 +1120,7 @@ public class DnsSecurityAnalyzerTests
                 ""enabled"": true,
                 ""action"": ""drop"",
                 ""protocol"": ""udp"",
-                ""destination"": {
-                    ""port"": ""443"",
-                    ""matching_target"": ""WEB"",
-                    ""web_domains"": [""dns.google""]
-                }
+                ""destination"": { ""port"": ""853"" }
             }
         ]").RootElement;
 
@@ -2469,8 +2454,8 @@ public class DnsSecurityAnalyzerTests
 
         var firewall = JsonDocument.Parse(@"[
             { ""name"": ""Block DNS"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""udp"", ""destination"": { ""port"": ""53"" } },
-            { ""name"": ""Block DoT"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp"", ""destination"": { ""port"": ""853"" } },
-            { ""name"": ""Block DoH/DoQ"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp_udp"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
+            { ""name"": ""Block DoT/DoQ"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp_udp"", ""destination"": { ""port"": ""853"" } },
+            { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""protocol"": ""tcp"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
         ]").RootElement;
 
         var deviceData = JsonDocument.Parse(@"[

@@ -37,6 +37,7 @@ nul
 # Internal development notes
 CLAUDE.md
 .claude/
+tmpclaude-*
 plans/
 
 # Local research work / scratch

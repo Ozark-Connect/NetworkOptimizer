@@ -112,14 +112,24 @@ public class DnsSecurityInfo
     public bool DnsLeakProtection { get; set; }
 
     /// <summary>
-    /// Whether DoT (port 853) is blocked
+    /// Whether DoT (TCP port 853) is blocked
     /// </summary>
     public bool DotBlocked { get; set; }
 
     /// <summary>
-    /// Whether DoH bypass (public DoH providers) is blocked
+    /// Whether DoQ (UDP port 853) is blocked
+    /// </summary>
+    public bool DoqBlocked { get; set; }
+
+    /// <summary>
+    /// Whether DoH bypass (public DoH providers on TCP 443) is blocked
     /// </summary>
     public bool DohBypassBlocked { get; set; }
+
+    /// <summary>
+    /// Whether DoH3 bypass (public DoH providers on UDP 443/HTTP3) is blocked
+    /// </summary>
+    public bool Doh3Blocked { get; set; }
 
     /// <summary>
     /// Configured WAN DNS servers

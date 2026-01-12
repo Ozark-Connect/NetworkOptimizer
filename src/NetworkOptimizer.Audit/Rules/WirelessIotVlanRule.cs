@@ -39,15 +39,35 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
         if (placement.IsCorrectlyPlaced)
             return null;
 
+        // Different messaging for allowed vs not-allowed devices
+        string message;
+        string recommendedAction;
+        if (placement.IsAllowedBySettings)
+        {
+            message = $"{client.Detection.CategoryName} allowed per Settings on {network.Name} VLAN";
+            recommendedAction = "Change in Settings if you want to isolate this device type";
+        }
+        else
+        {
+            message = $"{client.Detection.CategoryName} on {network.Name} VLAN - should be isolated";
+            recommendedAction = $"Move to {placement.RecommendedNetworkLabel}";
+        }
+
+        var metadata = VlanPlacementChecker.BuildMetadata(client.Detection, network, placement.IsLowRisk);
+        if (placement.IsAllowedBySettings)
+        {
+            metadata["allowed_by_settings"] = true;
+        }
+
         return CreateIssue(
-            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be isolated",
+            message,
             client,
             severityOverride: placement.Severity,
             scoreImpactOverride: placement.ScoreImpact,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,
-            recommendedAction: $"Move to {placement.RecommendedNetworkLabel}",
-            metadata: VlanPlacementChecker.BuildMetadata(client.Detection, network, placement.IsLowRisk)
+            recommendedAction: recommendedAction,
+            metadata: metadata
         );
     }
 }

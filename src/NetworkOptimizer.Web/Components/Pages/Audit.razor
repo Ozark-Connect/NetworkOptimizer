@@ -507,18 +507,25 @@
                                 <td>@(lastResult.DnsSecurity.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS")</td>
                             </tr>
                             <tr>
-                                <td>DNS-over-TLS (Port 853)</td>
+                                <td>DNS-over-TLS (TCP 853)</td>
                                 <td class="@(lastResult.DnsSecurity.DotBlocked ? "status-success" : "status-warning")">
                                     @(lastResult.DnsSecurity.DotBlocked ? "Blocked" : "Open")
                                 </td>
                                 <td>@(lastResult.DnsSecurity.DotBlocked ? "DoT queries blocked" : "Devices can use external DoT")</td>
                             </tr>
                             <tr>
+                                <td>DNS-over-QUIC (UDP 853)</td>
+                                <td class="@(lastResult.DnsSecurity.DoqBlocked ? "status-success" : "status-warning")">
+                                    @(lastResult.DnsSecurity.DoqBlocked ? "Blocked" : "Open")
+                                </td>
+                                <td>@(lastResult.DnsSecurity.DoqBlocked ? "DoQ queries blocked" : "Devices can use external DoQ")</td>
+                            </tr>
+                            <tr>
                                 <td>DoH Bypass Prevention</td>
                                 <td class="@(lastResult.DnsSecurity.DohBypassBlocked ? "status-success" : "status-warning")">
                                     @(lastResult.DnsSecurity.DohBypassBlocked ? "Blocked" : "Open")
                                 </td>
-                                <td>@(lastResult.DnsSecurity.DohBypassBlocked ? "Public DoH providers blocked" : "Devices can use external DoH")</td>
+                                <td>@GetDohBypassDetails()</td>
                             </tr>
                             <tr>
                                 <td>WAN DNS Configuration</td>
@@ -1466,6 +1473,15 @@
             dns.MatchedDnsServers.ToList(), dns.MismatchedDnsServers.ToList(),
             dns.InterfacesWithMismatch.ToList(), dns.InterfacesWithoutDns.ToList(),
             dns.WanDnsProvider, dns.ExpectedDnsProvider, dns.WanDnsMatchesDoH, dns.WanDnsOrderCorrect);
+    }
+
+    private string GetDohBypassDetails()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+        if (!dns.DohBypassBlocked) return "Devices can use external DoH";
+        if (dns.Doh3Blocked) return "Public DoH + DoH3 providers blocked";
+        return "Public DoH providers blocked";
     }
 
     private string GetDeviceDnsStatusClass()

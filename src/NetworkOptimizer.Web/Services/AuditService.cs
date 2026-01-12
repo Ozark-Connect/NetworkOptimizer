@@ -816,7 +816,9 @@ public class AuditService
                 DohConfigNames = dns.DohConfigNames.ToList(),
                 DnsLeakProtection = dns.DnsLeakProtection,
                 DotBlocked = dns.DotBlocked,
+                DoqBlocked = dns.DoqBlocked,
                 DohBypassBlocked = dns.DohBypassBlocked,
+                Doh3Blocked = dns.Doh3Blocked,
                 FullyProtected = dns.FullyProtected,
                 WanDnsServers = dns.WanDnsServers.ToList(),
                 WanDnsPtrResults = dns.WanDnsPtrResults.ToList(),
@@ -983,10 +985,14 @@ public class AuditService
             Audit.IssueTypes.MgmtNetworkHasInternet => "Management Network Has Internet",
             Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan or "OFFLINE-IOT-VLAN" or "OFFLINE-PRINTER-VLAN" =>
                 message.StartsWith("Printer") || message.StartsWith("Scanner")
-                    ? (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN")
+                    ? (message.Contains("allowed per Settings")
+                        ? "Printer Allowed on VLAN"
+                        : (isInformational ? "Printer Possibly on Wrong VLAN" : "Printer on Wrong VLAN"))
                     : message.StartsWith("Cloud Camera")
                         ? (isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN")
-                        : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
+                        : message.Contains("allowed per Settings")
+                            ? "IoT Device Allowed on VLAN"
+                            : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
             Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" or "OFFLINE-CLOUD-CAMERA-VLAN" =>
                 isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN",
             Audit.IssueTypes.InfraNotOnMgmt => "Infrastructure Device on Wrong VLAN",
@@ -1136,7 +1142,9 @@ public class DnsSecurityReference
     public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool DotBlocked { get; set; }
+    public bool DoqBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
+    public bool Doh3Blocked { get; set; }
     public bool FullyProtected { get; set; }
     public List<string> WanDnsServers { get; set; } = new();
     public List<string?> WanDnsPtrResults { get; set; } = new();
