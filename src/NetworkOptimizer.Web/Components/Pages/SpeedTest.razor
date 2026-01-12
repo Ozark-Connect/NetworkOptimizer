@@ -273,7 +273,13 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Select any non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+                Select any supported non-gateway device to run a speed test. Devices are auto-discovered from your UniFi controller.
+                <span class="tooltip-wrapper">
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-content">
+                        Some devices with MIPS-based CPU architecture don't have an iperf3 binary available. Consider using <a href="/client-speedtest">client-based speed tests</a> instead.
+                    </span>
+                </span>
             </p>
 
             @if (!ConnectionService.IsConnected)
