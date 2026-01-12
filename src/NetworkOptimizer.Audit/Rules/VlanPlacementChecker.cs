@@ -90,7 +90,7 @@ public static class VlanPlacementChecker
             if (isAllowed)
             {
                 severity = AuditSeverity.Informational;
-                scoreImpact = ScoreConstants.InformationalImpact;
+                scoreImpact = 0; // User explicitly allows this - no score penalty
             }
         }
 
