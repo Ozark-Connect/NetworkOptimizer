@@ -3120,6 +3120,25 @@ select.form-control {
     color: #c084fc;
 }
 
+/* Device tooltip styling (path visualization) */
+.device-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    margin-bottom: 0.15rem;
+    color: #e2e8f0;
+}
+
+.device-tooltip-row:last-child {
+    margin-bottom: 0;
+}
+
+.device-tooltip-label {
+    color: #94a3b8;
+    font-weight: 500;
+}
+
 /* Warnings and badges */
 .path-analysis .bottleneck-warning {
     padding: 0.5rem 0.75rem;
