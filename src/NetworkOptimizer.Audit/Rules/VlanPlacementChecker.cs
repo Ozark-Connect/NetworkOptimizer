@@ -193,7 +193,8 @@ public static class VlanPlacementChecker
             RecommendedNetwork: recommendedNetwork,
             RecommendedNetworkLabel: recommendedLabel,
             Severity: severity,
-            ScoreImpact: scoreImpact);
+            ScoreImpact: scoreImpact,
+            IsAllowedBySettings: isAllowed);
     }
 
     /// <summary>
