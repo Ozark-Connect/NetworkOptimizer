@@ -1,14 +1,16 @@
+using System.Net;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Moq.Protected;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
 
-public class DnsSecurityAnalyzerTests
+public class DnsSecurityAnalyzerTests : IDisposable
 {
     private readonly DnsSecurityAnalyzer _analyzer;
     private readonly Mock<ILogger<DnsSecurityAnalyzer>> _loggerMock;
@@ -16,10 +18,38 @@ public class DnsSecurityAnalyzerTests
 
     public DnsSecurityAnalyzerTests()
     {
+        // Mock DNS resolver to avoid real network calls and timeouts
+        DohProviderRegistry.DnsResolver = _ => Task.FromResult<string?>(null);
+
         _loggerMock = new Mock<ILogger<DnsSecurityAnalyzer>>();
         var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
-        _thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+
+        // Use mock HttpClient that returns 404 immediately (no Pi-hole detected)
+        var httpClient = CreateMockHttpClient(HttpStatusCode.NotFound);
+        _thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, httpClient);
         _analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, _thirdPartyDetector);
+    }
+
+    private static HttpClient CreateMockHttpClient(HttpStatusCode statusCode, string content = "")
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = statusCode,
+                Content = new StringContent(content)
+            });
+        return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(1) };
+    }
+
+    public void Dispose()
+    {
+        DohProviderRegistry.ResetDnsResolver();
     }
 
     #region Constructor Tests
@@ -28,7 +58,7 @@ public class DnsSecurityAnalyzerTests
     public void Constructor_WithLogger_CreatesInstance()
     {
         var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
-        var thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
+        var thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, CreateMockHttpClient(HttpStatusCode.NotFound));
         var analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, thirdPartyDetector);
         analyzer.Should().NotBeNull();
     }
