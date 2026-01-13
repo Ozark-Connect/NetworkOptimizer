@@ -26,3 +26,5 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
+        env:
+          FLUENT_ASSERTIONS_LICENSED: ${{ secrets.FLUENT_ASSERTIONS_LICENSED }}
