@@ -5,30 +5,36 @@
 @using NetworkOptimizer.Web.Components.Shared
 
 <div class="speed-results">
-    <div class="speed-result download">
-        <div class="speed-icon">
-            <svg viewBox="0 0 24 24" width="32" height="32">
-                <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+    @if (DownloadMbps > 0)
+    {
+        <div class="speed-result download">
+            <div class="speed-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32">
+                    <path d="M12 4v12m0 0l-4-4m4 4l4-4M5 18h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="speed-details">
+                <div class="speed-label">From Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred from the tested device to this server">?</span></div>
+                <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+            </div>
         </div>
-        <div class="speed-details">
-            <div class="speed-label">From Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred from the tested device to this server">?</span></div>
-            <div class="speed-value">@DownloadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-            <div class="speed-meta">@FormatBytes(DownloadBytes) transferred</div>
+    }
+    @if (UploadMbps > 0)
+    {
+        <div class="speed-result upload">
+            <div class="speed-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32">
+                    <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="speed-details">
+                <div class="speed-label">To Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred to the tested device from this server">?</span></div>
+                <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
+                <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
+            </div>
         </div>
-    </div>
-    <div class="speed-result upload">
-        <div class="speed-icon">
-            <svg viewBox="0 0 24 24" width="32" height="32">
-                <path d="M12 20V8m0 0l4 4m-4-4l-4 4M5 6h14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-        </div>
-        <div class="speed-details">
-            <div class="speed-label">To Device <span class="tooltip-icon tooltip-icon-sm" data-tooltip="Data transferred to the tested device from this server">?</span></div>
-            <div class="speed-value">@UploadMbps.ToString("F1") <span class="speed-unit">Mbps</span></div>
-            <div class="speed-meta">@FormatBytes(UploadBytes) transferred</div>
-        </div>
-    </div>
+    }
 </div>
 @if (DownloadRetransmits > 0 || UploadRetransmits > 0)
 {
@@ -54,16 +60,22 @@
                     <span class="speed-label">max</span>
                 </div>
                 <div class="efficiency-grades">
-                    <div class="grade-item">
-                        <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" data-tooltip="From device to server">
-                            ↓ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
-                        </span>
-                    </div>
-                    <div class="grade-item">
-                        <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" data-tooltip="From server to device">
-                            ↑ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
-                        </span>
-                    </div>
+                    @if (DownloadMbps > 0)
+                    {
+                        <div class="grade-item">
+                            <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" data-tooltip="From device to server">
+                                ↓ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
+                            </span>
+                        </div>
+                    }
+                    @if (UploadMbps > 0)
+                    {
+                        <div class="grade-item">
+                            <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" data-tooltip="From server to device">
+                                ↑ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
+                            </span>
+                        </div>
+                    }
                 </div>
             </div>
 
@@ -139,14 +151,24 @@
             </div>
         }
 
-        @if (PathAnalysis.Insights.Count > 0 || PathAnalysis.Recommendations.Count > 0)
+        @{
+            // Filter out misleading messages when one direction has 0 Mbps (wasn't tested)
+            var hasZeroDirection = DownloadMbps == 0 || UploadMbps == 0;
+            var filteredInsights = hasZeroDirection
+                ? PathAnalysis.Insights.Where(i => !i.Contains("Performance below expected", StringComparison.OrdinalIgnoreCase))
+                : PathAnalysis.Insights;
+            var filteredRecs = hasZeroDirection
+                ? PathAnalysis.Recommendations.Where(r => !r.Contains("asymmetry", StringComparison.OrdinalIgnoreCase))
+                : PathAnalysis.Recommendations;
+        }
+        @if (filteredInsights.Any() || filteredRecs.Any())
         {
             <div class="path-notes">
-                @foreach (var insight in PathAnalysis.Insights)
+                @foreach (var insight in filteredInsights)
                 {
                     <div class="note insight">💡 @insight</div>
                 }
-                @foreach (var rec in PathAnalysis.Recommendations)
+                @foreach (var rec in filteredRecs)
                 {
                     <div class="note recommendation">📈 @rec</div>
                 }

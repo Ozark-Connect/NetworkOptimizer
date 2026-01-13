@@ -57,7 +57,7 @@ public class UniFiSshService : IUniFiSshService
             {
                 Username = "",
                 Port = 22,
-                Enabled = false,
+                Enabled = true,  // Default to enabled for new installs
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };

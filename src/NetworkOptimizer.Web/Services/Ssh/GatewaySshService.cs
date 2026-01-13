@@ -60,7 +60,7 @@ public class GatewaySshService : IGatewaySshService
                 Username = "root",
                 Port = 22,
                 Iperf3Port = 5201,
-                Enabled = false,
+                Enabled = true,  // Default to enabled for new installs
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -99,6 +99,11 @@ public class GatewaySshService : IGatewaySshService
     public async Task<(bool success, string message)> TestConnectionAsync()
     {
         var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+        {
+            return (false, "Gateway SSH access is disabled");
+        }
 
         if (string.IsNullOrEmpty(settings.Host))
         {
@@ -199,6 +204,11 @@ public class GatewaySshService : IGatewaySshService
         CancellationToken cancellationToken = default)
     {
         var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+        {
+            return (false, "Gateway SSH access is disabled");
+        }
 
         if (string.IsNullOrEmpty(settings.Host))
         {

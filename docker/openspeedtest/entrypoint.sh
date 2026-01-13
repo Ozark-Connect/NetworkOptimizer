@@ -7,6 +7,7 @@ API_PATH="/api/public/speedtest/results"
 
 # Construct the save URL from environment variables
 # Priority: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
+# IMPORTANT: Keep this logic in sync with NginxHostedService.cs:ConstructSaveDataUrl() (Windows installer)
 if [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
     # Behind reverse proxy - use https and no port (proxy handles it)
     SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}${API_PATH}"

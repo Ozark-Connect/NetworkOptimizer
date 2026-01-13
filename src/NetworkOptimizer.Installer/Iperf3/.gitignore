@@ -1,0 +1,3 @@
+# iperf3 binaries - download via Download-Iperf3.ps1 before building installer
+*.exe
+*.dll

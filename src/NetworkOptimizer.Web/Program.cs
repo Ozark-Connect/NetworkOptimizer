@@ -12,11 +12,35 @@ using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Web.Services.Ssh;
+using Serilog;
+using Serilog.Events;
 
 // TODO(i18n): Add internationalization/localization support. Community volunteers available for translations.
 // See: https://learn.microsoft.com/en-us/aspnet/core/blazor/globalization-localization
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Windows Service support (no-op when running as console or on non-Windows)
+if (OperatingSystem.IsWindows())
+{
+    // Load configuration from Windows Registry (set by MSI installer)
+    // This runs before env vars so env vars can override registry values
+    builder.Configuration.AddInMemoryCollection(LoadWindowsRegistrySettings());
+
+    builder.Host.UseWindowsService(options =>
+    {
+        options.ServiceName = "NetworkOptimizer";
+    });
+
+    // Configure Kestrel to listen on port 8042 for Windows service mode
+    // Only set if ASPNETCORE_URLS or ASPNETCORE_HTTP_PORTS is not already configured
+    var urlsConfigured = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS"))
+                      || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS"));
+    if (!urlsConfigured)
+    {
+        builder.WebHost.UseUrls("http://0.0.0.0:8042");
+    }
+}
 
 // Configure Data Protection to persist keys to the data volume
 var isDocker = string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase);
@@ -32,10 +56,30 @@ builder.Services.AddDataProtection()
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Configure logging
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole();
-builder.Logging.AddDebug();
+// Configure logging with Serilog
+var loggerConfig = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+    .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
+
+// Add file logging for Windows (in the logs folder under install directory)
+if (OperatingSystem.IsWindows())
+{
+    var logFolder = Path.Combine(AppContext.BaseDirectory, "logs");
+    Directory.CreateDirectory(logFolder);
+    var logPath = Path.Combine(logFolder, "networkoptimizer-.log");
+
+    loggerConfig.WriteTo.File(
+        logPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 7,
+        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+}
+
+Log.Logger = loggerConfig.CreateLogger();
+builder.Host.UseSerilog();
 
 // Add memory cache for path analysis caching
 builder.Services.AddMemoryCache();
@@ -65,10 +109,24 @@ builder.Services.AddTransient<ConfigAuditEngine>();
 builder.Services.AddSingleton<TcMonitorClient>();
 
 // Register SQLite database context
-// In Docker, use /app/data; otherwise use LocalApplicationData
-var dbPath = isDocker
-    ? "/app/data/network_optimizer.db"
-    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer", "network_optimizer.db");
+// Docker: /app/data, Windows: install dir, macOS/Linux: LocalApplicationData
+string dbPath;
+if (isDocker)
+{
+    dbPath = "/app/data/network_optimizer.db";
+}
+else if (OperatingSystem.IsWindows())
+{
+    // Windows: store in data folder under install directory (survives updates, removed on uninstall)
+    var dataFolder = Path.Combine(AppContext.BaseDirectory, "data");
+    Directory.CreateDirectory(dataFolder);
+    dbPath = Path.Combine(dataFolder, "network_optimizer.db");
+}
+else
+{
+    // macOS/Linux: use LocalApplicationData
+    dbPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetworkOptimizer", "network_optimizer.db");
+}
 Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 builder.Services.AddDbContext<NetworkOptimizerDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}")
@@ -121,6 +179,9 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
 // Enable via environment variable: Iperf3Server__Enabled=true
 builder.Services.AddHostedService<Iperf3ServerService>();
+
+// Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
+builder.Services.AddHostedService<NginxHostedService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -678,3 +739,48 @@ app.MapGet("/api/demo-mappings", () =>
 });
 
 app.Run();
+
+// Helper function to load configuration from Windows Registry (set by MSI installer)
+// Returns empty collection on non-Windows or if registry key doesn't exist
+static Dictionary<string, string?> LoadWindowsRegistrySettings()
+{
+    if (!OperatingSystem.IsWindows())
+        return [];
+
+    var settings = new Dictionary<string, string?>();
+
+    try
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Ozark Connect\Network Optimizer");
+        if (key == null)
+            return [];
+
+        // Map registry keys to configuration paths
+        // Some keys map directly, others need to be transformed to match .NET configuration format
+        var keyMappings = new Dictionary<string, string>
+        {
+            ["HOST_IP"] = "HOST_IP",
+            ["HOST_NAME"] = "HOST_NAME",
+            ["REVERSE_PROXIED_HOST_NAME"] = "REVERSE_PROXIED_HOST_NAME",
+            ["IPERF3_SERVER_ENABLED"] = "Iperf3Server:Enabled",  // Maps to Iperf3Server:Enabled
+            ["OPENSPEEDTEST_PORT"] = "OPENSPEEDTEST_PORT",
+            ["OPENSPEEDTEST_HOST"] = "OPENSPEEDTEST_HOST",
+            ["OPENSPEEDTEST_HTTPS"] = "OPENSPEEDTEST_HTTPS"
+        };
+
+        foreach (var mapping in keyMappings)
+        {
+            var value = key.GetValue(mapping.Key) as string;
+            if (!string.IsNullOrEmpty(value))
+            {
+                settings[mapping.Value] = value;
+            }
+        }
+    }
+    catch
+    {
+        // Silently ignore registry access errors (permissions, etc.)
+    }
+
+    return settings;
+}

@@ -1,0 +1,17 @@
+/**
+ * OpenSpeedTest Configuration
+ * Values are injected at runtime by NetworkOptimizer service
+ */
+
+// These will be replaced by the service at startup
+var saveData = {{SAVE_DATA}};
+var saveDataURL = "{{SAVE_DATA_URL}}";
+var apiPath = "{{API_PATH}}";
+
+// If __DYNAMIC__, construct URL from browser location (same host, port 8042)
+if (saveDataURL === "__DYNAMIC__") {
+    saveDataURL = window.location.protocol + "//" + window.location.hostname + ":8042" + apiPath;
+}
+
+// Fix for missing variable bug in OpenSpeedTest
+var OpenSpeedTestdb = "";

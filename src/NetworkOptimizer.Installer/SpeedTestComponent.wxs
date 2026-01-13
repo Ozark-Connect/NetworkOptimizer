@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - SpeedTest Component (OpenSpeedTest + nginx)
+
+  Bundles nginx for Windows and OpenSpeedTest static files.
+  nginx is managed as a child process by the main NetworkOptimizer service.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fw="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Fragment>
+    <!-- SpeedTest directory under main install folder -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="SpeedTestFolder" Name="SpeedTest">
+        <Directory Id="SpeedTestConfFolder" Name="conf" />
+        <Directory Id="SpeedTestLogsFolder" Name="logs" />
+        <Directory Id="SpeedTestTempFolder" Name="temp">
+          <Directory Id="SpeedTestClientBodyTemp" Name="client_body_temp" />
+          <Directory Id="SpeedTestProxyTemp" Name="proxy_temp" />
+          <Directory Id="SpeedTestFastcgiTemp" Name="fastcgi_temp" />
+          <Directory Id="SpeedTestUwsgiTemp" Name="uwsgi_temp" />
+          <Directory Id="SpeedTestScgiTemp" Name="scgi_temp" />
+        </Directory>
+        <Directory Id="SpeedTestHtmlFolder" Name="html">
+          <Directory Id="SpeedTestAssetsFolder" Name="assets">
+            <Directory Id="SpeedTestCssFolder" Name="css" />
+            <Directory Id="SpeedTestJsFolder" Name="js" />
+            <Directory Id="SpeedTestFontsFolder" Name="fonts" />
+            <Directory Id="SpeedTestImagesFolder" Name="images">
+              <Directory Id="SpeedTestIconsFolder" Name="icons" />
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
+
+    <ComponentGroup Id="SpeedTestComponents">
+
+      <!-- nginx executable and core files -->
+      <!-- Note: nginx is managed as a child process by the main NetworkOptimizer service -->
+      <Component Id="NginxExecutable" Directory="SpeedTestFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789001" Bitness="always64">
+        <File Id="NginxExe"
+              Source="$(var.SpeedTestDir)nginx\nginx.exe"
+              KeyPath="yes" />
+
+        <!-- Firewall exception for SpeedTest (port 3005) -->
+        <fw:FirewallException
+            Id="SpeedTestFirewall"
+            Name="Network Optimizer SpeedTest"
+            Port="3005"
+            Protocol="tcp"
+            Scope="any"
+            Profile="all" />
+      </Component>
+
+      <!-- nginx conf folder -->
+      <Component Id="NginxConf" Directory="SpeedTestConfFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789002" Bitness="always64">
+        <File Id="NginxConfFile"
+              Source="$(var.InstallerDir)SpeedTest\nginx.conf"
+              Name="nginx.conf"
+              KeyPath="yes" />
+        <File Id="NginxMimeTypes"
+              Source="$(var.SpeedTestDir)nginx\conf\mime.types"
+              Name="mime.types" />
+      </Component>
+
+      <!-- nginx logs folder - clean up runtime files on uninstall -->
+      <Component Id="NginxLogsFolder" Directory="SpeedTestLogsFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789003" Bitness="always64">
+        <CreateFolder />
+        <RemoveFile Id="RemoveNginxLogFiles" On="uninstall" Directory="SpeedTestLogsFolder" Name="*.*" />
+        <RemoveFolder Id="RemoveLogsFolder" On="uninstall" />
+      </Component>
+
+      <!-- nginx temp folders - clean up on uninstall -->
+      <Component Id="NginxTempFolders" Directory="SpeedTestTempFolder" Guid="7A3B9C1D-2E4F-5A6B-8C9D-0E1F2A3B4C5D" Bitness="always64">
+        <CreateFolder />
+        <CreateFolder Directory="SpeedTestClientBodyTemp" />
+        <CreateFolder Directory="SpeedTestProxyTemp" />
+        <CreateFolder Directory="SpeedTestFastcgiTemp" />
+        <CreateFolder Directory="SpeedTestUwsgiTemp" />
+        <CreateFolder Directory="SpeedTestScgiTemp" />
+        <RemoveFolder Id="RemoveClientBodyTemp" Directory="SpeedTestClientBodyTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveProxyTemp" Directory="SpeedTestProxyTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveFastcgiTemp" Directory="SpeedTestFastcgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveUwsgiTemp" Directory="SpeedTestUwsgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveScgiTemp" Directory="SpeedTestScgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveTempFolder" On="uninstall" />
+      </Component>
+
+      <!-- Runtime-generated config.js - clean up on uninstall -->
+      <Component Id="RuntimeConfigJs" Directory="SpeedTestJsFolder" Guid="8B4C0D2E-3F5A-6B7C-9D0E-1F2A3B4C5D6E" Bitness="always64">
+        <RemoveFile Id="RemoveConfigJs" On="uninstall" Directory="SpeedTestJsFolder" Name="config.js" />
+      </Component>
+
+      <!-- Clean up empty parent folders on uninstall -->
+      <Component Id="SpeedTestFolderCleanup" Directory="SpeedTestFolder" Guid="9C5D1E3F-4A6B-7C8D-0E1F-2A3B4C5D6E7F" Bitness="always64">
+        <RemoveFolder Id="RemoveSpeedTestJsFolder" Directory="SpeedTestJsFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestAssetsFolder" Directory="SpeedTestAssetsFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestHtmlFolder" Directory="SpeedTestHtmlFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestFolder" On="uninstall" />
+      </Component>
+
+      <!-- Startup script and config template -->
+      <Component Id="SpeedTestScripts" Directory="SpeedTestFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789004" Bitness="always64">
+        <File Id="StartSpeedTestPs1"
+              Source="$(var.InstallerDir)SpeedTest\Start-SpeedTest.ps1"
+              KeyPath="yes" />
+        <File Id="ConfigJsTemplate"
+              Source="$(var.InstallerDir)SpeedTest\config.js.template" />
+      </Component>
+
+      <!-- Note: Registry settings are in ServiceComponent.wxs to avoid duplication -->
+
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest HTML files - harvested from src/OpenSpeedTest -->
+    <ComponentGroup Id="SpeedTestHtmlFiles">
+      <Component Id="SpeedTestIndexHtml" Directory="SpeedTestHtmlFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789010" Bitness="always64">
+        <File Id="IndexHtml" Source="$(var.OpenSpeedTestDir)index.html" KeyPath="yes" />
+        <File Id="HostedHtml" Source="$(var.OpenSpeedTestDir)hosted.html" />
+        <File Id="DownloadingFile" Source="$(var.OpenSpeedTestDir)downloading" />
+        <File Id="UploadFile" Source="$(var.OpenSpeedTestDir)upload" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest CSS files -->
+    <ComponentGroup Id="SpeedTestCssFiles">
+      <Component Id="SpeedTestCss" Directory="SpeedTestCssFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789011" Bitness="always64">
+        <File Id="AppCss" Source="$(var.OpenSpeedTestDir)assets\css\app.css" KeyPath="yes" />
+        <File Id="DarkmodeCss" Source="$(var.OpenSpeedTestDir)assets\css\darkmode.css" />
+        <File Id="OzarkOverridesCss" Source="$(var.OpenSpeedTestDir)assets\css\ozark-overrides.css" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest JS files -->
+    <ComponentGroup Id="SpeedTestJsFiles">
+      <Component Id="SpeedTestJs" Directory="SpeedTestJsFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789012" Bitness="always64">
+        <File Id="AppJs" Source="$(var.OpenSpeedTestDir)assets\js\app-2.5.4.js" KeyPath="yes" />
+        <File Id="AppMinJs" Source="$(var.OpenSpeedTestDir)assets\js\app-2.5.4.min.js" />
+        <File Id="DarkmodeJs" Source="$(var.OpenSpeedTestDir)assets\js\darkmode.js" />
+        <File Id="GeolocationJs" Source="$(var.OpenSpeedTestDir)assets\js\geolocation.js" />
+        <!-- config.js is generated at runtime, but we need the template -->
+      </Component>
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest Images -->
+    <ComponentGroup Id="SpeedTestImageFiles">
+      <Component Id="SpeedTestImages" Directory="SpeedTestImagesFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789013" Bitness="always64">
+        <File Id="AppSvg" Source="$(var.OpenSpeedTestDir)assets\images\app.svg" KeyPath="yes" />
+        <File Id="OzarkLogoSvg" Source="$(var.OpenSpeedTestDir)assets\images\ozark-connect-logo.svg" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest Icons -->
+    <ComponentGroup Id="SpeedTestIconFiles">
+      <Component Id="SpeedTestIcons" Directory="SpeedTestIconsFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789014" Bitness="always64">
+        <File Id="FaviconIco" Source="$(var.OpenSpeedTestDir)assets\images\icons\favicon.ico" KeyPath="yes" />
+        <File Id="Favicon16" Source="$(var.OpenSpeedTestDir)assets\images\icons\favicon-16x16.png" />
+        <File Id="Favicon32" Source="$(var.OpenSpeedTestDir)assets\images\icons\favicon-32x32.png" />
+        <File Id="AppleTouchIcon" Source="$(var.OpenSpeedTestDir)assets\images\icons\apple-touch-icon.png" />
+        <File Id="AndroidChrome192" Source="$(var.OpenSpeedTestDir)assets\images\icons\android-chrome-192x192.png" />
+        <File Id="AndroidChrome512" Source="$(var.OpenSpeedTestDir)assets\images\icons\android-chrome-512x512.png" />
+        <File Id="LauncherIcon1x" Source="$(var.OpenSpeedTestDir)assets\images\icons\launcher-icon-1x.png" />
+        <File Id="LauncherIcon2x" Source="$(var.OpenSpeedTestDir)assets\images\icons\launcher-icon-2x.png" />
+        <File Id="LauncherIcon3x" Source="$(var.OpenSpeedTestDir)assets\images\icons\launcher-icon-3x.png" />
+        <File Id="LauncherIcon4x" Source="$(var.OpenSpeedTestDir)assets\images\icons\launcher-icon-4x.png" />
+        <File Id="Mstile150" Source="$(var.OpenSpeedTestDir)assets\images\icons\mstile-150x150.png" />
+        <File Id="SafariPinnedTab" Source="$(var.OpenSpeedTestDir)assets\images\icons\safari-pinned-tab.svg" />
+        <File Id="WebManifest" Source="$(var.OpenSpeedTestDir)assets\images\icons\site.webmanifest" />
+        <File Id="BrowserConfig" Source="$(var.OpenSpeedTestDir)assets\images\icons\browserconfig.xml" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- OpenSpeedTest Fonts -->
+    <ComponentGroup Id="SpeedTestFontFiles">
+      <Component Id="SpeedTestFonts" Directory="SpeedTestFontsFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789015" Bitness="always64">
+        <File Id="Roboto500Woff2" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-500.woff2" KeyPath="yes" />
+        <File Id="Roboto500Woff" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-500.woff" />
+        <File Id="Roboto500Ttf" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-500.ttf" />
+        <File Id="Roboto500Eot" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-500.eot" />
+        <File Id="Roboto500Svg" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-500.svg" />
+        <File Id="RobotoRegularWoff2" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-regular.woff2" />
+        <File Id="RobotoRegularWoff" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-regular.woff" />
+        <File Id="RobotoRegularTtf" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-regular.ttf" />
+        <File Id="RobotoRegularEot" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-regular.eot" />
+        <File Id="RobotoRegularSvg" Source="$(var.OpenSpeedTestDir)assets\fonts\roboto-v30-latin-regular.svg" />
+      </Component>
+    </ComponentGroup>
+
+  </Fragment>
+
+</Wix>

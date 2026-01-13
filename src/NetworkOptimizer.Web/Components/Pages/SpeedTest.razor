@@ -435,7 +435,7 @@
                                 <td>
                                     <div class="action-buttons">
                                         <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
-                                                disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                                disabled="@(isRunningTest || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials))">
                                             @if (runningTestHost == device.Host)
                                             {
                                                 <div class="test-progress">
@@ -449,7 +449,7 @@
                                             }
                                         </button>
                                         <button class="btn btn-secondary btn-sm" style="min-width: 5rem; @(device.StartIperf3Server ? "" : "visibility: hidden;")"
-                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
+                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                     </div>
@@ -521,19 +521,19 @@
 
                         <div class="form-group">
                             <label class="form-label">SSH Username</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
+                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">SSH Password</label>
-                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved – enter new to update" : "(using global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">SSH Private Key Path</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
-                            <span class="form-help">Path to private key file on the server (e.g., /root/.ssh/id_rsa)</span>
+                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
+                            <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
                         </div>
                     }
 
@@ -687,8 +687,8 @@
                                 @onclick="@(() => { if (result.Success) ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
-                                <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
-                                <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
                                 <td>@result.ParallelStreams</td>
                                 <td>
                                     @if (result.Success)
@@ -1066,6 +1066,7 @@
     private bool isRunningTest = false;
     private string? runningTestHost;
     private string editingDevicePassword = ""; // Separate field for password input (not bound to encrypted value)
+    private bool editingDeviceHasSavedPassword = false; // Track if the device being edited has a saved password
 
     // UniFi Device Speed Test messages (discovered devices)
     private string unifiMessage = "";
@@ -1347,6 +1348,7 @@
             // Note: Don't copy SshPassword - leave blank to not change it
         };
         editingDevicePassword = ""; // Clear password field (user must re-enter to change)
+        editingDeviceHasSavedPassword = !string.IsNullOrEmpty(device.SshPassword); // Track if device has saved password
         savedDeviceMessage = "";
         StateHasChanged();
     }
@@ -1368,6 +1370,7 @@
                 StartIperf3Server = false
             };
             editingDevicePassword = "";
+            editingDeviceHasSavedPassword = false; // New device has no saved password
             savedDeviceMessage = "";
             showAddDevice = true;
             StateHasChanged();
@@ -1383,6 +1386,7 @@
             StartIperf3Server = false
         };
         editingDevicePassword = "";
+        editingDeviceHasSavedPassword = false;
         showAddDevice = false;
         savedDeviceMessage = "";
         StateHasChanged();

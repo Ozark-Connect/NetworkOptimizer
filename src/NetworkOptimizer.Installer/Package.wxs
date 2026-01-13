@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - Main Package Definition
+
+  This file defines the MSI package structure, upgrade behavior,
+  and feature organization.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!-- Package metadata -->
+  <Package Name="Network Optimizer"
+           Manufacturer="Ozark Connect"
+           Version="!(bind.fileVersion.NetworkOptimizerExe)"
+           UpgradeCode="9D01300E-955E-421B-8B16-90BF5854901C"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <SummaryInformation
+        Keywords="Installer"
+        Description="Network Optimizer - UniFi network analysis, security auditing, and SQM optimization" />
+
+    <!-- Upgrade handling - allows upgrading from older versions -->
+    <!-- AllowSameVersionUpgrades: allows reinstalling same version (replaces instead of duplicating) -->
+    <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of Network Optimizer is already installed."
+        Schedule="afterInstallInitialize" />
+
+    <!-- Embed CAB files in MSI for single-file distribution -->
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Add/Remove Programs icon -->
+    <Icon Id="ProductIcon" SourceFile="$(var.InstallerDir)app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+
+    <!-- WixUI for installation dialogs -->
+    <!-- Checkbox text is set dynamically by CA_SetCheckboxText to include the URL -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch app in browser and open logs folder for password" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.InstallerDir)License.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.InstallerDir)Banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.InstallerDir)Dialog.bmp" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+
+    <!-- Checkbox text for upgrades (no logs folder) -->
+    <CustomAction Id="CA_SetCheckboxTextUpgrade"
+                  Property="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"
+                  Value="Launch app in browser"
+                  Execute="immediate" />
+
+    <!-- Exit dialog text - different for fresh install vs upgrade -->
+    <CustomAction Id="CA_SetExitDialogText"
+                  Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                  Value="Access Network Optimizer at: http://localhost:8042&#13;&#10;&#13;&#10;*** IMPORTANT: First Login ***&#13;&#10;Your temporary password is in the log file:&#13;&#10;[INSTALLFOLDER]logs\&#13;&#10;&#13;&#10;Open the log file and look for the generated password."
+                  Execute="immediate" />
+    <CustomAction Id="CA_SetExitDialogTextUpgrade"
+                  Property="WIXUI_EXITDIALOGOPTIONALTEXT"
+                  Value="Network Optimizer has been upgraded successfully.&#13;&#10;&#13;&#10;Access at: http://localhost:8042&#13;&#10;&#13;&#10;Your existing settings have been preserved."
+                  Execute="immediate" />
+
+    <!-- Custom UI modifications - must be inside Package, not Fragment -->
+    <UI>
+      <!-- Page 1: Network Configuration Dialog -->
+      <Dialog Id="NetworkConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Network Configuration" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Optional settings for speed test reporting and canonical URLs." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <Control Id="HostIPLabel" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Server IP Address (optional)" />
+        <Control Id="HostIPEdit" Type="Edit" X="20" Y="70" Width="150" Height="18" Property="HOST_IP" />
+        <Control Id="HostIPHelp" Type="Text" X="20" Y="90" Width="330" Height="26" NoPrefix="yes" Text="This server's LAN IP (e.g., 192.168.1.100). Used for speed test path analysis. Leave blank for auto-detection." />
+
+        <Control Id="HostNameLabel" Type="Text" X="20" Y="120" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Server Hostname (optional)" />
+        <Control Id="HostNameEdit" Type="Edit" X="20" Y="135" Width="150" Height="18" Property="HOST_NAME" />
+        <Control Id="HostNameHelp" Type="Text" X="20" Y="155" Width="330" Height="26" NoPrefix="yes" Text="DNS name clients can resolve (e.g., nas, server.local). Enables canonical URL redirects." />
+
+        <Control Id="ProxyLabel" Type="Text" X="20" Y="185" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Reverse Proxy Hostname (optional)" />
+        <Control Id="ProxyEdit" Type="Edit" X="20" Y="200" Width="200" Height="18" Property="REVERSE_PROXIED_HOST_NAME" />
+        <Control Id="ProxyHelp" Type="Text" X="20" Y="218" Width="330" Height="15" NoPrefix="yes" Text="Set only if behind an HTTPS reverse proxy (e.g., optimizer.example.com)." />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="SpeedTestConfigDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Page 2: Speed Test Configuration Dialog -->
+      <Dialog Id="SpeedTestConfigDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Speed Test Configuration" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="Configure speed testing servers. All settings are optional." />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+
+        <!-- iperf3 Section -->
+        <Control Id="Iperf3Label" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}iperf3 Server (CLI-based testing)" />
+        <Control Id="Iperf3Check" Type="CheckBox" X="20" Y="70" Width="330" Height="17" Property="IPERF3_SERVER_ENABLED" CheckBoxValue="true" Text="Enable iperf3 server on port 5201" />
+        <Control Id="Iperf3Help" Type="Text" X="20" Y="88" Width="330" Height="20" NoPrefix="yes" Text="For testing from network devices, laptops, desktops, servers, or any device with iperf3." />
+
+        <!-- Browser SpeedTest Section -->
+        <Control Id="BrowserLabel" Type="Text" X="20" Y="115" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Browser Speed Test (OpenSpeedTest on nginx)" />
+
+        <Control Id="PortLabel" Type="Text" X="20" Y="132" Width="50" Height="13" NoPrefix="yes" Text="Port:" />
+        <Control Id="PortEdit" Type="Edit" X="70" Y="130" Width="50" Height="18" Property="OPENSPEEDTEST_PORT" />
+        <Control Id="PortHelp" Type="Text" X="125" Y="132" Width="220" Height="13" NoPrefix="yes" Text="Default 3005. Only change if port conflicts." />
+
+        <Control Id="SpeedTestHostLabel" Type="Text" X="20" Y="155" Width="70" Height="13" NoPrefix="yes" Text="Hostname:" />
+        <Control Id="SpeedTestHostEdit" Type="Edit" X="90" Y="153" Width="150" Height="18" Property="OPENSPEEDTEST_HOST" />
+        <Control Id="SpeedTestHostHelp" Type="Text" X="20" Y="173" Width="330" Height="20" NoPrefix="yes" Text="Leave blank to use Server Hostname. Set only if SpeedTest has its own DNS name." />
+
+        <Control Id="SpeedTestHttpsCheck" Type="CheckBox" X="20" Y="195" Width="330" Height="17" Property="OPENSPEEDTEST_HTTPS" CheckBoxValue="true" Text="SpeedTest uses HTTPS (behind TLS-terminating proxy)" />
+        <Control Id="SpeedTestHttpsHelp" Type="Text" X="20" Y="213" Width="330" Height="20" NoPrefix="yes" Text="Enables browser geolocation. Requires a separate HTTP/1.1 proxy for accuracy." />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="NetworkConfigDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- Dialog flow: InstallDirDlg → NetworkConfigDlg → SpeedTestConfigDlg → VerifyReadyDlg -->
+      <!-- During upgrades, skip config dialogs (settings preserved from registry) -->
+      <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="NetworkConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="20" Condition="WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="SpeedTestConfigDlg" Order="10" Condition="NOT WIX_UPGRADE_DETECTED AND NOT Installed" />
+
+      <!-- Set exit dialog text and checkbox - different for fresh install vs upgrade -->
+      <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetCheckboxTextUpgrade" Order="3" Condition="WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogTextUpgrade" Order="2" Condition="WIX_UPGRADE_DETECTED" />
+      <Publish Dialog="VerifyReadyDlg" Control="Install" Event="DoAction" Value="CA_SetExitDialogText" Order="1" Condition="NOT WIX_UPGRADE_DETECTED" />
+
+      <!-- Launch browser on finish if checkbox is checked (both fresh install and upgrade) -->
+      <!-- Launch logs folder only on fresh install (user needs temp password) -->
+      <!-- CRITICAL: Higher Order values execute FIRST (it's priority, not sequence) -->
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchBrowser" Order="999" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchLogsFolder" Order="998" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed AND NOT WIX_UPGRADE_DETECTED" />
+    </UI>
+
+    <!-- Launch browser - uses localhost since app will redirect to configured hostname -->
+    <CustomAction Id="LaunchBrowser" ExeCommand="cmd.exe /c start http://localhost:8042" Directory="INSTALLFOLDER" Execute="immediate" Return="asyncNoWait" />
+    <!-- Open logs folder so user can find temporary password -->
+    <CustomAction Id="LaunchLogsFolder" ExeCommand="explorer.exe logs" Directory="INSTALLFOLDER" Execute="immediate" Return="asyncNoWait" />
+
+    <!-- Config properties - RegistrySearch reads existing values during upgrades -->
+    <Property Id="HOST_IP" Secure="yes">
+      <RegistrySearch Id="SearchHostIP" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="HOST_IP" Type="raw" />
+    </Property>
+    <Property Id="HOST_NAME" Secure="yes">
+      <RegistrySearch Id="SearchHostName" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="HOST_NAME" Type="raw" />
+    </Property>
+    <Property Id="REVERSE_PROXIED_HOST_NAME" Secure="yes">
+      <RegistrySearch Id="SearchReverseProxy" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="REVERSE_PROXIED_HOST_NAME" Type="raw" />
+    </Property>
+    <Property Id="IPERF3_SERVER_ENABLED" Value="true" Secure="yes">
+      <RegistrySearch Id="SearchIperf3" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="IPERF3_SERVER_ENABLED" Type="raw" />
+    </Property>
+    <Property Id="OPENSPEEDTEST_PORT" Value="3005" Secure="yes">
+      <RegistrySearch Id="SearchOstPort" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_PORT" Type="raw" />
+    </Property>
+    <Property Id="OPENSPEEDTEST_HOST" Secure="yes">
+      <RegistrySearch Id="SearchOstHost" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HOST" Type="raw" />
+    </Property>
+    <Property Id="OPENSPEEDTEST_HTTPS" Secure="yes">
+      <RegistrySearch Id="SearchOstHttps" Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer" Name="OPENSPEEDTEST_HTTPS" Type="raw" />
+    </Property>
+
+    <!-- Directory structure -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ManufacturerFolder" Name="Ozark Connect">
+        <Directory Id="INSTALLFOLDER" Name="Network Optimizer">
+          <Directory Id="LogsFolder" Name="logs" />
+          <Directory Id="DataFolder" Name="data" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Main feature - Network Optimizer core -->
+    <Feature Id="MainFeature"
+             Title="Network Optimizer"
+             Description="Network Optimizer Windows Service and all required files"
+             Level="1"
+             AllowAbsent="no"
+             Display="expand">
+      <ComponentGroupRef Id="ServiceComponents" />
+      <ComponentGroupRef Id="PublishedFiles" />
+      <ComponentGroupRef Id="Iperf3Components" />
+
+      <!-- SpeedTest feature - bundled OpenSpeedTest with nginx -->
+      <Feature Id="SpeedTestFeature"
+               Title="Browser Speed Test"
+               Description="OpenSpeedTest browser-based speed testing (nginx on port 3005)"
+               Level="1"
+               AllowAbsent="yes">
+        <ComponentGroupRef Id="SpeedTestComponents" />
+        <ComponentGroupRef Id="SpeedTestHtmlFiles" />
+        <ComponentGroupRef Id="SpeedTestCssFiles" />
+        <ComponentGroupRef Id="SpeedTestJsFiles" />
+        <ComponentGroupRef Id="SpeedTestImageFiles" />
+        <ComponentGroupRef Id="SpeedTestIconFiles" />
+        <ComponentGroupRef Id="SpeedTestFontFiles" />
+      </Feature>
+    </Feature>
+
+  </Package>
+
+</Wix>
