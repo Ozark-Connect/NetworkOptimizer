@@ -155,6 +155,7 @@ public class NginxHostedService : IHostedService, IDisposable
     private string ConstructSaveDataUrl(Dictionary<string, string> config, string apiPath)
     {
         // Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http) > HOST_IP (http) > __DYNAMIC__
+        // IMPORTANT: Keep this logic in sync with docker/openspeedtest/entrypoint.sh (Docker deployment)
         config.TryGetValue("REVERSE_PROXIED_HOST_NAME", out var reverseProxy);
         config.TryGetValue("HOST_NAME", out var hostName);
         config.TryGetValue("HOST_IP", out var hostIp);

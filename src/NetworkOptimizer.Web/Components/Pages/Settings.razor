@@ -275,7 +275,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="gatewayPassword" placeholder="@(!string.IsNullOrWhiteSpace(gatewayPrivateKeyPath) ? "Using SSH key" : hasGatewayPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
@@ -436,7 +436,7 @@
 
             <div class="form-group">
                 <label class="form-label">Password</label>
-                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(hasSshPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+                <input type="password" class="form-control" @bind="sshPassword" placeholder="@(!string.IsNullOrWhiteSpace(sshPrivateKeyPath) ? "Using SSH key" : hasSshPassword ? "Saved — enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
             </div>
 
             <div class="form-group">
