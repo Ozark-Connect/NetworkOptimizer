@@ -409,8 +409,8 @@ public class Iperf3ServerService : BackgroundService
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "pkill",
-                    // Use regex pattern - quotes don't work without shell interpretation
-                    Arguments = "-f iperf3.*-s",
+                    // Use -9 (SIGKILL) to ensure process dies, simple pattern matching
+                    Arguments = "-9 iperf3",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
