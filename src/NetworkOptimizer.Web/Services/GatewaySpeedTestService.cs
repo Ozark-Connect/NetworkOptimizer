@@ -7,26 +7,21 @@ using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Service for managing gateway SSH settings and running iperf3 speed tests.
-/// The gateway typically has different SSH credentials than other UniFi devices.
+/// Service for running iperf3 speed tests to the gateway.
+/// SSH operations are delegated to IGatewaySshService.
 /// </summary>
 public class GatewaySpeedTestService : IGatewaySpeedTestService
 {
     private readonly ILogger<GatewaySpeedTestService> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly UniFiConnectionService _connectionService;
-    private readonly ICredentialProtectionService _credentialProtection;
+    private readonly IGatewaySshService _gatewaySsh;
     private readonly SystemSettingsService _systemSettings;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
-
-    // Cache the settings to avoid repeated DB queries
-    private GatewaySshSettings? _cachedSettings;
-    private DateTime _cacheTime = DateTime.MinValue;
-    private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
     // Track running tests
     private bool _isTestRunning = false;
@@ -35,249 +30,46 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     public GatewaySpeedTestService(
         ILogger<GatewaySpeedTestService> logger,
         IServiceProvider serviceProvider,
-        UniFiConnectionService connectionService,
+        IGatewaySshService gatewaySsh,
         SystemSettingsService systemSettings,
-        ICredentialProtectionService credentialProtection,
         INetworkPathAnalyzer pathAnalyzer)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _connectionService = connectionService;
-        _credentialProtection = credentialProtection;
+        _gatewaySsh = gatewaySsh;
         _systemSettings = systemSettings;
         _pathAnalyzer = pathAnalyzer;
     }
 
-    #region Settings Management
+    #region Settings Management (delegated to IGatewaySshService)
 
     /// <summary>
     /// Get the gateway SSH settings (creates default if none exist)
     /// </summary>
-    /// <param name="forceRefresh">If true, bypasses cache and loads fresh from database</param>
-    public async Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
-    {
-        // Check cache first (unless force refresh requested)
-        if (!forceRefresh && _cachedSettings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
-        {
-            return _cachedSettings;
-        }
-
-        using var scope = _serviceProvider.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-
-        var settings = await repository.GetGatewaySshSettingsAsync();
-
-        if (settings == null)
-        {
-            // Create default settings, try to get gateway host from connection service
-            var gatewayHost = GetGatewayHostFromController();
-
-            settings = new GatewaySshSettings
-            {
-                Host = gatewayHost,
-                Username = "root",
-                Port = 22,
-                Iperf3Port = 5201,
-                Enabled = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await repository.SaveGatewaySshSettingsAsync(settings);
-        }
-
-        _cachedSettings = settings;
-        _cacheTime = DateTime.UtcNow;
-
-        return settings;
-    }
+    public Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
+        => _gatewaySsh.GetSettingsAsync(forceRefresh);
 
     /// <summary>
     /// Save gateway SSH settings
     /// </summary>
-    public async Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
-    {
-        using var scope = _serviceProvider.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-
-        settings.UpdatedAt = DateTime.UtcNow;
-
-        // Encrypt password if provided and not already encrypted
-        if (!string.IsNullOrEmpty(settings.Password) && !_credentialProtection.IsEncrypted(settings.Password))
-        {
-            settings.Password = _credentialProtection.Encrypt(settings.Password);
-        }
-
-        await repository.SaveGatewaySshSettingsAsync(settings);
-
-        // Invalidate cache
-        _cachedSettings = null;
-
-        return settings;
-    }
-
-    private string? GetGatewayHostFromController()
-    {
-        if (_connectionService.CurrentConfig != null)
-        {
-            // Extract host from controller URL
-            try
-            {
-                var uri = new Uri(_connectionService.CurrentConfig.ControllerUrl);
-                return uri.Host;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-        return null;
-    }
+    public Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
+        => _gatewaySsh.SaveSettingsAsync(settings);
 
     #endregion
 
-    #region SSH Operations
+    #region SSH Operations (delegated to IGatewaySshService)
 
     /// <summary>
     /// Test SSH connection to the gateway
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync()
-    {
-        var settings = await GetSettingsAsync();
-
-        if (string.IsNullOrEmpty(settings.Host))
-        {
-            return (false, "Gateway host not configured");
-        }
-
-        if (!settings.HasCredentials)
-        {
-            return (false, "SSH credentials not configured");
-        }
-
-        try
-        {
-            // Use echo without quotes for cross-platform compatibility
-            var result = await RunSshCommandAsync("echo Connection_OK");
-            if (result.success && result.output.Contains("Connection_OK"))
-            {
-                // Update last tested
-                settings.LastTestedAt = DateTime.UtcNow;
-                settings.LastTestResult = "Success";
-                await SaveSettingsAsync(settings);
-
-                return (true, "SSH connection successful");
-            }
-            return (false, string.IsNullOrEmpty(result.output) ? "Connection failed" : result.output);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Gateway SSH connection test failed for {Host}", settings.Host);
-            return (false, ex.Message);
-        }
-    }
+    public Task<(bool success, string message)> TestConnectionAsync()
+        => _gatewaySsh.TestConnectionAsync();
 
     /// <summary>
     /// Run an SSH command on the gateway
     /// </summary>
-    public async Task<(bool success, string output)> RunSshCommandAsync(string command)
-    {
-        var settings = await GetSettingsAsync();
-
-        if (string.IsNullOrEmpty(settings.Host))
-        {
-            return (false, "Gateway host not configured");
-        }
-
-        if (!settings.HasCredentials)
-        {
-            return (false, "SSH credentials not configured");
-        }
-
-        var usePassword = !string.IsNullOrEmpty(settings.Password) && string.IsNullOrEmpty(settings.PrivateKeyPath);
-
-        var sshArgs = new List<string>
-        {
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=10"
-        };
-
-        if (!usePassword)
-        {
-            sshArgs.Add("-o");
-            sshArgs.Add("BatchMode=yes");
-        }
-
-        sshArgs.Add("-p");
-        sshArgs.Add(settings.Port.ToString());
-
-        if (!string.IsNullOrEmpty(settings.PrivateKeyPath))
-        {
-            sshArgs.Add("-i");
-            sshArgs.Add(settings.PrivateKeyPath);
-        }
-
-        sshArgs.Add($"{settings.Username}@{settings.Host}");
-        sshArgs.Add(command);
-
-        var startInfo = new ProcessStartInfo
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        if (usePassword)
-        {
-            var decryptedPassword = _credentialProtection.Decrypt(settings.Password!);
-            startInfo.FileName = "sshpass";
-            startInfo.Arguments = $"-e ssh {string.Join(" ", sshArgs)}";
-            startInfo.Environment["SSHPASS"] = decryptedPassword;
-        }
-        else
-        {
-            startInfo.FileName = "ssh";
-            startInfo.Arguments = string.Join(" ", sshArgs);
-        }
-
-        using var process = new Process { StartInfo = startInfo };
-
-        try
-        {
-            process.Start();
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            try
-            {
-                await process.WaitForExitAsync(cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                process.Kill();
-                return (false, "SSH command timed out");
-            }
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                return (false, string.IsNullOrEmpty(error) ? output : error);
-            }
-
-            return (true, output);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Gateway SSH command execution failed");
-            return (false, ex.Message);
-        }
-    }
+    public Task<(bool success, string output)> RunSshCommandAsync(string command)
+        => _gatewaySsh.RunCommandAsync(command);
 
     #endregion
 

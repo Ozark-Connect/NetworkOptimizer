@@ -3,6 +3,7 @@ using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Sqm.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.Web.Services.Ssh;
 using System.Text;
 using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration;
 
@@ -10,12 +11,12 @@ namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Service for deploying SQM scripts to UniFi gateways via SSH.
-/// Follows the same SSH execution pattern as Iperf3SpeedTestService.
+/// Uses IGatewaySshService for gateway SSH operations.
 /// </summary>
 public class SqmDeploymentService : ISqmDeploymentService
 {
     private readonly ILogger<SqmDeploymentService> _logger;
-    private readonly UniFiSshService _sshService;
+    private readonly IGatewaySshService _gatewaySsh;
     private readonly IServiceProvider _serviceProvider;
 
     // Gateway paths
@@ -24,50 +25,31 @@ public class SqmDeploymentService : ISqmDeploymentService
 
     public SqmDeploymentService(
         ILogger<SqmDeploymentService> logger,
-        UniFiSshService sshService,
+        IGatewaySshService gatewaySsh,
         IServiceProvider serviceProvider)
     {
         _logger = logger;
-        _sshService = sshService;
+        _gatewaySsh = gatewaySsh;
         _serviceProvider = serviceProvider;
     }
 
     /// <summary>
     /// Get gateway SSH settings
     /// </summary>
-    private async Task<GatewaySshSettings?> GetGatewaySettingsAsync()
-    {
-        using var scope = _serviceProvider.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-        return await repository.GetGatewaySshSettingsAsync();
-    }
+    private Task<GatewaySshSettings> GetGatewaySettingsAsync()
+        => _gatewaySsh.GetSettingsAsync();
+
+    /// <summary>
+    /// Run SSH command on gateway (shorthand)
+    /// </summary>
+    private Task<(bool success, string output)> RunCommandAsync(string command)
+        => _gatewaySsh.RunCommandAsync(command);
 
     /// <summary>
     /// Test SSH connection to the gateway
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync()
-    {
-        var settings = await GetGatewaySettingsAsync();
-        if (settings == null || string.IsNullOrEmpty(settings.Host))
-        {
-            return (false, "Gateway SSH not configured");
-        }
-
-        if (!settings.HasCredentials)
-        {
-            return (false, "Gateway SSH credentials not configured");
-        }
-
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
-
-        return await _sshService.TestConnectionAsync(device);
-    }
+    public Task<(bool success, string message)> TestConnectionAsync()
+        => _gatewaySsh.TestConnectionAsync();
 
     /// <summary>
     /// Install udm-boot package on the gateway.
@@ -77,23 +59,6 @@ public class SqmDeploymentService : ISqmDeploymentService
     public async Task<(bool success, string message)> InstallUdmBootAsync()
     {
         var settings = await GetGatewaySettingsAsync();
-        if (settings == null || string.IsNullOrEmpty(settings.Host))
-        {
-            return (false, "Gateway SSH not configured");
-        }
-
-        if (!settings.HasCredentials)
-        {
-            return (false, "Gateway SSH credentials not configured");
-        }
-
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
 
         try
         {
@@ -130,7 +95,7 @@ WantedBy=multi-user.target
                 "systemctl enable udm-boot && " +
                 "systemctl start --no-block udm-boot && " +
                 "echo udm-boot_installed_successfully";
-            var result = await _sshService.RunCommandWithDeviceAsync(device, installCmd);
+            var result = await RunCommandAsync(installCmd);
 
             if (result.success && result.output.Contains("udm-boot_installed_successfully"))
             {
@@ -155,37 +120,23 @@ WantedBy=multi-user.target
     /// </summary>
     public async Task<SqmDeploymentStatus> CheckDeploymentStatusAsync()
     {
-        var settings = await GetGatewaySettingsAsync();
-        if (settings == null || string.IsNullOrEmpty(settings.Host))
-        {
-            return new SqmDeploymentStatus { Error = "Gateway SSH not configured" };
-        }
-
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
-
         var status = new SqmDeploymentStatus();
 
         try
         {
             // Check for udm-boot (required for on_boot.d scripts to run on boot)
             // Check for service file (supports both manual install and deb package)
-            var udmBootCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var udmBootCheck = await RunCommandAsync(
                 "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
             status.UdmBootInstalled = udmBootCheck.success && udmBootCheck.output.Contains("installed");
 
             // Check if udm-boot is enabled
-            var udmBootEnabled = await _sshService.RunCommandWithDeviceAsync(device,
+            var udmBootEnabled = await RunCommandAsync(
                 "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
             status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
 
             // Check for SQM boot scripts (new pattern: 20-sqm-{name}.sh, excluding monitor)
-            var sqmBootCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var sqmBootCheck = await RunCommandAsync(
                 $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
             var bootScriptCount = 0;
             if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out bootScriptCount))
@@ -195,7 +146,7 @@ WantedBy=multi-user.target
             }
 
             // Check for deployed SQM scripts in /data/sqm/
-            var sqmScriptsCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var sqmScriptsCheck = await RunCommandAsync(
                 $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
             if (sqmScriptsCheck.success && int.TryParse(sqmScriptsCheck.output.Trim(), out int sqmScriptCount))
             {
@@ -203,22 +154,22 @@ WantedBy=multi-user.target
             }
 
             // Check for SQM Monitor
-            var sqmMonitorCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var sqmMonitorCheck = await RunCommandAsync(
                 $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
             status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
 
             // Check if SQM Monitor is running
-            var sqmMonitorRunning = await _sshService.RunCommandWithDeviceAsync(device,
+            var sqmMonitorRunning = await RunCommandAsync(
                 "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
             status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
             // Check if watchdog timer is running
-            var watchdogRunning = await _sshService.RunCommandWithDeviceAsync(device,
+            var watchdogRunning = await RunCommandAsync(
                 "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
             status.WatchdogTimerRunning = watchdogRunning.success && watchdogRunning.output.Trim() == "active";
 
             // Check for cron jobs
-            var cronCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var cronCheck = await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
             if (cronCheck.success && int.TryParse(cronCheck.output.Trim(), out int cronCount))
             {
@@ -226,12 +177,12 @@ WantedBy=multi-user.target
             }
 
             // Check for speedtest CLI
-            var speedtestCliCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var speedtestCliCheck = await RunCommandAsync(
                 "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
             status.SpeedtestCliInstalled = speedtestCliCheck.success && speedtestCliCheck.output.Contains("installed");
 
             // Check for bc (math utility)
-            var bcCheck = await _sshService.RunCommandWithDeviceAsync(device,
+            var bcCheck = await RunCommandAsync(
                 "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
             status.BcInstalled = bcCheck.success && bcCheck.output.Contains("installed");
 
@@ -252,34 +203,20 @@ WantedBy=multi-user.target
     /// </summary>
     public async Task<(bool success, string message)> CleanAllSqmScriptsAsync()
     {
-        var settings = await GetGatewaySettingsAsync();
-        if (settings == null || string.IsNullOrEmpty(settings.Host))
-        {
-            return (false, "Gateway SSH not configured");
-        }
-
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
-
         try
         {
             _logger.LogInformation("Cleaning all SQM scripts and cron entries");
 
             // Remove all SQM boot scripts
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 $"rm -f {OnBootDir}/20-sqm-*.sh {OnBootDir}/21-sqm-*.sh");
 
             // Remove all SQM data directories
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 $"rm -rf {SqmDir}/*");
 
             // Remove ALL SQM-related cron entries (catches renamed connections)
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
             _logger.LogInformation("Successfully cleaned all SQM scripts and cron entries");
@@ -327,7 +264,7 @@ WantedBy=multi-user.target
 
             // Step 1: Create directories
             steps.Add("Creating directories...");
-            var mkdirResult = await _sshService.RunCommandWithDeviceAsync(device,
+            var mkdirResult = await RunCommandAsync(
                 $"mkdir -p {OnBootDir} {SqmDir}");
             if (!mkdirResult.success)
             {
@@ -345,7 +282,7 @@ WantedBy=multi-user.target
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
-                var success = await DeployScriptAsync(device, filename, content);
+                var success = await DeployScriptAsync( filename, content);
                 if (!success)
                 {
                     throw new Exception($"Failed to deploy {filename}");
@@ -354,7 +291,7 @@ WantedBy=multi-user.target
 
             // Step 4: Run the boot script to set up everything
             steps.Add("Running boot script (installs deps, creates scripts, configures cron)...");
-            var setupResult = await _sshService.RunCommandWithDeviceAsync(device,
+            var setupResult = await RunCommandAsync(
                 $"chmod +x {OnBootDir}/{bootScriptName} && {OnBootDir}/{bootScriptName}");
 
             if (!setupResult.success)
@@ -386,7 +323,7 @@ WantedBy=multi-user.target
     /// <summary>
     /// Deploy a single script to the gateway
     /// </summary>
-    private async Task<bool> DeployScriptAsync(DeviceSshConfiguration device, string filename, string content)
+    private async Task<bool> DeployScriptAsync(string filename, string content)
     {
         // All SQM scripts now go to on_boot.d (self-contained boot scripts)
         var targetPath = $"{OnBootDir}/{filename}";
@@ -394,7 +331,7 @@ WantedBy=multi-user.target
         // Use base64 encoding to safely transfer script content (avoids shell quoting issues)
         var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(content));
         var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
-        var writeResult = await _sshService.RunCommandWithDeviceAsync(device, writeCmd);
+        var writeResult = await RunCommandAsync( writeCmd);
 
         if (!writeResult.success)
         {
@@ -403,7 +340,7 @@ WantedBy=multi-user.target
         }
 
         // Make executable
-        var chmodResult = await _sshService.RunCommandWithDeviceAsync(device, $"chmod +x '{targetPath}'");
+        var chmodResult = await RunCommandAsync( $"chmod +x '{targetPath}'");
         if (!chmodResult.success)
         {
             _logger.LogWarning("Failed to chmod {File}: {Error}", filename, chmodResult.output);
@@ -440,14 +377,14 @@ WantedBy=multi-user.target
             var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync(device, "20-sqm-monitor.sh", sqmMonitorScript);
+            var success = await DeployScriptAsync( "20-sqm-monitor.sh", sqmMonitorScript);
             if (!success)
             {
                 return false;
             }
 
             // Run the script to set up SQM monitor
-            var runResult = await _sshService.RunCommandWithDeviceAsync(device,
+            var runResult = await RunCommandAsync(
                 $"{OnBootDir}/20-sqm-monitor.sh");
 
             if (!runResult.success)
@@ -488,41 +425,41 @@ WantedBy=multi-user.target
         {
             // Remove ALL SQM-related cron jobs (catches renamed connections too)
             steps.Add("Removing SQM cron jobs...");
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
             steps.Add("Removing SQM boot scripts...");
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 $"rm -f {OnBootDir}/20-sqm-*.sh");
 
             // Remove legacy boot scripts (old format)
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 $"rm -f {OnBootDir}/21-sqm-*.sh");
 
             // Remove SQM directory with all scripts and data
             steps.Add("Removing SQM data directory...");
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 $"rm -rf {SqmDir}");
 
             // Remove legacy data files
-            await _sshService.RunCommandWithDeviceAsync(device,
+            await RunCommandAsync(
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
             // Remove SQM Monitor if requested
             if (includeTcMonitor)
             {
                 steps.Add("Stopping SQM Monitor service...");
-                await _sshService.RunCommandWithDeviceAsync(device,
+                await RunCommandAsync(
                     "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
                     "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
 
                 steps.Add("Removing SQM Monitor...");
-                await _sshService.RunCommandWithDeviceAsync(device,
+                await RunCommandAsync(
                     $"rm -f {OnBootDir}/20-sqm-monitor.sh");
-                await _sshService.RunCommandWithDeviceAsync(device,
+                await RunCommandAsync(
                     "rm -rf /data/sqm-monitor");
-                await _sshService.RunCommandWithDeviceAsync(device,
+                await RunCommandAsync(
                     "rm -f /etc/systemd/system/sqm-monitor.service " +
                     "/etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service && " +
                     "systemctl daemon-reload");
@@ -573,14 +510,14 @@ WantedBy=multi-user.target
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
 
             // Check if script exists
-            var checkResult = await _sshService.RunCommandWithDeviceAsync(device, $"test -f {scriptPath} && echo 'exists'");
+            var checkResult = await RunCommandAsync( $"test -f {scriptPath} && echo 'exists'");
             if (!checkResult.success || !checkResult.output.Contains("exists"))
             {
                 return (false, $"SQM script not found: {scriptPath}");
             }
 
             // Run the script (speedtest can take up to 60 seconds)
-            var result = await _sshService.RunCommandWithDeviceAsync(device, scriptPath);
+            var result = await RunCommandAsync( scriptPath);
 
             if (result.success)
             {
@@ -627,7 +564,7 @@ WantedBy=multi-user.target
                 cmd += $" --server-id={config.PreferredSpeedtestServerId}";
             }
 
-            var result = await _sshService.RunCommandWithDeviceAsync(device, cmd);
+            var result = await RunCommandAsync( cmd);
             if (!result.success)
             {
                 _logger.LogError("Speedtest failed: {Error}", result.output);
@@ -698,7 +635,7 @@ WantedBy=multi-user.target
         try
         {
             // Find all SQM log files
-            var logListResult = await _sshService.RunCommandWithDeviceAsync(device,
+            var logListResult = await RunCommandAsync(
                 "ls /var/log/sqm-*.log 2>/dev/null | xargs -I {} basename {} .log | sed 's/sqm-//'");
 
             if (!logListResult.success || string.IsNullOrWhiteSpace(logListResult.output))
@@ -713,7 +650,7 @@ WantedBy=multi-user.target
                 var status = new SqmWanStatus { Name = wanName };
 
                 // Get last 50 lines of the log file
-                var logResult = await _sshService.RunCommandWithDeviceAsync(device,
+                var logResult = await RunCommandAsync(
                     $"tail -50 /var/log/sqm-{wanName}.log 2>/dev/null");
 
                 if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
@@ -722,7 +659,7 @@ WantedBy=multi-user.target
                 }
 
                 // Get current rate from result file
-                var resultFileResult = await _sshService.RunCommandWithDeviceAsync(device,
+                var resultFileResult = await RunCommandAsync(
                     $"cat /data/sqm/{wanName}-result.txt 2>/dev/null");
 
                 if (resultFileResult.success && !string.IsNullOrWhiteSpace(resultFileResult.output))

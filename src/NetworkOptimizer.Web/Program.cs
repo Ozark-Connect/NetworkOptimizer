@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using NetworkOptimizer.Web;
 using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
@@ -98,6 +99,12 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+
+// Register SSH client service (singleton - cross-platform SSH.NET wrapper)
+builder.Services.AddSingleton<SshClientService>();
+
+// Register Gateway SSH service (singleton - SSH access to UniFi gateway/UDM)
+builder.Services.AddSingleton<IGatewaySshService, GatewaySshService>();
 
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
