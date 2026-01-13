@@ -435,7 +435,7 @@
                                 <td>
                                     <div class="action-buttons">
                                         <button class="btn btn-primary btn-sm test-button" @onclick="() => RunSpeedTest(device)"
-                                                disabled="@(isRunningTest || !device.Enabled || !sshConfigured)">
+                                                disabled="@(isRunningTest || !device.Enabled || (!sshConfigured && !device.HasOwnCredentials))">
                                             @if (runningTestHost == device.Host)
                                             {
                                                 <div class="test-progress">
@@ -449,7 +449,7 @@
                                             }
                                         </button>
                                         <button class="btn btn-secondary btn-sm" style="min-width: 5rem; @(device.StartIperf3Server ? "" : "visibility: hidden;")"
-                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured)">Test SSH</button>
+                                                @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
                                     </div>
@@ -526,7 +526,7 @@
 
                         <div class="form-group">
                             <label class="form-label">SSH Password</label>
-                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="(use global setting)" />
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(editingDeviceHasSavedPassword ? "Saved — enter new to update" : "(use global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
@@ -1066,6 +1066,7 @@
     private bool isRunningTest = false;
     private string? runningTestHost;
     private string editingDevicePassword = ""; // Separate field for password input (not bound to encrypted value)
+    private bool editingDeviceHasSavedPassword = false; // Track if the device being edited has a saved password
 
     // UniFi Device Speed Test messages (discovered devices)
     private string unifiMessage = "";
@@ -1347,6 +1348,7 @@
             // Note: Don't copy SshPassword - leave blank to not change it
         };
         editingDevicePassword = ""; // Clear password field (user must re-enter to change)
+        editingDeviceHasSavedPassword = !string.IsNullOrEmpty(device.SshPassword); // Track if device has saved password
         savedDeviceMessage = "";
         StateHasChanged();
     }
@@ -1368,6 +1370,7 @@
                 StartIperf3Server = false
             };
             editingDevicePassword = "";
+            editingDeviceHasSavedPassword = false; // New device has no saved password
             savedDeviceMessage = "";
             showAddDevice = true;
             StateHasChanged();
@@ -1383,6 +1386,7 @@
             StartIperf3Server = false
         };
         editingDevicePassword = "";
+        editingDeviceHasSavedPassword = false;
         showAddDevice = false;
         savedDeviceMessage = "";
         StateHasChanged();

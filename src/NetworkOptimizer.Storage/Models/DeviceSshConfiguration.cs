@@ -52,4 +52,12 @@ public class DeviceSshConfiguration
 
     /// <summary>When this configuration was last updated</summary>
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Returns true if this device has its own SSH credentials configured (username + password or key).
+    /// When true, the device can connect without needing global SSH settings.
+    /// </summary>
+    public bool HasOwnCredentials =>
+        !string.IsNullOrEmpty(SshUsername) &&
+        (!string.IsNullOrEmpty(SshPassword) || !string.IsNullOrEmpty(SshPrivateKeyPath));
 }
