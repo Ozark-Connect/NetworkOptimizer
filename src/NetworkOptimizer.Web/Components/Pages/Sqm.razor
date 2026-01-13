@@ -5,11 +5,13 @@
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @inject TcMonitorClient SqmMonitorClient
+@inject IGatewaySshService GatewaySshService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Ssh
 
 <PageTitle>Adaptive SQM - Network Optimizer</PageTitle>
 
@@ -81,10 +83,18 @@
                     </div>
                     </div>
 
-                    @if (!string.IsNullOrEmpty(deploymentStatus?.Error))
+                    @if (!gatewayConfigured)
                     {
-                        <div class="alert alert-danger" style="margin-top: 1rem;">
-                            <strong>Status Check Error:</strong> @deploymentStatus.Error
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>Gateway SSH not configured.</strong>
+                            Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Adaptive SQM.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(deploymentStatus?.Error))
+                    {
+                        <div class="alert alert-danger alert-with-tooltip" style="margin-top: 1rem;">
+                            <span class="alert-text"><strong>Connection Error:</strong> @deploymentStatus.Error</span>
+                            <SshTroubleshootingTooltip Context="gateway" />
                         </div>
                     }
 
@@ -1129,6 +1139,7 @@
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
     private static bool _cachedGatewayConnected;
+    private static bool _cachedGatewayConfigured;
     private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
 
     // State
@@ -1136,6 +1147,7 @@
     private bool isDeploying = false;
     private bool isInstallingUdmBoot = false;
     private bool gatewayConnected = false;
+    private bool gatewayConfigured = false;
     private string? statusMessage;
     private bool statusSuccess = false;
 
@@ -1211,6 +1223,7 @@
         if (IsCacheValid())
         {
             gatewayConnected = _cachedGatewayConnected;
+            gatewayConfigured = _cachedGatewayConfigured;
             deploymentStatus = _cachedDeploymentStatus;
             tcInterfaces = _cachedTcInterfaces;
             wanInterfaces = _cachedWanInterfaces ?? new();
@@ -1629,6 +1642,24 @@
 
         try
         {
+            // Check if gateway SSH is configured first
+            var settings = await GatewaySshService.GetSettingsAsync();
+            gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
+
+            if (!gatewayConfigured)
+            {
+                // Not configured - don't try to connect
+                gatewayConnected = false;
+                _cachedGatewayConfigured = false;
+                _cachedGatewayConnected = false;
+                deploymentStatus = null;
+                _cachedDeploymentStatus = null;
+                isLoading = false;
+                _lastStatusCheck = DateTime.UtcNow;
+                StateHasChanged();
+                return;
+            }
+
             // Test gateway connection
             var connectionResult = await DeploymentService.TestConnectionAsync();
             gatewayConnected = connectionResult.success;
@@ -1670,6 +1701,7 @@
                 }
 
                 // Update cache - always update when gateway connected
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = gatewayConnected;
                 _cachedDeploymentStatus = deploymentStatus;
                 _cachedTcInterfaces = tcInterfaces;
@@ -1679,6 +1711,7 @@
             else
             {
                 // Gateway not connected - clear stale data and update cache
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = false;
                 deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
                 _cachedDeploymentStatus = deploymentStatus;
@@ -1693,6 +1726,7 @@
         catch (Exception ex)
         {
             // Error occurred - clear stale data and update cache
+            _cachedGatewayConfigured = gatewayConfigured;
             _cachedGatewayConnected = false;
             deploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
             _cachedDeploymentStatus = deploymentStatus;
@@ -2096,6 +2130,17 @@
 
     private async Task LoadSqmMonitorDataAsync()
     {
+        // Only poll if SQM is deployed or we have saved enabled WAN configs
+        var shouldPoll = deploymentStatus?.IsDeployed == true ||
+                         deploymentStatus?.TcMonitorRunning == true ||
+                         (wan1HasSavedConfig && wan1Config.Enabled) ||
+                         (wan2HasSavedConfig && wan2Config.Enabled);
+
+        if (!shouldPoll)
+        {
+            return;
+        }
+
         try
         {
             var gatewayHost = await GetGatewayHostAsync();

@@ -2,6 +2,10 @@ using NetworkOptimizer.Storage.Models;
 
 namespace NetworkOptimizer.Storage.Interfaces;
 
+// TODO: Rename to IGatewayRepository - this interface handles gateway SSH settings,
+// iperf3 speed test results, and SQM WAN configuration. "SpeedTestRepository" is misleading.
+// Refactor all usages across the codebase when renaming.
+
 /// <summary>
 /// Repository for gateway SSH settings and iperf3 speed test results
 /// </summary>
