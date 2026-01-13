@@ -44,6 +44,7 @@ dotnet publish $WebProject `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:EnableCompressionInSingleFile=true `
+    -p:MinVerVersionOverride=$Version `
     -p:Version=$Version `
     -p:FileVersion=$Version `
     -p:AssemblyVersion=$Version
