@@ -60,7 +60,7 @@ public class GatewaySshService : IGatewaySshService
                 Username = "root",
                 Port = 22,
                 Iperf3Port = 5201,
-                Enabled = false,
+                Enabled = true,  // Default to enabled for new installs
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
