@@ -158,7 +158,7 @@
                     {
                         <div class="info-item">
                             <span class="info-label">Tower:</span>
-                            <span class="info-value">~@(modemStats.ServingCell.TimingAdvance.Value * 150) m</span>
+                            <span class="info-value">~@(modemStats.ServingCell.TimingAdvance.Value * 78) m</span>
                         </div>
                     }
                 }
@@ -548,9 +548,8 @@
     private int GetSignalBars()
     {
         if (modemStats == null) return 0;
-        // Use 5G signal if available, otherwise LTE
-        var signal = modemStats.Nr5g ?? modemStats.Lte;
-        return signal?.Bars ?? 0;
+        // Use PrimarySignal which checks for actual RSRP data, not just object existence
+        return modemStats.PrimarySignal?.Bars ?? 0;
     }
 
     private string GetNetworkModeBadgeClass()
