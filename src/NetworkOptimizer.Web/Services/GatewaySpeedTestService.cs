@@ -88,6 +88,14 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
 
         try
         {
+            // First verify SSH connection works
+            var connectTest = await RunSshCommandAsync("echo SSH_OK");
+            if (!connectTest.success || !connectTest.output.Contains("SSH_OK"))
+            {
+                status.Error = $"SSH connection failed: {connectTest.output}";
+                return status;
+            }
+
             // Check if iperf3 is running
             var result = await RunSshCommandAsync("pgrep -a iperf3 2>/dev/null || true");
             if (result.success && !string.IsNullOrWhiteSpace(result.output))
@@ -158,6 +166,12 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
 
         // First check current status
         var status = await CheckIperf3StatusAsync();
+
+        // Check for SSH connection errors first
+        if (!string.IsNullOrEmpty(status.Error))
+        {
+            return (false, status.Error);
+        }
 
         if (status.IsRunning)
         {
