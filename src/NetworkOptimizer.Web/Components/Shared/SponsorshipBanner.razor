@@ -25,6 +25,13 @@
 }
 
 @code {
+    /// <summary>
+    /// When true, always shows the banner (unless dismissed). Used on Settings page.
+    /// When false (default), only shows after user completes meaningful actions.
+    /// </summary>
+    [Parameter]
+    public bool AlwaysShow { get; set; } = false;
+
     private bool _shouldShow = false;
     private bool _isDismissed = false;
 
@@ -46,6 +53,14 @@
 
             if (_isDismissed)
             {
+                return;
+            }
+
+            // If AlwaysShow is set, skip condition checks
+            if (AlwaysShow)
+            {
+                _shouldShow = true;
+                await InvokeAsync(StateHasChanged);
                 return;
             }
 
