@@ -521,18 +521,18 @@
 
                         <div class="form-group">
                             <label class="form-label">SSH Username</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(use global setting)" />
+                            <input type="text" class="form-control" @bind="editingDevice.SshUsername" placeholder="(using global setting)" />
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">SSH Password</label>
-                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "(saved — enter new to update)" : "(use global setting)")" />
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved — enter new to update" : "(using global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
                         <div class="form-group">
                             <label class="form-label">SSH Private Key Path</label>
-                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(use global setting)" />
+                            <input type="text" class="form-control" @bind="editingDevice.SshPrivateKeyPath" placeholder="(using global setting)" />
                             <span class="form-help">Path to private key file on the server (e.g., /app/ssh-keys/id_rsa). Leave blank to use password authentication.</span>
                         </div>
                     }
