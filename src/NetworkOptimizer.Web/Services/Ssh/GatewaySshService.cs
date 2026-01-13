@@ -100,6 +100,11 @@ public class GatewaySshService : IGatewaySshService
     {
         var settings = await GetSettingsAsync();
 
+        if (!settings.Enabled)
+        {
+            return (false, "Gateway SSH access is disabled");
+        }
+
         if (string.IsNullOrEmpty(settings.Host))
         {
             return (false, "Gateway host not configured");
@@ -199,6 +204,11 @@ public class GatewaySshService : IGatewaySshService
         CancellationToken cancellationToken = default)
     {
         var settings = await GetSettingsAsync();
+
+        if (!settings.Enabled)
+        {
+            return (false, "Gateway SSH access is disabled");
+        }
 
         if (string.IsNullOrEmpty(settings.Host))
         {
