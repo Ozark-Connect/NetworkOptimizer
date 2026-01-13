@@ -69,7 +69,7 @@ public class UnusedPortRule : AuditRuleBase
             port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp, port.LastConnectionSeen, thresholdDays);
 
         return CreateIssue(
-            "Unused port should be disabled in UniFi Network or via an Ethernet Port Profile",
+            "Unused port should be set to Disabled or disabled via an Ethernet Port Profile in UniFi Network",
             port,
             new Dictionary<string, object>
             {
