@@ -64,19 +64,17 @@
                 return;
             }
 
-            // Check if user has completed meaningful actions:
-            // 1. Has run an audit (check if there's a last audit time)
-            var auditSummary = await AuditService.GetAuditSummaryAsync();
-            var hasRunAudit = auditSummary.LastAuditTime.HasValue;
+            // Check if user has completed meaningful actions (parallel)
+            var auditTask = AuditService.GetAuditSummaryAsync();
+            var speedTestTask = SpeedTestService.GetRecentResultsAsync(1);
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
 
-            // 2. Has speed test results
-            var speedTestResults = await SpeedTestService.GetRecentResultsAsync(1);
-            var hasSpeedTestResults = speedTestResults.Any();
+            await Task.WhenAll(auditTask, speedTestTask, wan1Task, wan2Task);
 
-            // 3. Has configured and enabled Adaptive SQM on at least one WAN
-            var wan1Config = await SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Config = await SpeedTestRepository.GetSqmWanConfigAsync(2);
-            var hasSqmEnabled = (wan1Config?.Enabled == true) || (wan2Config?.Enabled == true);
+            var hasRunAudit = auditTask.Result.LastAuditTime.HasValue;
+            var hasSpeedTestResults = speedTestTask.Result.Any();
+            var hasSqmEnabled = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
 
             // Show banner if any condition is met
             _shouldShow = hasRunAudit || hasSpeedTestResults || hasSqmEnabled;

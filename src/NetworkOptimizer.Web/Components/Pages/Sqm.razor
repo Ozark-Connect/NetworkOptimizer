@@ -1666,8 +1666,12 @@
 
             if (gatewayConnected)
             {
-                // Check deployment status first (fast SSH check)
-                deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
+                // Start deployment status and WAN interface detection in parallel
+                var deploymentTask = DeploymentService.CheckDeploymentStatusAsync();
+                var wanInterfacesTask = SqmService.GetWanInterfacesFromControllerAsync();
+
+                // Wait for deployment status first (needed to decide if we poll TC Monitor)
+                deploymentStatus = await deploymentTask;
 
                 // Only poll TC Monitor if scripts are deployed (avoids 15s timeout when not deployed)
                 if (deploymentStatus?.IsDeployed == true)
@@ -1686,10 +1690,10 @@
                     tcInterfaces = null;
                 }
 
-                // Get WAN interfaces from controller
+                // Get WAN interfaces result (already running in parallel)
                 try
                 {
-                    wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+                    wanInterfaces = await wanInterfacesTask;
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();

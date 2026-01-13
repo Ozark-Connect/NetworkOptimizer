@@ -110,17 +110,6 @@ New audit section focused on network performance issues (distinct from security 
 - Currently specifically excluded from SQM configuration
 - These tunnels should be treated as valid WAN interfaces for SQM purposes
 
-### Parallelize SQM Status Checks
-- **Issue:** Sequential async calls slow down page load and status refresh
-- **Affected files:**
-  - `Sqm.razor` - `RefreshStatus()` makes sequential calls for deployment status, TC monitor, WAN interfaces
-  - `SqmStatusPanel.razor` - `LoadStatus()` makes sequential calls for WAN configs
-- **Optimization opportunities:**
-  - Parallelize `GetSqmWanConfigAsync(1)` and `GetSqmWanConfigAsync(2)` with `Task.WhenAll()`
-  - After connection verified, parallelize `CheckDeploymentStatusAsync()` and `GetWanInterfacesFromControllerAsync()`
-  - TC Monitor poll can run in parallel with WAN interface detection
-- **Priority:** Low - current performance is acceptable, but would improve perceived responsiveness
-
 ## Multi-Tenant / Multi-Site Support
 
 ### Multi-Tenant Architecture
