@@ -26,10 +26,11 @@
     <InstallerDir>$(MSBuildThisFileDirectory)</InstallerDir>
     <SpeedTestDir>$(MSBuildThisFileDirectory)SpeedTest\</SpeedTestDir>
     <OpenSpeedTestDir>$(MSBuildThisFileDirectory)..\OpenSpeedTest\</OpenSpeedTestDir>
+    <Iperf3Dir>$(MSBuildThisFileDirectory)Iperf3\</Iperf3Dir>
   </PropertyGroup>
 
   <PropertyGroup>
-    <DefineConstants>PublishDir=$(PublishDir);InstallerDir=$(InstallerDir);SpeedTestDir=$(SpeedTestDir);OpenSpeedTestDir=$(OpenSpeedTestDir)</DefineConstants>
+    <DefineConstants>PublishDir=$(PublishDir);InstallerDir=$(InstallerDir);SpeedTestDir=$(SpeedTestDir);OpenSpeedTestDir=$(OpenSpeedTestDir);Iperf3Dir=$(Iperf3Dir)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -42,6 +43,11 @@
   <!-- Download nginx before build -->
   <Target Name="DownloadNginx" BeforeTargets="Build" Condition="!Exists('$(SpeedTestDir)nginx\nginx.exe')">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(SpeedTestDir)Download-Nginx.ps1&quot;" />
+  </Target>
+
+  <!-- Download iperf3 before build -->
+  <Target Name="DownloadIperf3" BeforeTargets="Build" Condition="!Exists('$(Iperf3Dir)iperf3.exe')">
+    <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(Iperf3Dir)Download-Iperf3.ps1&quot;" />
   </Target>
 
 </Project>

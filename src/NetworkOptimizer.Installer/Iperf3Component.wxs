@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  Network Optimizer - iperf3 Component
+
+  Bundles iperf3 for Windows to enable client-initiated speed tests.
+-->
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Fragment>
+    <!-- iperf3 directory under main install folder -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Directory Id="Iperf3Folder" Name="iperf3" />
+    </DirectoryRef>
+
+    <ComponentGroup Id="Iperf3Components">
+
+      <!-- iperf3 executable and required DLLs -->
+      <Component Id="Iperf3Executable" Directory="Iperf3Folder" Guid="D1E2F3A4-B5C6-7890-DEF0-234567890ABC" Bitness="always64">
+        <File Id="Iperf3Exe"
+              Source="$(var.Iperf3Dir)iperf3.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Cygwin DLL (required for iperf3 Windows builds) -->
+      <Component Id="Iperf3CygwinDll" Directory="Iperf3Folder" Guid="D1E2F3A4-B5C6-7890-DEF0-234567890ABD" Bitness="always64">
+        <File Id="Cygwin1Dll"
+              Source="$(var.Iperf3Dir)cygwin1.dll"
+              KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+  </Fragment>
+
+</Wix>

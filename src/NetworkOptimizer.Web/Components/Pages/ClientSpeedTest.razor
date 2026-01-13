@@ -85,7 +85,7 @@
                     else
                     {
                         <div class="alert alert-info" style="border-color: var(--text-muted); background: var(--bg-secondary);">
-                            <strong>Not Available:</strong> OpenSpeedTest™ is not running. This feature requires Docker deployment. Use iperf3 for native installs.
+                            <strong>Not Available:</strong> Browser speed testing is not running. Check your configuration - this feature may not be supported on your platform.
                         </div>
                     }
                     @if (openSpeedTestUrl?.StartsWith("https://") != true)
@@ -641,8 +641,8 @@
         if (string.IsNullOrEmpty(openSpeedTestHost))
             openSpeedTestHost = hostName;
 
-        // Build health check URL - always use localhost (most reliable with host networking)
-        openSpeedTestHealthCheckUrl = $"http://localhost:{openSpeedTestPort}";
+        // Build health check URL - use 127.0.0.1 explicitly (localhost can resolve to IPv6 on Windows)
+        openSpeedTestHealthCheckUrl = $"http://127.0.0.1:{openSpeedTestPort}";
 
         // Set serverHost for iperf3 instructions (main app host, not speedtest UI host)
         // Priority: HOST_NAME > HOST_IP > auto-detected IP from network interface

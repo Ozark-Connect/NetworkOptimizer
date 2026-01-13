@@ -16,6 +16,13 @@
       <Directory Id="SpeedTestFolder" Name="SpeedTest">
         <Directory Id="SpeedTestConfFolder" Name="conf" />
         <Directory Id="SpeedTestLogsFolder" Name="logs" />
+        <Directory Id="SpeedTestTempFolder" Name="temp">
+          <Directory Id="SpeedTestClientBodyTemp" Name="client_body_temp" />
+          <Directory Id="SpeedTestProxyTemp" Name="proxy_temp" />
+          <Directory Id="SpeedTestFastcgiTemp" Name="fastcgi_temp" />
+          <Directory Id="SpeedTestUwsgiTemp" Name="uwsgi_temp" />
+          <Directory Id="SpeedTestScgiTemp" Name="scgi_temp" />
+        </Directory>
         <Directory Id="SpeedTestHtmlFolder" Name="html">
           <Directory Id="SpeedTestAssetsFolder" Name="assets">
             <Directory Id="SpeedTestCssFolder" Name="css" />
@@ -59,10 +66,40 @@
               Name="mime.types" />
       </Component>
 
-      <!-- nginx logs folder (empty, created for nginx) -->
+      <!-- nginx logs folder - clean up runtime files on uninstall -->
       <Component Id="NginxLogsFolder" Directory="SpeedTestLogsFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789003" Bitness="always64">
         <CreateFolder />
+        <RemoveFile Id="RemoveNginxLogFiles" On="uninstall" Directory="SpeedTestLogsFolder" Name="*.*" />
         <RemoveFolder Id="RemoveLogsFolder" On="uninstall" />
+      </Component>
+
+      <!-- nginx temp folders - clean up on uninstall -->
+      <Component Id="NginxTempFolders" Directory="SpeedTestTempFolder" Guid="7A3B9C1D-2E4F-5A6B-8C9D-0E1F2A3B4C5D" Bitness="always64">
+        <CreateFolder />
+        <CreateFolder Directory="SpeedTestClientBodyTemp" />
+        <CreateFolder Directory="SpeedTestProxyTemp" />
+        <CreateFolder Directory="SpeedTestFastcgiTemp" />
+        <CreateFolder Directory="SpeedTestUwsgiTemp" />
+        <CreateFolder Directory="SpeedTestScgiTemp" />
+        <RemoveFolder Id="RemoveClientBodyTemp" Directory="SpeedTestClientBodyTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveProxyTemp" Directory="SpeedTestProxyTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveFastcgiTemp" Directory="SpeedTestFastcgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveUwsgiTemp" Directory="SpeedTestUwsgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveScgiTemp" Directory="SpeedTestScgiTemp" On="uninstall" />
+        <RemoveFolder Id="RemoveTempFolder" On="uninstall" />
+      </Component>
+
+      <!-- Runtime-generated config.js - clean up on uninstall -->
+      <Component Id="RuntimeConfigJs" Directory="SpeedTestJsFolder" Guid="8B4C0D2E-3F5A-6B7C-9D0E-1F2A3B4C5D6E" Bitness="always64">
+        <RemoveFile Id="RemoveConfigJs" On="uninstall" Directory="SpeedTestJsFolder" Name="config.js" />
+      </Component>
+
+      <!-- Clean up empty parent folders on uninstall -->
+      <Component Id="SpeedTestFolderCleanup" Directory="SpeedTestFolder" Guid="9C5D1E3F-4A6B-7C8D-0E1F-2A3B4C5D6E7F" Bitness="always64">
+        <RemoveFolder Id="RemoveSpeedTestJsFolder" Directory="SpeedTestJsFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestAssetsFolder" Directory="SpeedTestAssetsFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestHtmlFolder" Directory="SpeedTestHtmlFolder" On="uninstall" />
+        <RemoveFolder Id="RemoveSpeedTestFolder" On="uninstall" />
       </Component>
 
       <!-- Startup script and config template -->
@@ -74,15 +111,7 @@
               Source="$(var.InstallerDir)SpeedTest\config.js.template" />
       </Component>
 
-      <!-- Configuration stored in Windows Registry (cleaner than config files for Windows) -->
-      <Component Id="ConfigRegistry" Directory="SpeedTestFolder" Guid="C1D2E3F4-A5B6-7890-CDEF-123456789005" Bitness="always64">
-        <RegistryKey Root="HKLM" Key="SOFTWARE\Ozark Connect\Network Optimizer">
-          <RegistryValue Type="string" Name="HOST_IP" Value="[HOST_IP]" />
-          <RegistryValue Type="string" Name="HOST_NAME" Value="[HOST_NAME]" />
-          <RegistryValue Type="string" Name="REVERSE_PROXIED_HOST_NAME" Value="[REVERSE_PROXIED_HOST_NAME]" />
-          <RegistryValue Type="string" Name="OPENSPEEDTEST_PORT" Value="[OPENSPEEDTEST_PORT]" KeyPath="yes" />
-        </RegistryKey>
-      </Component>
+      <!-- Note: Registry settings are in ServiceComponent.wxs to avoid duplication -->
 
     </ComponentGroup>
 

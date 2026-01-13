@@ -35,14 +35,15 @@ Write-Host "Version: $Version"
 Write-Host "Configuration: $Configuration"
 Write-Host ""
 
-# Step 1: Publish self-contained application
-Write-Host "[1/3] Publishing self-contained application for win-x64..." -ForegroundColor Yellow
+# Step 1: Publish self-contained single-file application
+Write-Host "[1/3] Publishing self-contained single-file application for win-x64..." -ForegroundColor Yellow
 dotnet publish $WebProject `
     -c $Configuration `
     -r win-x64 `
     --self-contained `
-    -p:PublishSingleFile=false `
-    -p:IncludeNativeLibrariesForSelfExtract=false
+    -p:PublishSingleFile=true `
+    -p:IncludeNativeLibrariesForSelfExtract=true `
+    -p:EnableCompressionInSingleFile=true
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Publish failed!"

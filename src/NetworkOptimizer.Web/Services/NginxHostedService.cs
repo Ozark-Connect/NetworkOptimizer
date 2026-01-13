@@ -79,11 +79,15 @@ public class NginxHostedService : IHostedService, IDisposable
         var config = await LoadConfigurationAsync();
 
         // Construct the save URL based on configuration
-        var saveUrl = ConstructSaveUrl(config);
+        const string apiPath = "/api/public/speedtest/results";
+        var saveDataUrl = ConstructSaveDataUrl(config, apiPath);
 
-        // Read template and replace placeholder
+        // Read template and replace placeholders (matches OpenSpeedTest format)
         var template = await File.ReadAllTextAsync(templatePath);
-        var configJs = template.Replace("{{SAVE_URL}}", saveUrl);
+        var configJs = template
+            .Replace("{{SAVE_DATA}}", "true")
+            .Replace("{{SAVE_DATA_URL}}", saveDataUrl)
+            .Replace("{{API_PATH}}", apiPath);
 
         // Ensure output directory exists
         var outputDir = Path.GetDirectoryName(outputPath);
@@ -93,7 +97,7 @@ public class NginxHostedService : IHostedService, IDisposable
         }
 
         await File.WriteAllTextAsync(outputPath, configJs);
-        _logger.LogInformation("Generated config.js with save URL: {SaveUrl}", saveUrl);
+        _logger.LogInformation("Generated config.js with save URL: {SaveUrl}", saveDataUrl);
     }
 
     private Task<Dictionary<string, string>> LoadConfigurationAsync()
@@ -147,47 +151,57 @@ public class NginxHostedService : IHostedService, IDisposable
         }
     }
 
-    private string ConstructSaveUrl(Dictionary<string, string> config)
+    private string ConstructSaveDataUrl(Dictionary<string, string> config, string apiPath)
     {
-        // Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http) > HOST_IP (http)
+        // Priority: REVERSE_PROXIED_HOST_NAME (https) > HOST_NAME (http) > HOST_IP (http) > __DYNAMIC__
         config.TryGetValue("REVERSE_PROXIED_HOST_NAME", out var reverseProxy);
         config.TryGetValue("HOST_NAME", out var hostName);
         config.TryGetValue("HOST_IP", out var hostIp);
 
-        string scheme;
-        string host;
-        string port;
-
         if (!string.IsNullOrEmpty(reverseProxy))
         {
             // Reverse proxy mode - HTTPS, no port needed
-            scheme = "https";
-            host = reverseProxy;
-            port = "";
+            return $"https://{reverseProxy}{apiPath}";
         }
         else if (!string.IsNullOrEmpty(hostName))
         {
             // Hostname mode - HTTP with port
-            scheme = "http";
-            host = hostName;
-            port = ":8042";
+            return $"http://{hostName}:8042{apiPath}";
         }
         else if (!string.IsNullOrEmpty(hostIp))
         {
             // IP mode - HTTP with port
-            scheme = "http";
-            host = hostIp;
-            port = ":8042";
+            return $"http://{hostIp}:8042{apiPath}";
         }
         else
         {
-            // Fallback to localhost
-            scheme = "http";
-            host = "localhost";
-            port = ":8042";
+            // No explicit host configured - use dynamic URL (constructed client-side from browser location)
+            return "__DYNAMIC__";
         }
+    }
 
-        return $"{scheme}://{host}{port}/api/public/speedtest/results";
+    private void CreateNginxTempDirectories(string speedTestFolder)
+    {
+        // nginx requires these temp directories to exist
+        var tempDirs = new[]
+        {
+            "temp/client_body_temp",
+            "temp/proxy_temp",
+            "temp/fastcgi_temp",
+            "temp/uwsgi_temp",
+            "temp/scgi_temp",
+            "logs"
+        };
+
+        foreach (var dir in tempDirs)
+        {
+            var fullPath = Path.Combine(speedTestFolder, dir);
+            if (!Directory.Exists(fullPath))
+            {
+                Directory.CreateDirectory(fullPath);
+                _logger.LogDebug("Created nginx directory: {Path}", fullPath);
+            }
+        }
     }
 
     private async Task StartNginxAsync(string speedTestFolder, string nginxPath, CancellationToken cancellationToken)
@@ -195,16 +209,23 @@ public class NginxHostedService : IHostedService, IDisposable
         // Stop any existing nginx process first
         StopNginx();
 
-        // nginx needs to run from its directory
+        // Create required temp directories for nginx
+        CreateNginxTempDirectories(speedTestFolder);
+
+        // nginx needs explicit config path and prefix
+        var confPath = Path.Combine(speedTestFolder, "conf", "nginx.conf");
         var startInfo = new ProcessStartInfo
         {
             FileName = nginxPath,
+            Arguments = $"-p \"{speedTestFolder}\" -c \"{confPath}\"",
             WorkingDirectory = speedTestFolder,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+
+        _logger.LogInformation("Starting nginx with prefix: {Prefix}, config: {Config}", speedTestFolder, confPath);
 
         _nginxProcess = new Process { StartInfo = startInfo };
 
