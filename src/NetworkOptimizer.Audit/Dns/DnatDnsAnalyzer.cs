@@ -116,13 +116,9 @@ public class DnatDnsAnalyzer
             return result;
         }
 
-        // Get DHCP-enabled networks only
-        var dhcpNetworks = networks.Where(n => n.DhcpEnabled).ToList();
-        if (dhcpNetworks.Count == 0)
-        {
-            result.HasFullCoverage = true; // No DHCP networks = nothing to cover
-            return result;
-        }
+        // Check ALL networks for DNAT coverage (not just DHCP-enabled)
+        // Any network can have devices making DNS queries, regardless of DHCP status
+        var allNetworks = networks.ToList();
 
         // Parse DNAT rules targeting UDP port 53
         var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value);
@@ -132,7 +128,7 @@ public class DnatDnsAnalyzer
         if (dnatDnsRules.Count == 0)
         {
             // No DNAT DNS rules - all networks uncovered
-            foreach (var network in dhcpNetworks)
+            foreach (var network in allNetworks)
             {
                 result.UncoveredNetworkIds.Add(network.Id);
                 result.UncoveredNetworkNames.Add(network.Name);
@@ -160,8 +156,8 @@ public class DnatDnsAnalyzer
                 case "subnet":
                     if (!string.IsNullOrEmpty(rule.SubnetCidr))
                     {
-                        // Check which DHCP networks are covered by this subnet
-                        foreach (var network in dhcpNetworks)
+                        // Check which networks are covered by this subnet
+                        foreach (var network in allNetworks)
                         {
                             if (!string.IsNullOrEmpty(network.Subnet) &&
                                 CidrCoversSubnet(rule.SubnetCidr, network.Subnet))
@@ -182,7 +178,7 @@ public class DnatDnsAnalyzer
         }
 
         // Categorize networks by coverage
-        foreach (var network in dhcpNetworks)
+        foreach (var network in allNetworks)
         {
             if (coveredNetworkIds.Contains(network.Id))
             {

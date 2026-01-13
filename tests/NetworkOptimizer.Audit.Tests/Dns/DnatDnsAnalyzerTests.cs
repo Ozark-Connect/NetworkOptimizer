@@ -93,14 +93,17 @@ public class DnatDnsAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_WithNoDhcpNetworks_ReturnsFullCoverage()
+    public void Analyze_WithNonDhcpNetwork_StillChecksCoverage()
     {
+        // Non-DHCP networks still need DNAT coverage (static IP devices can make DNS queries)
         var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", false));
         var natRules = ParseNatRules();
 
         var result = _analyzer.Analyze(natRules, networks);
 
-        Assert.True(result.HasFullCoverage); // No DHCP networks = nothing to cover
+        Assert.False(result.HasFullCoverage); // Non-DHCP network still needs coverage
+        Assert.Single(result.UncoveredNetworkIds);
+        Assert.Contains("net1", result.UncoveredNetworkIds);
     }
 
     [Fact]
