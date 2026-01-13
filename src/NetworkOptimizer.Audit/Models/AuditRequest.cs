@@ -41,6 +41,11 @@ public class AuditRequest
     public JsonElement? FirewallPoliciesData { get; init; }
 
     /// <summary>
+    /// Optional: NAT rules data from UniFi API for DNAT DNS detection
+    /// </summary>
+    public JsonElement? NatRulesData { get; init; }
+
+    /// <summary>
     /// Optional: User-defined device allowance settings
     /// </summary>
     public DeviceAllowanceSettings? AllowanceSettings { get; init; }

@@ -61,7 +61,15 @@ public class DnsSecurityAnalyzer
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
     /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, natRulesData: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and NAT rules
+    /// </summary>
+    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, JsonElement? natRulesData)
     {
         var result = new DnsSecurityResult();
 
@@ -116,6 +124,12 @@ public class DnsSecurityAnalyzer
         if (networks?.Any() == true)
         {
             await AnalyzeThirdPartyDnsAsync(networks, result, customPiholePort);
+        }
+
+        // Analyze DNAT DNS rules (alternative to firewall blocking)
+        if (natRulesData.HasValue && networks?.Any() == true)
+        {
+            AnalyzeDnatDnsRules(natRulesData.Value, networks, result);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -603,7 +617,11 @@ public class DnsSecurityAnalyzer
         await ValidateWanDnsConfigurationAsync(result);
 
         // Issue: No DNS port 53 blocking (DNS leak prevention)
-        if (!result.HasDns53BlockRule)
+        // DNAT rules can be an alternative when DoH or third-party DNS is configured
+        var hasDnsControlSolution = result.DohConfigured || result.HasThirdPartyDns;
+        var dnatIsValidAlternative = result.DnatProvidesFullCoverage && hasDnsControlSolution;
+
+        if (!result.HasDns53BlockRule && !dnatIsValidAlternative)
         {
             result.Issues.Add(new AuditIssue
             {
@@ -611,9 +629,55 @@ public class DnsSecurityAnalyzer
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
                 Message = "No firewall rule blocks external DNS (port 53). Devices can bypass network DNS settings and leak queries to untrusted servers.",
-                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway)",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic",
                 RuleId = "DNS-LEAK-001",
                 ScoreImpact = 12
+            });
+        }
+
+        // Add hardening note if DNAT provides full coverage as alternative
+        if (dnatIsValidAlternative && !result.HasDns53BlockRule)
+        {
+            result.HardeningNotes.Add($"DNS leak prevention via DNAT redirect to {result.DnatRedirectTarget ?? "gateway"} (covers all DHCP networks)");
+        }
+
+        // Issue: DNAT provides partial coverage (some networks not covered)
+        if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsDnatPartialCoverage,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
+                RecommendedAction = "Add DNAT rules for the remaining networks, or create a firewall rule to block outbound UDP port 53",
+                RuleId = "DNS-DNAT-001",
+                ScoreImpact = 6,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "covered_networks", result.DnatCoveredNetworks.ToList() },
+                    { "uncovered_networks", result.DnatUncoveredNetworks.ToList() },
+                    { "redirect_target", result.DnatRedirectTarget ?? "" }
+                }
+            });
+        }
+
+        // Issue: Single IP DNAT rules (abnormal configuration)
+        if (result.DnatSingleIpRules.Any())
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsDnatSingleIp,
+                Severity = AuditSeverity.Informational,
+                DeviceName = result.GatewayName,
+                Message = $"DNAT DNS rules target single IP addresses instead of network ranges: {string.Join(", ", result.DnatSingleIpRules)}. This provides limited coverage and may indicate misconfiguration.",
+                RecommendedAction = "Configure DNAT rules to use network references or CIDR ranges for complete coverage",
+                RuleId = "DNS-DNAT-002",
+                ScoreImpact = 2,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "single_ip_sources", result.DnatSingleIpRules.ToList() }
+                }
             });
         }
 
@@ -1308,6 +1372,46 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// Analyze DNAT rules for DNS port 53 coverage.
+    /// DNAT rules that redirect UDP port 53 to a trusted DNS server (gateway, Pi-hole)
+    /// can be an alternative to firewall blocking when DoH or third-party DNS is configured.
+    /// </summary>
+    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result)
+    {
+        var dnatAnalyzer = new DnatDnsAnalyzer();
+        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks);
+
+        result.HasDnatDnsRules = coverageResult.HasDnatDnsRules;
+        result.DnatProvidesFullCoverage = coverageResult.HasFullCoverage;
+        result.DnatRedirectTarget = coverageResult.RedirectTargetIp;
+        result.DnatCoveredNetworks.AddRange(coverageResult.CoveredNetworkNames);
+        result.DnatUncoveredNetworks.AddRange(coverageResult.UncoveredNetworkNames);
+        result.DnatSingleIpRules.AddRange(coverageResult.SingleIpRules);
+
+        if (coverageResult.HasDnatDnsRules)
+        {
+            _logger.LogInformation(
+                "DNAT DNS rules detected: {RuleCount} rules, full coverage: {FullCoverage}, redirect target: {Target}",
+                coverageResult.Rules.Count, coverageResult.HasFullCoverage, coverageResult.RedirectTargetIp);
+
+            if (!coverageResult.HasFullCoverage)
+            {
+                _logger.LogWarning(
+                    "DNAT DNS rules provide partial coverage. Covered: {Covered}, Uncovered: {Uncovered}",
+                    string.Join(", ", coverageResult.CoveredNetworkNames),
+                    string.Join(", ", coverageResult.UncoveredNetworkNames));
+            }
+
+            if (coverageResult.SingleIpRules.Any())
+            {
+                _logger.LogWarning(
+                    "DNAT DNS rules with single IP sources detected (abnormal configuration): {Ips}",
+                    string.Join(", ", coverageResult.SingleIpRules));
+            }
+        }
+    }
+
+    /// <summary>
     /// Get a summary of DNS security status
     /// </summary>
     public DnsSecuritySummary GetSummary(DnsSecurityResult result)
@@ -1393,6 +1497,14 @@ public class DnsSecurityResult
     public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> ThirdPartyDnsServers { get; } = new();
     public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
     public string? ThirdPartyDnsProviderName { get; set; }
+
+    // DNAT DNS Coverage
+    public bool HasDnatDnsRules { get; set; }
+    public bool DnatProvidesFullCoverage { get; set; }
+    public string? DnatRedirectTarget { get; set; }
+    public List<string> DnatCoveredNetworks { get; } = new();
+    public List<string> DnatUncoveredNetworks { get; } = new();
+    public List<string> DnatSingleIpRules { get; } = new();
 
     // Audit Issues
     public List<AuditIssue> Issues { get; } = new();

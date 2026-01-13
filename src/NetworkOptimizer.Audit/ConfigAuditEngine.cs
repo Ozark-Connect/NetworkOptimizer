@@ -40,6 +40,7 @@ public class ConfigAuditEngine
         public required List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
         public required JsonElement? SettingsData { get; init; }
         public required JsonElement? FirewallPoliciesData { get; init; }
+        public required JsonElement? NatRulesData { get; init; }
         public required string? ClientName { get; init; }
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
@@ -293,6 +294,7 @@ public class ConfigAuditEngine
             ClientHistory = request.ClientHistory,
             SettingsData = request.SettingsData,
             FirewallPoliciesData = request.FirewallPoliciesData,
+            NatRulesData = request.NatRulesData,
             ClientName = request.ClientName,
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings,
@@ -697,10 +699,10 @@ public class ConfigAuditEngine
     {
         _logger.LogInformation("Phase 5b: Analyzing DNS security");
 
-        if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue)
+        if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue || ctx.NatRulesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);
@@ -850,7 +852,13 @@ public class ConfigAuditEngine
             HasThirdPartyDns = dnsSecurityResult.HasThirdPartyDns,
             IsPiholeDetected = dnsSecurityResult.IsPiholeDetected,
             ThirdPartyDnsProviderName = dnsSecurityResult.ThirdPartyDnsProviderName,
-            ThirdPartyNetworks = thirdPartyNetworks
+            ThirdPartyNetworks = thirdPartyNetworks,
+            // DNAT DNS Coverage
+            HasDnatDnsRules = dnsSecurityResult.HasDnatDnsRules,
+            DnatProvidesFullCoverage = dnsSecurityResult.DnatProvidesFullCoverage,
+            DnatRedirectTarget = dnsSecurityResult.DnatRedirectTarget,
+            DnatCoveredNetworks = dnsSecurityResult.DnatCoveredNetworks.ToList(),
+            DnatUncoveredNetworks = dnsSecurityResult.DnatUncoveredNetworks.ToList()
         };
     }
 

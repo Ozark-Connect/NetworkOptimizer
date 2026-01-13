@@ -1220,6 +1220,36 @@ public class UniFiApiClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// GET v2/api/site/{site}/nat - Get NAT rules (DNAT/SNAT)
+    /// This endpoint provides NAT rule configuration for DNS redirection detection
+    /// </summary>
+    public async Task<JsonDocument?> GetNatRulesRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching NAT rules from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = BuildV2ApiPath($"site/{_site}/nat");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved NAT rules ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve NAT rules: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
     #endregion
 
     #region Fingerprint Database APIs
