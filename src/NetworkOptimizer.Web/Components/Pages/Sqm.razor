@@ -1678,9 +1678,13 @@
             }
             else
             {
-                // Gateway not connected - still update cache timestamp to prevent repeated attempts
+                // Gateway not connected - clear stale data and update cache
                 _cachedGatewayConnected = false;
-                _cachedDeploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                _cachedDeploymentStatus = deploymentStatus;
+                sqmMonitorData = null;
+                tcInterfaces = null;
+                _cachedTcInterfaces = null;
                 _lastStatusCheck = DateTime.UtcNow;
                 statusMessage = connectionResult.message;
                 statusSuccess = false;
@@ -1688,9 +1692,13 @@
         }
         catch (Exception ex)
         {
-            // Error occurred - still update cache timestamp to prevent repeated attempts
+            // Error occurred - clear stale data and update cache
             _cachedGatewayConnected = false;
-            _cachedDeploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
+            deploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
+            _cachedDeploymentStatus = deploymentStatus;
+            sqmMonitorData = null;
+            tcInterfaces = null;
+            _cachedTcInterfaces = null;
             _lastStatusCheck = DateTime.UtcNow;
             statusMessage = $"Error: {ex.Message}";
             statusSuccess = false;
