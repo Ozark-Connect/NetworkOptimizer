@@ -1089,7 +1089,7 @@ public class AuditService
         Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic.",
         Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic.",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
-        Audit.IssueTypes.MacRestriction => "Enable MAC-based port security on critical infrastructure ports.",
+        Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low.",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface.",
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices.",
         Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN.",
