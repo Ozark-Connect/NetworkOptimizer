@@ -1,12 +1,12 @@
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 
 namespace NetworkOptimizer.Audit.Rules;
 
 /// <summary>
-/// Detects unused ports that are not disabled
-/// Unused ports should be disabled to prevent unauthorized connections
+/// Detects unused ports that are not disabled.
+/// Unused ports should be disabled to prevent unauthorized connections.
+/// Only flags ports that have been inactive for more than 15 days.
 /// </summary>
 public class UnusedPortRule : AuditRuleBase
 {
@@ -20,10 +20,8 @@ public class UnusedPortRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 2;
 
-    // Default port name patterns - ports with these names are considered unnamed
-    private static readonly Regex DefaultPortNamePattern = new(
-        @"^(Port\s*\d+|SFP\+?\s*\d+)$",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Number of days a port must be inactive before flagging
+    private const int InactivityThresholdDays = 15;
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
     {
@@ -39,13 +37,22 @@ public class UnusedPortRule : AuditRuleBase
         if (port.ForwardMode == "disabled")
             return null; // Correctly configured
 
-        // If port has a custom name (not default), skip it - device might just be off
-        if (!string.IsNullOrEmpty(port.Name) && !IsDefaultPortName(port.Name))
-            return null;
+        // Check if a device was connected recently (within threshold)
+        if (port.LastConnectionSeen.HasValue)
+        {
+            var lastSeen = DateTimeOffset.FromUnixTimeSeconds(port.LastConnectionSeen.Value);
+            var daysSinceLastConnection = (DateTimeOffset.UtcNow - lastSeen).TotalDays;
+
+            if (daysSinceLastConnection < InactivityThresholdDays)
+            {
+                // Device was connected recently - don't flag
+                return null;
+            }
+        }
 
         // Debug logging for flagged ports
-        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: name='{Name}', forward='{Forward}', isUp={IsUp}",
-            port.Switch.Name, port.PortIndex, port.Name, port.ForwardMode, port.IsUp);
+        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: forward='{Forward}', isUp={IsUp}, lastSeen={LastSeen}",
+            port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp, port.LastConnectionSeen);
 
         return CreateIssue(
             "Unused port not disabled - should set forward mode to 'disabled'",
@@ -55,10 +62,5 @@ public class UnusedPortRule : AuditRuleBase
                 { "current_forward_mode", port.ForwardMode ?? "unknown" },
                 { "recommendation", "Set forward mode to 'disabled' to harden the switch" }
             });
-    }
-
-    private static bool IsDefaultPortName(string name)
-    {
-        return string.IsNullOrWhiteSpace(name) || DefaultPortNamePattern.IsMatch(name.Trim());
     }
 }
