@@ -1066,6 +1066,18 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">Unused port grace period (days)</label>
+                <input type="number" class="form-control" @bind="unusedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+                <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Named port grace period (days)</label>
+                <input type="number" class="form-control" @bind="namedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+                <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">For Pi-hole users: Management Port (optional)</label>
                 <input type="number" class="form-control" @bind="piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 240px;" />
                 <small class="form-help">Custom HTTP port for Pi-hole admin interface. Leave empty to auto-probe ports 80, 443, 8080. Both HTTP and HTTPS are tried.</small>
@@ -1132,6 +1144,8 @@
         </div>
     </div>
 </div>
+
+<SponsorshipBanner AlwaysShow="true" />
 
 @code {
     // UniFi Controller
@@ -1231,6 +1245,8 @@
     private bool allowAllTVsOnMainNetwork = false;
     private bool allowPrintersOnMainNetwork = true;
     private int? piholeManagementPort = null;
+    private int unusedPortInactivityDays = 15;
+    private int namedPortInactivityDays = 45;
     private bool savingAuditSettings = false;
     private string auditSettingsMessage = "";
     private string auditSettingsMessageClass = "";
@@ -2390,6 +2406,8 @@
             var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
             var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
+            var unusedPortDays = await SystemSettings.GetAsync("audit:unusedPortInactivityDays");
+            var namedPortDays = await SystemSettings.GetAsync("audit:namedPortInactivityDays");
 
             allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -2399,6 +2417,9 @@
             allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // Pi-hole port (null means auto-detect)
             piholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
+            // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
+            unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
+            namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
         }
         catch (Exception ex)
         {
@@ -2421,6 +2442,8 @@
             await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:piholeManagementPort", piholeManagementPort?.ToString() ?? "");
+            await SystemSettings.SetAsync("audit:unusedPortInactivityDays", unusedPortInactivityDays.ToString());
+            await SystemSettings.SetAsync("audit:namedPortInactivityDays", namedPortInactivityDays.ToString());
 
             auditSettingsMessage = "Audit settings saved successfully";
             auditSettingsMessageClass = "success";

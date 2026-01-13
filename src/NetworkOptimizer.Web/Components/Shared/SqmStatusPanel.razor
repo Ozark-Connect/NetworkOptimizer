@@ -1,7 +1,9 @@
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Interfaces
 @implements IDisposable
 @inject GatewaySpeedTestService GatewayService
 @inject TcMonitorClient TcMonitorClient
+@inject ISpeedTestRepository SpeedTestRepository
 
 <div class="sqm-status-panel">
     @if (isLoading)
@@ -103,6 +105,9 @@
     // Track if we've ever seen active status (don't flip to "Not Deployed" on transient failures)
     private bool _hasSeenActive = false;
 
+    // Track if polling should continue
+    private bool _shouldPoll = false;
+
     // Auto-refresh timer (60 seconds)
     private System.Threading.Timer? _refreshTimer;
 
@@ -114,7 +119,7 @@
         _refreshTimer = new System.Threading.Timer(
             async _ => await InvokeAsync(async () =>
             {
-                if (!isRefreshing && !needsGatewayConfig)
+                if (!isRefreshing && !needsGatewayConfig && _shouldPoll)
                 {
                     await LoadStatus();
                     StateHasChanged();
@@ -129,6 +134,7 @@
     {
         errorMessage = null;
         needsGatewayConfig = false;
+        var hasSavedEnabledConfig = false;
 
         try
         {
@@ -141,9 +147,16 @@
                 statusClass = "not-configured";
                 errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
                 needsGatewayConfig = true;
+                _shouldPoll = false;
                 isLoading = false;
                 return;
             }
+
+            // Check if we have saved WAN configs with SQM enabled (parallel)
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
+            await Task.WhenAll(wan1Task, wan2Task);
+            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
             var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
@@ -160,13 +173,17 @@
                     statusClass = "active";
                     lastUpdate = response.Timestamp;
                     _hasSeenActive = true;
+                    // SQM is active - keep polling
+                    _shouldPoll = true;
                 }
                 else
                 {
                     // TC Monitor responded but no interfaces configured
                     statusLabel = "Not Deployed";
                     statusClass = "offline";
-                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                    // Only poll if we have saved enabled configs (user is setting up)
+                    _shouldPoll = hasSavedEnabledConfig;
                 }
             }
             else
@@ -177,13 +194,16 @@
                     // Keep showing last known good state, just mark as stale
                     statusLabel = "Active";
                     statusClass = "warning";  // Yellow to indicate stale
+                    _shouldPoll = true;  // Keep polling to reconnect
                 }
                 else
                 {
                     // Never seen active, show as not deployed
                     statusLabel = "Not Deployed";
                     statusClass = "offline";
-                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                    // Only poll if we have saved enabled configs (user is setting up)
+                    _shouldPoll = hasSavedEnabledConfig;
                 }
             }
         }
@@ -193,12 +213,15 @@
             if (_hasSeenActive && tcInterfaces?.Any() == true)
             {
                 statusClass = "warning";  // Keep showing active but mark as stale
+                _shouldPoll = true;  // Keep polling to reconnect
             }
             else
             {
                 statusLabel = "Error";
                 statusClass = "offline";
                 errorMessage = $"Failed to load status: {ex.Message}";
+                // Only poll if we have saved enabled configs
+                _shouldPoll = hasSavedEnabledConfig;
             }
         }
         finally

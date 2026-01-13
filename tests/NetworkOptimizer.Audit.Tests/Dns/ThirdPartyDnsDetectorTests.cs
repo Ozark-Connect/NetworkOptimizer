@@ -9,13 +9,20 @@ using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
 
-public class ThirdPartyDnsDetectorTests
+public class ThirdPartyDnsDetectorTests : IDisposable
 {
     private readonly Mock<ILogger<ThirdPartyDnsDetector>> _loggerMock;
 
     public ThirdPartyDnsDetectorTests()
     {
+        // Mock DNS resolver to avoid real network calls and timeouts
+        DohProviderRegistry.DnsResolver = _ => Task.FromResult<string?>(null);
         _loggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+    }
+
+    public void Dispose()
+    {
+        DohProviderRegistry.ResetDnsResolver();
     }
 
     private ThirdPartyDnsDetector CreateDetector(HttpClient? httpClient = null)

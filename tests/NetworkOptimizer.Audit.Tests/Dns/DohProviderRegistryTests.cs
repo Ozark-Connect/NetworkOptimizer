@@ -1,11 +1,23 @@
+using System.Net;
 using FluentAssertions;
 using NetworkOptimizer.Audit.Dns;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
 
-public class DohProviderRegistryTests
+public class DohProviderRegistryTests : IDisposable
 {
+    public DohProviderRegistryTests()
+    {
+        // Mock DNS resolver to avoid real network calls and timeouts
+        DohProviderRegistry.DnsResolver = _ => Task.FromResult<string?>(null);
+    }
+
+    public void Dispose()
+    {
+        DohProviderRegistry.ResetDnsResolver();
+    }
+
     #region IdentifyProvider - By Hostname
 
     [Theory]

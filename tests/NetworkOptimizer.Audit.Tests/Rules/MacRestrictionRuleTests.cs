@@ -136,6 +136,106 @@ public class MacRestrictionRuleTests
         result.Should().BeNull();
     }
 
+    [Fact]
+    public void Evaluate_CustomModeWithoutNativeNetwork_ReturnsNull()
+    {
+        // Custom mode without a native network set is a trunk/hybrid - skip it
+        var port = CreatePort(isUp: true, forwardMode: "custom", nativeNetworkId: null);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_CustomModeWithNativeNetwork_ReturnsIssue()
+    {
+        // Custom mode WITH a native network set is an access port - should trigger
+        var port = CreatePort(isUp: true, forwardMode: "custom", nativeNetworkId: "net-123");
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+    }
+
+    #endregion
+
+    #region Network Fabric Device Detection
+
+    [Theory]
+    [InlineData("uap")]   // Access Point
+    [InlineData("usw")]   // Switch
+    [InlineData("ubb")]   // Building-to-Building Bridge
+    [InlineData("ugw")]   // Gateway
+    [InlineData("usg")]   // Security Gateway
+    [InlineData("udm")]   // Dream Machine
+    [InlineData("uxg")]   // Next-Gen Gateway
+    [InlineData("ucg")]   // Cloud Gateway
+    public void Evaluate_NetworkFabricDeviceConnected_ReturnsNull(string deviceType)
+    {
+        // Network fabric devices (AP, switch, bridge, gateway) should be skipped
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedDeviceType: deviceType);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("umbb")]  // Modem
+    [InlineData("uck")]   // Cloud Key
+    [InlineData("unvr")]  // NVR
+    [InlineData("uph")]   // Phone
+    [InlineData(null)]    // Unknown
+    [InlineData("")]      // Empty
+    public void Evaluate_EndpointDeviceConnected_ReturnsIssue(string? deviceType)
+    {
+        // Endpoint devices (modem, NVR, Cloud Key) SHOULD get MAC restriction recommendations
+        var port = CreatePort(isUp: true, forwardMode: "native", connectedDeviceType: deviceType);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+    }
+
+    #endregion
+
+    #region Access Point Name Detection Fallback
+
+    [Theory]
+    [InlineData("AP-Lobby")]           // AP as word boundary
+    [InlineData("Lobby AP")]           // AP at end
+    [InlineData("WiFi-Upstairs")]      // Contains wifi
+    [InlineData("Access Point 1")]     // Contains access point
+    [InlineData("WAP-Office")]         // WAP as word boundary
+    [InlineData("Office WAP")]         // WAP at end
+    public void Evaluate_PortNameSuggestsAP_ReturnsNull(string portName)
+    {
+        // Fallback: if port name suggests an AP, skip it
+        var port = CreatePort(isUp: true, forwardMode: "native", portName: portName);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Office PC")]
+    [InlineData("Printer")]
+    [InlineData("Camera-Front")]
+    [InlineData("Port 1")]
+    [InlineData("Laptop")]         // Contains "ap" but not as word boundary
+    [InlineData("Application")]    // Contains "ap" but not as word boundary
+    [InlineData("UAP-AC-Pro")]     // UAP is not "AP" as a word
+    public void Evaluate_PortNameDoesNotSuggestAP_ReturnsIssue(string portName)
+    {
+        var port = CreatePort(isUp: true, forwardMode: "native", portName: portName);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull();
+    }
+
     #endregion
 
     #region Evaluate Tests - Ports That Should Trigger Issue
@@ -214,7 +314,8 @@ public class MacRestrictionRuleTests
         int portIndex = 1,
         string portName = "Port 1",
         string switchName = "Test Switch",
-        string? nativeNetworkId = null)
+        string? nativeNetworkId = null,
+        string? connectedDeviceType = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -236,6 +337,7 @@ public class MacRestrictionRuleTests
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacs,
             NativeNetworkId = nativeNetworkId,
+            ConnectedDeviceType = connectedDeviceType,
             Switch = switchInfo
         };
     }

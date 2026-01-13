@@ -122,66 +122,78 @@ WantedBy=multi-user.target
 
         try
         {
-            // Check for udm-boot (required for on_boot.d scripts to run on boot)
-            // Check for service file (supports both manual install and deb package)
-            var udmBootCheck = await RunCommandAsync(
+            // Launch SSH checks in batches of 4 to avoid overwhelming SSH server
+            // Batch 1: udm-boot and script existence checks
+            var udmBootCheckTask = RunCommandAsync(
                 "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
+            var udmBootEnabledTask = RunCommandAsync(
+                "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
+            var sqmBootCheckTask = RunCommandAsync(
+                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
+            var sqmScriptsCheckTask = RunCommandAsync(
+                $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
+
+            await Task.WhenAll(udmBootCheckTask, udmBootEnabledTask, sqmBootCheckTask, sqmScriptsCheckTask);
+
+            // Batch 2: monitor and service status checks
+            var sqmMonitorCheckTask = RunCommandAsync(
+                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
+            var sqmMonitorRunningTask = RunCommandAsync(
+                "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
+            var watchdogRunningTask = RunCommandAsync(
+                "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
+            var cronCheckTask = RunCommandAsync(
+                "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
+
+            await Task.WhenAll(sqmMonitorCheckTask, sqmMonitorRunningTask, watchdogRunningTask, cronCheckTask);
+
+            // Batch 3: dependency checks
+            var speedtestCliCheckTask = RunCommandAsync(
+                "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
+            var bcCheckTask = RunCommandAsync(
+                "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
+
+            await Task.WhenAll(speedtestCliCheckTask, bcCheckTask);
+
+            // Process results
+            var udmBootCheck = udmBootCheckTask.Result;
             status.UdmBootInstalled = udmBootCheck.success && udmBootCheck.output.Contains("installed");
 
-            // Check if udm-boot is enabled
-            var udmBootEnabled = await RunCommandAsync(
-                "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
+            var udmBootEnabled = udmBootEnabledTask.Result;
             status.UdmBootEnabled = udmBootEnabled.success && udmBootEnabled.output.Trim() == "enabled";
 
-            // Check for SQM boot scripts (new pattern: 20-sqm-{name}.sh, excluding monitor)
-            var sqmBootCheck = await RunCommandAsync(
-                $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
-            var bootScriptCount = 0;
-            if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out bootScriptCount))
+            var sqmBootCheck = sqmBootCheckTask.Result;
+            if (sqmBootCheck.success && int.TryParse(sqmBootCheck.output.Trim(), out int bootScriptCount))
             {
                 status.SpeedtestScriptDeployed = bootScriptCount > 0;
                 status.PingScriptDeployed = bootScriptCount > 0; // Both are in the same boot script now
             }
 
-            // Check for deployed SQM scripts in /data/sqm/
-            var sqmScriptsCheck = await RunCommandAsync(
-                $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
+            var sqmScriptsCheck = sqmScriptsCheckTask.Result;
             if (sqmScriptsCheck.success && int.TryParse(sqmScriptsCheck.output.Trim(), out int sqmScriptCount))
             {
                 status.SpeedtestScriptDeployed = status.SpeedtestScriptDeployed || sqmScriptCount > 0;
             }
 
-            // Check for SQM Monitor
-            var sqmMonitorCheck = await RunCommandAsync(
-                $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
+            var sqmMonitorCheck = sqmMonitorCheckTask.Result;
             status.TcMonitorDeployed = sqmMonitorCheck.success && sqmMonitorCheck.output.Contains("exists");
 
-            // Check if SQM Monitor is running
-            var sqmMonitorRunning = await RunCommandAsync(
-                "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
+            var sqmMonitorRunning = sqmMonitorRunningTask.Result;
             status.TcMonitorRunning = sqmMonitorRunning.success && sqmMonitorRunning.output.Trim() == "active";
 
-            // Check if watchdog timer is running
-            var watchdogRunning = await RunCommandAsync(
-                "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
+            var watchdogRunning = watchdogRunningTask.Result;
             status.WatchdogTimerRunning = watchdogRunning.success && watchdogRunning.output.Trim() == "active";
 
-            // Check for cron jobs
-            var cronCheck = await RunCommandAsync(
-                "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
+            var cronCheck = cronCheckTask.Result;
             if (cronCheck.success && int.TryParse(cronCheck.output.Trim(), out int cronCount))
             {
                 status.CronJobsConfigured = cronCount;
             }
 
-            // Check for speedtest CLI
-            var speedtestCliCheck = await RunCommandAsync(
-                "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
+            var speedtestCliCheck = speedtestCliCheckTask.Result;
             status.SpeedtestCliInstalled = speedtestCliCheck.success && speedtestCliCheck.output.Contains("installed");
 
-            // Check for bc (math utility)
-            var bcCheck = await RunCommandAsync(
-                "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
+            var bcCheck = bcCheckTask.Result;
             status.BcInstalled = bcCheck.success && bcCheck.output.Contains("installed");
 
             status.IsDeployed = status.SpeedtestScriptDeployed && status.PingScriptDeployed;

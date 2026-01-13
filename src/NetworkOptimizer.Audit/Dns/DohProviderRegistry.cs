@@ -9,6 +9,23 @@ namespace NetworkOptimizer.Audit.Dns;
 public static class DohProviderRegistry
 {
     /// <summary>
+    /// DNS resolver function for reverse DNS lookups. Can be replaced in tests to avoid real network calls.
+    /// Default implementation uses System.Net.Dns.GetHostEntryAsync.
+    /// </summary>
+    public static Func<IPAddress, Task<string?>> DnsResolver { get; set; } = DefaultDnsResolver;
+
+    private static async Task<string?> DefaultDnsResolver(IPAddress ipAddress)
+    {
+        var hostEntry = await System.Net.Dns.GetHostEntryAsync(ipAddress);
+        return hostEntry.HostName;
+    }
+
+    /// <summary>
+    /// Reset the DNS resolver to the default implementation (for test cleanup).
+    /// </summary>
+    public static void ResetDnsResolver() => DnsResolver = DefaultDnsResolver;
+
+    /// <summary>
     /// Known DoH providers with their configuration details
     /// </summary>
     public static readonly IReadOnlyDictionary<string, DohProviderInfo> Providers = new Dictionary<string, DohProviderInfo>(StringComparer.OrdinalIgnoreCase)
@@ -204,7 +221,8 @@ public static class DohProviderRegistry
     }
 
     /// <summary>
-    /// Perform a reverse DNS (PTR) lookup on an IP address
+    /// Perform a reverse DNS (PTR) lookup on an IP address.
+    /// Uses the mockable DnsResolver delegate.
     /// </summary>
     public static async Task<string?> ReverseDnsLookupAsync(string ip)
     {
@@ -213,8 +231,7 @@ public static class DohProviderRegistry
 
         try
         {
-            var hostEntry = await System.Net.Dns.GetHostEntryAsync(ipAddress);
-            return hostEntry.HostName;
+            return await DnsResolver(ipAddress);
         }
         catch
         {

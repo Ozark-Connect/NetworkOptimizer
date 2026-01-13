@@ -294,6 +294,11 @@ public class PortDetail
     public List<string> PortSecurityMacs { get; set; } = new();
     public bool Isolation { get; set; }
 
+    /// <summary>
+    /// Type of UniFi device connected to this port (e.g., "uap", "usw"). Null for regular clients.
+    /// </summary>
+    public string? ConnectedDeviceType { get; set; }
+
     public int MacRestrictionCount => PortSecurityMacs.Count;
 
     public string GetLinkStatus() => DisplayFormatters.GetLinkStatus(IsUp, Speed);
@@ -322,12 +327,13 @@ public class PortDetail
         if (Forward == "all")
             return ("Trunk", PortStatusType.Ok);
 
+        // Check if this port has a UniFi device connected
+        var deviceStatus = GetConnectedDeviceStatus();
+        if (deviceStatus != null)
+            return (deviceStatus, PortStatusType.Ok);
+
         if (Forward == "custom" || Forward == "customize")
-        {
-            if (Name.ToLower().Contains("ap") || Name.ToLower().Contains("access point"))
-                return ("AP", PortStatusType.Ok);
             return ("OK", PortStatusType.Ok);
-        }
 
         if (Forward == "native")
         {
@@ -338,6 +344,35 @@ public class PortDetail
         }
 
         return ("OK", PortStatusType.Ok);
+    }
+
+    /// <summary>
+    /// Get display status for ports with UniFi devices connected.
+    /// Returns null if not a recognized device type.
+    /// </summary>
+    private string? GetConnectedDeviceStatus()
+    {
+        // Primary: check actual device type from uplink data
+        if (!string.IsNullOrEmpty(ConnectedDeviceType))
+        {
+            return ConnectedDeviceType.ToLowerInvariant() switch
+            {
+                "uap" => "AP",
+                "usw" => "Switch",
+                "ubb" => "Bridge",
+                "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
+                "umbb" => "Modem",
+                "uck" => "CloudKey",
+                _ => "Device"  // Generic for unknown UniFi device types
+            };
+        }
+
+        // Fallback: check port name for AP hints
+        var nameLower = Name?.ToLower() ?? "";
+        if (nameLower.Contains("ap") || nameLower.Contains("access point"))
+            return "AP";
+
+        return null;
     }
 
     private bool IsIoTDeviceOnWrongVlan()

@@ -14,7 +14,8 @@
     <DefaultCompressionLevel>high</DefaultCompressionLevel>
 
     <!-- Suppress ICE60 warnings for .NET runtime DLLs without language metadata -->
-    <SuppressIces>ICE60</SuppressIces>
+    <!-- Suppress ICE61 false positive from AllowSameVersionUpgrades="yes" in MajorUpgrade -->
+    <SuppressIces>ICE60;ICE61</SuppressIces>
 
     <!-- Suppress WIX1149 warning about ServiceConfig - delayed auto-start still works -->
     <SuppressSpecificWarnings>1149</SuppressSpecificWarnings>

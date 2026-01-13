@@ -8,8 +8,8 @@ namespace NetworkOptimizer.Audit;
 /// </summary>
 public static class DeviceNameHints
 {
-    // Word boundary pattern for short keywords that could match within other words
-    private static readonly Regex ApWordBoundaryRegex = new(@"\bap\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Word boundary patterns for short keywords that could match within other words
+    private static readonly Regex ApWordBoundaryRegex = new(@"\b(ap|wap)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
     /// Keywords that suggest an IoT device
@@ -24,7 +24,7 @@ public static class DeviceNameHints
     /// <summary>
     /// Keywords that suggest an access point
     /// </summary>
-    public static readonly string[] AccessPointHints = { "ap", "access point", "wifi" };
+    public static readonly string[] AccessPointHints = { "ap", "wap", "access point", "wifi" };
 
     /// <summary>
     /// Check if a port name suggests an IoT device

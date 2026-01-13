@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
@@ -133,6 +134,8 @@ public class AuditService
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
             var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
+            var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
+            var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -142,6 +145,9 @@ public class AuditService
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // Pi-hole port (null means auto-detect)
             options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
+            // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
+            options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
+            options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
 
             _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
@@ -610,6 +616,9 @@ public class AuditService
                 AllowPrintersOnMainNetwork = options.AllowPrintersOnMainNetwork
             };
 
+            // Configure unused port detection thresholds
+            UnusedPortRule.SetThresholds(options.UnusedPortInactivityDays, options.NamedPortInactivityDays);
+
             // Run the audit engine with all available data for comprehensive analysis
             var auditResult = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
             {
@@ -903,7 +912,8 @@ public class AuditService
             Isolation = port.IsolationEnabled,
             PoeEnabled = port.PoeEnabled,
             PoePower = port.PoePower,
-            PoeMode = port.PoeMode
+            PoeMode = port.PoeMode,
+            ConnectedDeviceType = port.ConnectedDeviceType
         };
     }
 
@@ -1077,26 +1087,26 @@ public class AuditService
 
     private static string GetDefaultRecommendation(string type) => type switch
     {
-        Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic.",
-        Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic.",
-        Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
-        Audit.IssueTypes.MacRestriction => "Enable MAC-based port security on critical infrastructure ports.",
-        Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface.",
-        Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices.",
-        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN.",
-        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN.",
-        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN.",
-        Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks.",
-        Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare.",
-        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption.",
-        Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs.",
-        Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet.",
-        Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains.",
-        Audit.IssueTypes.DnsIsp => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
-        Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider.",
-        Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers.",
-        Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway.",
-        _ => "Review the configuration and apply security best practices."
+        Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
+        Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic",
+        Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects",
+        Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
+        Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
+        Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
+        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
+        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
+        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
+        Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks",
+        Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
+        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption",
+        Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs",
+        Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet",
+        Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains",
+        Audit.IssueTypes.DnsIsp => "Configure custom DNS servers or enable DoH with a privacy-focused provider",
+        Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider",
+        Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers",
+        Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway",
+        _ => "Review the configuration and apply security best practices"
     };
 }
 
@@ -1112,6 +1122,10 @@ public class AuditOptions
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
     public int? PiholeManagementPort { get; set; }
+
+    // Unused port detection thresholds
+    public int UnusedPortInactivityDays { get; set; } = 15;
+    public int NamedPortInactivityDays { get; set; } = 45;
 }
 
 public class AuditResult
@@ -1259,6 +1273,10 @@ public class PortReference
     public bool PoeEnabled { get; set; }
     public double PoePower { get; set; }
     public string? PoeMode { get; set; }
+    /// <summary>
+    /// Type of UniFi device connected to this port (e.g., "uap", "usw"). Null for regular clients.
+    /// </summary>
+    public string? ConnectedDeviceType { get; set; }
 }
 
 public class WirelessClientReference
