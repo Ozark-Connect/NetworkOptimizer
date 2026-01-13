@@ -152,10 +152,11 @@
                 return;
             }
 
-            // Check if we have saved WAN configs with SQM enabled
-            var wan1Config = await SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Config = await SpeedTestRepository.GetSqmWanConfigAsync(2);
-            hasSavedEnabledConfig = (wan1Config?.Enabled == true) || (wan2Config?.Enabled == true);
+            // Check if we have saved WAN configs with SQM enabled (parallel)
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
+            await Task.WhenAll(wan1Task, wan2Task);
+            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
             var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
@@ -180,7 +181,7 @@
                     // TC Monitor responded but no interfaces configured
                     statusLabel = "Not Deployed";
                     statusClass = "offline";
-                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
                     // Only poll if we have saved enabled configs (user is setting up)
                     _shouldPoll = hasSavedEnabledConfig;
                 }
@@ -200,7 +201,7 @@
                     // Never seen active, show as not deployed
                     statusLabel = "Not Deployed";
                     statusClass = "offline";
-                    errorMessage = "Deploy Adaptive SQM to optimize your network performance.";
+                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
                     // Only poll if we have saved enabled configs (user is setting up)
                     _shouldPoll = hasSavedEnabledConfig;
                 }
