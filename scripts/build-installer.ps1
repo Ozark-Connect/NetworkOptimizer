@@ -43,7 +43,10 @@ dotnet publish $WebProject `
     --self-contained `
     -p:PublishSingleFile=true `
     -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:EnableCompressionInSingleFile=true
+    -p:EnableCompressionInSingleFile=true `
+    -p:Version=$Version `
+    -p:FileVersion=$Version `
+    -p:AssemblyVersion=$Version
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Publish failed!"

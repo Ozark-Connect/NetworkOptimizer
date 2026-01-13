@@ -23,7 +23,9 @@
         Description="Network Optimizer - UniFi network analysis, security auditing, and SQM optimization" />
 
     <!-- Upgrade handling - allows upgrading from older versions -->
+    <!-- AllowSameVersionUpgrades: allows reinstalling same version (replaces instead of duplicating) -->
     <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
         DowngradeErrorMessage="A newer version of Network Optimizer is already installed."
         Schedule="afterInstallInitialize" />
 
