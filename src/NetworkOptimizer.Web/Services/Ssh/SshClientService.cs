@@ -267,10 +267,28 @@ public class SshClientService
             }
         }
 
-        // Fall back to password auth
+        // Password-based auth: try both methods since devices vary
+        // - UniFi Gateways use keyboard-interactive
+        // - UniFi Switches/APs use standard password auth
         if (!string.IsNullOrEmpty(connection.Password))
         {
+            // Standard password authentication
             authMethods.Add(new PasswordAuthenticationMethod(connection.Username, connection.Password));
+
+            // Keyboard-interactive authentication (for UniFi Gateways)
+            var keyboardInteractive = new KeyboardInteractiveAuthenticationMethod(connection.Username);
+            keyboardInteractive.AuthenticationPrompt += (sender, e) =>
+            {
+                foreach (var prompt in e.Prompts)
+                {
+                    // Respond to password prompts
+                    if (prompt.Request.Contains("password", StringComparison.OrdinalIgnoreCase))
+                    {
+                        prompt.Response = connection.Password;
+                    }
+                }
+            };
+            authMethods.Add(keyboardInteractive);
         }
 
         if (authMethods.Count == 0)
