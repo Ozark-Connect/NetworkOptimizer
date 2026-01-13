@@ -1728,6 +1728,14 @@
             {
                 sshMessage = $"SSH connection to {onlineAp.Name} successful!";
                 sshMessageClass = "success";
+
+                // Update last tested timestamp on saved settings
+                if (sshSettings != null)
+                {
+                    sshSettings.LastTestedAt = DateTime.UtcNow;
+                    sshSettings.LastTestResult = "Success";
+                    await SshService.SaveSettingsAsync(sshSettings);
+                }
             }
             else
             {
