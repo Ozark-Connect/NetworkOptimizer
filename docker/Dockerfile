@@ -60,11 +60,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Install necessary utilities (without iperf3 - we copy it from build)
+# Note: openssh-client and sshpass removed - SSH.NET handles SSH natively
 RUN apt-get update && apt-get install -y \
     curl \
     iputils-ping \
-    openssh-client \
-    sshpass \
     libssl3 \
     gosu \
     sqlite3 \
