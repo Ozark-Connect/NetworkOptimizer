@@ -526,7 +526,7 @@
 
                         <div class="form-group">
                             <label class="form-label">SSH Password</label>
-                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved — enter new to update" : "(using global setting)")" />
+                            <input type="password" class="form-control" @bind="editingDevicePassword" placeholder="@(!string.IsNullOrWhiteSpace(editingDevice.SshPrivateKeyPath) ? "(using SSH key)" : editingDeviceHasSavedPassword ? "Saved – enter new to update" : "(using global setting)")" />
                             <span class="form-help">Password is encrypted at rest</span>
                         </div>
 
