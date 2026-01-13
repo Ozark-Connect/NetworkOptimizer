@@ -394,7 +394,7 @@ Download the MSI installer from [GitHub Releases](https://github.com/Ozark-Conne
 - Bundled iperf3 for speed testing
 - Proper uninstall via Windows Settings
 
-After installation, access the web UI at **http://localhost:8042**.
+After installation, access the web UI at **http://localhost:8042** (or use the machine's IP/hostname from other devices).
 
 ---
 
