@@ -742,7 +742,7 @@ app.Run();
 
 // Helper function to load configuration from Windows Registry (set by MSI installer)
 // Returns empty collection on non-Windows or if registry key doesn't exist
-static IEnumerable<KeyValuePair<string, string?>> LoadWindowsRegistrySettings()
+static Dictionary<string, string?> LoadWindowsRegistrySettings()
 {
     if (!OperatingSystem.IsWindows())
         return [];

@@ -155,13 +155,13 @@
             // Filter out misleading messages when one direction has 0 Mbps (wasn't tested)
             var hasZeroDirection = DownloadMbps == 0 || UploadMbps == 0;
             var filteredInsights = hasZeroDirection
-                ? PathAnalysis.Insights.Where(i => !i.Contains("Performance below expected", StringComparison.OrdinalIgnoreCase)).ToList()
+                ? PathAnalysis.Insights.Where(i => !i.Contains("Performance below expected", StringComparison.OrdinalIgnoreCase))
                 : PathAnalysis.Insights;
             var filteredRecs = hasZeroDirection
-                ? PathAnalysis.Recommendations.Where(r => !r.Contains("asymmetry", StringComparison.OrdinalIgnoreCase)).ToList()
+                ? PathAnalysis.Recommendations.Where(r => !r.Contains("asymmetry", StringComparison.OrdinalIgnoreCase))
                 : PathAnalysis.Recommendations;
         }
-        @if (filteredInsights.Count > 0 || filteredRecs.Count > 0)
+        @if (filteredInsights.Any() || filteredRecs.Any())
         {
             <div class="path-notes">
                 @foreach (var insight in filteredInsights)

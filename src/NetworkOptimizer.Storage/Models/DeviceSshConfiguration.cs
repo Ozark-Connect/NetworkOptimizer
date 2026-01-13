@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Storage.Models;
@@ -57,6 +58,7 @@ public class DeviceSshConfiguration
     /// Returns true if this device has its own SSH credentials configured (username + password or key).
     /// When true, the device can connect without needing global SSH settings.
     /// </summary>
+    [NotMapped]
     public bool HasOwnCredentials =>
         !string.IsNullOrEmpty(SshUsername) &&
         (!string.IsNullOrEmpty(SshPassword) || !string.IsNullOrEmpty(SshPrivateKeyPath));
