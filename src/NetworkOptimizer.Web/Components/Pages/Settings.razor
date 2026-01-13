@@ -1888,13 +1888,34 @@
 
         return new UniFiConnectionConfig
         {
-            ControllerUrl = controllerUrl,
+            ControllerUrl = NormalizeControllerUrl(controllerUrl),
             Username = controllerUsername,
             Password = password,
             Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
             RememberCredentials = rememberCredentials,
             IgnoreControllerSSLErrors = ignoreControllerSSLErrors
         };
+    }
+
+    /// <summary>
+    /// Normalize controller URL by prepending https:// if no scheme is provided.
+    /// </summary>
+    private static string NormalizeControllerUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        url = url.Trim();
+
+        // If URL already has a scheme, return as-is
+        if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        // Prepend https:// for bare IP or hostname
+        return $"https://{url}";
     }
 
     private async Task TestControllerConnection()
