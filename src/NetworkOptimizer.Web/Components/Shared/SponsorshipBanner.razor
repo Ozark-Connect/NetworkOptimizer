@@ -6,18 +6,18 @@
 
 @if (_shouldShow && !_isDismissed)
 {
-    <div class="connection-banner" style="background: linear-gradient(135deg, #2d1f3d 0%, #1a1225 100%); border-color: #5a3d7a;">
+    <div class="connection-banner" style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.08) 100%); border-color: #a855f7;">
         <div class="banner-content">
-            <span class="banner-icon" style="background: #8b5cf6; color: white;">&#x2665;</span>
+            <span class="banner-icon" style="background: #a855f7; color: white;">&#x2665;</span>
             <div class="banner-text">
-                <strong style="color: #c4b5fd;">Finding this app useful?</strong>
-                <span style="color: #a78bfa;">
-                    <a href="https://github.com/sponsors/tvancott42" target="_blank" rel="noopener noreferrer" style="color: #c4b5fd; text-decoration: underline;">Support development on GitHub</a>
+                <strong style="color: #c084fc;">Finding this app useful?</strong>
+                <span style="color: #e2e8f0;">
+                    <a href="https://github.com/sponsors/tvancott42" target="_blank" rel="noopener noreferrer" style="color: #c084fc; text-decoration: underline;">Support development on GitHub</a>
                     &nbsp;|&nbsp;
-                    Commercial use? Email <a href="mailto:tj@ozarkconnect.net" style="color: #c4b5fd; text-decoration: underline;">tj@ozarkconnect.net</a> for licensing.
+                    Commercial use? Email <a href="mailto:tj@ozarkconnect.net" style="color: #c084fc; text-decoration: underline;">tj@ozarkconnect.net</a> for licensing.
                 </span>
             </div>
-            <button class="btn btn-sm" @onclick="DismissAsync" style="background: #8b5cf6; color: white; border: none;">Dismiss</button>
+            <button class="btn btn-sm" @onclick="DismissAsync" style="background: #a855f7; color: white; border: none;">Dismiss</button>
         </div>
     </div>
 }
