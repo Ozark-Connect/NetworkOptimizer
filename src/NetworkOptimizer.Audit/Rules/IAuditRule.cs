@@ -315,25 +315,8 @@ public abstract class AuditRuleBase : IAuditRule
     }
 
     /// <summary>
-    /// Check if a port name is a custom name (not a default port label)
-    /// Default patterns: "8", "Port 8", "SFP+ 2", "SFP28 1", "QSFP28 1"
+    /// Check if a port name is a custom name (not a default port label).
+    /// Delegates to PortNameHelper for consistent behavior across all rules.
     /// </summary>
-    private static bool IsCustomPortName(string portName)
-    {
-        var trimmed = portName.Trim();
-
-        // Skip bare numbers like "8"
-        if (int.TryParse(trimmed, out _))
-            return false;
-
-        // Skip "Port X" patterns (e.g., "Port 1", "Port 8")
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^Port\s*\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            return false;
-
-        // Skip SFP port patterns (e.g., "SFP+ 2", "SFP28 1", "QSFP28 1", "QSFP+ 1")
-        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^Q?SFP(\+|28|56)?\s*\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            return false;
-
-        return true;
-    }
+    private static bool IsCustomPortName(string portName) => PortNameHelper.IsCustomPortName(portName);
 }

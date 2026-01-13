@@ -112,8 +112,7 @@ public class IotVlanRule : AuditRuleBase
             else
             {
                 // Fall back to custom port name if set, otherwise detected category
-                var hasCustomPortName = !string.IsNullOrEmpty(port.Name) &&
-                    !System.Text.RegularExpressions.Regex.IsMatch(port.Name, @"^Port \d+$");
+                var hasCustomPortName = PortNameHelper.IsCustomPortName(port.Name);
                 deviceName = hasCustomPortName
                     ? $"{port.Name} on {port.Switch.Name}"
                     : $"{detection.CategoryName} on {port.Switch.Name}";

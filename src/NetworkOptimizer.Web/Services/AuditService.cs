@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
@@ -133,6 +134,8 @@ public class AuditService
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
             var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
+            var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
+            var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -142,6 +145,9 @@ public class AuditService
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // Pi-hole port (null means auto-detect)
             options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
+            // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
+            options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
+            options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
 
             _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
@@ -609,6 +615,9 @@ public class AuditService
                 AllowAllTVsOnMainNetwork = options.AllowAllTVsOnMainNetwork,
                 AllowPrintersOnMainNetwork = options.AllowPrintersOnMainNetwork
             };
+
+            // Configure unused port detection thresholds
+            UnusedPortRule.SetThresholds(options.UnusedPortInactivityDays, options.NamedPortInactivityDays);
 
             // Run the audit engine with all available data for comprehensive analysis
             var auditResult = await _auditEngine.RunAuditAsync(new Audit.Models.AuditRequest
@@ -1112,6 +1121,10 @@ public class AuditOptions
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
     public int? PiholeManagementPort { get; set; }
+
+    // Unused port detection thresholds
+    public int UnusedPortInactivityDays { get; set; } = 15;
+    public int NamedPortInactivityDays { get; set; } = 45;
 }
 
 public class AuditResult
