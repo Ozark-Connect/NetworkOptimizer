@@ -160,6 +160,16 @@ New audit section focused on network performance issues (distinct from security 
 
 ## General
 
+### Rename ISpeedTestRepository to IGatewayRepository
+- **Issue:** `ISpeedTestRepository` is a misleading name - it handles Gateway SSH settings, iperf3 results, AND SQM WAN configuration
+- **Current location:** `src/NetworkOptimizer.Storage/Interfaces/ISpeedTestRepository.cs`
+- **Proposed name:** `IGatewayRepository` (all methods are gateway-related)
+- **Refactor scope:**
+  - Rename interface and implementation (`SpeedTestRepository.cs`)
+  - Update all DI registrations in `Program.cs`
+  - Update all injection sites across the codebase
+  - Consider if gateway SSH settings should be a separate repository
+
 ### Database Normalization Review
 - Review SQLite schema for proper normal form (1NF, 2NF, 3NF)
 - Ensure proper use of primary keys, foreign keys, and indices
