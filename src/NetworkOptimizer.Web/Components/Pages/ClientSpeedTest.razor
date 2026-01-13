@@ -228,12 +228,26 @@
                                         </span>
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
-                                        <span class="speed-unit">Mbps</span>
+                                        @if (result.DownloadMbps > 0)
+                                        {
+                                            <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
+                                            <span class="speed-unit">Mbps</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
                                     </td>
                                     <td>
-                                        <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
-                                        <span class="speed-unit">Mbps</span>
+                                        @if (result.UploadMbps > 0)
+                                        {
+                                            <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
+                                            <span class="speed-unit">Mbps</span>
+                                        }
+                                        else
+                                        {
+                                            <span>-</span>
+                                        }
                                     </td>
                                     <td>
                                         @if (result.PingMs.HasValue)

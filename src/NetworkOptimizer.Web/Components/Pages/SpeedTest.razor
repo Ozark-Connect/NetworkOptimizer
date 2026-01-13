@@ -687,8 +687,8 @@
                                 @onclick="@(() => { if (result.Success) ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
-                                <td>@(result.Success ? result.DownloadMbps.ToString("F1") : "-")</td>
-                                <td>@(result.Success ? result.UploadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                <td>@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
                                 <td>@result.ParallelStreams</td>
                                 <td>
                                     @if (result.Success)
