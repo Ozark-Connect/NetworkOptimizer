@@ -19,10 +19,8 @@ public class NginxHostedService : IHostedService, IDisposable
         _logger = logger;
         _configuration = configuration;
 
-        // Default install location: C:\Program Files\Ozark Connect\Network Optimizer
-        _installFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Ozark Connect", "Network Optimizer");
+        // Use the application's base directory (works for any install location)
+        _installFolder = AppContext.BaseDirectory;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -135,6 +133,9 @@ public class NginxHostedService : IHostedService, IDisposable
 
     private static void LoadRegistryValue(Dictionary<string, string> config, Microsoft.Win32.RegistryKey key, string name)
     {
+        if (!OperatingSystem.IsWindows())
+            return;
+
         var value = key.GetValue(name) as string;
         if (!string.IsNullOrEmpty(value))
         {

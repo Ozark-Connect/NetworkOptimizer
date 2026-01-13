@@ -463,11 +463,9 @@ public class Iperf3ServerService : BackgroundService
     {
         if (OperatingSystem.IsWindows())
         {
-            // Look for bundled iperf3 in the install directory
-            var installDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Ozark Connect", "Network Optimizer", "iperf3");
-            var bundledPath = Path.Combine(installDir, "iperf3.exe");
+            // Look for bundled iperf3 relative to the application directory
+            // This works regardless of where the app is installed
+            var bundledPath = Path.Combine(AppContext.BaseDirectory, "iperf3", "iperf3.exe");
 
             if (File.Exists(bundledPath))
             {
