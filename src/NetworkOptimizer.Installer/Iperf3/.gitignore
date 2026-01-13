@@ -1,3 +1,4 @@
 # iperf3 binaries - download manually or via Download-Iperf3.ps1
 # These are uploaded separately in GitHub releases
 *.exe
+*.dll
