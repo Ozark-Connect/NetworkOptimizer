@@ -1087,26 +1087,26 @@ public class AuditService
 
     private static string GetDefaultRecommendation(string type) => type switch
     {
-        Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic.",
-        Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic.",
-        Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects.",
+        Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
+        Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic",
+        Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
-        Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices.",
-        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN.",
-        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN.",
-        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN.",
-        Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks.",
-        Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare.",
-        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption.",
-        Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs.",
-        Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet.",
-        Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains.",
-        Audit.IssueTypes.DnsIsp => "Configure custom DNS servers or enable DoH with a privacy-focused provider.",
-        Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider.",
-        Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers.",
-        Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway.",
-        _ => "Review the configuration and apply security best practices."
+        Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
+        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
+        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
+        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
+        Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks",
+        Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
+        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption",
+        Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP/TCP port 53 to Internet for all VLANs",
+        Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet",
+        Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains",
+        Audit.IssueTypes.DnsIsp => "Configure custom DNS servers or enable DoH with a privacy-focused provider",
+        Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider",
+        Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers",
+        Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway",
+        _ => "Review the configuration and apply security best practices"
     };
 }
 
