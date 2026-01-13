@@ -48,7 +48,7 @@ dotnet publish $WebProject `
     -p:Version=$Version `
     -p:FileVersion=$Version `
     -p:AssemblyVersion=$Version `
-    -p:InformationalVersion=$Version
+    -p:IncludeSourceRevisionInInformationalVersion=false
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Publish failed!"
