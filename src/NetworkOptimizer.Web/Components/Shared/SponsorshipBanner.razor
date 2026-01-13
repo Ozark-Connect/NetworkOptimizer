@@ -1,0 +1,87 @@
+@using NetworkOptimizer.Storage.Models
+@inject ISystemSettingsService SettingsService
+@inject AuditService AuditService
+@inject Iperf3SpeedTestService SpeedTestService
+
+@if (_shouldShow && !_isDismissed)
+{
+    <div class="connection-banner" style="background: linear-gradient(135deg, #2d1f3d 0%, #1a1225 100%); border-color: #5a3d7a;">
+        <div class="banner-content">
+            <span class="banner-icon" style="background: #8b5cf6; color: white;">&#x2665;</span>
+            <div class="banner-text">
+                <strong style="color: #c4b5fd;">Finding this app useful?</strong>
+                <span style="color: #a78bfa;">
+                    <a href="https://github.com/sponsors/tvancott42" target="_blank" rel="noopener noreferrer" style="color: #c4b5fd; text-decoration: underline;">Support development on GitHub</a>
+                    &nbsp;|&nbsp;
+                    Commercial use? Email <a href="mailto:tj@ozarkconnect.net" style="color: #c4b5fd; text-decoration: underline;">tj@ozarkconnect.net</a> for licensing.
+                </span>
+            </div>
+            <button class="btn btn-outline-light btn-sm" @onclick="DismissAsync" style="border-color: #8b5cf6; color: #c4b5fd;">Dismiss</button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _shouldShow = false;
+    private bool _isDismissed = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckConditionsAsync();
+        }
+    }
+
+    private async Task CheckConditionsAsync()
+    {
+        try
+        {
+            // Check if already dismissed
+            var dismissedValue = await SettingsService.GetAsync(SystemSettingKeys.SponsorshipBannerDismissed);
+            _isDismissed = !string.IsNullOrEmpty(dismissedValue) && dismissedValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+            if (_isDismissed)
+            {
+                return;
+            }
+
+            // Check if user has completed meaningful actions:
+            // 1. Has run an audit (check if there's a last audit time)
+            var auditSummary = await AuditService.GetAuditSummaryAsync();
+            var hasRunAudit = auditSummary.LastAuditTime.HasValue;
+
+            // 2. Has speed test results
+            var speedTestResults = await SpeedTestService.GetRecentResultsAsync(1);
+            var hasSpeedTestResults = speedTestResults.Any();
+
+            // Show banner if either condition is met
+            _shouldShow = hasRunAudit || hasSpeedTestResults;
+
+            if (_shouldShow)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // Silently fail - sponsorship banner is non-critical
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        try
+        {
+            await SettingsService.SetAsync(SystemSettingKeys.SponsorshipBannerDismissed, "true");
+            _isDismissed = true;
+            StateHasChanged();
+        }
+        catch
+        {
+            // Just hide it locally if save fails
+            _isDismissed = true;
+            StateHasChanged();
+        }
+    }
+}
