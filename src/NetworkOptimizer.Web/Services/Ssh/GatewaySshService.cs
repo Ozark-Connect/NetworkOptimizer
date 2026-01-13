@@ -141,6 +141,58 @@ public class GatewaySshService : IGatewaySshService
     }
 
     /// <inheritdoc />
+    public async Task<(bool success, string message)> TestConnectionAsync(
+        string host,
+        int port,
+        string username,
+        string? password,
+        string? privateKeyPath)
+    {
+        if (string.IsNullOrEmpty(host))
+        {
+            return (false, "Gateway host not configured");
+        }
+
+        if (string.IsNullOrEmpty(password) && string.IsNullOrEmpty(privateKeyPath))
+        {
+            return (false, "SSH credentials not configured");
+        }
+
+        try
+        {
+            var connection = new SshConnectionInfo
+            {
+                Host = host,
+                Port = port,
+                Username = username,
+                Password = password,
+                PrivateKeyPath = privateKeyPath,
+                Timeout = TimeSpan.FromSeconds(30)
+            };
+
+            var (success, message) = await _sshClient.TestConnectionAsync(connection);
+
+            if (success)
+            {
+                // Verify with a simple command
+                var result = await _sshClient.ExecuteCommandAsync(connection, "echo Connection_OK");
+                if (result.Success && result.Output.Contains("Connection_OK"))
+                {
+                    return (true, "SSH connection successful");
+                }
+                return (false, result.Error ?? "Connection test command failed");
+            }
+
+            return (false, message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gateway SSH connection test failed for {Host}", host);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task<(bool success, string output)> RunCommandAsync(
         string command,
         TimeSpan? timeout = null,

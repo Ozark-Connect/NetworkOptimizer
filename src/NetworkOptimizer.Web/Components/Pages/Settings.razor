@@ -1,10 +1,12 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
 @inject UniFiConnectionService ConnectionService
+@inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
 @inject AuditService AuditService
@@ -1443,32 +1445,38 @@
 
         try
         {
-            // Build a DeviceSshConfiguration from form values to test current settings
-            // If password field is empty but we have a saved password, load it for the test
-            var testPassword = gatewayPassword;
-            if (string.IsNullOrEmpty(testPassword) && hasGatewayPassword)
+            (bool success, string message) result;
+
+            // If user entered a new password or key path, test with form values
+            // Otherwise test with saved settings (which handles decryption internally)
+            if (!string.IsNullOrEmpty(gatewayPassword) || !string.IsNullOrEmpty(gatewayPrivateKeyPath))
             {
-                var savedSettings = await GatewayService.GetSettingsAsync();
-                testPassword = savedSettings?.Password;
+                // Test with form values (new password is plain text)
+                result = await GatewaySshService.TestConnectionAsync(
+                    gatewayHost,
+                    gatewayPort,
+                    gatewayUsername,
+                    gatewayPassword,
+                    gatewayPrivateKeyPath);
+            }
+            else if (hasGatewayPassword)
+            {
+                // No new credentials entered, test with saved settings
+                result = await GatewaySshService.TestConnectionAsync();
+            }
+            else
+            {
+                result = (false, "No credentials configured");
             }
 
-            var testConfig = new DeviceSshConfiguration
-            {
-                Host = gatewayHost,
-                SshUsername = gatewayUsername,
-                SshPassword = testPassword,
-                SshPrivateKeyPath = gatewayPrivateKeyPath
-            };
-
-            var (success, message) = await SshService.TestConnectionAsync(testConfig);
-            if (success)
+            if (result.success)
             {
                 gatewayMessage = "SSH connection successful!";
                 gatewayMessageClass = "success";
             }
             else
             {
-                gatewayMessage = $"SSH connection failed: {message}";
+                gatewayMessage = $"SSH connection failed: {result.message}";
                 gatewayMessageClass = "danger";
             }
         }

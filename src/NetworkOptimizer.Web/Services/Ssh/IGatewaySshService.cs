@@ -21,9 +21,24 @@ public interface IGatewaySshService
     Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings);
 
     /// <summary>
-    /// Test SSH connection to the gateway
+    /// Test SSH connection to the gateway using saved settings
     /// </summary>
     Task<(bool success, string message)> TestConnectionAsync();
+
+    /// <summary>
+    /// Test SSH connection to the gateway using provided settings (for testing form values before save)
+    /// </summary>
+    /// <param name="host">Gateway hostname or IP</param>
+    /// <param name="port">SSH port</param>
+    /// <param name="username">SSH username</param>
+    /// <param name="password">Plain text password (not encrypted)</param>
+    /// <param name="privateKeyPath">Path to private key file</param>
+    Task<(bool success, string message)> TestConnectionAsync(
+        string host,
+        int port,
+        string username,
+        string? password,
+        string? privateKeyPath);
 
     /// <summary>
     /// Run an SSH command on the gateway
