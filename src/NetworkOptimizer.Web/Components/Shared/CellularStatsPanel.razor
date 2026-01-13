@@ -154,6 +154,13 @@
                             <span class="info-value">@modemStats.ServingCell.BandDescription</span>
                         </div>
                     }
+                    @if (modemStats.ServingCell.TimingAdvance.HasValue)
+                    {
+                        <div class="info-item">
+                            <span class="info-label">Tower:</span>
+                            <span class="info-value">~@(modemStats.ServingCell.TimingAdvance.Value * 150) m</span>
+                        </div>
+                    }
                 }
                 @if (modemStats.NeighborCells?.Count > 0)
                 {
