@@ -93,7 +93,7 @@ public class SshClientService
             {
                 Success = false,
                 ExitCode = -1,
-                Error = ex.Message
+                Error = $"SSH error: {ex.Message}"
             };
         }
         finally
@@ -293,8 +293,11 @@ public class SshClientService
 
         if (authMethods.Count == 0)
         {
+            var hint = !string.IsNullOrEmpty(connection.PrivateKeyPath)
+                ? " (private key may be invalid or unreadable)"
+                : " (no password or private key configured)";
             throw new InvalidOperationException(
-                $"No authentication method available for {connection.Username}@{connection.Host}");
+                $"No authentication method available for {connection.Username}@{connection.Host}{hint}");
         }
 
         return authMethods;
