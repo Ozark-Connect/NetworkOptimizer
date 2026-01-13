@@ -93,7 +93,7 @@ public class SshClientService
             {
                 Success = false,
                 ExitCode = -1,
-                Error = $"SSH error: {ex.Message}"
+                Error = ex.Message
             };
         }
         finally
