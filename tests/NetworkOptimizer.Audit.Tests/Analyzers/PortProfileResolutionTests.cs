@@ -350,33 +350,39 @@ public class PortProfileResolutionTests
     [Fact]
     public void Integration_MixedPorts_OnlyProfiledPortsResolved()
     {
-        var deviceData = JsonDocument.Parse(@"[
-            {
+        // Recent timestamp for custom-named port (within 45-day grace period)
+        var recentTimestamp = DateTimeOffset.UtcNow.AddDays(-10).ToUnixTimeSeconds();
+
+        var deviceData = JsonDocument.Parse($@"[
+            {{
                 ""type"": ""usw"",
                 ""name"": ""Office Switch"",
                 ""mac"": ""11:22:33:44:55:66"",
                 ""port_table"": [
-                    {
+                    {{
                         ""port_idx"": 1,
                         ""name"": ""Port 1"",
                         ""portconf_id"": ""profile-disabled"",
                         ""forward"": ""all"",
                         ""up"": false
-                    },
-                    {
+                    }},
+                    {{
                         ""port_idx"": 2,
                         ""name"": ""Port 2"",
                         ""forward"": ""all"",
                         ""up"": false
-                    },
-                    {
+                    }},
+                    {{
                         ""port_idx"": 3,
                         ""name"": ""Printer"",
                         ""forward"": ""native"",
-                        ""up"": false
-                    }
+                        ""up"": false,
+                        ""last_connection"": {{
+                            ""last_seen"": {recentTimestamp}
+                        }}
+                    }}
                 ]
-            }
+            }}
         ]").RootElement;
         var networks = new List<NetworkInfo>();
         var portProfiles = new List<UniFiPortProfile>
@@ -398,6 +404,76 @@ public class PortProfileResolutionTests
 
         // Port 3: No profile but custom name -> NOT flagged (different rule)
         issues.Should().NotContain(i => i.Port == "3", "port 3 has custom name 'Printer'");
+    }
+
+    /// <summary>
+    /// Integration test: Custom-named port with OLD timestamp (beyond 45-day grace period)
+    /// SHOULD be flagged as unused. This is the opposite of the test above.
+    /// </summary>
+    [Fact]
+    public void Integration_CustomNamedPort_WithOldTimestamp_ShouldBeFlagged()
+    {
+        // Old timestamp - beyond 45-day grace period for named ports
+        var oldTimestamp = DateTimeOffset.UtcNow.AddDays(-60).ToUnixTimeSeconds();
+
+        var deviceData = JsonDocument.Parse($@"[
+            {{
+                ""type"": ""usw"",
+                ""name"": ""Office Switch"",
+                ""mac"": ""11:22:33:44:55:66"",
+                ""port_table"": [
+                    {{
+                        ""port_idx"": 1,
+                        ""name"": ""Old Printer"",
+                        ""forward"": ""native"",
+                        ""up"": false,
+                        ""last_connection"": {{
+                            ""last_seen"": {oldTimestamp}
+                        }}
+                    }}
+                ]
+            }}
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Port has custom name but OLD timestamp -> SHOULD be flagged
+        issues.Should().Contain(i => i.Type == "UNUSED-PORT-001" && i.Port == "1",
+            "custom-named port with timestamp older than 45 days should be flagged");
+    }
+
+    /// <summary>
+    /// Integration test: Custom-named port with NO timestamp SHOULD be flagged
+    /// (no timestamp means no recent activity evidence, so flag for review).
+    /// </summary>
+    [Fact]
+    public void Integration_CustomNamedPort_WithNoTimestamp_ShouldBeFlagged()
+    {
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Office Switch"",
+                ""mac"": ""11:22:33:44:55:66"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""Conference Room TV"",
+                        ""forward"": ""native"",
+                        ""up"": false
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var switches = _engine.ExtractSwitches(deviceData, networks);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Port has custom name but no timestamp -> flagged (no activity evidence)
+        issues.Should().Contain(i => i.Type == "UNUSED-PORT-001" && i.Port == "1",
+            "custom-named port without timestamp should be flagged since there's no activity evidence");
     }
 
     #endregion

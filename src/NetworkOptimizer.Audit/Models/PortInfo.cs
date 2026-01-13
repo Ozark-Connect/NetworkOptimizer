@@ -115,4 +115,10 @@ public class PortInfo
     /// Populated from client history by matching switch MAC and port number.
     /// </summary>
     public UniFi.Models.UniFiClientHistoryResponse? HistoricalClient { get; init; }
+
+    /// <summary>
+    /// Type of UniFi device connected to this port (e.g., "uap" for AP, "usw" for switch).
+    /// Determined by matching device uplink info to this port. Null for regular clients.
+    /// </summary>
+    public string? ConnectedDeviceType { get; init; }
 }

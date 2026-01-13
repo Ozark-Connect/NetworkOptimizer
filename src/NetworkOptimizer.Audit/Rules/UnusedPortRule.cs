@@ -69,12 +69,12 @@ public class UnusedPortRule : AuditRuleBase
             port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp, port.LastConnectionSeen, thresholdDays);
 
         return CreateIssue(
-            "Unused port not disabled - should set forward mode to 'disabled'",
+            "Unused port should be disabled in UniFi Network or via a Port Profile",
             port,
             new Dictionary<string, object>
             {
                 { "current_forward_mode", port.ForwardMode ?? "unknown" },
-                { "recommendation", "Set forward mode to 'disabled' to harden the switch" },
+                { "recommendation", "Disable unused ports to reduce attack surface" },
                 { "configurable_setting", "Configure the grace period before flagging disconnected ports in Settings." }
             });
     }

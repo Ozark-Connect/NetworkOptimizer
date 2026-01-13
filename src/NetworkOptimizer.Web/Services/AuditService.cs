@@ -912,7 +912,8 @@ public class AuditService
             Isolation = port.IsolationEnabled,
             PoeEnabled = port.PoeEnabled,
             PoePower = port.PoePower,
-            PoeMode = port.PoeMode
+            PoeMode = port.PoeMode,
+            ConnectedDeviceType = port.ConnectedDeviceType
         };
     }
 
@@ -1272,6 +1273,10 @@ public class PortReference
     public bool PoeEnabled { get; set; }
     public double PoePower { get; set; }
     public string? PoeMode { get; set; }
+    /// <summary>
+    /// Type of UniFi device connected to this port (e.g., "uap", "usw"). Null for regular clients.
+    /// </summary>
+    public string? ConnectedDeviceType { get; set; }
 }
 
 public class WirelessClientReference
