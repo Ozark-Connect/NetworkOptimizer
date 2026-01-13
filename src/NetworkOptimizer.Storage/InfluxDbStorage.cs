@@ -1,10 +1,9 @@
+using System.Collections.Concurrent;
 using InfluxDB.Client;
 using InfluxDB.Client.Api.Domain;
-using InfluxDB.Client.Core;
 using InfluxDB.Client.Writes;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
-using System.Collections.Concurrent;
 
 namespace NetworkOptimizer.Storage;
 

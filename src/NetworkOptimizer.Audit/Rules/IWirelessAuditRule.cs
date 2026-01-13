@@ -1,6 +1,4 @@
 using NetworkOptimizer.Audit.Models;
-using NetworkOptimizer.Audit.Services;
-using NetworkOptimizer.Core.Enums;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 

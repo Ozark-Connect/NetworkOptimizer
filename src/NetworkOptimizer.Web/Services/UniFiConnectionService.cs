@@ -1,10 +1,9 @@
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Interfaces;
-using NetworkOptimizer.UniFi;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 

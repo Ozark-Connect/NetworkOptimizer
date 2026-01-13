@@ -1,10 +1,8 @@
-using Microsoft.Extensions.Logging;
+using System.Text;
 using NetworkOptimizer.Sqm;
 using NetworkOptimizer.Sqm.Models;
-using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Web.Services.Ssh;
-using System.Text;
 using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration;
 
 namespace NetworkOptimizer.Web.Services;
@@ -282,7 +280,7 @@ WantedBy=multi-user.target
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
-                var success = await DeployScriptAsync( filename, content);
+                var success = await DeployScriptAsync(filename, content);
                 if (!success)
                 {
                     throw new Exception($"Failed to deploy {filename}");
@@ -331,7 +329,7 @@ WantedBy=multi-user.target
         // Use base64 encoding to safely transfer script content (avoids shell quoting issues)
         var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(content));
         var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
-        var writeResult = await RunCommandAsync( writeCmd);
+        var writeResult = await RunCommandAsync(writeCmd);
 
         if (!writeResult.success)
         {
@@ -340,7 +338,7 @@ WantedBy=multi-user.target
         }
 
         // Make executable
-        var chmodResult = await RunCommandAsync( $"chmod +x '{targetPath}'");
+        var chmodResult = await RunCommandAsync($"chmod +x '{targetPath}'");
         if (!chmodResult.success)
         {
             _logger.LogWarning("Failed to chmod {File}: {Error}", filename, chmodResult.output);
@@ -377,7 +375,7 @@ WantedBy=multi-user.target
             var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync( "20-sqm-monitor.sh", sqmMonitorScript);
+            var success = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
             if (!success)
             {
                 return false;
@@ -510,14 +508,14 @@ WantedBy=multi-user.target
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
 
             // Check if script exists
-            var checkResult = await RunCommandAsync( $"test -f {scriptPath} && echo 'exists'");
+            var checkResult = await RunCommandAsync($"test -f {scriptPath} && echo 'exists'");
             if (!checkResult.success || !checkResult.output.Contains("exists"))
             {
                 return (false, $"SQM script not found: {scriptPath}");
             }
 
             // Run the script (speedtest can take up to 60 seconds)
-            var result = await RunCommandAsync( scriptPath);
+            var result = await RunCommandAsync(scriptPath);
 
             if (result.success)
             {
@@ -564,7 +562,7 @@ WantedBy=multi-user.target
                 cmd += $" --server-id={config.PreferredSpeedtestServerId}";
             }
 
-            var result = await RunCommandAsync( cmd);
+            var result = await RunCommandAsync(cmd);
             if (!result.success)
             {
                 _logger.LogError("Speedtest failed: {Error}", result.output);

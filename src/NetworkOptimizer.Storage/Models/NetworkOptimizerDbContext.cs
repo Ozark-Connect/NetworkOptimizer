@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using NetworkOptimizer.Core.Enums;
 
 namespace NetworkOptimizer.Storage.Models;
 

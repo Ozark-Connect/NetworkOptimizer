@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 

@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Storage.Interfaces;

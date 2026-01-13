@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;

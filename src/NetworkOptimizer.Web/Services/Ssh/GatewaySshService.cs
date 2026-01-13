@@ -1,7 +1,6 @@
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services.Ssh;
 

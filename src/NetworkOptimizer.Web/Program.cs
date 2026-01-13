@@ -1,20 +1,17 @@
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using NetworkOptimizer.Web;
-using NetworkOptimizer.Web.Services;
-using NetworkOptimizer.Web.Services.Ssh;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
-using NetworkOptimizer.Core.Helpers;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using NetworkOptimizer.Web;
+using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Ssh;
 
 // TODO(i18n): Add internationalization/localization support. Community volunteers available for translations.
 // See: https://learn.microsoft.com/en-us/aspnet/core/blazor/globalization-localization
@@ -571,7 +568,8 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
         clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
         latitude, longitude, locationAccuracy);
 
-    return Results.Ok(new {
+    return Results.Ok(new
+    {
         success = true,
         id = result.Id,
         clientIp = result.DeviceHost,

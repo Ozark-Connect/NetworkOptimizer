@@ -8,12 +8,10 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
-
+using static NetworkOptimizer.Core.Helpers.DisplayFormatters;
 // Disambiguate types that exist in both Audit.Models and Core.Models
 using AuditResult = NetworkOptimizer.Audit.Models.AuditResult;
 using AuditStatistics = NetworkOptimizer.Audit.Models.AuditStatistics;
-
-using static NetworkOptimizer.Core.Helpers.DisplayFormatters;
 
 namespace NetworkOptimizer.Audit;
 
