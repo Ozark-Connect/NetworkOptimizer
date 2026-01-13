@@ -1139,6 +1139,7 @@
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
     private static bool _cachedGatewayConnected;
+    private static bool _cachedGatewayConfigured;
     private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
 
     // State
@@ -1222,6 +1223,7 @@
         if (IsCacheValid())
         {
             gatewayConnected = _cachedGatewayConnected;
+            gatewayConfigured = _cachedGatewayConfigured;
             deploymentStatus = _cachedDeploymentStatus;
             tcInterfaces = _cachedTcInterfaces;
             wanInterfaces = _cachedWanInterfaces ?? new();
@@ -1648,7 +1650,10 @@
             {
                 // Not configured - don't try to connect
                 gatewayConnected = false;
+                _cachedGatewayConfigured = false;
+                _cachedGatewayConnected = false;
                 deploymentStatus = null;
+                _cachedDeploymentStatus = null;
                 isLoading = false;
                 _lastStatusCheck = DateTime.UtcNow;
                 StateHasChanged();
@@ -1696,6 +1701,7 @@
                 }
 
                 // Update cache - always update when gateway connected
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = gatewayConnected;
                 _cachedDeploymentStatus = deploymentStatus;
                 _cachedTcInterfaces = tcInterfaces;
@@ -1705,6 +1711,7 @@
             else
             {
                 // Gateway not connected - clear stale data and update cache
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = false;
                 deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
                 _cachedDeploymentStatus = deploymentStatus;
@@ -1719,6 +1726,7 @@
         catch (Exception ex)
         {
             // Error occurred - clear stale data and update cache
+            _cachedGatewayConfigured = gatewayConfigured;
             _cachedGatewayConnected = false;
             deploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
             _cachedDeploymentStatus = deploymentStatus;
@@ -2122,6 +2130,17 @@
 
     private async Task LoadSqmMonitorDataAsync()
     {
+        // Only poll if SQM is deployed or we have saved enabled WAN configs
+        var shouldPoll = deploymentStatus?.IsDeployed == true ||
+                         deploymentStatus?.TcMonitorRunning == true ||
+                         (wan1HasSavedConfig && wan1Config.Enabled) ||
+                         (wan2HasSavedConfig && wan2Config.Enabled);
+
+        if (!shouldPoll)
+        {
+            return;
+        }
+
         try
         {
             var gatewayHost = await GetGatewayHostAsync();
