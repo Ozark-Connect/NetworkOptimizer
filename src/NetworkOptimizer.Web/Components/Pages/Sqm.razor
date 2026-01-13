@@ -146,7 +146,7 @@
                     @if (sqmMonitorData?.Timestamp != default)
                     {
                         <div class="tc-timestamp">
-                            <small>Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                            <small>Updated: @sqmMonitorData?.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
                         </div>
                     }
                     <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
@@ -163,7 +163,7 @@
             </div>
             <div class="card-body">
         <div class="sqm-live-dashboard">
-            @if (sqmMonitorData.Wan1?.Active == true)
+            @if (sqmMonitorData?.Wan1?.Active == true)
             {
                 <div class="wan-status-card">
                     <div class="wan-status-header">
@@ -224,7 +224,7 @@
                 </div>
             }
 
-            @if (sqmMonitorData.Wan2?.Active == true)
+            @if (sqmMonitorData?.Wan2?.Active == true)
             {
                 <div class="wan-status-card">
                     <div class="wan-status-header">
@@ -1451,7 +1451,7 @@
                 wan1Config.Interface = availableWans[0].Interface;
                 wan1Config.Enabled = false;
                 if (!string.IsNullOrEmpty(availableWans[0].SuggestedPingIp))
-                    wan1Config.PingHost = availableWans[0].SuggestedPingIp;
+                    wan1Config.PingHost = availableWans[0].SuggestedPingIp!;
                 ApplyConnectionDefaults(wan1Config, availableWans[0].Name);
                 usedInterfaces.Add(availableWans[0].Interface);
                 availableWans.RemoveAt(0);
