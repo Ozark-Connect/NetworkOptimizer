@@ -1473,6 +1473,14 @@
             {
                 gatewayMessage = "SSH connection successful!";
                 gatewayMessageClass = "success";
+
+                // Update last tested timestamp on saved settings
+                if (gatewaySettings != null)
+                {
+                    gatewaySettings.LastTestedAt = DateTime.UtcNow;
+                    gatewaySettings.LastTestResult = "Success";
+                    await GatewayService.SaveSettingsAsync(gatewaySettings);
+                }
             }
             else
             {
