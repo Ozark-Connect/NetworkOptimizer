@@ -122,7 +122,8 @@ WantedBy=multi-user.target
 
         try
         {
-            // Launch all SSH checks in parallel for faster status retrieval
+            // Launch SSH checks in batches of 4 to avoid overwhelming SSH server
+            // Batch 1: udm-boot and script existence checks
             var udmBootCheckTask = RunCommandAsync(
                 "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
             var udmBootEnabledTask = RunCommandAsync(
@@ -131,6 +132,10 @@ WantedBy=multi-user.target
                 $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
             var sqmScriptsCheckTask = RunCommandAsync(
                 $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
+
+            await Task.WhenAll(udmBootCheckTask, udmBootEnabledTask, sqmBootCheckTask, sqmScriptsCheckTask);
+
+            // Batch 2: monitor and service status checks
             var sqmMonitorCheckTask = RunCommandAsync(
                 $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
             var sqmMonitorRunningTask = RunCommandAsync(
@@ -139,16 +144,16 @@ WantedBy=multi-user.target
                 "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
             var cronCheckTask = RunCommandAsync(
                 "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
+
+            await Task.WhenAll(sqmMonitorCheckTask, sqmMonitorRunningTask, watchdogRunningTask, cronCheckTask);
+
+            // Batch 3: dependency checks
             var speedtestCliCheckTask = RunCommandAsync(
                 "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
             var bcCheckTask = RunCommandAsync(
                 "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
 
-            // Wait for all checks to complete
-            await Task.WhenAll(
-                udmBootCheckTask, udmBootEnabledTask, sqmBootCheckTask, sqmScriptsCheckTask,
-                sqmMonitorCheckTask, sqmMonitorRunningTask, watchdogRunningTask,
-                cronCheckTask, speedtestCliCheckTask, bcCheckTask);
+            await Task.WhenAll(speedtestCliCheckTask, bcCheckTask);
 
             // Process results
             var udmBootCheck = udmBootCheckTask.Result;
