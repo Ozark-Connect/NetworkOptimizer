@@ -2449,9 +2449,9 @@ select.form-control {
 }
 
 .sponsorship-banner .btn-dismiss {
-    background: transparent;
+    background: rgba(168, 85, 247, 0.25);
     color: var(--purple-light);
-    border: 1px solid var(--purple-color);
+    border: none;
     padding: 0.35rem 0.75rem;
     font-size: 0.8rem;
     border-radius: var(--border-radius);
@@ -2460,7 +2460,7 @@ select.form-control {
 }
 
 .sponsorship-banner .btn-dismiss:hover {
-    background: var(--purple-color);
+    background: rgba(168, 85, 247, 0.4);
     color: white;
 }
 
