@@ -1,19 +1,17 @@
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using NetworkOptimizer.Web;
-using NetworkOptimizer.Web.Services;
 using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
-using NetworkOptimizer.Core.Helpers;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using NetworkOptimizer.Web;
+using NetworkOptimizer.Web.Services;
+using NetworkOptimizer.Web.Services.Ssh;
 using Serilog;
 using Serilog.Events;
 
@@ -156,6 +154,12 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+
+// Register SSH client service (singleton - cross-platform SSH.NET wrapper)
+builder.Services.AddSingleton<SshClientService>();
+
+// Register Gateway SSH service (singleton - SSH access to UniFi gateway/UDM)
+builder.Services.AddSingleton<IGatewaySshService, GatewaySshService>();
 
 // Register UniFi SSH service (singleton - shared SSH credentials for all UniFi devices)
 builder.Services.AddSingleton<UniFiSshService>();
@@ -625,7 +629,8 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
         clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
         latitude, longitude, locationAccuracy);
 
-    return Results.Ok(new {
+    return Results.Ok(new
+    {
         success = true,
         id = result.Id,
         clientIp = result.DeviceHost,

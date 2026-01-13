@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
-using DeviceType = NetworkOptimizer.Core.Enums.DeviceType;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 

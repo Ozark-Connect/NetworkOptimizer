@@ -1,7 +1,6 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
-using NetworkOptimizer.Core.Enums;
 using Xunit;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;

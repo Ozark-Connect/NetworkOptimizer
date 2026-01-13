@@ -1156,7 +1156,13 @@
         {
             gatewayIperf3Status = await GatewaySpeedTestService.CheckIperf3StatusAsync();
 
-            if (gatewayIperf3Status.IsInstalled)
+            // Check for SSH connection errors first
+            if (!string.IsNullOrEmpty(gatewayIperf3Status.Error))
+            {
+                gatewayMessage = gatewayIperf3Status.Error;
+                gatewayMessageClass = "danger";
+            }
+            else if (gatewayIperf3Status.IsInstalled)
             {
                 if (gatewayIperf3Status.IsRunning)
                 {

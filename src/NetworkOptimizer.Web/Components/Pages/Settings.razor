@@ -1,10 +1,12 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Ssh
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
 @inject UniFiConnectionService ConnectionService
+@inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
 @inject ISpeedTestRepository SpeedTestRepository
 @inject AuditService AuditService
@@ -382,7 +384,7 @@
             @if (gatewaySettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @gatewaySettings.LastTestedAt?.ToString("g") - @gatewaySettings.LastTestResult
+                    Last tested: @gatewaySettings.LastTestedAt?.ToLocalTime().ToString("g") - @gatewaySettings.LastTestResult
                 </div>
             }
 
@@ -489,7 +491,7 @@
             @if (sshSettings?.LastTestedAt != null)
             {
                 <div class="form-help" style="margin-top: 1rem;">
-                    Last tested: @sshSettings.LastTestedAt?.ToString("g") - @sshSettings.LastTestResult
+                    Last tested: @sshSettings.LastTestedAt?.ToLocalTime().ToString("g") - @sshSettings.LastTestResult
                 </div>
             }
 
@@ -1318,7 +1320,7 @@
     {
         try
         {
-            gatewaySettings = await GatewayService.GetSettingsAsync();
+            gatewaySettings = await GatewaySshService.GetSettingsAsync();
             gatewayHost = gatewaySettings.Host ?? "";
             gatewayUsername = gatewaySettings.Username;
             gatewayPort = gatewaySettings.Port;
@@ -1389,7 +1391,7 @@
                 settings.Password = gatewayPassword;
             }
 
-            gatewaySettings = await GatewayService.SaveSettingsAsync(settings);
+            gatewaySettings = await GatewaySshService.SaveSettingsAsync(settings);
             gatewayPassword = ""; // Clear password field
             hasGatewayPassword = !string.IsNullOrEmpty(gatewaySettings.Password);
             gatewayMessage = "Gateway settings saved successfully";
@@ -1443,32 +1445,46 @@
 
         try
         {
-            // Build a DeviceSshConfiguration from form values to test current settings
-            // If password field is empty but we have a saved password, load it for the test
-            var testPassword = gatewayPassword;
-            if (string.IsNullOrEmpty(testPassword) && hasGatewayPassword)
+            (bool success, string message) result;
+
+            // If user entered a new password or key path, test with form values
+            // Otherwise test with saved settings (which handles decryption internally)
+            if (!string.IsNullOrEmpty(gatewayPassword) || !string.IsNullOrEmpty(gatewayPrivateKeyPath))
             {
-                var savedSettings = await GatewayService.GetSettingsAsync();
-                testPassword = savedSettings?.Password;
+                // Test with form values (new password is plain text)
+                result = await GatewaySshService.TestConnectionAsync(
+                    gatewayHost,
+                    gatewayPort,
+                    gatewayUsername,
+                    gatewayPassword,
+                    gatewayPrivateKeyPath);
             }
-
-            var testConfig = new DeviceSshConfiguration
+            else if (hasGatewayPassword)
             {
-                Host = gatewayHost,
-                SshUsername = gatewayUsername,
-                SshPassword = testPassword,
-                SshPrivateKeyPath = gatewayPrivateKeyPath
-            };
-
-            var (success, message) = await SshService.TestConnectionAsync(testConfig);
-            if (success)
-            {
-                gatewayMessage = "SSH connection successful!";
-                gatewayMessageClass = "success";
+                // No new credentials entered, test with saved settings
+                result = await GatewaySshService.TestConnectionAsync();
             }
             else
             {
-                gatewayMessage = $"SSH connection failed: {message}";
+                result = (false, "No credentials configured");
+            }
+
+            if (result.success)
+            {
+                gatewayMessage = "SSH connection successful!";
+                gatewayMessageClass = "success";
+
+                // Update last tested timestamp on saved settings
+                if (gatewaySettings != null)
+                {
+                    gatewaySettings.LastTestedAt = DateTime.UtcNow;
+                    gatewaySettings.LastTestResult = "Success";
+                    await GatewaySshService.SaveSettingsAsync(gatewaySettings);
+                }
+            }
+            else
+            {
+                gatewayMessage = $"SSH connection failed: {result.message}";
                 gatewayMessageClass = "danger";
             }
         }
@@ -1664,7 +1680,7 @@
         }
 
         testingSshConnection = true;
-        sshMessage = "Finding an Access Point to test SSH...";
+        sshMessage = "Finding a device to test SSH...";
         sshMessageClass = "info";
         StateHasChanged();
 
@@ -1673,21 +1689,30 @@
             // Get discovered devices which already have correct effective DeviceType
             // (accounts for UDM-family devices acting as mesh APs)
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
-            var onlineAp = devices
-                .Where(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint
+
+            // Find first online non-gateway device (AP, switch, or modem)
+            var testableTypes = new[]
+            {
+                NetworkOptimizer.Core.Enums.DeviceType.AccessPoint,
+                NetworkOptimizer.Core.Enums.DeviceType.Switch,
+                NetworkOptimizer.Core.Enums.DeviceType.CellularModem
+            };
+
+            var testDevice = devices
+                .Where(d => testableTypes.Contains(d.Type)
                             && d.State == 1 && !string.IsNullOrEmpty(d.IpAddress))
                 .FirstOrDefault();
 
-            if (onlineAp == null)
+            if (testDevice == null)
             {
-                sshMessage = "No online Access Points found. Ensure you have adopted APs in your network.";
+                sshMessage = "No online devices found. Ensure you have adopted APs, switches, or modems in your network.";
                 sshMessageClass = "warning";
                 testingSshConnection = false;
                 StateHasChanged();
                 return;
             }
 
-            sshMessage = $"Testing SSH connection to {onlineAp.Name} ({onlineAp.IpAddress})...";
+            sshMessage = $"Testing SSH connection to {testDevice.Name} ({testDevice.IpAddress})...";
             StateHasChanged();
 
             // Build a DeviceSshConfiguration from form values to test current settings
@@ -1701,7 +1726,7 @@
 
             var testConfig = new DeviceSshConfiguration
             {
-                Host = onlineAp.IpAddress,
+                Host = testDevice.IpAddress,
                 SshUsername = sshUsername,
                 SshPassword = testPassword,
                 SshPrivateKeyPath = sshPrivateKeyPath
@@ -1710,8 +1735,16 @@
             var (success, message) = await SshService.TestConnectionAsync(testConfig);
             if (success)
             {
-                sshMessage = $"SSH connection to {onlineAp.Name} successful!";
+                sshMessage = $"SSH connection to {testDevice.Name} successful!";
                 sshMessageClass = "success";
+
+                // Update last tested timestamp on saved settings
+                if (sshSettings != null)
+                {
+                    sshSettings.LastTestedAt = DateTime.UtcNow;
+                    sshSettings.LastTestResult = "Success";
+                    await SshService.SaveSettingsAsync(sshSettings);
+                }
             }
             else
             {

@@ -625,7 +625,7 @@ public class IotVlanRuleTests
 
         // Assert - Should detect IoT device from last connection MAC
         result.Should().NotBeNull();
-        
+
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -685,7 +685,7 @@ public class IotVlanRuleTests
 
         // Assert - Should detect IoT from either source
         result.Should().NotBeNull();
-        
+
     }
 
     [Fact]
@@ -731,7 +731,7 @@ public class IotVlanRuleTests
 
         // Assert - Should detect IoT device from last connection MAC even though port is UP
         result.Should().NotBeNull();
-        
+
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -759,7 +759,7 @@ public class IotVlanRuleTests
 
         // Assert - Should detect IoT device from MAC restriction
         result.Should().NotBeNull();
-        
+
     }
 
     [Fact]

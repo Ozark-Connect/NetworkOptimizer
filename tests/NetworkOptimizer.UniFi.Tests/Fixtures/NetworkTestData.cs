@@ -1,5 +1,4 @@
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.UniFi.Tests.Fixtures;

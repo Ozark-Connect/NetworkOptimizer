@@ -543,7 +543,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect camera from last connection MAC
         result.Should().NotBeNull();
-        
+
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -627,7 +627,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect camera from last connection MAC even though port is UP
         result.Should().NotBeNull();
-        
+
         result.CurrentNetwork.Should().Be("Corporate");
     }
 
@@ -655,7 +655,7 @@ public class CameraVlanRuleTests
 
         // Assert - Should detect camera from MAC restriction
         result.Should().NotBeNull();
-        
+
     }
 
     #endregion

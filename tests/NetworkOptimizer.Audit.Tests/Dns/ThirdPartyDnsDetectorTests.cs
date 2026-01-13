@@ -1,12 +1,10 @@
 using System.Net;
-using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
-using NetworkOptimizer.Core.Enums;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;

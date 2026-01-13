@@ -1,5 +1,4 @@
 using FluentAssertions;
-using NetworkOptimizer.UniFi;
 using Xunit;
 
 namespace NetworkOptimizer.UniFi.Tests;
