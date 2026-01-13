@@ -51,12 +51,12 @@ public class MacRestrictionRule : AuditRuleBase
         var network = GetNetwork(port.NativeNetworkId, networks);
 
         return CreateIssue(
-            "No MAC restriction on access port",
+            "Port should be set to Restricted w/ an Allowed MAC Address or restricted via an Ethernet Port Profile in UniFi Network",
             port,
             new Dictionary<string, object>
             {
                 { "network", network?.Name ?? "Unknown" },
-                { "recommendation", "Configure port security with allowed MAC addresses" }
+                { "recommendation", "Restrict access ports to specific MAC addresses to prevent unauthorized devices" }
             });
     }
 
