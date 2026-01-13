@@ -104,7 +104,7 @@
         <!-- iperf3 Section -->
         <Control Id="Iperf3Label" Type="Text" X="20" Y="55" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}iperf3 Server (CLI-based testing)" />
         <Control Id="Iperf3Check" Type="CheckBox" X="20" Y="70" Width="330" Height="17" Property="IPERF3_SERVER_ENABLED" CheckBoxValue="true" Text="Enable iperf3 server on port 5201" />
-        <Control Id="Iperf3Help" Type="Text" X="20" Y="88" Width="330" Height="20" NoPrefix="yes" Text="For testing from routers, Linux, or any device with iperf3 installed." />
+        <Control Id="Iperf3Help" Type="Text" X="20" Y="88" Width="330" Height="20" NoPrefix="yes" Text="For testing from network devices, laptops, desktops, servers, or any device with iperf3." />
 
         <!-- Browser SpeedTest Section -->
         <Control Id="BrowserLabel" Type="Text" X="20" Y="115" Width="330" Height="13" NoPrefix="yes" Text="{\WixUI_Font_Title}Browser Speed Test (OpenSpeedTest on nginx)" />
