@@ -1014,7 +1014,8 @@
                                 Isolation = p.Isolation,
                                 PoeEnabled = p.PoeEnabled,
                                 PoePower = p.PoePower,
-                                PoeMode = p.PoeMode ?? ""
+                                PoeMode = p.PoeMode ?? "",
+                                ConnectedDeviceType = p.ConnectedDeviceType
                             })
                             .ToList()
                     })
@@ -1549,12 +1550,13 @@
         if (port.Forward == "all")
             return ("Trunk", "");
 
+        // Check if this port has a UniFi device connected
+        var deviceStatus = GetConnectedDeviceStatus(port.ConnectedDeviceType, port.Name);
+        if (deviceStatus != null)
+            return (deviceStatus, "");
+
         if (port.Forward == "custom" || port.Forward == "customize")
-        {
-            if (port.Name.ToLower().Contains("ap") || port.Name.ToLower().Contains("access point"))
-                return ("AP", "");
             return ("OK", "");
-        }
 
         if (port.Forward == "native")
         {
@@ -1564,5 +1566,34 @@
         }
 
         return ("OK", "");
+    }
+
+    /// <summary>
+    /// Get display status for ports with UniFi devices connected.
+    /// Returns null if not a recognized device type.
+    /// </summary>
+    private static string? GetConnectedDeviceStatus(string? deviceType, string portName)
+    {
+        // Primary: check actual device type from uplink data
+        if (!string.IsNullOrEmpty(deviceType))
+        {
+            return deviceType.ToLowerInvariant() switch
+            {
+                "uap" => "AP",
+                "usw" => "Switch",
+                "ubb" => "Bridge",
+                "ugw" or "usg" or "udm" or "uxg" or "ucg" => "Gateway",
+                "umbb" => "Modem",
+                "uck" => "CloudKey",
+                _ => "Device"  // Generic for unknown UniFi device types
+            };
+        }
+
+        // Fallback: check port name for AP hints
+        var nameLower = portName?.ToLower() ?? "";
+        if (nameLower.Contains("ap") || nameLower.Contains("access point"))
+            return "AP";
+
+        return null;
     }
 }
