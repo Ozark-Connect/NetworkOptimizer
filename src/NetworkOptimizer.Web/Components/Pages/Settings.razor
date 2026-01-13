@@ -1066,12 +1066,6 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
-                <label class="form-label">For Pi-hole users: Management Port (optional)</label>
-                <input type="number" class="form-control" @bind="piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 240px;" />
-                <small class="form-help">Custom HTTP port for Pi-hole admin interface. Leave empty to auto-probe ports 80, 443, 8080. Both HTTP and HTTPS are tried.</small>
-            </div>
-
-            <div class="form-group" style="margin-top: 1.5rem;">
                 <label class="form-label">Unused port grace period (days)</label>
                 <input type="number" class="form-control" @bind="unusedPortInactivityDays" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
@@ -1081,6 +1075,12 @@
                 <label class="form-label">Named port grace period (days)</label>
                 <input type="number" class="form-control" @bind="namedPortInactivityDays" min="1" max="365" style="width: 120px;" />
                 <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label class="form-label">For Pi-hole users: Management Port (optional)</label>
+                <input type="number" class="form-control" @bind="piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 240px;" />
+                <small class="form-help">Custom HTTP port for Pi-hole admin interface. Leave empty to auto-probe ports 80, 443, 8080. Both HTTP and HTTPS are tried.</small>
             </div>
 
             <div class="action-buttons">
