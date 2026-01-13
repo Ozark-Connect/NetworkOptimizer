@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Web.Services
 @inject SystemSettingsService SettingsService
 @inject AuditService AuditService
 @inject Iperf3SpeedTestService SpeedTestService
+@inject ISpeedTestRepository SpeedTestRepository
 
 @if (_shouldShow && !_isDismissed)
 {
@@ -56,8 +58,13 @@
             var speedTestResults = await SpeedTestService.GetRecentResultsAsync(1);
             var hasSpeedTestResults = speedTestResults.Any();
 
-            // Show banner if either condition is met
-            _shouldShow = hasRunAudit || hasSpeedTestResults;
+            // 3. Has configured and enabled Adaptive SQM on at least one WAN
+            var wan1Config = await SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Config = await SpeedTestRepository.GetSqmWanConfigAsync(2);
+            var hasSqmEnabled = (wan1Config?.Enabled == true) || (wan2Config?.Enabled == true);
+
+            // Show banner if any condition is met
+            _shouldShow = hasRunAudit || hasSpeedTestResults || hasSqmEnabled;
 
             if (_shouldShow)
             {
