@@ -124,6 +124,14 @@ public static class JsonExtensions
     }
 
     /// <summary>
+    /// Get a property as a JsonElement, or null if not found.
+    /// </summary>
+    public static JsonElement? GetPropertyOrNull(this JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var prop) ? prop : null;
+    }
+
+    /// <summary>
     /// Unwrap a response that has a "data" property containing an array.
     /// Common pattern in UniFi API responses.
     /// </summary>

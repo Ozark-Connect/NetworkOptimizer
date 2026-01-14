@@ -446,8 +446,9 @@ public class DnsSecurityAnalyzer
 
             // Determine effective protocol blocking considering match_opposite_protocol
             // If match_opposite_protocol=true, the rule blocks everything EXCEPT the specified protocol
-            var blocksUdp = BlocksProtocol(protocol, matchOppositeProtocol, "udp");
-            var blocksTcp = BlocksProtocol(protocol, matchOppositeProtocol, "tcp");
+            // AllowsProtocol returns true if the protocol matches the rule specification
+            var blocksUdp = FirewallGroupHelper.AllowsProtocol(protocol, matchOppositeProtocol, "udp");
+            var blocksTcp = FirewallGroupHelper.AllowsProtocol(protocol, matchOppositeProtocol, "tcp");
 
             // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP)
             if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "53"))
@@ -521,41 +522,6 @@ public class DnsSecurityAnalyzer
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Determine if a rule blocks a specific protocol, considering the match_opposite_protocol flag.
-    /// </summary>
-    /// <param name="ruleProtocol">Protocol specified in the rule (e.g., "udp", "tcp", "tcp_udp", "icmp", "all")</param>
-    /// <param name="matchOpposite">If true, the rule blocks everything EXCEPT the specified protocol</param>
-    /// <param name="targetProtocol">The protocol we want to know if it's blocked (e.g., "udp" or "tcp")</param>
-    /// <returns>True if the rule effectively blocks the target protocol</returns>
-    private static bool BlocksProtocol(string? ruleProtocol, bool matchOpposite, string targetProtocol)
-    {
-        var protocol = ruleProtocol?.ToLowerInvariant() ?? "all";
-
-        if (matchOpposite)
-        {
-            // Rule blocks everything EXCEPT the specified protocol
-            // So we check if the target is NOT in the excluded set
-            return !ProtocolIncludes(protocol, targetProtocol);
-        }
-
-        // Normal mode: rule blocks the specified protocol(s)
-        return ProtocolIncludes(protocol, targetProtocol);
-    }
-
-    /// <summary>
-    /// Check if a protocol specification includes a target protocol.
-    /// </summary>
-    private static bool ProtocolIncludes(string protocol, string target)
-    {
-        return protocol switch
-        {
-            "all" => true,
-            "tcp_udp" => target is "tcp" or "udp",
-            _ => protocol == target
-        };
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)
@@ -1544,7 +1510,7 @@ public class DnsSecurityAnalyzer
             // Build lookup of network ID to gateway
             var networkGatewayMap = networks
                 .Where(n => !string.IsNullOrEmpty(n.Gateway))
-                .ToDictionary(n => n.Id, n => n.Gateway!, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(n => n.Id, n => n.Gateway ?? string.Empty, StringComparer.OrdinalIgnoreCase);
 
             // Track all valid destinations for reporting
             var allValidDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

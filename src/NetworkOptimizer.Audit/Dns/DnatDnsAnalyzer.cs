@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Dns;
 
@@ -483,45 +484,5 @@ public class DnatDnsAnalyzer
         }
 
         return (address, prefixLength);
-    }
-}
-
-/// <summary>
-/// JSON helper extension methods for safe property access
-/// </summary>
-internal static class JsonElementExtensions
-{
-    public static string? GetStringOrNull(this JsonElement element, string propertyName)
-    {
-        if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
-        {
-            return prop.GetString();
-        }
-        return null;
-    }
-
-    public static bool GetBoolOrDefault(this JsonElement element, string propertyName, bool defaultValue = false)
-    {
-        if (element.TryGetProperty(propertyName, out var prop))
-        {
-            if (prop.ValueKind == JsonValueKind.True)
-            {
-                return true;
-            }
-            if (prop.ValueKind == JsonValueKind.False)
-            {
-                return false;
-            }
-        }
-        return defaultValue;
-    }
-
-    public static JsonElement? GetPropertyOrNull(this JsonElement element, string propertyName)
-    {
-        if (element.TryGetProperty(propertyName, out var prop))
-        {
-            return prop;
-        }
-        return null;
     }
 }

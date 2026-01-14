@@ -19,6 +19,11 @@ public class UpnpSecurityAnalyzer
     private const int PrivilegedPortThreshold = 1024;
 
     /// <summary>
+    /// Maximum number of ports to expand from a port range to prevent excessive memory usage
+    /// </summary>
+    private const int MaxPortRangeExpansion = 100;
+
+    /// <summary>
     /// Well-known ports and their service names for reporting
     /// </summary>
     private static readonly Dictionary<int, string> WellKnownPorts = new()
@@ -355,7 +360,7 @@ public class UpnpSecurityAnalyzer
     /// Parse port specification into individual port numbers.
     /// Handles formats: "80", "80-100", "80,443,8080"
     /// </summary>
-    private static List<int> ParsePorts(string portSpec)
+    private List<int> ParsePorts(string portSpec)
     {
         var ports = new List<int>();
 
@@ -376,7 +381,15 @@ public class UpnpSecurityAnalyzer
                     int.TryParse(rangeParts[0].Trim(), out var start) &&
                     int.TryParse(rangeParts[1].Trim(), out var end))
                 {
-                    for (int i = start; i <= end && i < start + 100; i++) // Limit range expansion
+                    int rangeSize = end - start + 1;
+                    if (rangeSize > MaxPortRangeExpansion)
+                    {
+                        _logger.LogWarning(
+                            "Port range {Start}-{End} ({Size} ports) truncated to first {Max} ports for analysis",
+                            start, end, rangeSize, MaxPortRangeExpansion);
+                    }
+
+                    for (int i = start; i <= end && i < start + MaxPortRangeExpansion; i++)
                     {
                         ports.Add(i);
                     }
