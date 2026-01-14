@@ -146,7 +146,7 @@
                                                     <div class="rule-name">@rule.ApplicationName</div>
                                                     <div class="rule-ports">
                                                         <span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span>
-                                                        <span class="rule-port-mapping">@rule.DstPort → @rule.FwdPort</span>
+                                                        <span class="rule-port-mapping">@RenderPorts(rule.DstPort) → @RenderPorts(rule.FwdPort)</span>
                                                     </div>
                                                 </div>
                                                 <div class="rule-note">
