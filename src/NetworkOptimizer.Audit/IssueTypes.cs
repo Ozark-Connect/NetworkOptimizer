@@ -41,6 +41,7 @@ public static class IssueTypes
     public const string UnusedPort = "UNUSED-PORT-001";
     public const string PortIsolation = "PORT-ISOLATION-001";
     public const string VlanSubnetMismatch = "WIFI-VLAN-SUBNET-001";
+    public const string WiredSubnetMismatch = "PORT-SUBNET-001";
 
     // UPnP Security
     public const string UpnpEnabled = "UPNP_ENABLED";
