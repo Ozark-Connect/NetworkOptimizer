@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Models;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
 
 namespace NetworkOptimizer.Audit.Dns;
@@ -12,6 +13,7 @@ namespace NetworkOptimizer.Audit.Dns;
 public class DnsSecurityAnalyzer
 {
     private readonly ILogger<DnsSecurityAnalyzer> _logger;
+    private Dictionary<string, UniFiFirewallGroup>? _firewallGroups;
 
     // UniFi settings keys
     private const string SettingsKeyDoh = "doh";
@@ -61,8 +63,18 @@ public class DnsSecurityAnalyzer
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
     /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, firewallGroups: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and firewall groups
+    /// </summary>
+    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, List<UniFiFirewallGroup>? firewallGroups)
     {
+        // Store firewall groups for resolving port_group_id references
+        _firewallGroups = firewallGroups?.ToDictionary(g => g.Id, g => g);
         var result = new DnsSecurityResult();
 
         // Analyze DoH configuration from settings
@@ -373,6 +385,18 @@ public class DnsSecurityAnalyzer
                 destPort = dest.GetStringOrNull("port");
                 matchingTarget = dest.GetStringOrNull("matching_target");
 
+                // Resolve port group reference if port_matching_type is OBJECT
+                var portMatchingType = dest.GetStringOrNull("port_matching_type");
+                var portGroupId = dest.GetStringOrNull("port_group_id");
+                if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
+                {
+                    destPort = ResolvePortGroup(portGroupId);
+                    if (!string.IsNullOrEmpty(destPort))
+                    {
+                        _logger.LogDebug("Resolved port group {GroupId} to '{Ports}' for rule {RuleName}", portGroupId, destPort, name);
+                    }
+                }
+
                 if (dest.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
                 {
                     webDomains = domains.EnumerateArray()
@@ -495,6 +519,29 @@ public class DnsSecurityAnalyzer
         // Split by comma and check each port in the list
         var ports = portSpec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return ports.Any(p => p == port);
+    }
+
+    /// <summary>
+    /// Resolve a port group ID to a comma-separated port string
+    /// </summary>
+    private string? ResolvePortGroup(string groupId)
+    {
+        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
+        {
+            _logger.LogDebug("Port group {GroupId} not found in loaded groups", groupId);
+            return null;
+        }
+
+        if (group.GroupType != "port-group")
+        {
+            _logger.LogDebug("Group {GroupId} is type '{GroupType}', expected port-group", groupId, group.GroupType);
+            return null;
+        }
+
+        if (group.GroupMembers == null || group.GroupMembers.Count == 0)
+            return null;
+
+        return string.Join(",", group.GroupMembers);
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)

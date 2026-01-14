@@ -705,7 +705,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.FirewallGroups);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);
