@@ -2,19 +2,39 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
 /// <summary>
-/// Parses firewall rules from UniFi API responses
+/// Parses firewall rules from UniFi API responses.
+/// Supports flattening of port lists (port groups) and IP lists (address groups)
+/// when firewall groups are provided.
 /// </summary>
 public class FirewallRuleParser
 {
     private readonly ILogger<FirewallRuleParser> _logger;
+    private Dictionary<string, UniFiFirewallGroup>? _firewallGroups;
 
     public FirewallRuleParser(ILogger<FirewallRuleParser> logger)
     {
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Set firewall groups for flattening port_group_id and ip_group_id references.
+    /// Call this before ExtractFirewallPolicies to enable group resolution.
+    /// </summary>
+    public void SetFirewallGroups(IEnumerable<UniFiFirewallGroup>? groups)
+    {
+        if (groups == null)
+        {
+            _firewallGroups = null;
+            return;
+        }
+
+        _firewallGroups = groups.ToDictionary(g => g.Id, g => g);
+        _logger.LogDebug("Loaded {Count} firewall groups for rule flattening", _firewallGroups.Count);
     }
 
     /// <summary>
@@ -112,6 +132,7 @@ public class FirewallRuleParser
         string? sourceZoneId = null;
         bool sourceMatchOppositeIps = false;
         bool sourceMatchOppositeNetworks = false;
+        bool sourceMatchOppositePorts = false;
         if (policy.TryGetProperty("source", out var source) && source.ValueKind == JsonValueKind.Object)
         {
             sourceMatchingTarget = source.GetStringOrNull("matching_target");
@@ -119,6 +140,7 @@ public class FirewallRuleParser
             sourceZoneId = source.GetStringOrNull("zone_id");
             sourceMatchOppositeIps = source.GetBoolOrDefault("match_opposite_ips", false);
             sourceMatchOppositeNetworks = source.GetBoolOrDefault("match_opposite_networks", false);
+            sourceMatchOppositePorts = source.GetBoolOrDefault("match_opposite_ports", false);
 
             if (source.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
             {
@@ -142,6 +164,34 @@ public class FirewallRuleParser
                     .Where(e => e.ValueKind == JsonValueKind.String)
                     .Select(e => e.GetString()!)
                     .ToList();
+            }
+
+            // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
+            var matchingTargetType = source.GetStringOrNull("matching_target_type");
+            var ipGroupId = source.GetStringOrNull("ip_group_id");
+            if (matchingTargetType == "OBJECT" && !string.IsNullOrEmpty(ipGroupId))
+            {
+                var groupIps = ResolveAddressGroup(ipGroupId);
+                if (groupIps != null && groupIps.Count > 0)
+                {
+                    sourceIps = groupIps;
+                    _logger.LogDebug("Flattened source IP group {GroupId} to {Count} addresses for rule {RuleName}",
+                        ipGroupId, groupIps.Count, name);
+                }
+            }
+
+            // Flatten port group reference (port_matching_type == "OBJECT" with port_group_id)
+            var portMatchingType = source.GetStringOrNull("port_matching_type");
+            var portGroupId = source.GetStringOrNull("port_group_id");
+            if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
+            {
+                var groupPorts = ResolvePortGroup(portGroupId);
+                if (!string.IsNullOrEmpty(groupPorts))
+                {
+                    sourcePort = groupPorts;
+                    _logger.LogDebug("Flattened source port group {GroupId} to '{Ports}' for rule {RuleName}",
+                        portGroupId, groupPorts, name);
+                }
             }
         }
 
@@ -187,6 +237,34 @@ public class FirewallRuleParser
                     .Select(e => e.GetString()!)
                     .ToList();
             }
+
+            // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
+            var matchingTargetType = dest.GetStringOrNull("matching_target_type");
+            var ipGroupId = dest.GetStringOrNull("ip_group_id");
+            if (matchingTargetType == "OBJECT" && !string.IsNullOrEmpty(ipGroupId))
+            {
+                var groupIps = ResolveAddressGroup(ipGroupId);
+                if (groupIps != null && groupIps.Count > 0)
+                {
+                    destIps = groupIps;
+                    _logger.LogDebug("Flattened destination IP group {GroupId} to {Count} addresses for rule {RuleName}",
+                        ipGroupId, groupIps.Count, name);
+                }
+            }
+
+            // Flatten port group reference (port_matching_type == "OBJECT" with port_group_id)
+            var portMatchingType = dest.GetStringOrNull("port_matching_type");
+            var portGroupId = dest.GetStringOrNull("port_group_id");
+            if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
+            {
+                var groupPorts = ResolvePortGroup(portGroupId);
+                if (!string.IsNullOrEmpty(groupPorts))
+                {
+                    destPort = groupPorts;
+                    _logger.LogDebug("Flattened destination port group {GroupId} to '{Ports}' for rule {RuleName}",
+                        portGroupId, groupPorts, name);
+                }
+            }
         }
 
         return new FirewallRule
@@ -216,6 +294,7 @@ public class FirewallRuleParser
             DestinationZoneId = destZoneId,
             SourceMatchOppositeIps = sourceMatchOppositeIps,
             SourceMatchOppositeNetworks = sourceMatchOppositeNetworks,
+            SourceMatchOppositePorts = sourceMatchOppositePorts,
             DestinationMatchOppositeIps = destMatchOppositeIps,
             DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
             DestinationMatchOppositePorts = destMatchOppositePorts
@@ -346,5 +425,54 @@ public class FirewallRuleParser
             SourceNetworkIds = sourceNetworkIds,
             WebDomains = webDomains
         };
+    }
+
+    /// <summary>
+    /// Resolve an address group ID to a list of IP addresses/CIDRs/ranges
+    /// </summary>
+    private List<string>? ResolveAddressGroup(string groupId)
+    {
+        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
+        {
+            _logger.LogDebug("Address group {GroupId} not found in loaded groups", groupId);
+            return null;
+        }
+
+        // Only resolve address groups (both IPv4 and IPv6), not port groups
+        if (group.GroupType != "address-group" && group.GroupType != "ipv6-address-group")
+        {
+            _logger.LogWarning("Group {GroupId} ({GroupName}) is type '{GroupType}', expected address-group",
+                groupId, group.Name, group.GroupType);
+            return null;
+        }
+
+        // Both address-group and ipv6-address-group store their members in group_members
+        return group.GroupMembers?.Count > 0 ? group.GroupMembers.ToList() : null;
+    }
+
+    /// <summary>
+    /// Resolve a port group ID to a comma-separated port string (e.g., "53,80,443" or "4001-4003")
+    /// </summary>
+    private string? ResolvePortGroup(string groupId)
+    {
+        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
+        {
+            _logger.LogDebug("Port group {GroupId} not found in loaded groups", groupId);
+            return null;
+        }
+
+        // Only resolve port groups
+        if (group.GroupType != "port-group")
+        {
+            _logger.LogWarning("Group {GroupId} ({GroupName}) is type '{GroupType}', expected port-group",
+                groupId, group.Name, group.GroupType);
+            return null;
+        }
+
+        if (group.GroupMembers == null || group.GroupMembers.Count == 0)
+            return null;
+
+        // Join port members with commas (they may be single ports like "53" or ranges like "4001-4003")
+        return string.Join(",", group.GroupMembers);
     }
 }

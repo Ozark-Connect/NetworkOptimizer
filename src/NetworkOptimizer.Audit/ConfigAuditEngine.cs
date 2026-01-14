@@ -40,6 +40,7 @@ public class ConfigAuditEngine
         public required List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
         public required JsonElement? SettingsData { get; init; }
         public required JsonElement? FirewallPoliciesData { get; init; }
+        public required List<UniFiFirewallGroup>? FirewallGroups { get; init; }
         public required string? ClientName { get; init; }
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
@@ -293,6 +294,7 @@ public class ConfigAuditEngine
             ClientHistory = request.ClientHistory,
             SettingsData = request.SettingsData,
             FirewallPoliciesData = request.FirewallPoliciesData,
+            FirewallGroups = request.FirewallGroups,
             ClientName = request.ClientName,
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings,
@@ -659,6 +661,9 @@ public class ConfigAuditEngine
     private void ExecutePhase5_AnalyzeFirewallRules(AuditContext ctx)
     {
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
+
+        // Set firewall groups for flattening port/IP list references before extracting policies
+        _firewallAnalyzer.SetFirewallGroups(ctx.FirewallGroups);
 
         var firewallRules = _firewallAnalyzer.ExtractFirewallRules(ctx.DeviceData);
         var policyRules = _firewallAnalyzer.ExtractFirewallPolicies(ctx.FirewallPoliciesData);

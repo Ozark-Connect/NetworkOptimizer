@@ -160,6 +160,11 @@ public class FirewallRule
     public bool SourceMatchOppositeNetworks { get; init; }
 
     /// <summary>
+    /// When true, source ports are INVERTED (means "all ports EXCEPT these")
+    /// </summary>
+    public bool SourceMatchOppositePorts { get; init; }
+
+    /// <summary>
     /// When true, destination IPs are INVERTED (means "everyone EXCEPT these IPs")
     /// </summary>
     public bool DestinationMatchOppositeIps { get; init; }

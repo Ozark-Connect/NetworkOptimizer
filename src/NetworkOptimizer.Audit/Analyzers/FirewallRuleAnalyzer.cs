@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -17,6 +18,13 @@ public class FirewallRuleAnalyzer
         _logger = logger;
         _parser = parser;
     }
+
+    /// <summary>
+    /// Set firewall groups for flattening port_group_id and ip_group_id references.
+    /// Call this before ExtractFirewallPolicies to enable group resolution.
+    /// </summary>
+    public void SetFirewallGroups(IEnumerable<UniFiFirewallGroup>? groups)
+        => _parser.SetFirewallGroups(groups);
 
     /// <summary>
     /// Extract firewall rules from UniFi device JSON (delegates to parser)

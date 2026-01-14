@@ -574,6 +574,21 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch firewall policies for DNS analysis");
             }
 
+            // Fetch firewall groups (port lists and IP lists) for flattening group references in rules
+            List<NetworkOptimizer.UniFi.Models.UniFiFirewallGroup>? firewallGroups = null;
+            try
+            {
+                firewallGroups = await _connectionService.Client.GetFirewallGroupsAsync();
+                if (firewallGroups.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} firewall groups for rule flattening", firewallGroups.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch firewall groups");
+            }
+
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
             // Fetch UniFi Protect cameras for 100% confidence detection
@@ -628,6 +643,7 @@ public class AuditService
                 FingerprintDb = fingerprintDb,
                 SettingsData = settingsData,
                 FirewallPoliciesData = firewallPoliciesData,
+                FirewallGroups = firewallGroups,
                 AllowanceSettings = allowanceSettings,
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
