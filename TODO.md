@@ -160,6 +160,41 @@ New audit section focused on network performance issues (distinct from security 
 
 ## General
 
+### Refactor DnsSecurityAnalyzer.AnalyzeAsync() Parameter Hell
+- **Issue:** `DnsSecurityAnalyzer.AnalyzeAsync()` takes 7 nullable parameters, making it error-prone:
+  ```csharp
+  public async Task<DnsSecurityResult> AnalyzeAsync(
+      JsonElement? settingsData,
+      JsonElement? firewallData,
+      List<SwitchInfo>? switches,
+      List<NetworkInfo>? networks,
+      JsonElement? deviceData,
+      int? customPiholePort,
+      JsonElement? natRulesData)
+  ```
+- **Problems:**
+  - Easy to pass arguments in wrong order (all are nullable)
+  - Tests are verbose with many `null` placeholders
+  - Adding new parameters requires updating all call sites
+- **Proposed fix:** Create `DnsAnalysisRequest` record/class:
+  ```csharp
+  public record DnsAnalysisRequest
+  {
+      public JsonElement? SettingsData { get; init; }
+      public JsonElement? FirewallData { get; init; }
+      public List<SwitchInfo>? Switches { get; init; }
+      public List<NetworkInfo>? Networks { get; init; }
+      public JsonElement? DeviceData { get; init; }
+      public int? CustomPiholePort { get; init; }
+      public JsonElement? NatRulesData { get; init; }
+  }
+  ```
+- **Benefits:**
+  - Named parameters make call sites self-documenting
+  - Adding new fields doesn't break existing callers
+  - Test setup becomes clearer
+- **Also applies to:** Other analyzers with similar parameter patterns
+
 ### Rename ISpeedTestRepository to IGatewayRepository
 - **Issue:** `ISpeedTestRepository` is a misleading name - it handles Gateway SSH settings, iperf3 results, AND SQM WAN configuration
 - **Current location:** `src/NetworkOptimizer.Storage/Interfaces/ISpeedTestRepository.cs`
