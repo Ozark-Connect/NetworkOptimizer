@@ -1791,6 +1791,20 @@ select.form-control {
     color: var(--text-primary);
 }
 
+.issue-recommendation a,
+.issue-type-recommendation a {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+
+.issue-recommendation a:hover,
+.issue-type-recommendation a:hover {
+    color: var(--text-primary);
+    text-decoration-style: solid;
+}
+
 .no-issues {
     text-align: center;
     padding: 2rem;

@@ -1227,10 +1227,21 @@
         if (string.IsNullOrEmpty(recommendation))
             return new MarkupString("");
 
+        var formatted = recommendation;
+
         // Convert "UPnP Inspector" to a link
-        var formatted = recommendation.Replace(
+        formatted = formatted.Replace(
             "UPnP Inspector",
             "<a href=\"/upnp-inspector\">UPnP Inspector</a>");
+
+        // Convert "Settings" to a link (but not "Network Settings" which refers to UniFi)
+        // Match standalone "Settings" or "in Settings" patterns
+        formatted = formatted.Replace(
+            "in Settings",
+            "in <a href=\"/settings#security-audit\">Settings</a>");
+        formatted = formatted.Replace(
+            "per Settings",
+            "per <a href=\"/settings#security-audit\">Settings</a>");
 
         return new MarkupString(formatted);
     }
