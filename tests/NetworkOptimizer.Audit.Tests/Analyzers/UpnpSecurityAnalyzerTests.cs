@@ -1,0 +1,410 @@
+using FluentAssertions;
+using Microsoft.Extensions.Logging;
+using Moq;
+using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
+using Xunit;
+
+namespace NetworkOptimizer.Audit.Tests.Analyzers;
+
+public class UpnpSecurityAnalyzerTests
+{
+    private readonly UpnpSecurityAnalyzer _analyzer;
+    private readonly Mock<ILogger<UpnpSecurityAnalyzer>> _loggerMock;
+
+    public UpnpSecurityAnalyzerTests()
+    {
+        _loggerMock = new Mock<ILogger<UpnpSecurityAnalyzer>>();
+        _analyzer = new UpnpSecurityAnalyzer(_loggerMock.Object);
+    }
+
+    #region UPnP Status Tests
+
+    [Fact]
+    public void Analyze_UpnpStatusNull_ReturnsNoIssues()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(null, null, networks);
+
+        // Assert
+        result.Issues.Should().BeEmpty();
+        result.HardeningNotes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_UpnpDisabled_ReturnsHardeningNote()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(false, null, networks);
+
+        // Assert
+        result.Issues.Should().BeEmpty();
+        result.HardeningNotes.Should().ContainSingle()
+            .Which.Should().Contain("UPnP is disabled");
+    }
+
+    [Fact]
+    public void Analyze_UpnpEnabledWithHomeNetwork_ReturnsInformational()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home Network", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        var issue = result.Issues[0];
+        issue.Type.Should().Be(IssueTypes.UpnpEnabled);
+        issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.ScoreImpact.Should().Be(0);
+        issue.Message.Should().Contain("Home Network");
+    }
+
+    [Fact]
+    public void Analyze_UpnpEnabledWithGamingNetwork_ReturnsInformational()
+    {
+        // Arrange - Gaming network is classified as Home, so UPnP is acceptable
+        var networks = new List<NetworkInfo> { CreateNetwork("Gaming VLAN", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        var issue = result.Issues[0];
+        issue.Type.Should().Be(IssueTypes.UpnpEnabled);
+        issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.Message.Should().Contain("Gaming VLAN");
+    }
+
+    [Fact]
+    public void Analyze_UpnpEnabledWithNoHomeNetwork_ReturnsWarning()
+    {
+        // Arrange - Only IoT/Security networks, no Home network
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT),
+            CreateNetwork("Security Cameras", NetworkPurpose.Security)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        var issue = result.Issues[0];
+        issue.Type.Should().Be(IssueTypes.UpnpNonHomeNetwork);
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.ScoreImpact.Should().Be(5);
+    }
+
+    [Fact]
+    public void Analyze_UpnpEnabledWithMultipleHomeNetworks_ListsAll()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home", NetworkPurpose.Home),
+            CreateNetwork("Gaming", NetworkPurpose.Home)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        var issue = result.Issues[0];
+        issue.Message.Should().Contain("Home");
+        issue.Message.Should().Contain("Gaming");
+    }
+
+    #endregion
+
+    #region UPnP Port Mapping Tests
+
+    [Fact]
+    public void Analyze_UpnpMappingsWithPrivilegedPort_ReturnsWarning()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("80", "Web Server"),
+            CreateUpnpRule("443", "HTTPS")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().HaveCount(2); // UpnpEnabled + UpnpPrivilegedPort
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Recommended);
+        privIssue.ScoreImpact.Should().Be(8);
+        privIssue.Message.Should().Contain("80");
+        privIssue.Message.Should().Contain("443");
+    }
+
+    [Fact]
+    public void Analyze_UpnpMappingsWithNonPrivilegedPorts_ReturnsInfo()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("3074", "Xbox Live"),
+            CreateUpnpRule("27015", "Steam")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().HaveCount(2); // UpnpEnabled + UpnpPortsExposed
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPortsExposed);
+        var portsIssue = result.Issues.First(i => i.Type == IssueTypes.UpnpPortsExposed);
+        portsIssue.Severity.Should().Be(AuditSeverity.Informational);
+        portsIssue.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public void Analyze_UpnpMappingsWithPortRange_DetectsPrivilegedPorts()
+    {
+        // Arrange - Port range 50-100 includes privileged ports
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("50-100", "Port Range")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+    }
+
+    [Fact]
+    public void Analyze_UpnpMappingsWithCommaList_ParsesAllPorts()
+    {
+        // Arrange - Comma-separated ports including privileged
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("80,443,8080", "Multiple Ports")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        privIssue.Message.Should().Contain("80");
+        privIssue.Message.Should().Contain("443");
+    }
+
+    [Fact]
+    public void Analyze_NoUpnpMappings_NoPortIssues()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPortsExposed);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+    }
+
+    #endregion
+
+    #region Static Port Forward Tests
+
+    [Fact]
+    public void Analyze_StaticPortForwards_ReturnsInformational()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("8080", "Minecraft Server", enabled: true),
+            CreateStaticRule("25565", "Game Server", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+        var staticIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPortForward);
+        staticIssue.Severity.Should().Be(AuditSeverity.Informational);
+        staticIssue.ScoreImpact.Should().Be(0);
+        staticIssue.Message.Should().Contain("2 static port forward");
+    }
+
+    [Fact]
+    public void Analyze_DisabledStaticPortForwards_NotReported()
+    {
+        // Arrange - Disabled static rules should not be reported
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("8080", "Disabled Server", enabled: false)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.StaticPortForward);
+    }
+
+    [Fact]
+    public void Analyze_MixedUpnpAndStatic_ReportsBoth()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("3074", "Xbox Live"),
+            CreateStaticRule("25565", "Minecraft", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpEnabled);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPortsExposed);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+    }
+
+    #endregion
+
+    #region Edge Cases
+
+    [Fact]
+    public void Analyze_EmptyNetworkList_HandlesGracefully()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo>();
+
+        // Act
+        var result = _analyzer.Analyze(true, new List<UniFiPortForwardRule>(), networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        result.Issues[0].Type.Should().Be(IssueTypes.UpnpNonHomeNetwork);
+    }
+
+    [Fact]
+    public void Analyze_NullPortForwardRules_HandlesGracefully()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+
+        // Act
+        var result = _analyzer.Analyze(true, null, networks);
+
+        // Assert
+        result.Issues.Should().ContainSingle();
+        result.Issues[0].Type.Should().Be(IssueTypes.UpnpEnabled);
+    }
+
+    [Fact]
+    public void Analyze_RuleWithEmptyPort_SkipsRule()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            new UniFiPortForwardRule { IsUpnp = 1, DstPort = "", Name = "Empty Port" },
+            new UniFiPortForwardRule { IsUpnp = 1, DstPort = null, Name = "Null Port" }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPortsExposed);
+    }
+
+    [Fact]
+    public void Analyze_ApplicationNameExtracted_ShowsInMessage()
+    {
+        // Arrange
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            new UniFiPortForwardRule
+            {
+                IsUpnp = 1,
+                DstPort = "80",
+                Name = "UPnP [Sunshine - RTSP]"  // ApplicationName will extract "Sunshine - RTSP"
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        privIssue.Message.Should().Contain("Sunshine");
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    private static NetworkInfo CreateNetwork(string name, NetworkPurpose purpose, int vlanId = 10)
+    {
+        return new NetworkInfo
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            VlanId = vlanId,
+            Purpose = purpose,
+            Subnet = $"192.168.{vlanId}.0/24",
+            Gateway = $"192.168.{vlanId}.1"
+        };
+    }
+
+    private static UniFiPortForwardRule CreateUpnpRule(string port, string name)
+    {
+        return new UniFiPortForwardRule
+        {
+            IsUpnp = 1,
+            DstPort = port,
+            Name = $"UPnP [{name}]",
+            Fwd = "192.168.1.100",
+            Proto = "udp"
+        };
+    }
+
+    private static UniFiPortForwardRule CreateStaticRule(string port, string name, bool enabled)
+    {
+        return new UniFiPortForwardRule
+        {
+            IsUpnp = 0,
+            DstPort = port,
+            Name = name,
+            Fwd = "192.168.1.100",
+            Proto = "tcp",
+            Enabled = enabled
+        };
+    }
+
+    #endregion
+}

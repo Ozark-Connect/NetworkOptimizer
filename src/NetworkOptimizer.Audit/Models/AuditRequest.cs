@@ -71,4 +71,14 @@ public class AuditRequest
     /// Optional: Custom Pi-hole management port (defaults to auto-probe 80, 443, 8080)
     /// </summary>
     public int? PiholeManagementPort { get; init; }
+
+    /// <summary>
+    /// Optional: Whether UPnP is enabled on the gateway (from GetUpnpEnabledAsync)
+    /// </summary>
+    public bool? UpnpEnabled { get; init; }
+
+    /// <summary>
+    /// Optional: Port forwarding rules including UPnP mappings (from GetPortForwardRulesAsync)
+    /// </summary>
+    public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
 }

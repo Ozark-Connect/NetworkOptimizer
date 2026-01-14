@@ -621,6 +621,22 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch port profiles");
             }
 
+            // Fetch UPnP status and port forwarding rules for UPnP security analysis
+            bool? upnpEnabled = null;
+            List<NetworkOptimizer.UniFi.Models.UniFiPortForwardRule>? portForwardRules = null;
+            try
+            {
+                upnpEnabled = await _connectionService.Client.GetUpnpEnabledAsync();
+                portForwardRules = await _connectionService.Client.GetPortForwardRulesAsync();
+                var upnpRuleCount = portForwardRules?.Count(r => r.IsUpnp == 1) ?? 0;
+                _logger.LogInformation("Fetched UPnP status (Enabled={Enabled}) and {Count} port forwarding rules ({UpnpCount} UPnP)",
+                    upnpEnabled, portForwardRules?.Count ?? 0, upnpRuleCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -648,7 +664,9 @@ public class AuditService
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
                 ClientName = "Network Audit",
-                PiholeManagementPort = options.PiholeManagementPort
+                PiholeManagementPort = options.PiholeManagementPort,
+                UpnpEnabled = upnpEnabled,
+                PortForwardRules = portForwardRules
             });
 
             // Convert audit result to web models
@@ -961,6 +979,11 @@ public class AuditService
         Audit.IssueTypes.DnsNoDotBlock or Audit.IssueTypes.DnsNoDohBlock or Audit.IssueTypes.DnsIsp or
         Audit.IssueTypes.DnsWanMismatch or Audit.IssueTypes.DnsWanOrder or Audit.IssueTypes.DnsWanNoStatic or Audit.IssueTypes.DnsDeviceMisconfigured => "DNS Security",
 
+        // UPnP security issues
+        Audit.IssueTypes.UpnpEnabled or Audit.IssueTypes.UpnpNonHomeNetwork or
+        Audit.IssueTypes.UpnpPrivilegedPort or Audit.IssueTypes.UpnpPortsExposed or
+        Audit.IssueTypes.StaticPortForward => "UPnP Security",
+
         _ => "General"
     };
 
@@ -1045,6 +1068,13 @@ public class AuditService
             Audit.IssueTypes.DnsInconsistentConfig => "DNS: Inconsistent Configuration",
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
 
+            // UPnP security
+            Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",
+            Audit.IssueTypes.UpnpNonHomeNetwork => "UPnP: Non-Home Network",
+            Audit.IssueTypes.UpnpPrivilegedPort => "UPnP: Privileged Port Exposed",
+            Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
+            Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
+
             _ => message.Split('.').FirstOrDefault() ?? type
         };
     }
@@ -1122,6 +1152,11 @@ public class AuditService
         Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider",
         Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers",
         Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway",
+        Audit.IssueTypes.UpnpEnabled => "UPnP is acceptable on Home networks for gaming and media",
+        Audit.IssueTypes.UpnpNonHomeNetwork => "Disable UPnP or ensure it's only enabled for Home/Gaming networks",
+        Audit.IssueTypes.UpnpPrivilegedPort => "Review UPnP mappings - privileged ports should not be exposed via UPnP",
+        Audit.IssueTypes.UpnpPortsExposed => "Review UPnP mappings periodically in the UPnP Inspector",
+        Audit.IssueTypes.StaticPortForward => "Review static port forwards periodically to ensure they are still needed",
         _ => "Review the configuration and apply security best practices"
     };
 }

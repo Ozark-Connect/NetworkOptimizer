@@ -41,6 +41,13 @@ public static class IssueTypes
     public const string UnusedPort = "UNUSED-PORT-001";
     public const string PortIsolation = "PORT-ISOLATION-001";
 
+    // UPnP Security
+    public const string UpnpEnabled = "UPNP_ENABLED";
+    public const string UpnpNonHomeNetwork = "UPNP_NON_HOME_NETWORK";
+    public const string UpnpPrivilegedPort = "UPNP_PRIVILEGED_PORT";
+    public const string UpnpPortsExposed = "UPNP_PORTS_EXPOSED";
+    public const string StaticPortForward = "STATIC_PORT_FORWARD";
+
     // DNS Security
     public const string DnsNoDoh = "DNS_NO_DOH";
     public const string DnsDohAuto = "DNS_DOH_AUTO";

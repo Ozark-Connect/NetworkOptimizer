@@ -28,6 +28,7 @@ public class ConfigAuditEngine
     private readonly PortSecurityAnalyzer _securityEngine;
     private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly DnsSecurityAnalyzer _dnsAnalyzer;
+    private readonly UpnpSecurityAnalyzer _upnpAnalyzer;
     private readonly AuditScorer _scorer;
 
     /// <summary>
@@ -46,6 +47,8 @@ public class ConfigAuditEngine
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
         public int? PiholeManagementPort { get; init; }
+        public bool? UpnpEnabled { get; init; }
+        public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -92,6 +95,7 @@ public class ConfigAuditEngine
             loggerFactory.CreateLogger<ThirdPartyDnsDetector>(),
             new HttpClient { Timeout = TimeSpan.FromSeconds(3) });
         _dnsAnalyzer = new DnsSecurityAnalyzer(loggerFactory.CreateLogger<DnsSecurityAnalyzer>(), thirdPartyDetector);
+        _upnpAnalyzer = new UpnpSecurityAnalyzer(loggerFactory.CreateLogger<UpnpSecurityAnalyzer>());
         _scorer = new AuditScorer(loggerFactory.CreateLogger<AuditScorer>());
     }
 
@@ -216,6 +220,7 @@ public class ConfigAuditEngine
         ExecutePhase4_AnalyzeNetworkConfiguration(ctx);
         ExecutePhase5_AnalyzeFirewallRules(ctx);
         await ExecutePhase5b_AnalyzeDnsSecurityAsync(ctx);
+        ExecutePhase5c_AnalyzeUpnpSecurity(ctx);
         ExecutePhase6_AnalyzeHardeningMeasures(ctx);
 
         // Build and score the final result
@@ -299,7 +304,9 @@ public class ConfigAuditEngine
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings,
             PortProfiles = request.PortProfiles,
-            PiholeManagementPort = request.PiholeManagementPort
+            PiholeManagementPort = request.PiholeManagementPort,
+            UpnpEnabled = request.UpnpEnabled,
+            PortForwardRules = request.PortForwardRules
         };
     }
 
@@ -714,6 +721,20 @@ public class ConfigAuditEngine
         {
             _logger.LogDebug("Skipping DNS security analysis - no settings or firewall policy data provided");
         }
+    }
+
+    private void ExecutePhase5c_AnalyzeUpnpSecurity(AuditContext ctx)
+    {
+        _logger.LogInformation("Phase 5c: Analyzing UPnP security");
+
+        var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
+        var result = _upnpAnalyzer.Analyze(ctx.UpnpEnabled, ctx.PortForwardRules, ctx.Networks, gatewayName);
+
+        ctx.AllIssues.AddRange(result.Issues);
+        ctx.HardeningMeasures.AddRange(result.HardeningNotes);
+
+        _logger.LogInformation("Found {IssueCount} UPnP security issues, {HardeningCount} hardening notes",
+            result.Issues.Count, result.HardeningNotes.Count);
     }
 
     private void ExecutePhase6_AnalyzeHardeningMeasures(AuditContext ctx)
