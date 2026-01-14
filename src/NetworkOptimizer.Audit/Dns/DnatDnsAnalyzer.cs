@@ -41,6 +41,11 @@ public class DnatCoverageResult
     public List<string> UncoveredNetworkNames { get; } = new();
 
     /// <summary>
+    /// Network names that were excluded from coverage checks (by VLAN ID)
+    /// </summary>
+    public List<string> ExcludedNetworkNames { get; } = new();
+
+    /// <summary>
     /// Single IP addresses used in DNAT rules (abnormal configuration)
     /// </summary>
     public List<string> SingleIpRules { get; } = new();
@@ -113,8 +118,9 @@ public class DnatDnsAnalyzer
     /// </summary>
     /// <param name="natRulesData">Raw NAT rules from UniFi API</param>
     /// <param name="networks">List of networks to check coverage against</param>
+    /// <param name="excludedVlanIds">Optional VLAN IDs to exclude from coverage checks</param>
     /// <returns>Coverage analysis result</returns>
-    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks)
+    public DnatCoverageResult Analyze(JsonElement? natRulesData, List<NetworkInfo>? networks, List<int>? excludedVlanIds = null)
     {
         var result = new DnatCoverageResult();
 
@@ -125,7 +131,15 @@ public class DnatDnsAnalyzer
 
         // Check ALL networks for DNAT coverage (not just DHCP-enabled)
         // Any network can have devices making DNS queries, regardless of DHCP status
-        var allNetworks = networks.ToList();
+        // Filter out excluded VLAN IDs if specified
+        var excludedVlanSet = excludedVlanIds?.ToHashSet() ?? new HashSet<int>();
+        var allNetworks = networks
+            .Where(n => !excludedVlanSet.Contains(n.VlanId))
+            .ToList();
+
+        // Track excluded networks for reference
+        result.ExcludedNetworkNames.AddRange(
+            networks.Where(n => excludedVlanSet.Contains(n.VlanId)).Select(n => n.Name));
 
         // Parse DNAT rules targeting UDP port 53
         var dnatDnsRules = ParseDnatDnsRules(natRulesData.Value);

@@ -73,6 +73,11 @@ public class AuditRequest
     public string? ClientName { get; init; }
 
     /// <summary>
+    /// Optional: VLAN IDs to exclude from DNAT DNS coverage checks
+    /// </summary>
+    public List<int>? DnatExcludedVlanIds { get; init; }
+
+    /// <summary>
     /// Optional: Custom Pi-hole management port (defaults to auto-probe 80, 443, 8080)
     /// </summary>
     public int? PiholeManagementPort { get; init; }

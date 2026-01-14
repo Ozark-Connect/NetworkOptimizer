@@ -133,6 +133,7 @@ public class AuditService
             var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
+            var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
             var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
             var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
             var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
@@ -143,6 +144,8 @@ public class AuditService
             options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
             // Printers default to true (allowed) if not set
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
+            // DNAT excluded VLANs (parse comma-separated VLAN IDs)
+            options.DnatExcludedVlanIds = ParseVlanIds(dnatExcludedVlans);
             // Pi-hole port (null means auto-detect)
             options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
@@ -681,6 +684,7 @@ public class AuditService
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
                 ClientName = "Network Audit",
+                DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules
@@ -1162,6 +1166,20 @@ public class AuditService
 
     private static string GetScoreLabelForScore(int score) => Audit.Analyzers.AuditScorer.GetScoreLabel(score);
 
+    private static List<int>? ParseVlanIds(string? commaSeparated)
+    {
+        if (string.IsNullOrWhiteSpace(commaSeparated))
+            return null;
+
+        var ids = new List<int>();
+        foreach (var part in commaSeparated.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(part, out var vlanId) && vlanId > 0 && vlanId <= 4094)
+                ids.Add(vlanId);
+        }
+        return ids.Count > 0 ? ids : null;
+    }
+
     private static string GetDefaultRecommendation(string type) => type switch
     {
         Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
@@ -1208,6 +1226,7 @@ public class AuditOptions
     public bool AllowNameBrandTVsOnMainNetwork { get; set; } = false;
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
+    public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
 
     // Unused port detection thresholds

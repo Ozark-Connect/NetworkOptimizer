@@ -89,7 +89,8 @@ public class DnsSecurityAnalyzer
     /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
     /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
     /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData)
+    /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null)
     {
         // Store firewall groups for resolving port_group_id references
         _firewallGroups = firewallGroups?.ToDictionary(g => g.Id, g => g);
@@ -151,7 +152,7 @@ public class DnsSecurityAnalyzer
         // Analyze DNAT DNS rules (alternative to firewall blocking)
         if (natRulesData.HasValue && networks?.Any() == true)
         {
-            AnalyzeDnatDnsRules(natRulesData.Value, networks, result);
+            AnalyzeDnatDnsRules(natRulesData.Value, networks, result, dnatExcludedVlanIds);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
@@ -665,23 +666,31 @@ public class DnsSecurityAnalyzer
         }
 
         // Issue: DNAT provides partial coverage (some networks not covered)
-        // This is Critical because uncovered networks can bypass DNS entirely - same risk as no DNS 53 block
+        // Severity depends on coverage ratio: >= 2/3 covered = Recommended, < 2/3 covered = Critical
         if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
         {
+            var totalNetworks = result.DnatCoveredNetworks.Count + result.DnatUncoveredNetworks.Count;
+            var coverageRatio = totalNetworks > 0 ? (double)result.DnatCoveredNetworks.Count / totalNetworks : 0;
+            // If 2/3 or more networks are covered, use Recommended severity; otherwise Critical
+            var severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
+            var scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDnatPartialCoverage,
-                Severity = AuditSeverity.Critical,
+                Severity = severity,
                 DeviceName = result.GatewayName,
                 Message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
-                RecommendedAction = "Add DNAT rules for the remaining networks, or create a firewall rule to block outbound UDP port 53",
+                RecommendedAction = "Add DNAT rules for the remaining networks, create a firewall rule to block outbound UDP port 53, or exclude intentionally uncovered networks in Settings",
                 RuleId = "DNS-DNAT-001",
-                ScoreImpact = 10,
+                ScoreImpact = scoreImpact,
                 Metadata = new Dictionary<string, object>
                 {
                     { "covered_networks", result.DnatCoveredNetworks.ToList() },
                     { "uncovered_networks", result.DnatUncoveredNetworks.ToList() },
-                    { "redirect_target", result.DnatRedirectTarget ?? "" }
+                    { "redirect_target", result.DnatRedirectTarget ?? "" },
+                    { "coverage_ratio", coverageRatio },
+                    { "configurable_setting", "Exclude VLANs from coverage checks in Settings → Audit Settings → DNAT DNS Coverage: Excluded VLANs" }
                 }
             });
         }
@@ -1427,10 +1436,10 @@ public class DnsSecurityAnalyzer
     /// DNAT rules that redirect UDP port 53 to a trusted DNS server (gateway, Pi-hole)
     /// can be an alternative to firewall blocking when DoH or third-party DNS is configured.
     /// </summary>
-    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result)
+    private void AnalyzeDnatDnsRules(JsonElement natRulesData, List<NetworkInfo> networks, DnsSecurityResult result, List<int>? excludedVlanIds = null)
     {
         var dnatAnalyzer = new DnatDnsAnalyzer();
-        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks);
+        var coverageResult = dnatAnalyzer.Analyze(natRulesData, networks, excludedVlanIds);
 
         result.HasDnatDnsRules = coverageResult.HasDnatDnsRules;
         result.DnatProvidesFullCoverage = coverageResult.HasFullCoverage;

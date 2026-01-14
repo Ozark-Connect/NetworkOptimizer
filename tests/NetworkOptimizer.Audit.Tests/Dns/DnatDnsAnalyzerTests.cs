@@ -26,6 +26,18 @@ public class DnatDnsAnalyzerTests
         }).ToList();
     }
 
+    private static List<NetworkInfo> CreateTestNetworksWithVlans(params (string id, string name, string subnet, int vlanId)[] networks)
+    {
+        return networks.Select(n => new NetworkInfo
+        {
+            Id = n.id,
+            Name = n.name,
+            VlanId = n.vlanId,
+            Subnet = n.subnet,
+            DhcpEnabled = true
+        }).ToList();
+    }
+
     private static string CreateDnatRule(
         string id,
         string sourceFilterType,
@@ -610,6 +622,151 @@ public class DnatDnsAnalyzerTests
         var result = _analyzer.Analyze(natRules, networks);
 
         Assert.Equal("10.0.0.1", result.RedirectTargetIp);
+    }
+
+    #endregion
+
+    #region Excluded VLAN Tests
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_ExcludesNetworksFromCoverageCheck()
+    {
+        // 3 networks: VLAN 10, 20, 100. Only VLAN 10 has DNAT coverage. VLAN 100 is excluded.
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "IoT", "192.168.2.0/24", 20),
+            ("net3", "Management", "192.168.100.0/24", 100));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"));
+        var excludedVlans = new List<int> { 100 };
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        // With VLAN 100 excluded, only 2 networks are considered
+        // net1 is covered, net2 is uncovered, net3 (VLAN 100) is excluded
+        Assert.Single(result.CoveredNetworkNames);
+        Assert.Contains("LAN", result.CoveredNetworkNames);
+        Assert.Single(result.UncoveredNetworkNames);
+        Assert.Contains("IoT", result.UncoveredNetworkNames);
+        Assert.Single(result.ExcludedNetworkNames);
+        Assert.Contains("Management", result.ExcludedNetworkNames);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_NullExclusions_IncludesAllNetworks()
+    {
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "Management", "192.168.100.0/24", 100));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"));
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlanIds: null);
+
+        // No exclusions - both networks considered
+        Assert.Single(result.CoveredNetworkNames);
+        Assert.Single(result.UncoveredNetworkNames);
+        Assert.Empty(result.ExcludedNetworkNames);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_EmptyExclusions_IncludesAllNetworks()
+    {
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "Management", "192.168.100.0/24", 100));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"));
+        var excludedVlans = new List<int>();
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        // Empty exclusions - both networks considered
+        Assert.Single(result.CoveredNetworkNames);
+        Assert.Single(result.UncoveredNetworkNames);
+        Assert.Empty(result.ExcludedNetworkNames);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_AllNetworksExcluded_ReturnsFullCoverage()
+    {
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "Management", "192.168.100.0/24", 100));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ADDRESS_AND_PORT", sourceAddress: "192.168.1.0/24"));
+        var excludedVlans = new List<int> { 10, 100 };
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        // All networks excluded - no networks to check, so "full coverage" by default
+        Assert.Empty(result.CoveredNetworkNames);
+        Assert.Empty(result.UncoveredNetworkNames);
+        Assert.Equal(2, result.ExcludedNetworkNames.Count);
+        Assert.True(result.HasFullCoverage);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_ExcludingUncoveredNetwork_AchievesFullCoverage()
+    {
+        // 2 networks: net1 (VLAN 10) has coverage, net2 (VLAN 100) does not
+        // By excluding VLAN 100, we achieve full coverage
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "Management", "192.168.100.0/24", 100));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"));
+        var excludedVlans = new List<int> { 100 };
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        Assert.True(result.HasFullCoverage);
+        Assert.Single(result.CoveredNetworkNames);
+        Assert.Empty(result.UncoveredNetworkNames);
+        Assert.Single(result.ExcludedNetworkNames);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_MultipleVlansExcluded()
+    {
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "IoT", "192.168.2.0/24", 20),
+            ("net3", "Guest", "192.168.3.0/24", 30),
+            ("net4", "Management", "192.168.100.0/24", 100),
+            ("net5", "Servers", "192.168.200.0/24", 200));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"),
+            CreateDnatRule("2", "NETWORK_CONF", networkConfId: "net2"));
+        var excludedVlans = new List<int> { 100, 200 };
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        // net1 and net2 covered, net3 uncovered, net4 and net5 excluded
+        Assert.Equal(2, result.CoveredNetworkNames.Count);
+        Assert.Single(result.UncoveredNetworkNames);
+        Assert.Contains("Guest", result.UncoveredNetworkNames);
+        Assert.Equal(2, result.ExcludedNetworkNames.Count);
+        Assert.Contains("Management", result.ExcludedNetworkNames);
+        Assert.Contains("Servers", result.ExcludedNetworkNames);
+    }
+
+    [Fact]
+    public void Analyze_WithExcludedVlans_NonMatchingVlanId_NoEffect()
+    {
+        var networks = CreateTestNetworksWithVlans(
+            ("net1", "LAN", "192.168.1.0/24", 10),
+            ("net2", "IoT", "192.168.2.0/24", 20));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1"));
+        var excludedVlans = new List<int> { 999 }; // Non-existent VLAN
+
+        var result = _analyzer.Analyze(natRules, networks, excludedVlans);
+
+        // VLAN 999 doesn't exist, so no exclusions
+        Assert.Single(result.CoveredNetworkNames);
+        Assert.Single(result.UncoveredNetworkNames);
+        Assert.Empty(result.ExcludedNetworkNames);
     }
 
     #endregion
