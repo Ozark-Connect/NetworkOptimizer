@@ -637,6 +637,22 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch port profiles");
             }
 
+            // Fetch UPnP status and port forwarding rules for UPnP security analysis
+            bool? upnpEnabled = null;
+            List<NetworkOptimizer.UniFi.Models.UniFiPortForwardRule>? portForwardRules = null;
+            try
+            {
+                upnpEnabled = await _connectionService.Client.GetUpnpEnabledAsync();
+                portForwardRules = await _connectionService.Client.GetPortForwardRulesAsync();
+                var upnpRuleCount = portForwardRules?.Count(r => r.IsUpnp == 1) ?? 0;
+                _logger.LogInformation("Fetched UPnP status (Enabled={Enabled}) and {Count} port forwarding rules ({UpnpCount} UPnP)",
+                    upnpEnabled, portForwardRules?.Count ?? 0, upnpRuleCount);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -665,7 +681,9 @@ public class AuditService
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
                 ClientName = "Network Audit",
-                PiholeManagementPort = options.PiholeManagementPort
+                PiholeManagementPort = options.PiholeManagementPort,
+                UpnpEnabled = upnpEnabled,
+                PortForwardRules = portForwardRules
             });
 
             // Convert audit result to web models
@@ -984,6 +1002,11 @@ public class AuditService
         Audit.IssueTypes.DnsNoDotBlock or Audit.IssueTypes.DnsNoDohBlock or Audit.IssueTypes.DnsIsp or
         Audit.IssueTypes.DnsWanMismatch or Audit.IssueTypes.DnsWanOrder or Audit.IssueTypes.DnsWanNoStatic or Audit.IssueTypes.DnsDeviceMisconfigured => "DNS Security",
 
+        // UPnP security issues
+        Audit.IssueTypes.UpnpEnabled or Audit.IssueTypes.UpnpNonHomeNetwork or
+        Audit.IssueTypes.UpnpPrivilegedPort or Audit.IssueTypes.UpnpPortsExposed or
+        Audit.IssueTypes.StaticPortForward => "UPnP Security",
+
         _ => "General"
     };
 
@@ -1051,6 +1074,10 @@ public class AuditService
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
 
+            // VLAN subnet mismatch
+            Audit.IssueTypes.VlanSubnetMismatch => "VLAN Subnet Mismatch",
+            Audit.IssueTypes.WiredSubnetMismatch => "Wired Subnet Mismatch",
+
             // DNS security
             Audit.IssueTypes.DnsLeakage => "DNS: Leak Detected",
             Audit.IssueTypes.DnsNoDoh => "DNS: DoH Not Configured",
@@ -1070,6 +1097,14 @@ public class AuditService
             Audit.IssueTypes.DnsDnatPartialCoverage => "DNS: Partial DNAT Coverage",
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
             Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Target",
+
+            // UPnP security
+            Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",
+            Audit.IssueTypes.UpnpNonHomeNetwork => "UPnP: Non-Home Network",
+            Audit.IssueTypes.UpnpPrivilegedPort => "UPnP: Privileged Port Exposed",
+            Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
+            Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
+            Audit.IssueTypes.StaticPrivilegedPort => "Port Forwards: Privileged Ports",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };
@@ -1135,6 +1170,8 @@ public class AuditService
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
+        Audit.IssueTypes.VlanSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match VLAN subnet",
+        Audit.IssueTypes.WiredSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match port's VLAN subnet",
         Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
         Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
         Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
@@ -1150,6 +1187,12 @@ public class AuditService
         Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway",
         Audit.IssueTypes.DnsDnatPartialCoverage => "Add DNAT rules for remaining networks or block DNS port 53 at firewall",
         Audit.IssueTypes.DnsDnatSingleIp => "Configure DNAT rules to use network references or CIDR ranges for complete coverage",
+        Audit.IssueTypes.UpnpEnabled => "UPnP is acceptable on Home networks for gaming and media",
+        Audit.IssueTypes.UpnpNonHomeNetwork => "Disable UPnP or ensure it's only enabled for Home/Gaming networks",
+        Audit.IssueTypes.UpnpPrivilegedPort => "Review UPnP mappings - privileged ports should not be exposed via UPnP",
+        Audit.IssueTypes.UpnpPortsExposed => "Review UPnP mappings periodically in the UPnP Inspector",
+        Audit.IssueTypes.StaticPortForward => "Review static port forwards periodically to ensure they are still needed",
+        Audit.IssueTypes.StaticPrivilegedPort => "Ensure these privileged ports are intentionally exposed and properly secured",
         _ => "Review the configuration and apply security best practices"
     };
 }

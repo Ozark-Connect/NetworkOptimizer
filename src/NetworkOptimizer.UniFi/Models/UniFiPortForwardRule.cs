@@ -104,6 +104,13 @@ public class UniFiPortForwardRule
     [JsonPropertyName("src_firewall_group_id")]
     public string? SrcFirewallGroupId { get; set; }
 
+    /// <summary>
+    /// Source IP address, CIDR, or range for IP-based limiting (static rules only)
+    /// Used when src_limiting_type is "ip"
+    /// </summary>
+    [JsonPropertyName("src")]
+    public string? Src { get; set; }
+
     // Computed properties
 
     /// <summary>

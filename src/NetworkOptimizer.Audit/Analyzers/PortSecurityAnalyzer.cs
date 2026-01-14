@@ -81,7 +81,8 @@ public class PortSecurityAnalyzer
             new CameraVlanRule(),
             new MacRestrictionRule(),
             new UnusedPortRule(),
-            new PortIsolationRule()
+            new PortIsolationRule(),
+            new WiredSubnetMismatchRule()
         };
     }
 

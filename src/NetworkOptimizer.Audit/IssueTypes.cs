@@ -40,6 +40,16 @@ public static class IssueTypes
     public const string MacRestriction = "MAC-RESTRICT-001";
     public const string UnusedPort = "UNUSED-PORT-001";
     public const string PortIsolation = "PORT-ISOLATION-001";
+    public const string VlanSubnetMismatch = "WIFI-VLAN-SUBNET-001";
+    public const string WiredSubnetMismatch = "PORT-SUBNET-001";
+
+    // UPnP Security
+    public const string UpnpEnabled = "UPNP_ENABLED";
+    public const string UpnpNonHomeNetwork = "UPNP_NON_HOME_NETWORK";
+    public const string UpnpPrivilegedPort = "UPNP_PRIVILEGED_PORT";
+    public const string UpnpPortsExposed = "UPNP_PORTS_EXPOSED";
+    public const string StaticPortForward = "STATIC_PORT_FORWARD";
+    public const string StaticPrivilegedPort = "STATIC_PRIVILEGED_PORT";
 
     // DNS Security
     public const string DnsNoDoh = "DNS_NO_DOH";

@@ -15,13 +15,19 @@ public class VlanAnalyzer
 
     // Network classification patterns (case-insensitive)
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
-    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust" };
+    // Entertainment patterns (streaming, theater, etc.) classify as IoT - isolated but internet-enabled
+    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust", "entertainment", "streaming", "theater", "theatre", "recreation", "living room", "a/v" };
+    // IoT patterns requiring word boundary matching (to avoid "Dave" matching "av", etc.)
+    private static readonly string[] IoTWordBoundaryPatterns = { "media", "av", "tv" };
     private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect", "cctv" };
     // Patterns that require word boundary matching (to avoid false positives like "Hotspot" matching "not")
     private static readonly string[] SecurityWordBoundaryPatterns = { "not" }; // "NoT" = "Network of Things"
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
     private static readonly string[] GuestPatterns = { "guest", "visitor", "hotspot" };
-    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private" };
+    // Gaming patterns classify as Home - game consoles need UPnP and full network access
+    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private", "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
+    // Home patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
+    private static readonly string[] HomeWordBoundaryPatterns = { "game" };
     // Note: "work" removed - it matches "network" which causes false positives
     private static readonly string[] CorporatePatterns = { "corporate", "office", "business", "enterprise" };
     private static readonly string[] PrinterPatterns = { "print" };
@@ -262,6 +268,9 @@ public class VlanAnalyzer
             nameBasedPurpose = NetworkPurpose.Printer;
         else if (IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.IoT;
+        // Word-boundary patterns for IoT (e.g., "Media Room" but not "Dave")
+        else if (IoTWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
+            nameBasedPurpose = NetworkPurpose.IoT;
         else if (ManagementPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Management;
         else if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
@@ -269,6 +278,9 @@ public class VlanAnalyzer
         else if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Corporate;
         else if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Home;
+        // Word-boundary patterns for Home (e.g., "Game Room" but not "GameChanger")
+        else if (HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Home;
         // Fallback: if name starts with "default" or "main", or is exactly "lan", treat as Home
         else if (networkName.StartsWith("default", StringComparison.OrdinalIgnoreCase) ||
@@ -387,14 +399,27 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Check if a network name suggests IoT usage
+    /// Check if a network name suggests IoT usage (includes entertainment/media networks)
     /// </summary>
     public bool IsIoTNetwork(string? networkName)
     {
         if (string.IsNullOrEmpty(networkName))
             return false;
 
-        return IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase));
+        return IoTPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
+            || IoTWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
+    }
+
+    /// <summary>
+    /// Check if a network name suggests home/gaming usage
+    /// </summary>
+    public bool IsHomeNetwork(string? networkName)
+    {
+        if (string.IsNullOrEmpty(networkName))
+            return false;
+
+        return HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase))
+            || HomeWordBoundaryPatterns.Any(p => ContainsWord(networkName, p));
     }
 
     /// <summary>
