@@ -4578,6 +4578,13 @@ select.form-control {
     font-family: ui-monospace, monospace;
 }
 
+.rule-ports code {
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125rem;
+}
+
 /* Lease Time */
 .rule-lease {
     text-align: right;

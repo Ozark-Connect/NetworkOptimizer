@@ -207,30 +207,30 @@
                     <table class="data-table">
                         <thead>
                             <tr>
+                                <th></th>
                                 <th>Name</th>
                                 <th>Protocol</th>
                                 <th>External Port</th>
                                 <th>Internal</th>
                                 <th>Interface</th>
                                 <th>Traffic</th>
-                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var rule in GetFilteredStaticRules().OrderBy(r => r.Name))
                             {
                                 <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
+                                    <td>
+                                        <div class="rule-status @GetStaticStatusClass(rule)">
+                                            <span class="status-dot"></span>
+                                        </div>
+                                    </td>
                                     <td>@rule.Name</td>
                                     <td><span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span></td>
                                     <td>@RenderPorts(rule.DstPort)</td>
                                     <td><code>@rule.Fwd</code> : @RenderPorts(rule.FwdPort)</td>
                                     <td>@FormatInterface(rule.PfwdInterface)</td>
                                     <td class="text-muted">@rule.TrafficDisplay</td>
-                                    <td>
-                                        <div class="rule-status @GetStaticStatusClass(rule)">
-                                            <span class="status-dot"></span>
-                                        </div>
-                                    </td>
                                 </tr>
                             }
                         </tbody>
