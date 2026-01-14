@@ -24,6 +24,19 @@
   - Explicit classification removes ambiguity
   - Auto-detection still works as default for users who don't configure
 
+### Firewall Rule Source Zone Network Handling
+- **Issue:** Firewall rule analyzers may not properly handle source zone Network specifications and "Match Opposite" behavior
+- **Two behaviors to verify/implement:**
+  1. **Source Zone Networks limiting** - When a firewall rule has specific source zone Network(s) configured, it should only apply to those networks (not all networks in the zone)
+  2. **Match Opposite setting** - When "Match Opposite" is enabled on source zone Networks, the rule applies to all networks in the zone *except* the specified ones (inverts the matching logic)
+- **Current state:** Need to verify both behaviors work correctly; "Match Opposite" may not be implemented
+- **Affected analyzers to audit:**
+  - DNS security analyzers (DNAT rules, DNS redirect rules)
+  - Inter-VLAN traffic analyzers
+  - Any other analyzers checking firewall rule coverage by network
+- **Implementation:** API response samples will be provided when work begins
+- **Severity:** Could affect accuracy of security audit findings
+
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
