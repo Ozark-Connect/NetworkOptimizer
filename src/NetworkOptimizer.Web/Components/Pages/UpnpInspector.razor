@@ -2,11 +2,10 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
-@using System.Net.Http.Json
+@using Microsoft.EntityFrameworkCore
 @inject UniFiConnectionService ConnectionService
 @inject ILogger<UpnpInspector> Logger
-@inject HttpClient Http
-@inject NavigationManager NavigationManager
+@inject NetworkOptimizerDbContext Db
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -310,20 +309,12 @@
     {
         try
         {
-            var baseUri = NavigationManager.BaseUri;
-            var response = await Http.GetAsync($"{baseUri}api/upnp/notes");
-            if (response.IsSuccessStatusCode)
-            {
-                var notesList = await response.Content.ReadFromJsonAsync<List<UpnpNote>>();
-                if (notesList != null)
-                {
-                    notes = notesList
-                        .Where(n => !string.IsNullOrEmpty(n.Note))
-                        .ToDictionary(
-                            n => $"{n.HostIp}|{n.Port}|{n.Protocol}",
-                            n => n.Note ?? "");
-                }
-            }
+            var notesList = await Db.UpnpNotes.ToListAsync();
+            notes = notesList
+                .Where(n => !string.IsNullOrEmpty(n.Note))
+                .ToDictionary(
+                    n => $"{n.HostIp}|{n.Port}|{n.Protocol}",
+                    n => n.Note ?? "");
         }
         catch (Exception ex)
         {
@@ -353,6 +344,9 @@
     {
         var noteKey = GetNoteKey(rule);
         var trimmedNote = newNote?.Trim() ?? "";
+        var hostIp = rule.Fwd ?? "";
+        var port = rule.DstPort ?? "";
+        var protocol = rule.Proto?.ToLowerInvariant() ?? "tcp";
 
         // Update local state immediately
         if (string.IsNullOrEmpty(trimmedNote))
@@ -360,27 +354,43 @@
         else
             notes[noteKey] = trimmedNote;
 
-        // Save to server
+        // Save to database
         savingNotes.Add(noteKey);
         savedNotes.Remove(noteKey);
         StateHasChanged();
 
         try
         {
-            var baseUri = NavigationManager.BaseUri;
-            var request = new
-            {
-                HostIp = rule.Fwd,
-                Port = rule.DstPort,
-                Protocol = rule.Proto?.ToLowerInvariant() ?? "tcp",
-                Note = trimmedNote
-            };
+            var existing = await Db.UpnpNotes.FirstOrDefaultAsync(n =>
+                n.HostIp == hostIp && n.Port == port && n.Protocol == protocol);
 
-            var response = await Http.PutAsJsonAsync($"{baseUri}api/upnp/notes", request);
-            if (response.IsSuccessStatusCode)
+            if (existing != null)
             {
-                savedNotes[noteKey] = DateTime.UtcNow;
+                if (string.IsNullOrEmpty(trimmedNote))
+                {
+                    Db.UpnpNotes.Remove(existing);
+                }
+                else
+                {
+                    existing.Note = trimmedNote;
+                    existing.UpdatedAt = DateTime.UtcNow;
+                }
             }
+            else if (!string.IsNullOrEmpty(trimmedNote))
+            {
+                Db.UpnpNotes.Add(new UpnpNote
+                {
+                    HostIp = hostIp,
+                    Port = port,
+                    Protocol = protocol,
+                    Note = trimmedNote,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
+            await Db.SaveChangesAsync();
+            savedNotes[noteKey] = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
