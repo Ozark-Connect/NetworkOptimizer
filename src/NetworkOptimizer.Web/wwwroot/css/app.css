@@ -4599,12 +4599,12 @@ select.form-control {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    width: 320px;
+    width: 380px;
     flex-shrink: 0;
 }
 
 .rule-note .note-input {
-    width: 260px;
+    width: 320px;
     flex-shrink: 0;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
