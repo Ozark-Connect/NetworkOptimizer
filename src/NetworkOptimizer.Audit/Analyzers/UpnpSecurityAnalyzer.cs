@@ -206,8 +206,11 @@ public class UpnpSecurityAnalyzer
                 .ToList();
 
             // Check if any privileged port rules lack source IP restrictions
+            // A rule is restricted only if src_limiting_enabled is true AND either:
+            // - src_limiting_type is "firewall_group" with a valid src_firewall_group_id, OR
+            // - src_limiting_type is "ip" with a valid src value
             var unrestrictedRules = privilegedPortRules
-                .Where(p => string.IsNullOrEmpty(p.Rule.SrcFirewallGroupId))
+                .Where(p => !IsSourceRestricted(p.Rule))
                 .Select(p => p.Rule)
                 .Distinct()
                 .ToList();
@@ -386,6 +389,28 @@ public class UpnpSecurityAnalyzer
         }
 
         return ports;
+    }
+
+    /// <summary>
+    /// Check if a port forward rule has source IP/firewall group restrictions enabled and configured.
+    /// A rule is restricted only if:
+    /// - src_limiting_enabled is true, AND
+    /// - Either: src_limiting_type is "firewall_group" with a valid src_firewall_group_id,
+    ///   OR src_limiting_type is "ip" with a valid src value (IP, CIDR, or range)
+    /// </summary>
+    private static bool IsSourceRestricted(UniFiPortForwardRule rule)
+    {
+        // Source limiting must be explicitly enabled
+        if (rule.SrcLimitingEnabled != true)
+            return false;
+
+        // Check based on limiting type
+        return rule.SrcLimitingType switch
+        {
+            "firewall_group" => !string.IsNullOrEmpty(rule.SrcFirewallGroupId),
+            "ip" => !string.IsNullOrEmpty(rule.Src),
+            _ => false
+        };
     }
 }
 
