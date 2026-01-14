@@ -1,0 +1,662 @@
+@page "/upnp-inspector"
+@using NetworkOptimizer.UniFi.Models
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
+@inject UniFiConnectionService ConnectionService
+@inject ILogger<UpnpInspector> Logger
+@inject NetworkOptimizerDbContext Db
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>UPnP Inspector - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>UPnP Inspector</h1>
+    <p class="page-description">Monitor dynamic port forwarding rules opened via UPnP</p>
+</div>
+
+@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+{
+    <div class="connection-banner">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>Not Connected</strong>
+                <span>Connect to your UniFi Console to view UPnP mappings.</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Connect Now</a>
+        </div>
+    </div>
+}
+
+<div class="upnp-container">
+    <!-- Controls -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Controls</h2>
+        </div>
+        <div class="card-body">
+            <div class="upnp-controls">
+                <button class="btn btn-primary" @onclick="RefreshData" disabled="@(isLoading || !ConnectionService.IsConnected)" style="min-width: 140px;">
+                    @if (isLoading)
+                    {
+                        <span class="spinner"></span>
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+
+                <div class="control-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="autoRefresh" @bind:after="OnAutoRefreshChanged" />
+                        <span>Auto-refresh (30s)</span>
+                    </label>
+                </div>
+
+                <div class="control-group">
+                    <label class="filter-label">Show:</label>
+                    <select class="filter-select" @bind="filterType">
+                        <option value="all">All Rules</option>
+                        <option value="upnp">UPnP Only</option>
+                        <option value="static">Static Only</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label class="filter-label">Protocol:</label>
+                    <select class="filter-select" @bind="filterProtocol">
+                        <option value="all">All Protocols</option>
+                        <option value="tcp">TCP</option>
+                        <option value="udp">UDP</option>
+                    </select>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger" style="margin-top: 1rem;">
+                    @errorMessage
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    @if (hasData)
+    {
+        <div class="summary-cards">
+            <div class="summary-card @(!upnpEnabled ? "summary-muted" : "")">
+                @if (!upnpEnabled)
+                {
+                    <div class="summary-value">—</div>
+                    <div class="summary-label">UPnP Disabled</div>
+                }
+                else
+                {
+                    <div class="summary-value">@upnpRules.Count</div>
+                    <div class="summary-label">UPnP Mappings</div>
+                }
+            </div>
+            <div class="summary-card">
+                <div class="summary-value">@devicesUsingUpnp</div>
+                <div class="summary-label">Devices</div>
+            </div>
+            @if (upnpEnabled)
+            {
+                <div class="summary-card summary-warning">
+                    <div class="summary-value">@expiringSoonCount</div>
+                    <div class="summary-label">Expiring Soon</div>
+                </div>
+            }
+            <div class="summary-card">
+                <div class="summary-value">@totalPortsExposed</div>
+                <div class="summary-label">Ports Exposed</div>
+            </div>
+        </div>
+    }
+
+    <!-- UPnP Rules by Device -->
+    @if (hasData && GetFilteredUpnpRules().Any())
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">UPnP Mappings by Device</h2>
+                @if (lastRefreshTime.HasValue)
+                {
+                    <span class="audit-timestamp"><span class="timestamp-label">Last refresh: </span>@lastRefreshTime.Value.ToString("HH:mm:ss")</span>
+                }
+            </div>
+            <div class="card-body">
+                @foreach (var deviceGroup in GetGroupedUpnpRules())
+                {
+                    var isExpanded = expandedDevices.Contains(deviceGroup.Key);
+                    var hasExpiring = deviceGroup.Any(r => r.IsExpiringSoon);
+                    <div class="upnp-device-group @(hasExpiring ? "has-expiring" : "")">
+                        <div class="upnp-device-header @(isExpanded ? "expanded" : "")" @onclick="() => ToggleDevice(deviceGroup.Key)">
+                            <div class="device-info">
+                                <span class="device-ip">@deviceGroup.Key</span>
+                                <span class="device-count">@deviceGroup.Count() mappings</span>
+                            </div>
+                            <span class="expand-chevron">@(isExpanded ? "▲" : "▼")</span>
+                        </div>
+                        <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
+                            <div class="expand-content">
+                                <div class="upnp-rules-list">
+                                    @foreach (var rule in deviceGroup.OrderBy(r => r.ApplicationName))
+                                    {
+                                        <div class="upnp-rule-item">
+                                            <div class="rule-status @GetStatusClass(rule)" data-tooltip="@GetStatusTooltip(rule)">
+                                                <span class="status-dot"></span>
+                                            </div>
+                                            <div class="rule-details">
+                                                <div class="rule-main">
+                                                    <div class="rule-name">@rule.ApplicationName</div>
+                                                    <div class="rule-ports">
+                                                        <span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span>
+                                                        <span class="rule-port-mapping">@RenderPorts(rule.DstPort) → @RenderPorts(rule.FwdPort)</span>
+                                                    </div>
+                                                </div>
+                                                <div class="rule-note">
+                                                    <input type="text"
+                                                           class="note-input"
+                                                           placeholder="Add note..."
+                                                           value="@GetNote(GetNoteKey(rule))"
+                                                           @onchange="@(e => OnNoteChanged(rule, e.Value?.ToString()))"
+                                                           @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
+                                                           @onblur="@(() => { var k = GetNoteKey(rule); if (currentEditingNote == k) currentEditingNote = null; })" />
+                                                    @if (IsNoteSaving(GetNoteKey(rule)))
+                                                    {
+                                                        <span class="note-status saving">Saving...</span>
+                                                    }
+                                                    else if (IsNoteJustSaved(GetNoteKey(rule)))
+                                                    {
+                                                        <span class="note-status saved">Saved</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div class="rule-lease">
+                                                <span class="lease-time @(rule.IsExpiringSoon ? "expiring" : "")">@rule.LeaseTimeDisplay</span>
+                                            </div>
+                                            <div class="rule-traffic">
+                                                <span class="traffic-info @(rule.HasTraffic ? "" : "no-traffic")">@rule.TrafficDisplay</span>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Static Port Forwards -->
+    @if (hasData && GetFilteredStaticRules().Any())
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Static Port Forwards</h2>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>Name</th>
+                                <th>Protocol</th>
+                                <th>External Port</th>
+                                <th>Internal</th>
+                                <th>Interface</th>
+                                <th>Traffic</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var rule in GetFilteredStaticRules().OrderBy(r => r.Name))
+                            {
+                                <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
+                                    <td>
+                                        <div class="rule-status @GetStaticStatusClass(rule)" data-tooltip="@GetStaticStatusTooltip(rule)">
+                                            <span class="status-dot"></span>
+                                        </div>
+                                    </td>
+                                    <td>@rule.Name</td>
+                                    <td><span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span></td>
+                                    <td>@RenderPorts(rule.DstPort)</td>
+                                    <td><code>@rule.Fwd</code> : @RenderPorts(rule.FwdPort)</td>
+                                    <td>@FormatInterface(rule.PfwdInterface)</td>
+                                    <td class="text-muted">@rule.TrafficDisplay</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Empty State -->
+    @if (hasData && !allRules.Any())
+    {
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="empty-state">
+                    <div class="empty-icon">&#x1F6E1;</div>
+                    <h3>No Port Forwards</h3>
+                    <p>No UPnP mappings or static port forwards are currently configured.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (!hasData && !isLoading && ConnectionService.IsConnected)
+    {
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="empty-state">
+                    <div class="empty-icon">&#x1F50D;</div>
+                    <h3>Ready to Inspect</h3>
+                    <p>Click Refresh to load UPnP mappings from your UniFi controller.</p>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = false;
+    private bool hasData = false;
+    private bool autoRefresh = false;
+    private string filterType = "all";
+    private string filterProtocol = "all";
+    private string? errorMessage;
+    private DateTime? lastRefreshTime;
+
+    private List<UniFiPortForwardRule> allRules = new();
+    private List<UniFiPortForwardRule> upnpRules = new();
+    private List<UniFiPortForwardRule> staticRules = new();
+    private HashSet<string> expandedDevices = new();
+
+    private System.Threading.Timer? autoRefreshTimer;
+
+    // Summary stats
+    private int devicesUsingUpnp = 0;
+    private int expiringSoonCount = 0;
+    private int totalPortsExposed = 0;
+    private bool upnpEnabled = true;
+
+    // Notes state
+    private Dictionary<string, string> notes = new();
+    private HashSet<string> savingNotes = new();
+    private Dictionary<string, DateTime> savedNotes = new();
+    private string? currentEditingNote;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ConnectionService.WaitForConnectionAsync();
+
+        // Load notes from API
+        await LoadNotesAsync();
+
+        if (ConnectionService.IsConnected)
+        {
+            await RefreshData();
+        }
+    }
+
+    private async Task LoadNotesAsync()
+    {
+        try
+        {
+            var notesList = await Db.UpnpNotes.ToListAsync();
+            notes = notesList
+                .Where(n => !string.IsNullOrEmpty(n.Note))
+                .ToDictionary(
+                    n => $"{n.HostIp}|{n.Port}|{n.Protocol}",
+                    n => n.Note ?? "");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load UPnP notes");
+        }
+    }
+
+    private string GetNoteKey(UniFiPortForwardRule rule)
+    {
+        return $"{rule.Fwd}|{rule.DstPort}|{rule.Proto?.ToLowerInvariant() ?? "tcp"}";
+    }
+
+    private string GetNote(string noteKey)
+    {
+        return notes.TryGetValue(noteKey, out var note) ? note : "";
+    }
+
+    private bool IsNoteSaving(string noteKey) => savingNotes.Contains(noteKey);
+
+    private bool IsNoteJustSaved(string noteKey)
+    {
+        return savedNotes.TryGetValue(noteKey, out var savedTime)
+            && (DateTime.UtcNow - savedTime).TotalSeconds < 2;
+    }
+
+    private async Task OnNoteChanged(UniFiPortForwardRule rule, string? newNote)
+    {
+        var noteKey = GetNoteKey(rule);
+        var trimmedNote = newNote?.Trim() ?? "";
+        var hostIp = rule.Fwd ?? "";
+        var port = rule.DstPort ?? "";
+        var protocol = rule.Proto?.ToLowerInvariant() ?? "tcp";
+
+        // Update local state immediately
+        if (string.IsNullOrEmpty(trimmedNote))
+            notes.Remove(noteKey);
+        else
+            notes[noteKey] = trimmedNote;
+
+        // Save to database
+        savingNotes.Add(noteKey);
+        savedNotes.Remove(noteKey);
+        StateHasChanged();
+
+        try
+        {
+            var existing = await Db.UpnpNotes.FirstOrDefaultAsync(n =>
+                n.HostIp == hostIp && n.Port == port && n.Protocol == protocol);
+
+            if (existing != null)
+            {
+                if (string.IsNullOrEmpty(trimmedNote))
+                {
+                    Db.UpnpNotes.Remove(existing);
+                }
+                else
+                {
+                    existing.Note = trimmedNote;
+                    existing.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+            else if (!string.IsNullOrEmpty(trimmedNote))
+            {
+                Db.UpnpNotes.Add(new UpnpNote
+                {
+                    HostIp = hostIp,
+                    Port = port,
+                    Protocol = protocol,
+                    Note = trimmedNote,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
+            await Db.SaveChangesAsync();
+            savedNotes[noteKey] = DateTime.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to save UPnP note");
+        }
+        finally
+        {
+            savingNotes.Remove(noteKey);
+            StateHasChanged();
+
+            // Clear "Saved" indicator after 2 seconds
+            _ = Task.Delay(2000).ContinueWith(_ => InvokeAsync(() =>
+            {
+                if (savedNotes.TryGetValue(noteKey, out var savedTime)
+                    && (DateTime.UtcNow - savedTime).TotalSeconds >= 2)
+                {
+                    savedNotes.Remove(noteKey);
+                    StateHasChanged();
+                }
+            }));
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        if (!ConnectionService.IsConnected || ConnectionService.Client == null)
+        {
+            errorMessage = "Not connected to UniFi controller";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Fetch UPnP enabled status and port forward rules in parallel
+            var upnpEnabledTask = ConnectionService.Client.GetUpnpEnabledAsync();
+            var rulesTask = ConnectionService.Client.GetPortForwardRulesAsync();
+
+            await Task.WhenAll(upnpEnabledTask, rulesTask);
+
+            upnpEnabled = await upnpEnabledTask;
+            allRules = await rulesTask;
+            upnpRules = allRules.Where(r => r.IsUpnp == 1).ToList();
+            staticRules = allRules.Where(r => r.IsStatic).ToList();
+
+            // Calculate summary stats (devices = unique IPs across both UPnP and static)
+            devicesUsingUpnp = upnpRules.Concat(staticRules).Select(r => r.Fwd).Where(ip => !string.IsNullOrEmpty(ip)).Distinct().Count();
+            expiringSoonCount = upnpRules.Count(r => r.IsExpiringSoon);
+            totalPortsExposed = CountTotalPorts(upnpRules) + CountTotalPorts(staticRules);
+
+            // Auto-expand devices on first load
+            if (!hasData)
+            {
+                foreach (var ip in upnpRules.Select(r => r.Fwd).Distinct())
+                {
+                    if (!string.IsNullOrEmpty(ip))
+                        expandedDevices.Add(ip);
+                }
+            }
+
+            hasData = true;
+            lastRefreshTime = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error fetching port forward rules");
+            errorMessage = $"Error loading data: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private int CountTotalPorts(List<UniFiPortForwardRule> rules)
+    {
+        int count = 0;
+        foreach (var rule in rules)
+        {
+            if (string.IsNullOrEmpty(rule.DstPort)) continue;
+
+            int portCount;
+            if (rule.DstPort.Contains('-'))
+            {
+                // Port range like "19132-19133"
+                var parts = rule.DstPort.Split('-');
+                if (parts.Length == 2 && int.TryParse(parts[0], out var start) && int.TryParse(parts[1], out var end))
+                {
+                    portCount = Math.Max(0, end - start + 1);
+                }
+                else
+                {
+                    portCount = 1;
+                }
+            }
+            else if (rule.DstPort.Contains(','))
+            {
+                // Port list like "80,443"
+                portCount = rule.DstPort.Split(',').Length;
+            }
+            else
+            {
+                portCount = 1;
+            }
+
+            // TCP_UDP counts as 2 (one for each protocol)
+            if (rule.Proto?.Equals("tcp_udp", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                portCount *= 2;
+            }
+
+            count += portCount;
+        }
+        return count;
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        if (autoRefresh)
+        {
+            autoRefreshTimer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (autoRefresh && ConnectionService.IsConnected)
+                    {
+                        await RefreshData();
+                    }
+                });
+            }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        }
+        else
+        {
+            autoRefreshTimer?.Dispose();
+            autoRefreshTimer = null;
+        }
+    }
+
+    private void ToggleDevice(string? deviceIp)
+    {
+        if (string.IsNullOrEmpty(deviceIp)) return;
+
+        if (expandedDevices.Contains(deviceIp))
+            expandedDevices.Remove(deviceIp);
+        else
+            expandedDevices.Add(deviceIp);
+    }
+
+    private IEnumerable<UniFiPortForwardRule> GetFilteredUpnpRules()
+    {
+        var rules = upnpRules.AsEnumerable();
+
+        if (filterType == "static")
+            return Enumerable.Empty<UniFiPortForwardRule>();
+
+        if (filterProtocol != "all")
+            rules = rules.Where(r => r.Proto?.Equals(filterProtocol, StringComparison.OrdinalIgnoreCase) == true);
+
+        return rules;
+    }
+
+    private IEnumerable<UniFiPortForwardRule> GetFilteredStaticRules()
+    {
+        if (filterType == "upnp")
+            return Enumerable.Empty<UniFiPortForwardRule>();
+
+        var rules = staticRules.AsEnumerable();
+
+        if (filterProtocol != "all")
+            rules = rules.Where(r => r.Proto?.Equals(filterProtocol, StringComparison.OrdinalIgnoreCase) == true ||
+                                     r.Proto?.Equals("tcp_udp", StringComparison.OrdinalIgnoreCase) == true);
+
+        return rules;
+    }
+
+    private IEnumerable<IGrouping<string, UniFiPortForwardRule>> GetGroupedUpnpRules()
+    {
+        return GetFilteredUpnpRules()
+            .GroupBy(r => r.Fwd ?? "Unknown")
+            .OrderBy(g => g.Key);
+    }
+
+    private string GetStatusClass(UniFiPortForwardRule rule)
+    {
+        if (rule.IsExpiringSoon) return "status-expiring";
+        if (!rule.HasTraffic) return "status-stale";
+        return "status-active";
+    }
+
+    private string GetStatusTooltip(UniFiPortForwardRule rule)
+    {
+        if (rule.IsExpiringSoon) return "Expiring soon";
+        if (!rule.HasTraffic) return "Idle";
+        return "Active";
+    }
+
+    private string GetStaticStatusClass(UniFiPortForwardRule rule)
+    {
+        if (rule.Enabled == false) return "status-disabled";
+        if (rule.HasTraffic) return "status-active";
+        return "status-stale";
+    }
+
+    private string GetStaticStatusTooltip(UniFiPortForwardRule rule)
+    {
+        if (rule.Enabled == false) return "Disabled";
+        if (rule.HasTraffic) return "Active";
+        return "Idle";
+    }
+
+    private string GetProtocolClass(string? proto)
+    {
+        return proto?.ToLowerInvariant() switch
+        {
+            "udp" => "protocol-udp",
+            "tcp_udp" => "protocol-both",
+            _ => ""
+        };
+    }
+
+    private string FormatInterface(string? iface)
+    {
+        if (string.IsNullOrEmpty(iface) || iface.Equals("wan", StringComparison.OrdinalIgnoreCase))
+            return "WAN1";
+        return iface.ToUpperInvariant();
+    }
+
+    private RenderFragment RenderPorts(string? ports) => builder =>
+    {
+        if (string.IsNullOrEmpty(ports))
+        {
+            builder.AddContent(0, "—");
+            return;
+        }
+
+        if (ports.Contains(','))
+        {
+            var portList = ports.Split(',');
+            for (int i = 0; i < portList.Length; i++)
+            {
+                if (i > 0)
+                {
+                    builder.AddContent(i * 2, " ");
+                }
+                builder.OpenElement(i * 2 + 1, "code");
+                builder.AddContent(i * 2 + 2, portList[i].Trim());
+                builder.CloseElement();
+            }
+        }
+        else
+        {
+            builder.OpenElement(0, "code");
+            builder.AddContent(1, ports);
+            builder.CloseElement();
+        }
+    };
+
+    public void Dispose()
+    {
+        autoRefreshTimer?.Dispose();
+    }
+}

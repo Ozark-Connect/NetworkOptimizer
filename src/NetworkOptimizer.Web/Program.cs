@@ -711,6 +711,63 @@ app.MapGet("/api/auth/check", async (HttpContext context, IJwtService jwt) =>
     return Results.Unauthorized();
 });
 
+// UPnP Notes API endpoints
+app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
+{
+    var notes = await db.UpnpNotes.ToListAsync();
+    return Results.Ok(notes);
+});
+
+app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbContext db) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<UpnpNoteRequest>();
+    if (request == null || string.IsNullOrWhiteSpace(request.HostIp) ||
+        string.IsNullOrWhiteSpace(request.Port) || string.IsNullOrWhiteSpace(request.Protocol))
+    {
+        return Results.BadRequest(new { error = "HostIp, Port, and Protocol are required" });
+    }
+
+    // Normalize protocol to lowercase
+    var protocol = request.Protocol.ToLowerInvariant();
+
+    // Find existing note or create new
+    var existing = await db.UpnpNotes.FirstOrDefaultAsync(n =>
+        n.HostIp == request.HostIp &&
+        n.Port == request.Port &&
+        n.Protocol == protocol);
+
+    if (existing != null)
+    {
+        // Update or delete if note is empty
+        if (string.IsNullOrWhiteSpace(request.Note))
+        {
+            db.UpnpNotes.Remove(existing);
+        }
+        else
+        {
+            existing.Note = request.Note;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+    }
+    else if (!string.IsNullOrWhiteSpace(request.Note))
+    {
+        // Create new note
+        var note = new UpnpNote
+        {
+            HostIp = request.HostIp,
+            Port = request.Port,
+            Protocol = protocol,
+            Note = request.Note,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.UpnpNotes.Add(note);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { success = true });
+});
+
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
 app.MapGet("/api/demo-mappings", () =>
 {
@@ -784,3 +841,6 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
 
     return settings;
 }
+
+// Request DTO for UPnP notes
+record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);
