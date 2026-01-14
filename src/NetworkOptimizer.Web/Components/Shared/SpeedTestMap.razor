@@ -72,6 +72,10 @@
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
     private bool mapInitialized = false;
+
+    // Demo mode: hide street labels on map
+    private static bool IsDemoMode => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS"));
+
     private bool userHasZoomed = false; // Track if user manually zoomed/panned
     private bool initialSetupComplete = false; // Ignore zoom events during initial setup
     private bool ShowLan { get; set; } = true;
@@ -308,10 +312,18 @@
                     if (window._speedTestMaps['{mapId}']) return;
 
                     const map = L.map('{mapId}', {{ maxZoom: 22 }}).setView([36.17, -92.68], 10);
-                    L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                    const isDemoMode = {IsDemoMode.ToString().ToLower()};
+                    // Demo mode: use Voyager no-labels (better rendering than light_nolabels)
+                    // CartoDB tiles only go to zoom 18, OSM goes to 19
+                    const tileUrl = isDemoMode
+                        ? 'https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{{z}}/{{x}}/{{y}}.png'
+                        : 'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png';
+                    const tileAttribution = isDemoMode ? '© CartoDB © OpenStreetMap' : '© OpenStreetMap';
+                    const maxNative = isDemoMode ? 18 : 19;
+                    L.tileLayer(tileUrl, {{
                         maxZoom: 22,
-                        maxNativeZoom: 19,
-                        attribution: '© OpenStreetMap'
+                        maxNativeZoom: maxNative,
+                        attribution: tileAttribution
                     }}).addTo(map);
 
 
