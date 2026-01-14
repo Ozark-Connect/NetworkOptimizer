@@ -4333,3 +4333,421 @@ select.form-control {
         min-width: 700px;
     }
 }
+
+/* Nav icon SVG (inline SVG icons) */
+.nav-icon-svg {
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.nav-link:hover .nav-icon-svg,
+.nav-link.active .nav-icon-svg {
+    opacity: 1;
+}
+
+/* ================================
+   UPnP Inspector Page
+   ================================ */
+
+.upnp-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.upnp-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+}
+
+.upnp-controls .control-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.upnp-controls .filter-label {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.upnp-controls .filter-select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.4rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+/* Summary Cards */
+.summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+}
+
+.summary-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.summary-card .summary-value {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.summary-card .summary-label {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.summary-card.summary-warning .summary-value {
+    color: #fbbf24;
+}
+
+.summary-card.summary-muted {
+    opacity: 0.6;
+}
+
+.summary-card.summary-muted .summary-value {
+    color: var(--text-muted);
+}
+
+/* UPnP Device Groups */
+.upnp-device-group {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.upnp-device-group.has-expiring {
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+.upnp-device-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.875rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.upnp-device-header:hover {
+    background: var(--bg-hover);
+}
+
+.upnp-device-header .device-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.upnp-device-header .device-ip {
+    font-weight: 600;
+    font-family: ui-monospace, monospace;
+    color: var(--text-primary);
+}
+
+.upnp-device-header .device-count {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.upnp-device-header .expand-chevron {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+/* UPnP Rules List */
+.upnp-rules-list {
+    padding: 0 1rem 1rem 1rem;
+}
+
+.upnp-rule-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.upnp-rule-item:last-child {
+    border-bottom: none;
+}
+
+/* Status Indicator */
+.rule-status {
+    width: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.rule-status .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--success-color);
+}
+
+.rule-status.status-active .status-dot {
+    background: var(--success-color);
+}
+
+.rule-status.status-expiring .status-dot {
+    background: #fbbf24;
+    animation: pulse-yellow 2s infinite;
+}
+
+.rule-status.status-stale .status-dot {
+    background: #94a3b8;
+}
+
+.rule-status.status-disabled .status-dot {
+    background: var(--danger-color);
+}
+
+@keyframes pulse-yellow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Rule Details */
+.rule-details {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.rule-details .rule-main {
+    width: 220px;
+    flex-shrink: 0;
+}
+
+.rule-details .rule-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rule-details .rule-ports {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+}
+
+.rule-protocol {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.rule-protocol.protocol-udp {
+    background: rgba(168, 85, 247, 0.2);
+    color: var(--purple-light);
+}
+
+.rule-protocol.protocol-both {
+    background: rgba(249, 115, 22, 0.2);
+    color: var(--accent-hover);
+}
+
+.rule-details .rule-port-mapping {
+    font-family: ui-monospace, monospace;
+}
+
+.rule-ports code {
+    background: var(--bg-primary);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-size: 0.8125rem;
+}
+
+/* Lease Time */
+.rule-lease {
+    text-align: right;
+    min-width: 70px;
+}
+
+.rule-lease .lease-time {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-family: ui-monospace, monospace;
+}
+
+.rule-lease .lease-time.expiring {
+    color: #fbbf24;
+    font-weight: 500;
+}
+
+/* Traffic Info */
+.rule-traffic {
+    text-align: right;
+    min-width: 120px;
+}
+
+.rule-traffic .traffic-info {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+.rule-traffic .traffic-info.no-traffic {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+/* Note Input */
+.rule-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 380px;
+    flex-shrink: 0;
+}
+
+.rule-note .note-input {
+    width: 320px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.rule-note .note-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.rule-note .note-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.rule-note .note-status {
+    font-size: 0.6875rem;
+    white-space: nowrap;
+}
+
+.rule-note .note-status.saving {
+    color: var(--text-muted);
+}
+
+.rule-note .note-status.saved {
+    color: #4ade80;
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.badge-active {
+    background: rgba(36, 188, 112, 0.2);
+    color: var(--success-color);
+}
+
+.badge-idle {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-muted);
+}
+
+.badge-disabled {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+}
+
+/* Row disabled state */
+.row-disabled {
+    opacity: 0.5;
+}
+
+/* Expand/collapse animation */
+.expand-wrapper {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out;
+}
+
+.expand-wrapper.expanded {
+    max-height: 2000px;
+    transition: max-height 0.4s ease-in;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .upnp-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .upnp-controls .control-group {
+        justify-content: space-between;
+    }
+
+    .summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .upnp-rule-item {
+        grid-template-columns: auto 1fr;
+        grid-template-rows: auto auto;
+        gap: 0.5rem;
+    }
+
+    .rule-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .rule-note {
+        width: 100%;
+    }
+
+    .rule-lease,
+    .rule-traffic {
+        grid-column: 2;
+        text-align: left;
+        min-width: unset;
+    }
+
+    .rule-lease {
+        display: inline;
+    }
+
+    .rule-traffic {
+        display: inline;
+        margin-left: 1rem;
+    }
+}
