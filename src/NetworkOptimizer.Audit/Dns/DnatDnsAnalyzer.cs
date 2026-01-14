@@ -94,6 +94,12 @@ public class DnatRuleInfo
     /// Target IP for DNS redirect
     /// </summary>
     public string? RedirectIp { get; init; }
+
+    /// <summary>
+    /// Interface/VLAN ID this rule applies to (from in_interface field).
+    /// When set, this scopes the rule to traffic from that VLAN even if source is "any".
+    /// </summary>
+    public string? InInterface { get; init; }
 }
 
 /// <summary>
@@ -147,6 +153,8 @@ public class DnatDnsAnalyzer
             switch (rule.CoverageType)
             {
                 case "network":
+                case "interface":
+                    // Network reference or in_interface scoping - full coverage for that network
                     if (!string.IsNullOrEmpty(rule.NetworkId))
                     {
                         coveredNetworkIds.Add(rule.NetworkId);
@@ -248,17 +256,13 @@ public class DnatDnsAnalyzer
             var id = rule.GetStringOrNull("_id") ?? Guid.NewGuid().ToString();
             var description = rule.GetStringOrNull("description");
             var redirectIp = rule.GetStringOrNull("ip_address");
+            var inInterface = rule.GetStringOrNull("in_interface");
 
             // Parse source filter to determine coverage type
             var sourceFilter = rule.GetPropertyOrNull("source_filter");
-            if (sourceFilter == null)
-            {
-                continue;
-            }
-
-            var filterType = sourceFilter.Value.GetStringOrNull("filter_type");
-            var networkConfId = sourceFilter.Value.GetStringOrNull("network_conf_id");
-            var address = sourceFilter.Value.GetStringOrNull("address");
+            var filterType = sourceFilter?.GetStringOrNull("filter_type");
+            var networkConfId = sourceFilter?.GetStringOrNull("network_conf_id");
+            var address = sourceFilter?.GetStringOrNull("address");
 
             DnatRuleInfo ruleInfo;
 
@@ -272,7 +276,8 @@ public class DnatDnsAnalyzer
                     Description = description,
                     CoverageType = "network",
                     NetworkId = networkConfId,
-                    RedirectIp = redirectIp
+                    RedirectIp = redirectIp,
+                    InInterface = inInterface
                 };
             }
             else if (!string.IsNullOrEmpty(address))
@@ -286,7 +291,8 @@ public class DnatDnsAnalyzer
                         Description = description,
                         CoverageType = "subnet",
                         SubnetCidr = address,
-                        RedirectIp = redirectIp
+                        RedirectIp = redirectIp,
+                        InInterface = inInterface
                     };
                 }
                 else
@@ -298,13 +304,27 @@ public class DnatDnsAnalyzer
                         Description = description,
                         CoverageType = "single_ip",
                         SingleIp = address,
-                        RedirectIp = redirectIp
+                        RedirectIp = redirectIp,
+                        InInterface = inInterface
                     };
                 }
             }
+            else if (!string.IsNullOrEmpty(inInterface))
+            {
+                // Source is "any" but in_interface scopes to a specific VLAN
+                ruleInfo = new DnatRuleInfo
+                {
+                    Id = id,
+                    Description = description,
+                    CoverageType = "interface",
+                    NetworkId = inInterface, // Use in_interface as the network ID for coverage
+                    RedirectIp = redirectIp,
+                    InInterface = inInterface
+                };
+            }
             else
             {
-                continue; // Unknown filter type
+                continue; // Unknown filter type and no in_interface
             }
 
             rules.Add(ruleInfo);

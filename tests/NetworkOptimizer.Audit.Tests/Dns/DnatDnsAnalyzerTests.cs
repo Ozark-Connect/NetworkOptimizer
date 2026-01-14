@@ -34,21 +34,29 @@ public class DnatDnsAnalyzerTests
         string destPort = "53",
         string protocol = "udp",
         bool enabled = true,
-        string redirectIp = "192.168.1.1")
+        string redirectIp = "192.168.1.1",
+        string? inInterface = null,
+        string? description = null)
     {
         var sourceFilter = sourceFilterType == "NETWORK_CONF"
             ? $"\"filter_type\": \"NETWORK_CONF\", \"network_conf_id\": \"{networkConfId}\""
-            : $"\"filter_type\": \"ADDRESS_AND_PORT\", \"address\": \"{sourceAddress}\"";
+            : sourceFilterType == "ANY"
+                ? "\"filter_type\": \"ANY\""
+                : $"\"filter_type\": \"ADDRESS_AND_PORT\", \"address\": \"{sourceAddress}\"";
+
+        var inInterfaceField = inInterface != null ? $"\"in_interface\": \"{inInterface}\"," : "";
+        var desc = description ?? "Test DNAT";
 
         return $$"""
         {
             "_id": "{{id}}",
-            "description": "Test DNAT",
+            "description": "{{desc}}",
             "type": "DNAT",
             "enabled": {{enabled.ToString().ToLower()}},
             "protocol": "{{protocol}}",
             "ip_version": "IPV4",
             "ip_address": "{{redirectIp}}",
+            {{inInterfaceField}}
             "destination_filter": {
                 "filter_type": "ADDRESS_AND_PORT",
                 "port": "{{destPort}}"
@@ -478,6 +486,130 @@ public class DnatDnsAnalyzerTests
     {
         Assert.False(DnatDnsAnalyzer.CidrCoversSubnet("invalid", "192.168.1.0/24"));
         Assert.False(DnatDnsAnalyzer.CidrCoversSubnet("192.168.1.0/24", "invalid"));
+    }
+
+    #endregion
+
+    #region Interface Coverage Tests (in_interface with source ANY)
+
+    [Fact]
+    public void Analyze_WithInInterface_SourceAny_CoversInterfaceNetwork()
+    {
+        // When in_interface is set and source is ANY, the rule covers that network
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ANY", inInterface: "net1", redirectIp: "192.168.1.1"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.Single(result.CoveredNetworkIds);
+        Assert.Contains("net1", result.CoveredNetworkIds);
+        Assert.Single(result.UncoveredNetworkIds);
+        Assert.Contains("net2", result.UncoveredNetworkIds);
+    }
+
+    [Fact]
+    public void Analyze_WithInInterface_AndNetworkRef_BothWork()
+    {
+        // in_interface can be combined with explicit network reference
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1", inInterface: "net1", redirectIp: "192.168.1.1"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.True(result.HasFullCoverage);
+        Assert.Single(result.Rules);
+        Assert.Equal("net1", result.Rules[0].InInterface);
+    }
+
+    [Fact]
+    public void Analyze_ExtractsInInterfaceFromRule()
+    {
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1", inInterface: "interface-123"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Single(result.Rules);
+        Assert.Equal("interface-123", result.Rules[0].InInterface);
+    }
+
+    [Fact]
+    public void Analyze_WithMultipleInterfaceRules_CoversMultipleNetworks()
+    {
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true),
+            ("net3", "Guest", "192.168.3.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ANY", inInterface: "net1", redirectIp: "192.168.1.1"),
+            CreateDnatRule("2", "ANY", inInterface: "net2", redirectIp: "192.168.2.1"),
+            CreateDnatRule("3", "ANY", inInterface: "net3", redirectIp: "192.168.3.1"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.True(result.HasDnatDnsRules);
+        Assert.True(result.HasFullCoverage);
+        Assert.Equal(3, result.CoveredNetworkIds.Count);
+        Assert.Empty(result.UncoveredNetworkIds);
+    }
+
+    [Fact]
+    public void Analyze_InterfaceCoverageType_SetCorrectly()
+    {
+        var networks = CreateTestNetworks(("net1", "LAN", "192.168.1.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "ANY", inInterface: "net1", redirectIp: "192.168.1.1"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Single(result.Rules);
+        Assert.Equal("interface", result.Rules[0].CoverageType);
+        Assert.Equal("net1", result.Rules[0].NetworkId);
+    }
+
+    #endregion
+
+    #region Multiple Redirect Target Tests
+
+    [Fact]
+    public void Analyze_TracksRedirectIpPerRule()
+    {
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1", redirectIp: "192.168.1.1"),
+            CreateDnatRule("2", "NETWORK_CONF", networkConfId: "net2", redirectIp: "192.168.2.1"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Equal(2, result.Rules.Count);
+        Assert.Equal("192.168.1.1", result.Rules[0].RedirectIp);
+        Assert.Equal("192.168.2.1", result.Rules[1].RedirectIp);
+    }
+
+    [Fact]
+    public void Analyze_RedirectTargetIp_UsesFirstRule()
+    {
+        // RedirectTargetIp should be from the first rule for backward compatibility
+        var networks = CreateTestNetworks(
+            ("net1", "LAN", "192.168.1.0/24", true),
+            ("net2", "IoT", "192.168.2.0/24", true));
+        var natRules = ParseNatRules(
+            CreateDnatRule("1", "NETWORK_CONF", networkConfId: "net1", redirectIp: "10.0.0.1"),
+            CreateDnatRule("2", "NETWORK_CONF", networkConfId: "net2", redirectIp: "10.0.0.2"));
+
+        var result = _analyzer.Analyze(natRules, networks);
+
+        Assert.Equal("10.0.0.1", result.RedirectTargetIp);
     }
 
     #endregion

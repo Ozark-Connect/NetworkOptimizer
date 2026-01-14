@@ -60,4 +60,5 @@ public static class IssueTypes
     // DNS DNAT Issues
     public const string DnsDnatPartialCoverage = "DNS_DNAT_PARTIAL_COVERAGE";
     public const string DnsDnatSingleIp = "DNS_DNAT_SINGLE_IP";
+    public const string DnsDnatWrongDestination = "DNS_DNAT_WRONG_DESTINATION";
 }

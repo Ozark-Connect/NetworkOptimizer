@@ -618,8 +618,11 @@ public class DnsSecurityAnalyzer
 
         // Issue: No DNS port 53 blocking (DNS leak prevention)
         // DNAT rules can be an alternative when DoH or third-party DNS is configured
+        // and the redirect destination is correct
         var hasDnsControlSolution = result.DohConfigured || result.HasThirdPartyDns;
-        var dnatIsValidAlternative = result.DnatProvidesFullCoverage && hasDnsControlSolution;
+        var dnatIsValidAlternative = result.DnatProvidesFullCoverage
+            && hasDnsControlSolution
+            && result.DnatRedirectTargetIsValid;
 
         if (!result.HasDns53BlockRule && !dnatIsValidAlternative)
         {
@@ -677,6 +680,33 @@ public class DnsSecurityAnalyzer
                 Metadata = new Dictionary<string, object>
                 {
                     { "single_ip_sources", result.DnatSingleIpRules.ToList() }
+                }
+            });
+        }
+
+        // Issue: DNAT redirects to wrong destination
+        if (result.HasDnatDnsRules && !result.DnatRedirectTargetIsValid && result.InvalidDnatRules.Any())
+        {
+            var expectedDest = result.HasThirdPartyDns
+                ? $"third-party DNS server ({string.Join(", ", result.ExpectedDnatDestinations)})"
+                : $"gateway ({string.Join(", ", result.ExpectedDnatDestinations)})";
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsDnatWrongDestination,
+                Severity = AuditSeverity.Critical,
+                DeviceName = result.GatewayName,
+                Message = $"DNAT DNS rules redirect to incorrect destination. {string.Join("; ", result.InvalidDnatRules)}. Expected destination: {expectedDest}.",
+                RecommendedAction = result.HasThirdPartyDns
+                    ? "Update DNAT rules to redirect DNS traffic to your Pi-hole/DNS server IP"
+                    : "Update DNAT rules to redirect DNS traffic to a gateway IP",
+                RuleId = "DNS-DNAT-003",
+                ScoreImpact = 10,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "invalid_rules", result.InvalidDnatRules.ToList() },
+                    { "expected_destinations", result.ExpectedDnatDestinations.ToList() },
+                    { "has_third_party_dns", result.HasThirdPartyDns }
                 }
             });
         }
@@ -1409,6 +1439,69 @@ public class DnsSecurityAnalyzer
                     string.Join(", ", coverageResult.SingleIpRules));
             }
         }
+
+        // Validate redirect destinations
+        ValidateDnatRedirectTargets(coverageResult, result, networks);
+    }
+
+    /// <summary>
+    /// Validate that DNAT redirect destinations point to the correct DNS server.
+    /// - With third-party DNS (Pi-hole): must redirect to the third-party server IP
+    /// - With DoH (no third-party DNS): must redirect to a gateway IP
+    /// </summary>
+    private void ValidateDnatRedirectTargets(
+        DnatCoverageResult coverageResult,
+        DnsSecurityResult result,
+        List<NetworkInfo> networks)
+    {
+        if (!coverageResult.HasDnatDnsRules)
+            return;
+
+        // Build set of valid destinations
+        var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (result.HasThirdPartyDns)
+        {
+            // Third-party DNS: DNAT must point to the third-party server(s)
+            foreach (var thirdParty in result.ThirdPartyDnsServers)
+                validDestinations.Add(thirdParty.DnsServerIp);
+        }
+        else if (result.DohConfigured)
+        {
+            // DoH: DNAT must point to a gateway IP (any network's gateway is valid)
+            foreach (var network in networks)
+                if (!string.IsNullOrEmpty(network.Gateway))
+                    validDestinations.Add(network.Gateway);
+        }
+        else
+        {
+            // No DNS control solution - skip validation (other issues will be raised)
+            return;
+        }
+
+        result.ExpectedDnatDestinations.AddRange(validDestinations);
+
+        // Validate each rule's redirect target
+        foreach (var rule in coverageResult.Rules)
+        {
+            if (string.IsNullOrEmpty(rule.RedirectIp))
+                continue;
+
+            if (!validDestinations.Contains(rule.RedirectIp))
+            {
+                result.DnatRedirectTargetIsValid = false;
+                result.InvalidDnatRules.Add(
+                    $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp}");
+            }
+        }
+
+        if (!result.DnatRedirectTargetIsValid)
+        {
+            _logger.LogWarning(
+                "DNAT DNS rules redirect to incorrect destinations. Invalid rules: {InvalidRules}. Expected: {Expected}",
+                string.Join("; ", result.InvalidDnatRules),
+                string.Join(", ", result.ExpectedDnatDestinations));
+        }
     }
 
     /// <summary>
@@ -1505,6 +1598,11 @@ public class DnsSecurityResult
     public List<string> DnatCoveredNetworks { get; } = new();
     public List<string> DnatUncoveredNetworks { get; } = new();
     public List<string> DnatSingleIpRules { get; } = new();
+
+    // DNAT Redirect Destination Validation
+    public bool DnatRedirectTargetIsValid { get; set; } = true;
+    public List<string> InvalidDnatRules { get; } = new();
+    public List<string> ExpectedDnatDestinations { get; } = new();
 
     // Audit Issues
     public List<AuditIssue> Issues { get; } = new();
