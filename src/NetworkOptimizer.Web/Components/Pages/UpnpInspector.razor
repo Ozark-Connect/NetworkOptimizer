@@ -432,8 +432,8 @@
             upnpRules = allRules.Where(r => r.IsUpnp == 1).ToList();
             staticRules = allRules.Where(r => r.IsStatic).ToList();
 
-            // Calculate summary stats
-            devicesUsingUpnp = upnpRules.Select(r => r.Fwd).Distinct().Count();
+            // Calculate summary stats (devices = unique IPs across both UPnP and static)
+            devicesUsingUpnp = upnpRules.Concat(staticRules).Select(r => r.Fwd).Where(ip => !string.IsNullOrEmpty(ip)).Distinct().Count();
             expiringSoonCount = upnpRules.Count(r => r.IsExpiringSoon);
             totalPortsExposed = CountTotalPorts(upnpRules) + CountTotalPorts(staticRules);
 
