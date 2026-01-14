@@ -89,18 +89,29 @@
     @if (hasData)
     {
         <div class="summary-cards">
-            <div class="summary-card">
-                <div class="summary-value">@upnpRules.Count</div>
-                <div class="summary-label">UPnP Mappings</div>
+            <div class="summary-card @(!upnpEnabled ? "summary-muted" : "")">
+                @if (!upnpEnabled)
+                {
+                    <div class="summary-value">—</div>
+                    <div class="summary-label">UPnP Disabled</div>
+                }
+                else
+                {
+                    <div class="summary-value">@upnpRules.Count</div>
+                    <div class="summary-label">UPnP Mappings</div>
+                }
             </div>
             <div class="summary-card">
                 <div class="summary-value">@devicesUsingUpnp</div>
                 <div class="summary-label">Devices</div>
             </div>
-            <div class="summary-card summary-warning">
-                <div class="summary-value">@expiringSoonCount</div>
-                <div class="summary-label">Expiring Soon</div>
-            </div>
+            @if (upnpEnabled)
+            {
+                <div class="summary-card summary-warning">
+                    <div class="summary-value">@expiringSoonCount</div>
+                    <div class="summary-label">Expiring Soon</div>
+                </div>
+            }
             <div class="summary-card">
                 <div class="summary-value">@totalPortsExposed</div>
                 <div class="summary-label">Ports Exposed</div>
@@ -285,6 +296,7 @@
     private int devicesUsingUpnp = 0;
     private int expiringSoonCount = 0;
     private int totalPortsExposed = 0;
+    private bool upnpEnabled = true;
 
     // Notes state
     private Dictionary<string, string> notes = new();
@@ -428,7 +440,14 @@
 
         try
         {
-            allRules = await ConnectionService.Client.GetPortForwardRulesAsync();
+            // Fetch UPnP enabled status and port forward rules in parallel
+            var upnpEnabledTask = ConnectionService.Client.GetUpnpEnabledAsync();
+            var rulesTask = ConnectionService.Client.GetPortForwardRulesAsync();
+
+            await Task.WhenAll(upnpEnabledTask, rulesTask);
+
+            upnpEnabled = await upnpEnabledTask;
+            allRules = await rulesTask;
             upnpRules = allRules.Where(r => r.IsUpnp == 1).ToList();
             staticRules = allRules.Where(r => r.IsStatic).ToList();
 

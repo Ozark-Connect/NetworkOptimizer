@@ -4416,6 +4416,14 @@ select.form-control {
     color: #fbbf24;
 }
 
+.summary-card.summary-muted {
+    opacity: 0.6;
+}
+
+.summary-card.summary-muted .summary-value {
+    color: var(--text-muted);
+}
+
 /* UPnP Device Groups */
 .upnp-device-group {
     background: var(--bg-secondary);

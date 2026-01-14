@@ -1216,6 +1216,39 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// Check if UPnP is enabled in the USG settings
+    /// </summary>
+    public async Task<bool> GetUpnpEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var settings = await GetSettingsRawAsync(cancellationToken);
+            if (settings == null) return true; // Assume enabled if we can't fetch
+
+            if (settings.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in data.EnumerateArray())
+                {
+                    if (item.TryGetProperty("key", out var key) && key.GetString() == "usg")
+                    {
+                        if (item.TryGetProperty("upnp_enabled", out var upnpEnabled))
+                        {
+                            return upnpEnabled.GetBoolean();
+                        }
+                    }
+                }
+            }
+
+            return true; // Assume enabled if not found
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check UPnP enabled status");
+            return true; // Assume enabled on error
+        }
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/firewall-policies - Get firewall policies (new v2 API)
     /// This endpoint provides detailed firewall policy configuration including DNS blocking rules
     /// </summary>
