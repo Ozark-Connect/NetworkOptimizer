@@ -1798,7 +1798,6 @@ select.form-control {
 .issue-item-description a {
     color: var(--text-secondary);
     text-decoration: underline;
-    text-decoration-style: dotted;
     text-underline-offset: 2px;
 }
 
@@ -1808,7 +1807,6 @@ select.form-control {
 .issue-type-description a:hover,
 .issue-item-description a:hover {
     color: var(--text-primary);
-    text-decoration-style: solid;
 }
 
 .no-issues {
