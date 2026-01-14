@@ -4517,6 +4517,10 @@ select.form-control {
     background: #94a3b8;
 }
 
+.rule-status.status-disabled .status-dot {
+    background: var(--danger-color);
+}
+
 @keyframes pulse-yellow {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }

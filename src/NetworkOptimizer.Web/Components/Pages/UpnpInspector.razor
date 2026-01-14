@@ -227,18 +227,9 @@
                                     <td>@FormatInterface(rule.PfwdInterface)</td>
                                     <td class="text-muted">@rule.TrafficDisplay</td>
                                     <td>
-                                        @if (rule.Enabled == false)
-                                        {
-                                            <span class="badge badge-disabled">Disabled</span>
-                                        }
-                                        else if (rule.HasTraffic)
-                                        {
-                                            <span class="badge badge-active">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="badge badge-idle">Idle</span>
-                                        }
+                                        <div class="rule-status @GetStaticStatusClass(rule)">
+                                            <span class="status-dot"></span>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -594,6 +585,13 @@
         if (rule.IsExpiringSoon) return "status-expiring";
         if (!rule.HasTraffic) return "status-stale";
         return "status-active";
+    }
+
+    private string GetStaticStatusClass(UniFiPortForwardRule rule)
+    {
+        if (rule.Enabled == false) return "status-disabled";
+        if (rule.HasTraffic) return "status-active";
+        return "status-stale";
     }
 
     private string GetProtocolClass(string? proto)
