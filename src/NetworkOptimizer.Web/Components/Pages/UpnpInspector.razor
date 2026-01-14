@@ -213,7 +213,7 @@
                                     <td><span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span></td>
                                     <td>@RenderPorts(rule.DstPort)</td>
                                     <td><code>@rule.Fwd</code> : @RenderPorts(rule.FwdPort)</td>
-                                    <td>@(rule.PfwdInterface?.ToUpperInvariant() ?? "WAN")</td>
+                                    <td>@FormatInterface(rule.PfwdInterface)</td>
                                     <td class="text-muted">@rule.TrafficDisplay</td>
                                     <td>
                                         @if (rule.Enabled == false)
@@ -585,6 +585,13 @@
             "tcp_udp" => "protocol-both",
             _ => ""
         };
+    }
+
+    private string FormatInterface(string? iface)
+    {
+        if (string.IsNullOrEmpty(iface) || iface.Equals("wan", StringComparison.OrdinalIgnoreCase))
+            return "WAN1";
+        return iface.ToUpperInvariant();
     }
 
     private RenderFragment RenderPorts(string? ports) => builder =>
