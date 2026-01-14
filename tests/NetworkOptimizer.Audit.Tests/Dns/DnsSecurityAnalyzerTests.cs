@@ -720,6 +720,160 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HasDns53BlockRule.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Analyze_WithMatchOppositePorts_DoesNotDetectAsBlockRule()
+    {
+        // Arrange - Rule with match_opposite_ports=true means "block everything EXCEPT port 53"
+        // This should NOT be detected as a DNS block rule
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Except DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port"": ""53"",
+                    ""match_opposite_ports"": true
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - Should NOT detect as DNS block rule (ports are inverted)
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolUdp_DoesNotBlockDns()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=udp
+        // Means "block everything EXCEPT UDP" - so UDP traffic (DNS) is NOT blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-UDP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - UDP is excluded, so DNS (UDP 53) is NOT blocked
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolIcmp_DoesBlockDns()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=icmp
+        // Means "block everything EXCEPT ICMP" - so UDP/TCP traffic IS blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Except ICMP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""icmp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - ICMP is excluded, but UDP is still blocked, so DNS IS blocked
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block All Except ICMP");
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolTcp_DoesBlockDnsButNotDoT()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=tcp
+        // Means "block everything EXCEPT TCP" - so UDP is blocked but TCP is not
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-TCP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53,853""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - TCP is excluded, so DoT (TCP 853) is NOT blocked
+        // But UDP is blocked, so DNS53 (UDP 53) IS blocked
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolTcp_DoesBlockDoQ()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=tcp for port 853
+        // Means "block everything EXCEPT TCP" - so DoQ (UDP 853) IS blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-TCP on 853"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""853""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - TCP is excluded, so DoT is NOT blocked
+        // But UDP is blocked, so DoQ IS blocked
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_NormalProtocolAndPorts_WorksWithoutInversion()
+    {
+        // Arrange - Normal rule without any match_opposite flags
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS Normal"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""match_opposite_protocol"": false,
+                ""destination"": {
+                    ""port"": ""53"",
+                    ""match_opposite_ports"": false
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - Normal blocking works
+        result.HasDns53BlockRule.Should().BeTrue();
+    }
+
     #endregion
 
     #region WAN DNS Extraction Tests

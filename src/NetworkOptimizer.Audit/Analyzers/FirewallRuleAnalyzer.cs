@@ -624,12 +624,13 @@ public class FirewallRuleAnalyzer
             _logger.LogDebug("Checking firewall access for isolated management network '{Name}'", mgmtNetwork.Name);
 
             // Check for UniFi cloud access rule (config-based only)
-            // Must have: source = management network, destination web domain = ui.com
+            // Must have: source = management network, destination web domain = ui.com, TCP allowed
             var hasUniFiAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
-                r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true);
+                r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
             if (!hasUniFiAccess)
             {
@@ -653,12 +654,13 @@ public class FirewallRuleAnalyzer
             }
 
             // Check for AFC (Automated Frequency Coordination) traffic rule - needed for 6GHz WiFi
-            // Must have: source = management network, destination web domain = qcs.qualcomm.com
+            // Must have: source = management network, destination web domain = qcs.qualcomm.com, TCP allowed
             var hasAfcAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
-                r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true);
+                r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
             if (!hasAfcAccess)
             {
@@ -682,14 +684,15 @@ public class FirewallRuleAnalyzer
             }
 
             // Check for NTP access rule - needed for time sync (required for AFC)
-            // Can be satisfied by: web domain containing ntp.org OR destination port 123
+            // Can be satisfied by: web domain containing ntp.org (TCP) OR destination port 123 (UDP)
+            // Note: Must check that ports and protocol are not inverted
             var hasNtpAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
-                (r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true ||
-                 r.DestinationPort == "123" ||
-                 r.DestinationPort?.Contains("123") == true));
+                ((r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true &&
+                  FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp")) ||
+                 FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp")));
 
             if (!hasNtpAccess)
             {
@@ -726,7 +729,8 @@ public class FirewallRuleAnalyzer
                     r.WebDomains?.Any(d =>
                         d.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
                         d.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
-                        d.Contains("gsma.com", StringComparison.OrdinalIgnoreCase)) == true);
+                        d.Contains("gsma.com", StringComparison.OrdinalIgnoreCase)) == true &&
+                    FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
                 if (!has5GModemAccess)
                 {

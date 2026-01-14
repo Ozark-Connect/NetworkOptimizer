@@ -119,6 +119,7 @@ public class FirewallRuleParser
         var enabled = policy.GetBoolOrDefault("enabled", true);
         var action = policy.GetStringOrNull("action");
         var protocol = policy.GetStringOrNull("protocol");
+        var matchOppositeProtocol = policy.GetBoolOrDefault("match_opposite_protocol", false);
         var index = policy.GetIntOrDefault("index", 0);
         var predefined = policy.GetBoolOrDefault("predefined", false);
         var icmpTypename = policy.GetStringOrNull("icmp_typename");
@@ -275,6 +276,7 @@ public class FirewallRuleParser
             Index = index,
             Action = action,
             Protocol = protocol,
+            MatchOppositeProtocol = matchOppositeProtocol,
             SourcePort = sourcePort,
             DestinationType = destMatchingTarget,
             DestinationPort = destPort,
@@ -431,48 +433,11 @@ public class FirewallRuleParser
     /// Resolve an address group ID to a list of IP addresses/CIDRs/ranges
     /// </summary>
     private List<string>? ResolveAddressGroup(string groupId)
-    {
-        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
-        {
-            _logger.LogDebug("Address group {GroupId} not found in loaded groups", groupId);
-            return null;
-        }
-
-        // Only resolve address groups (both IPv4 and IPv6), not port groups
-        if (group.GroupType != "address-group" && group.GroupType != "ipv6-address-group")
-        {
-            _logger.LogWarning("Group {GroupId} ({GroupName}) is type '{GroupType}', expected address-group",
-                groupId, group.Name, group.GroupType);
-            return null;
-        }
-
-        // Both address-group and ipv6-address-group store their members in group_members
-        return group.GroupMembers?.Count > 0 ? group.GroupMembers.ToList() : null;
-    }
+        => FirewallGroupHelper.ResolveAddressGroup(groupId, _firewallGroups, _logger);
 
     /// <summary>
     /// Resolve a port group ID to a comma-separated port string (e.g., "53,80,443" or "4001-4003")
     /// </summary>
     private string? ResolvePortGroup(string groupId)
-    {
-        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
-        {
-            _logger.LogDebug("Port group {GroupId} not found in loaded groups", groupId);
-            return null;
-        }
-
-        // Only resolve port groups
-        if (group.GroupType != "port-group")
-        {
-            _logger.LogWarning("Group {GroupId} ({GroupName}) is type '{GroupType}', expected port-group",
-                groupId, group.Name, group.GroupType);
-            return null;
-        }
-
-        if (group.GroupMembers == null || group.GroupMembers.Count == 0)
-            return null;
-
-        // Join port members with commas (they may be single ports like "53" or ranges like "4001-4003")
-        return string.Join(",", group.GroupMembers);
-    }
+        => FirewallGroupHelper.ResolvePortGroup(groupId, _firewallGroups, _logger);
 }

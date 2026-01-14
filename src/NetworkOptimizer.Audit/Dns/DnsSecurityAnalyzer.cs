@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
@@ -371,6 +372,7 @@ public class DnsSecurityAnalyzer
             var enabled = policy.GetBoolOrDefault("enabled", true);
             var action = policy.GetStringOrNull("action")?.ToLowerInvariant() ?? "";
             var protocol = policy.GetStringOrNull("protocol")?.ToLowerInvariant() ?? "all";
+            var matchOppositeProtocol = policy.GetBoolOrDefault("match_opposite_protocol", false);
 
             if (!enabled)
                 continue;
@@ -379,18 +381,20 @@ public class DnsSecurityAnalyzer
             string? destPort = null;
             string? matchingTarget = null;
             List<string>? webDomains = null;
+            bool matchOppositePorts = false;
 
             if (policy.TryGetProperty("destination", out var dest))
             {
                 destPort = dest.GetStringOrNull("port");
                 matchingTarget = dest.GetStringOrNull("matching_target");
+                matchOppositePorts = dest.GetBoolOrDefault("match_opposite_ports", false);
 
                 // Resolve port group reference if port_matching_type is OBJECT
                 var portMatchingType = dest.GetStringOrNull("port_matching_type");
                 var portGroupId = dest.GetStringOrNull("port_group_id");
                 if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
                 {
-                    destPort = ResolvePortGroup(portGroupId);
+                    destPort = FirewallGroupHelper.ResolvePortGroup(portGroupId, _firewallGroups, _logger);
                     if (!string.IsNullOrEmpty(destPort))
                     {
                         _logger.LogDebug("Resolved port group {GroupId} to '{Ports}' for rule {RuleName}", portGroupId, destPort, name);
@@ -409,47 +413,58 @@ public class DnsSecurityAnalyzer
 
             var isBlockAction = FirewallActionExtensions.Parse(action).IsBlockAction();
 
-            // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP)
-            // Valid protocols: udp, tcp_udp, all
-            if (isBlockAction && IncludesPort(destPort, "53"))
+            // If match_opposite_ports is true, the rule blocks everything EXCEPT the specified ports
+            // So we should NOT count it as blocking those ports
+            if (matchOppositePorts)
             {
-                if (IncludesUdp(protocol))
+                _logger.LogDebug("Rule {Name} has match_opposite_ports=true, ports {Ports} are EXCLUDED from blocking", name, destPort);
+                continue;
+            }
+
+            // Determine effective protocol blocking considering match_opposite_protocol
+            // If match_opposite_protocol=true, the rule blocks everything EXCEPT the specified protocol
+            var blocksUdp = BlocksProtocol(protocol, matchOppositeProtocol, "udp");
+            var blocksTcp = BlocksProtocol(protocol, matchOppositeProtocol, "tcp");
+
+            // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP)
+            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "53"))
+            {
+                if (blocksUdp)
                 {
                     result.HasDns53BlockRule = true;
                     result.Dns53RuleName = name;
-                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol})", name, protocol);
+                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
                 }
                 else
                 {
-                    _logger.LogDebug("Skipping DNS53 rule {Name}: protocol {Protocol} doesn't include UDP", name, protocol);
+                    _logger.LogDebug("Skipping DNS53 rule {Name}: protocol {Protocol} (opposite={Opposite}) doesn't block UDP", name, protocol, matchOppositeProtocol);
                 }
             }
 
             // Check for DNS over TLS (port 853) blocking - TCP only
             // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250)
-            // Valid protocols: tcp, udp, tcp_udp, all
-            if (isBlockAction && IncludesPort(destPort, "853"))
+            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "853"))
             {
                 // DoT = TCP 853
-                if (IncludesTcp(protocol))
+                if (blocksTcp)
                 {
                     result.HasDotBlockRule = true;
                     result.DotRuleName = name;
-                    _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol})", name, protocol);
+                    _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
                 }
 
                 // DoQ = UDP 853 (RFC 9250 standard port)
-                if (IncludesUdp(protocol))
+                if (blocksUdp)
                 {
                     result.HasDoqBlockRule = true;
                     result.DoqRuleName = name;
-                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol})", name, protocol);
+                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
                 }
             }
 
             // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
             // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
-            if (isBlockAction && IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
+            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
@@ -459,7 +474,7 @@ public class DnsSecurityAnalyzer
                 if (dnsProviderDomains.Count > 0)
                 {
                     // DoH blocking (TCP 443)
-                    if (IncludesTcp(protocol))
+                    if (blocksTcp)
                     {
                         result.HasDohBlockRule = true;
                         foreach (var domain in dnsProviderDomains)
@@ -468,17 +483,17 @@ public class DnsSecurityAnalyzer
                                 result.DohBlockedDomains.Add(domain);
                         }
                         result.DohRuleName = name;
-                        _logger.LogDebug("Found DoH block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
-                            name, protocol, dnsProviderDomains.Count);
+                        _logger.LogDebug("Found DoH block rule: {Name} (protocol={Protocol}, opposite={Opposite}) with {Count} DNS domains",
+                            name, protocol, matchOppositeProtocol, dnsProviderDomains.Count);
                     }
 
                     // DoH3 blocking (UDP 443 / HTTP/3 over QUIC)
-                    if (IncludesUdp(protocol))
+                    if (blocksUdp)
                     {
                         result.HasDoh3BlockRule = true;
                         result.Doh3RuleName = name;
-                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
-                            name, protocol, dnsProviderDomains.Count);
+                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}, opposite={Opposite}) with {Count} DNS domains",
+                            name, protocol, matchOppositeProtocol, dnsProviderDomains.Count);
                     }
                 }
             }
@@ -486,62 +501,38 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
-    /// Check if protocol includes UDP (udp, tcp_udp, all)
+    /// Determine if a rule blocks a specific protocol, considering the match_opposite_protocol flag.
     /// </summary>
-    private static bool IncludesUdp(string? protocol)
+    /// <param name="ruleProtocol">Protocol specified in the rule (e.g., "udp", "tcp", "tcp_udp", "icmp", "all")</param>
+    /// <param name="matchOpposite">If true, the rule blocks everything EXCEPT the specified protocol</param>
+    /// <param name="targetProtocol">The protocol we want to know if it's blocked (e.g., "udp" or "tcp")</param>
+    /// <returns>True if the rule effectively blocks the target protocol</returns>
+    private static bool BlocksProtocol(string? ruleProtocol, bool matchOpposite, string targetProtocol)
     {
-        if (string.IsNullOrEmpty(protocol))
-            return true; // Default "all" includes UDP
+        var protocol = ruleProtocol?.ToLowerInvariant() ?? "all";
 
-        return protocol is "udp" or "tcp_udp" or "all";
-    }
-
-    /// <summary>
-    /// Check if protocol includes TCP (tcp, tcp_udp, all)
-    /// </summary>
-    private static bool IncludesTcp(string? protocol)
-    {
-        if (string.IsNullOrEmpty(protocol))
-            return true; // Default "all" includes TCP
-
-        return protocol is "tcp" or "tcp_udp" or "all";
-    }
-
-    /// <summary>
-    /// Check if a port specification includes a specific port.
-    /// Handles comma-separated lists (e.g., "53,853") and single ports.
-    /// </summary>
-    private static bool IncludesPort(string? portSpec, string port)
-    {
-        if (string.IsNullOrEmpty(portSpec))
-            return false;
-
-        // Split by comma and check each port in the list
-        var ports = portSpec.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return ports.Any(p => p == port);
-    }
-
-    /// <summary>
-    /// Resolve a port group ID to a comma-separated port string
-    /// </summary>
-    private string? ResolvePortGroup(string groupId)
-    {
-        if (_firewallGroups == null || !_firewallGroups.TryGetValue(groupId, out var group))
+        if (matchOpposite)
         {
-            _logger.LogDebug("Port group {GroupId} not found in loaded groups", groupId);
-            return null;
+            // Rule blocks everything EXCEPT the specified protocol
+            // So we check if the target is NOT in the excluded set
+            return !ProtocolIncludes(protocol, targetProtocol);
         }
 
-        if (group.GroupType != "port-group")
+        // Normal mode: rule blocks the specified protocol(s)
+        return ProtocolIncludes(protocol, targetProtocol);
+    }
+
+    /// <summary>
+    /// Check if a protocol specification includes a target protocol.
+    /// </summary>
+    private static bool ProtocolIncludes(string protocol, string target)
+    {
+        return protocol switch
         {
-            _logger.LogDebug("Group {GroupId} is type '{GroupType}', expected port-group", groupId, group.GroupType);
-            return null;
-        }
-
-        if (group.GroupMembers == null || group.GroupMembers.Count == 0)
-            return null;
-
-        return string.Join(",", group.GroupMembers);
+            "all" => true,
+            "tcp_udp" => target is "tcp" or "udp",
+            _ => protocol == target
+        };
     }
 
     private static string GetCorrectDnsOrder(List<string> servers, List<string?> ptrResults)

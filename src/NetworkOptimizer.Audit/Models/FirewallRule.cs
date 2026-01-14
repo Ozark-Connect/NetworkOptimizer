@@ -41,6 +41,11 @@ public class FirewallRule
     public string? Protocol { get; init; }
 
     /// <summary>
+    /// When true, protocol is INVERTED (means "all protocols EXCEPT this one")
+    /// </summary>
+    public bool MatchOppositeProtocol { get; init; }
+
+    /// <summary>
     /// Source type (address, network, group, any)
     /// </summary>
     public string? SourceType { get; init; }
