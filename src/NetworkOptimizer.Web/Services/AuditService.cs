@@ -1074,6 +1074,9 @@ public class AuditService
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
             "PORT_SECURITY" => "Port Security Issue",
 
+            // VLAN subnet mismatch
+            Audit.IssueTypes.VlanSubnetMismatch => "VLAN Subnet Mismatch",
+
             // DNS security
             Audit.IssueTypes.DnsLeakage => "DNS: Leak Detected",
             Audit.IssueTypes.DnsNoDoh => "DNS: DoH Not Configured",
@@ -1166,6 +1169,7 @@ public class AuditService
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
+        Audit.IssueTypes.VlanSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match VLAN subnet",
         Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
         Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
         Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
