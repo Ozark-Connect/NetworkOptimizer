@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NetworkOptimizer.Audit.Analyzers;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Analyzers;
@@ -795,6 +796,556 @@ public class FirewallRuleParserTests
 
         rule.Should().NotBeNull();
         rule!.Predefined.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Firewall Group Flattening Tests
+
+    [Fact]
+    public void ParseFirewallPolicy_DestinationPortGroupReference_FlattensToPortString()
+    {
+        // Arrange - Set up a port group (DNS port 53)
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-dns-ports",
+            Name = "DNS",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "53" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""block-dns"",
+            ""name"": ""Block External DNS"",
+            ""action"": ""BLOCK"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-dns-ports"",
+                ""zone_id"": ""zone-external""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("53");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_DestinationPortGroupWithMultiplePorts_JoinsWithCommas()
+    {
+        // Arrange - Set up SNMP port group (161, 162)
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-snmp",
+            Name = "SNMP",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "161", "162" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""allow-snmp"",
+            ""name"": ""Allow SNMP"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-snmp""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("161,162");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_DestinationPortGroupWithRange_PreservesRange()
+    {
+        // Arrange - Port range like 4001-4003
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-govee",
+            Name = "Govee Ports",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "4001-4003" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""allow-govee"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-govee""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("4001-4003");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_SourceIpGroupReference_FlattensToIpList()
+    {
+        // Arrange - IP address group
+        var ipGroup = new UniFiFirewallGroup
+        {
+            Id = "group-admin-devices",
+            Name = "Admin Devices",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "192.168.1.10", "192.168.1.11", "192.168.1.12" }
+        };
+        _parser.SetFirewallGroups(new[] { ipGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""allow-admin"",
+            ""name"": ""Allow Admin Access"",
+            ""source"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-admin-devices"",
+                ""matching_target"": ""IP""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.SourceIps.Should().NotBeNull();
+        rule.SourceIps.Should().HaveCount(3);
+        rule.SourceIps.Should().Contain("192.168.1.10");
+        rule.SourceIps.Should().Contain("192.168.1.11");
+        rule.SourceIps.Should().Contain("192.168.1.12");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_DestinationIpGroupReference_FlattensToIpList()
+    {
+        // Arrange - IP address group with CIDR
+        var ipGroup = new UniFiFirewallGroup
+        {
+            Id = "group-cloudflare",
+            Name = "Cloudflare IPs",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "173.245.48.0/20", "103.21.244.0/22" }
+        };
+        _parser.SetFirewallGroups(new[] { ipGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""allow-cf"",
+            ""destination"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-cloudflare"",
+                ""matching_target"": ""IP""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationIps.Should().NotBeNull();
+        rule.DestinationIps.Should().HaveCount(2);
+        rule.DestinationIps.Should().Contain("173.245.48.0/20");
+        rule.DestinationIps.Should().Contain("103.21.244.0/22");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_IpGroupWithRange_PreservesRange()
+    {
+        // Arrange - IP range like 192.168.20.30-192.168.20.49
+        var ipGroup = new UniFiFirewallGroup
+        {
+            Id = "group-iot-range",
+            Name = "IoT Lights",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "192.168.20.30-192.168.20.49" }
+        };
+        _parser.SetFirewallGroups(new[] { ipGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""allow-iot"",
+            ""destination"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-iot-range""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationIps.Should().ContainSingle("192.168.20.30-192.168.20.49");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_NoGroupsSet_DoesNotFlatten()
+    {
+        // Arrange - No groups set (parser without groups)
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""no-flatten"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""nonexistent-group""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNull(); // Not flattened because no groups loaded
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_NonexistentGroupReference_DoesNotFlatten()
+    {
+        // Arrange - Set up groups but reference a different one
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-exists",
+            Name = "Existing Group",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "80" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""missing-ref"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-does-not-exist""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNull(); // Can't resolve missing group
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_PortMatchingTypeNotObject_DoesNotFlatten()
+    {
+        // Arrange - port_matching_type is SPECIFIC, not OBJECT
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-dns",
+            Name = "DNS",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "53" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""specific-port"",
+            ""destination"": {
+                ""port_matching_type"": ""SPECIFIC"",
+                ""port"": ""443"",
+                ""port_group_id"": ""group-dns""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("443"); // Uses the direct port, not the group
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_MatchingTargetTypeNotObject_DoesNotFlatten()
+    {
+        // Arrange - matching_target_type is SPECIFIC, not OBJECT
+        var ipGroup = new UniFiFirewallGroup
+        {
+            Id = "group-ips",
+            Name = "IPs",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "192.168.1.100" }
+        };
+        _parser.SetFirewallGroups(new[] { ipGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""specific-ip"",
+            ""destination"": {
+                ""matching_target_type"": ""SPECIFIC"",
+                ""ips"": [""10.0.0.1""],
+                ""ip_group_id"": ""group-ips""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationIps.Should().ContainSingle("10.0.0.1"); // Uses direct IPs
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_WrongGroupType_DoesNotFlatten()
+    {
+        // Arrange - Reference address-group for port, should not resolve
+        var addressGroup = new UniFiFirewallGroup
+        {
+            Id = "group-addresses",
+            Name = "Addresses",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "192.168.1.1" }
+        };
+        _parser.SetFirewallGroups(new[] { addressGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""wrong-type"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-addresses""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNull(); // Wrong group type
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_SourcePortGroupReference_FlattensCorrectly()
+    {
+        // Arrange - Source port group
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-src-ports",
+            Name = "Source Ports",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "1024-65535" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""src-port-group"",
+            ""source"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-src-ports""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.SourcePort.Should().Be("1024-65535");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_BothSourceAndDestGroupRefs_FlattensBoth()
+    {
+        // Arrange - Both source IP group and destination port group
+        var ipGroup = new UniFiFirewallGroup
+        {
+            Id = "group-vpn-clients",
+            Name = "VPN Clients",
+            GroupType = "address-group",
+            GroupMembers = new List<string> { "192.168.1.10-192.168.1.13", "192.168.1.70" }
+        };
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-dns",
+            Name = "DNS",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "53" }
+        };
+        _parser.SetFirewallGroups(new[] { ipGroup, portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""combined-groups"",
+            ""name"": ""Block VPN DNS"",
+            ""source"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-vpn-clients"",
+                ""matching_target"": ""IP""
+            },
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-dns""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.SourceIps.Should().HaveCount(2);
+        rule.SourceIps.Should().Contain("192.168.1.10-192.168.1.13");
+        rule.SourceIps.Should().Contain("192.168.1.70");
+        rule.DestinationPort.Should().Be("53");
+    }
+
+    [Fact]
+    public void SetFirewallGroups_NullGroups_ClearsGroups()
+    {
+        // Arrange - First set groups, then clear
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-dns",
+            Name = "DNS",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "53" }
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+        _parser.SetFirewallGroups(null); // Clear groups
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""after-clear"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-dns""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNull(); // Groups were cleared
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_EmptyPortGroup_DoesNotFlatten()
+    {
+        // Arrange - Empty port group
+        var portGroup = new UniFiFirewallGroup
+        {
+            Id = "group-empty",
+            Name = "Empty",
+            GroupType = "port-group",
+            GroupMembers = new List<string>()
+        };
+        _parser.SetFirewallGroups(new[] { portGroup });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""empty-group-ref"",
+            ""destination"": {
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""group-empty""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_IPv6AddressGroup_FlattensCorrectly()
+    {
+        // Arrange - IPv6 address group (IPv6 addresses are stored in group_members, same as IPv4)
+        var ipv6Group = new UniFiFirewallGroup
+        {
+            Id = "group-ipv6",
+            Name = "Test IPv6 Group",
+            GroupType = "ipv6-address-group",
+            GroupMembers = new List<string> { "2607:f8b0:4023:1000::71", "2607:f8b0:4023:1000::64" }
+        };
+        _parser.SetFirewallGroups(new[] { ipv6Group });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""ipv6-rule"",
+            ""destination"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-ipv6""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationIps.Should().HaveCount(2);
+        rule.DestinationIps.Should().Contain("2607:f8b0:4023:1000::71");
+        rule.DestinationIps.Should().Contain("2607:f8b0:4023:1000::64");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_IPv6AddressGroupWithCidr_FlattensCorrectly()
+    {
+        // Arrange - IPv6 address group with mixed addresses and CIDR notation
+        var ipv6Group = new UniFiFirewallGroup
+        {
+            Id = "group-ipv6-cidr",
+            Name = "Test IPv6 Group",
+            GroupType = "ipv6-address-group",
+            GroupMembers = new List<string>
+            {
+                "2607:f8b0:4023:1000::71",
+                "2607:f8b0:4023:1000::64",
+                "2001:db8:1234::/48"
+            }
+        };
+        _parser.SetFirewallGroups(new[] { ipv6Group });
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""ipv6-cidr-rule"",
+            ""destination"": {
+                ""matching_target_type"": ""OBJECT"",
+                ""ip_group_id"": ""group-ipv6-cidr""
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.DestinationIps.Should().HaveCount(3);
+        rule.DestinationIps.Should().Contain("2607:f8b0:4023:1000::71");
+        rule.DestinationIps.Should().Contain("2607:f8b0:4023:1000::64");
+        rule.DestinationIps.Should().Contain("2001:db8:1234::/48");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_SourceMatchOppositePorts_ParsesCorrectly()
+    {
+        // Arrange
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""opposite-src-ports"",
+            ""source"": {
+                ""match_opposite_ports"": true
+            }
+        }").RootElement;
+
+        // Act
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        // Assert
+        rule.Should().NotBeNull();
+        rule!.SourceMatchOppositePorts.Should().BeTrue();
     }
 
     #endregion

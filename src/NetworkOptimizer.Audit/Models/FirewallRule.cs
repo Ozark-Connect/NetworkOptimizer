@@ -41,6 +41,11 @@ public class FirewallRule
     public string? Protocol { get; init; }
 
     /// <summary>
+    /// When true, protocol is INVERTED (means "all protocols EXCEPT this one")
+    /// </summary>
+    public bool MatchOppositeProtocol { get; init; }
+
+    /// <summary>
     /// Source type (address, network, group, any)
     /// </summary>
     public string? SourceType { get; init; }
@@ -158,6 +163,11 @@ public class FirewallRule
     /// When true, source networks are INVERTED (means "all networks EXCEPT these")
     /// </summary>
     public bool SourceMatchOppositeNetworks { get; init; }
+
+    /// <summary>
+    /// When true, source ports are INVERTED (means "all ports EXCEPT these")
+    /// </summary>
+    public bool SourceMatchOppositePorts { get; init; }
 
     /// <summary>
     /// When true, destination IPs are INVERTED (means "everyone EXCEPT these IPs")

@@ -41,6 +41,12 @@ public class AuditRequest
     public JsonElement? FirewallPoliciesData { get; init; }
 
     /// <summary>
+    /// Optional: Firewall groups (port groups and address groups) for flattening
+    /// group references in firewall policies
+    /// </summary>
+    public List<UniFiFirewallGroup>? FirewallGroups { get; init; }
+
+    /// <summary>
     /// Optional: User-defined device allowance settings
     /// </summary>
     public DeviceAllowanceSettings? AllowanceSettings { get; init; }

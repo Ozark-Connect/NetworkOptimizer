@@ -6,6 +6,7 @@ using Moq;
 using Moq.Protected;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Dns;
@@ -539,6 +540,337 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         var result = await _analyzer.AnalyzeAsync(null, firewall);
 
+        result.HasDns53BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRuleUsingPortGroup_DetectsRule()
+    {
+        // Arrange - Firewall rule using port group reference instead of direct port
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block External DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""OBJECT"",
+                    ""port_group_id"": ""67890abc""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "67890abc",
+                Name = "DNS Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+
+        // Assert
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block External DNS");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDoTBlockRuleUsingPortGroup_DetectsRule()
+    {
+        // Arrange - Firewall rule using port group reference for DoT (port 853)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DoT via Group"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port_matching_type"": ""OBJECT"",
+                    ""port_group_id"": ""dot-group-id""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "dot-group-id",
+                Name = "DoT Port",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "853" }
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+
+        // Assert
+        result.HasDotBlockRule.Should().BeTrue();
+        result.DotRuleName.Should().Be("Block DoT via Group");
+    }
+
+    [Fact]
+    public async Task Analyze_WithCombinedDnsAndDoTBlockRuleUsingPortGroup_DetectsBoth()
+    {
+        // Arrange - Firewall rule using port group with both DNS and DoT ports
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS and DoT"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp_udp"",
+                ""destination"": {
+                    ""port_matching_type"": ""OBJECT"",
+                    ""port_group_id"": ""dns-dot-group""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "dns-dot-group",
+                Name = "DNS and DoT Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53", "853" }
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+
+        // Assert
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block DNS and DoT");
+        result.DotRuleName.Should().Be("Block DNS and DoT");
+    }
+
+    [Fact]
+    public async Task Analyze_WithPortGroupContainingPortRange_DetectsIncludedPorts()
+    {
+        // Arrange - Port group with a range that includes DNS port
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Low Ports"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""OBJECT"",
+                    ""port_group_id"": ""low-ports-group""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "low-ports-group",
+                Name = "Low Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "50-100" } // Range includes port 53
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+
+        // Assert
+        result.HasDns53BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMissingPortGroupId_IgnoresRule()
+    {
+        // Arrange - Firewall rule references non-existent port group
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS (Broken)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""OBJECT"",
+                    ""port_group_id"": ""nonexistent-group""
+                }
+            }
+        ]").RootElement;
+
+        var firewallGroups = new List<UniFiFirewallGroup>
+        {
+            new UniFiFirewallGroup
+            {
+                Id = "different-group",
+                Name = "Other Ports",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+
+        // Assert - Should not detect rule since group doesn't exist
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositePorts_DoesNotDetectAsBlockRule()
+    {
+        // Arrange - Rule with match_opposite_ports=true means "block everything EXCEPT port 53"
+        // This should NOT be detected as a DNS block rule
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Except DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port"": ""53"",
+                    ""match_opposite_ports"": true
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - Should NOT detect as DNS block rule (ports are inverted)
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolUdp_DoesNotBlockDns()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=udp
+        // Means "block everything EXCEPT UDP" - so UDP traffic (DNS) is NOT blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-UDP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - UDP is excluded, so DNS (UDP 53) is NOT blocked
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolIcmp_DoesBlockDns()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=icmp
+        // Means "block everything EXCEPT ICMP" - so UDP/TCP traffic IS blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Except ICMP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""icmp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - ICMP is excluded, but UDP is still blocked, so DNS IS blocked
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block All Except ICMP");
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolTcp_DoesBlockDnsButNotDoT()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=tcp
+        // Means "block everything EXCEPT TCP" - so UDP is blocked but TCP is not
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-TCP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""53,853""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - TCP is excluded, so DoT (TCP 853) is NOT blocked
+        // But UDP is blocked, so DNS53 (UDP 53) IS blocked
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMatchOppositeProtocolTcp_DoesBlockDoQ()
+    {
+        // Arrange - Rule with match_opposite_protocol=true and protocol=tcp for port 853
+        // Means "block everything EXCEPT TCP" - so DoQ (UDP 853) IS blocked
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Non-TCP on 853"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""match_opposite_protocol"": true,
+                ""destination"": {
+                    ""port"": ""853""
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - TCP is excluded, so DoT is NOT blocked
+        // But UDP is blocked, so DoQ IS blocked
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_NormalProtocolAndPorts_WorksWithoutInversion()
+    {
+        // Arrange - Normal rule without any match_opposite flags
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS Normal"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""match_opposite_protocol"": false,
+                ""destination"": {
+                    ""port"": ""53"",
+                    ""match_opposite_ports"": false
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall);
+
+        // Assert - Normal blocking works
         result.HasDns53BlockRule.Should().BeTrue();
     }
 
