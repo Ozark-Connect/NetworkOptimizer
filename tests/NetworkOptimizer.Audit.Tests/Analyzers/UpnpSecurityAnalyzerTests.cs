@@ -279,11 +279,12 @@ public class UpnpSecurityAnalyzerTests
     public void Analyze_StaticPortForwardsOnlyPrivileged_NoGenericInfo()
     {
         // Arrange - Only privileged ports, no generic "Static Rules" info needed
+        // Use restricted rules (with src_firewall_group_id) to get Informational severity
         var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
         var rules = new List<UniFiPortForwardRule>
         {
-            CreateStaticRule("80", "Web Server", enabled: true),
-            CreateStaticRule("443", "HTTPS Server", enabled: true)
+            CreateStaticRule("80", "Web Server", enabled: true, srcFirewallGroupId: "trusted-ips"),
+            CreateStaticRule("443", "HTTPS Server", enabled: true, srcFirewallGroupId: "trusted-ips")
         };
 
         // Act
@@ -296,6 +297,111 @@ public class UpnpSecurityAnalyzerTests
         privIssue.Severity.Should().Be(AuditSeverity.Informational);
         privIssue.Message.Should().Contain("80/HTTP");
         privIssue.Message.Should().Contain("443/HTTPS");
+    }
+
+    [Fact]
+    public void Analyze_PrivilegedPorts_HomeNetwork_Unrestricted_ReturnsWarning()
+    {
+        // Arrange - Privileged ports without source IP restriction on Home network
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH", enabled: true),  // No srcFirewallGroupId
+            CreateStaticRule("443", "HTTPS", enabled: true)  // No srcFirewallGroupId
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should be Warning (Recommended) with source IP recommendation
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Recommended);
+        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.RecommendedAction.Should().Contain("source IP");
+        privIssue.Metadata!["unrestricted"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Analyze_PrivilegedPorts_HomeNetwork_Restricted_ReturnsInfo()
+    {
+        // Arrange - Privileged ports WITH source IP restriction on Home network
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH", enabled: true, srcFirewallGroupId: "work-vpn"),
+            CreateStaticRule("443", "HTTPS", enabled: true, srcFirewallGroupId: "trusted-ips")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should be Informational (properly secured)
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Informational);
+        privIssue.ScoreImpact.Should().Be(0);
+        privIssue.Metadata!["unrestricted"].Should().Be(false);
+    }
+
+    [Fact]
+    public void Analyze_PrivilegedPorts_CorporateNetwork_Unrestricted_ReturnsInfo()
+    {
+        // Arrange - Privileged ports without source restriction on Corporate network
+        // Corporate networks don't trigger the warning since UPnP wouldn't be typical there
+        var networks = new List<NetworkInfo> { CreateNetwork("Corporate", NetworkPurpose.Corporate) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH", enabled: true),  // No srcFirewallGroupId
+            CreateStaticRule("443", "HTTPS", enabled: true)  // No srcFirewallGroupId
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should be Informational (no Home network to trigger warning)
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Informational);
+        privIssue.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public void Analyze_PrivilegedPorts_CorporateNetwork_Restricted_ReturnsInfo()
+    {
+        // Arrange - Privileged ports WITH source restriction on Corporate network
+        var networks = new List<NetworkInfo> { CreateNetwork("Corporate", NetworkPurpose.Corporate) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH", enabled: true, srcFirewallGroupId: "office-ips"),
+            CreateStaticRule("443", "HTTPS", enabled: true, srcFirewallGroupId: "office-ips")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should be Informational
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Informational);
+        privIssue.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public void Analyze_PrivilegedPorts_MixedRestricted_HomeNetwork_ReturnsWarning()
+    {
+        // Arrange - Some ports restricted, some not, on Home network
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH", enabled: true, srcFirewallGroupId: "work-vpn"),  // Restricted
+            CreateStaticRule("443", "HTTPS", enabled: true)  // NOT restricted
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should be Warning because at least one is unrestricted
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Recommended);
+        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.Metadata!["unrestricted_count"].Should().Be(1);
     }
 
     [Fact]
@@ -522,7 +628,7 @@ public class UpnpSecurityAnalyzerTests
         };
     }
 
-    private static UniFiPortForwardRule CreateStaticRule(string port, string name, bool enabled)
+    private static UniFiPortForwardRule CreateStaticRule(string port, string name, bool enabled, string? srcFirewallGroupId = null)
     {
         return new UniFiPortForwardRule
         {
@@ -531,7 +637,8 @@ public class UpnpSecurityAnalyzerTests
             Name = name,
             Fwd = "192.168.1.100",
             Proto = "tcp",
-            Enabled = enabled
+            Enabled = enabled,
+            SrcFirewallGroupId = srcFirewallGroupId
         };
     }
 

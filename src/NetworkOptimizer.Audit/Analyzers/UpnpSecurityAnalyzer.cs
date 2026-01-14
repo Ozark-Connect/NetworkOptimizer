@@ -152,7 +152,7 @@ public class UpnpSecurityAnalyzer
         var staticRules = portForwardRules?.Where(r => r.IsUpnp != 1 && r.Enabled == true).ToList() ?? [];
         if (staticRules.Count > 0)
         {
-            AnalyzeStaticPortForwards(staticRules, issues, gatewayName);
+            AnalyzeStaticPortForwards(staticRules, issues, gatewayName, homeNetworks.Count > 0);
         }
 
         return new UpnpAnalysisResult { Issues = issues, HardeningNotes = hardeningNotes };
@@ -161,8 +161,9 @@ public class UpnpSecurityAnalyzer
     /// <summary>
     /// Report static port forwards, highlighting privileged ports.
     /// These are intentional configurations but worth documenting.
+    /// Privileged ports without source IP restrictions on Home networks are upgraded to warnings.
     /// </summary>
-    private void AnalyzeStaticPortForwards(List<UniFiPortForwardRule> staticRules, List<AuditIssue> issues, string gatewayName)
+    private void AnalyzeStaticPortForwards(List<UniFiPortForwardRule> staticRules, List<AuditIssue> issues, string gatewayName, bool hasHomeNetwork)
     {
         var privilegedPortRules = new List<(UniFiPortForwardRule Rule, int Port)>();
         var nonPrivilegedRules = new List<UniFiPortForwardRule>();
@@ -204,20 +205,37 @@ public class UpnpSecurityAnalyzer
                 .Distinct()
                 .ToList();
 
+            // Check if any privileged port rules lack source IP restrictions
+            var unrestrictedRules = privilegedPortRules
+                .Where(p => string.IsNullOrEmpty(p.Rule.SrcFirewallGroupId))
+                .Select(p => p.Rule)
+                .Distinct()
+                .ToList();
+
+            // Upgrade to warning if on Home network with unrestricted privileged ports
+            var isUnrestricted = unrestrictedRules.Count > 0 && hasHomeNetwork;
+            var severity = isUnrestricted ? AuditSeverity.Recommended : AuditSeverity.Informational;
+            var scoreImpact = isUnrestricted ? 5 : 0;
+            var recommendation = isUnrestricted
+                ? "Define a source IP/firewall group to restrict access to these privileged ports"
+                : "Ensure these privileged ports are intentionally exposed and properly secured";
+
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.StaticPrivilegedPort,
-                Severity = AuditSeverity.Informational,
+                Severity = severity,
                 Message = $"Static port forward(s) exposing {privilegedPortsCovered.Count} privileged port(s): {string.Join(", ", portDetails.Take(5))}{(portDetails.Count > 5 ? "..." : "")}",
                 DeviceName = gatewayName,
                 Metadata = new Dictionary<string, object>
                 {
                     ["privileged_ports"] = portDetails,
-                    ["count"] = privilegedPortsCovered.Count
+                    ["count"] = privilegedPortsCovered.Count,
+                    ["unrestricted"] = isUnrestricted,
+                    ["unrestricted_count"] = unrestrictedRules.Count
                 },
                 RuleId = "UPNP-006",
-                ScoreImpact = 0,
-                RecommendedAction = "Ensure these privileged ports are intentionally exposed and properly secured"
+                ScoreImpact = scoreImpact,
+                RecommendedAction = recommendation
             });
         }
 
