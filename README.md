@@ -52,6 +52,12 @@ Test LAN speeds from any device without SSH access. Open a browser on your phone
 
 If you're running a U-LTE or U5G-Max for backup (or primary) connectivity, you can monitor signal quality from the dashboard: RSSI, RSRP, RSRQ, SINR, cell tower info, and connection status.
 
+### UPnP Inspector
+
+Ever wonder what ports your network is actually exposing to the internet? Your Xbox, Plex server, and smart home devices are all punching holes through your firewall via UPnP, and UniFi doesn't make it easy to see what's going on.
+
+The UPnP Inspector puts it all in one place: every dynamic UPnP mapping and static port forward, grouped by device, with color-coded status so you can see at a glance what's active, what's idle, and what's about to expire. Add notes to remember what each mapping is for (because you will forget). Search and filter when you're hunting for that one port that's causing problems.
+
 ### Coming Soon
 
 Time-series metrics with historical trending and alerting. Cable modem stats (signal levels, uncorrectables, T3/T4 timeouts) for those of you fighting with your ISP about line quality.
