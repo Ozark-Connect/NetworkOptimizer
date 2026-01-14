@@ -1053,6 +1053,7 @@ public class AuditService
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
             Audit.IssueTypes.DnsDnatPartialCoverage => "DNS: Partial DNAT Coverage",
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
+            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Target",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };
