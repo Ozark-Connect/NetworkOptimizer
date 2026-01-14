@@ -211,8 +211,8 @@
                                 <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
                                     <td>@rule.Name</td>
                                     <td><span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span></td>
-                                    <td><code>@rule.DstPort</code></td>
-                                    <td><code>@rule.Fwd</code>:<code>@rule.FwdPort</code></td>
+                                    <td>@RenderPorts(rule.DstPort)</td>
+                                    <td><code>@rule.Fwd</code> : @RenderPorts(rule.FwdPort)</td>
                                     <td>@(rule.PfwdInterface?.ToUpperInvariant() ?? "WAN")</td>
                                     <td class="text-muted">@rule.TrafficDisplay</td>
                                     <td>
@@ -586,6 +586,36 @@
             _ => ""
         };
     }
+
+    private RenderFragment RenderPorts(string? ports) => builder =>
+    {
+        if (string.IsNullOrEmpty(ports))
+        {
+            builder.AddContent(0, "—");
+            return;
+        }
+
+        if (ports.Contains(','))
+        {
+            var portList = ports.Split(',');
+            for (int i = 0; i < portList.Length; i++)
+            {
+                if (i > 0)
+                {
+                    builder.AddContent(i * 2, ", ");
+                }
+                builder.OpenElement(i * 2 + 1, "code");
+                builder.AddContent(i * 2 + 2, portList[i].Trim());
+                builder.CloseElement();
+            }
+        }
+        else
+        {
+            builder.OpenElement(0, "code");
+            builder.AddContent(1, ports);
+            builder.CloseElement();
+        }
+    };
 
     public void Dispose()
     {
