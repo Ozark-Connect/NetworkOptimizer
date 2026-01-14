@@ -652,17 +652,18 @@ public class DnsSecurityAnalyzer
         }
 
         // Issue: DNAT provides partial coverage (some networks not covered)
+        // This is Critical because uncovered networks can bypass DNS entirely - same risk as no DNS 53 block
         if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
         {
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDnatPartialCoverage,
-                Severity = AuditSeverity.Recommended,
+                Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
                 Message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
                 RecommendedAction = "Add DNAT rules for the remaining networks, or create a firewall rule to block outbound UDP port 53",
                 RuleId = "DNS-DNAT-001",
-                ScoreImpact = 6,
+                ScoreImpact = 10,
                 Metadata = new Dictionary<string, object>
                 {
                     { "covered_networks", result.DnatCoveredNetworks.ToList() },
