@@ -2956,4 +2956,233 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region Real-World Multi-VLAN Scenario Tests
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MultipleVlansWithPiholeAndFullDnatCoverage()
+    {
+        // Arrange - Typical home/SMB setup:
+        // - LAN (VLAN 1): Main network with DHCP, Pi-hole DNS
+        // - IoT (VLAN 20): IoT devices with DHCP, Pi-hole DNS
+        // - Guest (VLAN 50): Guest network with DHCP, Pi-hole DNS
+        // - Management (VLAN 99): Static IPs only (no DHCP), Pi-hole DNS
+        // - DNAT rules redirect all DNS to Pi-hole
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "192.168.50.0/24", DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net4", Name = "Management", VlanId = 99,
+                Subnet = "192.168.99.0/24", DhcpEnabled = false, // Static IPs only
+                Gateway = "192.168.99.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // Single /16 DNAT rule covers all /24 networks
+        var natRules = CreateSubnetDnatNatRules(("192.168.0.0/16", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Full coverage including non-DHCP Management network
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatCoveredNetworks.Should().HaveCount(4);
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("IoT");
+        result.DnatCoveredNetworks.Should().Contain("Guest");
+        result.DnatCoveredNetworks.Should().Contain("Management");
+        result.DnatUncoveredNetworks.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MultipleVlansWithPartialDnatCoverage()
+    {
+        // Arrange - Setup where DNAT only covers some networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "10.10.50.0/24", DhcpEnabled = true, // Different subnet range!
+                Gateway = "10.10.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // /16 DNAT only covers 192.168.x.x networks, not 10.10.x.x
+        var natRules = CreateSubnetDnatNatRules(("192.168.0.0/16", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Partial coverage, Guest network not covered
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("IoT");
+        result.DnatUncoveredNetworks.Should().Contain("Guest");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_PerNetworkDnatRules()
+    {
+        // Arrange - Individual DNAT rules per network (common UniFi setup)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "192.168.50.0/24", DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // Individual network-ref DNAT rules for each network
+        var natRules = CreateDnatNatRules(
+            ("net1", "192.168.1.5"),
+            ("net2", "192.168.1.5"),
+            ("net3", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Full coverage via individual rules
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatCoveredNetworks.Should().HaveCount(3);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MixedDhcpAndStaticNetworksAllNeedCoverage()
+    {
+        // Arrange - Mix of DHCP and static-only networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "Servers", VlanId = 10,
+                Subnet = "192.168.10.0/24", DhcpEnabled = false, // Static only
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT only covers LAN, not Servers
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Servers network (non-DHCP) still needs coverage
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatUncoveredNetworks.Should().Contain("Servers");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    #endregion
 }
