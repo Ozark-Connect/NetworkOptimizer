@@ -4543,7 +4543,7 @@ select.form-control {
     margin-top: 0.125rem;
 }
 
-.rule-details .rule-protocol {
+.rule-protocol {
     background: rgba(59, 130, 246, 0.2);
     color: #60a5fa;
     padding: 0.125rem 0.375rem;
@@ -4552,7 +4552,7 @@ select.form-control {
     font-weight: 500;
 }
 
-.rule-details .rule-protocol.protocol-udp {
+.rule-protocol.protocol-udp {
     background: rgba(168, 85, 247, 0.2);
     color: var(--purple-light);
 }

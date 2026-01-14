@@ -210,11 +210,11 @@
                             {
                                 <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
                                     <td>@rule.Name</td>
-                                    <td>@rule.ProtoDisplay</td>
-                                    <td>@rule.DstPort</td>
-                                    <td>@rule.Fwd:@rule.FwdPort</td>
+                                    <td><span class="rule-protocol @(rule.Proto?.Equals("udp", StringComparison.OrdinalIgnoreCase) == true ? "protocol-udp" : "")">@rule.ProtoDisplay</span></td>
+                                    <td><code>@rule.DstPort</code></td>
+                                    <td><code>@rule.Fwd</code>:<code>@rule.FwdPort</code></td>
                                     <td>@(rule.PfwdInterface?.ToUpperInvariant() ?? "WAN")</td>
-                                    <td>@rule.TrafficDisplay</td>
+                                    <td class="text-muted">@rule.TrafficDisplay</td>
                                     <td>
                                         @if (rule.Enabled == false)
                                         {
