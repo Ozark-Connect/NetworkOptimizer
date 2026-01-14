@@ -26,6 +26,7 @@ public class NetworkOptimizerDbContext : DbContext
     public DbSet<UniFiConnectionSettings> UniFiConnectionSettings { get; set; }
     public DbSet<SqmWanConfiguration> SqmWanConfigurations { get; set; }
     public DbSet<AdminSettings> AdminSettings { get; set; }
+    public DbSet<UpnpNote> UpnpNotes { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -141,6 +142,13 @@ public class NetworkOptimizerDbContext : DbContext
         modelBuilder.Entity<AdminSettings>(entity =>
         {
             entity.ToTable("AdminSettings");
+        });
+
+        // UpnpNote configuration
+        modelBuilder.Entity<UpnpNote>(entity =>
+        {
+            entity.ToTable("UpnpNotes");
+            entity.HasIndex(e => new { e.HostIp, e.Port, e.Protocol }).IsUnique();
         });
     }
 }

@@ -4471,7 +4471,7 @@ select.form-control {
 
 .upnp-rule-item {
     display: grid;
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto 1fr auto auto 1fr;
     gap: 1rem;
     align-items: center;
     padding: 0.625rem 0;
@@ -4544,6 +4544,11 @@ select.form-control {
     font-weight: 500;
 }
 
+.rule-details .rule-protocol.protocol-udp {
+    background: rgba(168, 85, 247, 0.2);
+    color: var(--purple-light);
+}
+
 .rule-details .rule-port-mapping {
     font-family: ui-monospace, monospace;
 }
@@ -4579,6 +4584,51 @@ select.form-control {
 .rule-traffic .traffic-info.no-traffic {
     color: var(--text-muted);
     opacity: 0.6;
+}
+
+/* Note Input */
+.rule-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 150px;
+    max-width: 300px;
+}
+
+.rule-note .note-input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.rule-note .note-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+.rule-note .note-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.rule-note .note-status {
+    font-size: 0.6875rem;
+    white-space: nowrap;
+}
+
+.rule-note .note-status.saving {
+    color: var(--text-muted);
+}
+
+.rule-note .note-status.saved {
+    color: #4ade80;
 }
 
 /* Badges */
@@ -4639,7 +4689,7 @@ select.form-control {
 
     .upnp-rule-item {
         grid-template-columns: auto 1fr;
-        grid-template-rows: auto auto;
+        grid-template-rows: auto auto auto;
         gap: 0.5rem;
     }
 
@@ -4657,5 +4707,10 @@ select.form-control {
     .rule-traffic {
         display: inline;
         margin-left: 1rem;
+    }
+
+    .rule-note {
+        grid-column: 1 / -1;
+        max-width: none;
     }
 }
