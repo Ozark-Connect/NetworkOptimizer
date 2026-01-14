@@ -628,7 +628,7 @@ public class FirewallRuleAnalyzer
             var hasUniFiAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
@@ -658,7 +658,7 @@ public class FirewallRuleAnalyzer
             var hasAfcAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
 
@@ -689,7 +689,7 @@ public class FirewallRuleAnalyzer
             var hasNtpAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
-                r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 ((r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true &&
                   FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp")) ||
                  FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp")));
@@ -725,7 +725,7 @@ public class FirewallRuleAnalyzer
                 var has5GModemAccess = rules.Any(r =>
                     r.Enabled &&
                     r.ActionType.IsAllowAction() &&
-                    r.SourceNetworkIds?.Contains(mgmtNetwork.Id) == true &&
+                    AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                     r.WebDomains?.Any(d =>
                         d.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
                         d.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
@@ -793,18 +793,113 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Check if a firewall rule applies to traffic from a specific source network.
+    /// Handles v2 API format (SourceNetworkIds + SourceMatchOppositeNetworks) and legacy format (Source).
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="networkId">The network ID to check against</param>
+    /// <returns>True if the rule applies to traffic from the specified network</returns>
+    private static bool AppliesToSourceNetwork(FirewallRule rule, string networkId)
+    {
+        // v2 API: Check SourceMatchingTarget first
+        if (!string.IsNullOrEmpty(rule.SourceMatchingTarget))
+        {
+            if (rule.SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            {
+                return true; // Matches all networks
+            }
+
+            if (rule.SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+            {
+                var networkIds = rule.SourceNetworkIds ?? new List<string>();
+                if (rule.SourceMatchOppositeNetworks)
+                {
+                    // Match Opposite: rule applies to all networks EXCEPT those listed
+                    return !networkIds.Contains(networkId);
+                }
+                else
+                {
+                    // Normal: rule applies ONLY to networks listed
+                    return networkIds.Contains(networkId);
+                }
+            }
+
+            // For IP, CLIENT, etc. - doesn't match by network ID
+            return false;
+        }
+
+        // Backward compatibility: if SourceMatchingTarget is not set but SourceNetworkIds is populated,
+        // check the network IDs (this handles rules created without explicit SourceMatchingTarget)
+        if (rule.SourceNetworkIds != null && rule.SourceNetworkIds.Count > 0)
+        {
+            if (rule.SourceMatchOppositeNetworks)
+            {
+                return !rule.SourceNetworkIds.Contains(networkId);
+            }
+            return rule.SourceNetworkIds.Contains(networkId);
+        }
+
+        // Legacy format
+        return rule.Source == networkId;
+    }
+
+    /// <summary>
+    /// Check if a firewall rule applies to traffic to a specific destination network.
+    /// Handles v2 API format (DestinationNetworkIds + DestinationMatchOppositeNetworks) and legacy format (Destination).
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="networkId">The network ID to check against</param>
+    /// <returns>True if the rule applies to traffic to the specified network</returns>
+    private static bool AppliesToDestinationNetwork(FirewallRule rule, string networkId)
+    {
+        // v2 API: Check DestinationMatchingTarget first
+        if (!string.IsNullOrEmpty(rule.DestinationMatchingTarget))
+        {
+            if (rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+            {
+                return true; // Matches all networks
+            }
+
+            if (rule.DestinationMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+            {
+                var networkIds = rule.DestinationNetworkIds ?? new List<string>();
+                if (rule.DestinationMatchOppositeNetworks)
+                {
+                    // Match Opposite: rule applies to all networks EXCEPT those listed
+                    return !networkIds.Contains(networkId);
+                }
+                else
+                {
+                    // Normal: rule applies ONLY to networks listed
+                    return networkIds.Contains(networkId);
+                }
+            }
+
+            // For IP, etc. - doesn't match by network ID
+            return false;
+        }
+
+        // Backward compatibility: if DestinationMatchingTarget is not set but DestinationNetworkIds is populated,
+        // check the network IDs (this handles rules created without explicit DestinationMatchingTarget)
+        if (rule.DestinationNetworkIds != null && rule.DestinationNetworkIds.Count > 0)
+        {
+            if (rule.DestinationMatchOppositeNetworks)
+            {
+                return !rule.DestinationNetworkIds.Contains(networkId);
+            }
+            return rule.DestinationNetworkIds.Contains(networkId);
+        }
+
+        // Legacy format
+        return rule.Destination == networkId;
+    }
+
+    /// <summary>
     /// Check if a firewall rule matches a specific source->destination network pair.
-    /// Handles both v2 API format (SourceNetworkIds/DestinationNetworkIds) and legacy format (Source/Destination).
+    /// Handles both v2 API format (with Match Opposite support) and legacy format.
     /// </summary>
     private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
     {
-        // Check v2 API format first (SourceNetworkIds/DestinationNetworkIds)
-        var sourceMatches = rule.SourceNetworkIds?.Contains(sourceNetworkId) == true
-            || rule.Source == sourceNetworkId;
-
-        var destMatches = rule.DestinationNetworkIds?.Contains(destNetworkId) == true
-            || rule.Destination == destNetworkId;
-
-        return sourceMatches && destMatches;
+        return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
     }
 }

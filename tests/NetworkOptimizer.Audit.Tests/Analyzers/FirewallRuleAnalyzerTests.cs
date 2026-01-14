@@ -1420,6 +1420,391 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region Source Network Match Opposite Tests
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_MatchOppositeNetworks_ExcludesSpecifiedNetwork()
+    {
+        // Arrange - Rule applies to all networks EXCEPT the one specified
+        var mgmtNetworkId = "mgmt-network-123";
+        var otherNetworkId = "other-network-456";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false),
+            CreateNetwork("Other", NetworkPurpose.Corporate, id: otherNetworkId)
+        };
+
+        // Rule with Match Opposite: applies to all networks EXCEPT "other-network-456"
+        // This means it SHOULD apply to mgmtNetworkId
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-1",
+                Name = "Allow UniFi Access (Match Opposite)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { otherNetworkId }, // Excludes other, so applies to mgmt
+                SourceMatchOppositeNetworks = true,
+                WebDomains = new List<string> { "ui.com" }
+            },
+            new FirewallRule
+            {
+                Id = "rule-2",
+                Name = "Allow AFC (Match Opposite)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { otherNetworkId },
+                SourceMatchOppositeNetworks = true,
+                WebDomains = new List<string> { "qcs.qualcomm.com" }
+            },
+            new FirewallRule
+            {
+                Id = "rule-3",
+                Name = "Allow NTP (Match Opposite)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { otherNetworkId },
+                SourceMatchOppositeNetworks = true,
+                DestinationPort = "123"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - All rules should match management network via Match Opposite
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_MatchOppositeNetworks_ExcludesMgmtNetwork_NoMatch()
+    {
+        // Arrange - Rule applies to all networks EXCEPT the management network
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+
+        // Rule with Match Opposite: excludes mgmt network, so it does NOT apply to mgmt
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-1",
+                Name = "Allow UniFi Access (Excludes Mgmt)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId }, // Excludes mgmt, so does NOT apply to mgmt
+                SourceMatchOppositeNetworks = true,
+                WebDomains = new List<string> { "ui.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - Rule excludes mgmt network, so all 3 issues should be present
+        issues.Should().HaveCount(3);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_NormalNetworkMatch_OnlyAppliesToSpecified()
+    {
+        // Arrange - Rule applies ONLY to specified networks (normal mode, not match opposite)
+        var mgmtNetworkId = "mgmt-network-123";
+        var otherNetworkId = "other-network-456";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false),
+            CreateNetwork("Other", NetworkPurpose.Corporate, id: otherNetworkId)
+        };
+
+        // Rule with normal matching: applies ONLY to "other-network-456", NOT to mgmt
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-1",
+                Name = "Allow UniFi Access (Other Only)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { otherNetworkId }, // Only applies to other, not mgmt
+                SourceMatchOppositeNetworks = false, // Normal mode
+                WebDomains = new List<string> { "ui.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - Rule doesn't apply to mgmt, so all 3 issues should be present
+        issues.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_MatchOppositeSource_BlocksAllExceptSpecified()
+    {
+        // Arrange - Block rule with Match Opposite source
+        var iotNetworkId = "iot-net-id";
+        var corpNetworkId = "corp-net-id";
+        var guestNetworkId = "guest-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: corpNetworkId),
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: guestNetworkId, networkIsolationEnabled: false)
+        };
+
+        // Block rule: from all networks EXCEPT guest, to corporate
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-to-corp",
+                Name = "Block to Corp (except Guest)",
+                Action = "DROP",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { guestNetworkId }, // Excludes guest
+                SourceMatchOppositeNetworks = true,
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { corpNetworkId }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // IoT to Corporate should be covered (Match Opposite excludes Guest, so includes IoT)
+        // Guest to Corporate should NOT be covered (Guest is excluded from the rule)
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Guest"));
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_MatchOppositeDestination_BlocksToAllExceptSpecified()
+    {
+        // Arrange - Block rule with Match Opposite destination
+        var iotNetworkId = "iot-net-id";
+        var corpNetworkId = "corp-net-id";
+        var mgmtNetworkId = "mgmt-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: corpNetworkId),
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: false)
+        };
+
+        // Block rule: from IoT to all networks EXCEPT corporate
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-from-iot",
+                Name = "Block from IoT (except to Corp)",
+                Action = "DROP",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { iotNetworkId },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { corpNetworkId }, // Excludes corp
+                DestinationMatchOppositeNetworks = true
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // IoT to Management should be covered (Match Opposite excludes Corp, so includes Mgmt)
+        // IoT to Corporate should NOT be covered (Corp is excluded from the block rule)
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BothMatchOpposite_ComplexScenario()
+    {
+        // Arrange - Block rule with both source and destination Match Opposite
+        var iotNetworkId = "iot-net-id";
+        var corpNetworkId = "corp-net-id";
+        var guestNetworkId = "guest-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: corpNetworkId),
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: guestNetworkId, networkIsolationEnabled: false)
+        };
+
+        // Block rule: from all EXCEPT IoT, to all EXCEPT Guest
+        // This covers: Corp->Corp, Corp->IoT, Guest->Corp, Guest->IoT (one direction for each pair)
+        // CheckInterVlanIsolation checks BOTH directions, so any pair with one direction blocked is covered
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "complex-block",
+                Name = "Complex Block Rule",
+                Action = "DROP",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { iotNetworkId }, // Excludes IoT
+                SourceMatchOppositeNetworks = true,
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { guestNetworkId }, // Excludes Guest
+                DestinationMatchOppositeNetworks = true
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // All pairs have at least one direction blocked:
+        // - IoT<->Corporate: Corp->IoT is blocked
+        // - Guest<->Corporate: Guest->Corp is blocked
+        // - Guest<->IoT: Guest->IoT is blocked
+        // So no MISSING_ISOLATION issues
+        issues.Where(i => i.Type == "MISSING_ISOLATION").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_MatchOpposite_ExcludesBothDirections_FlagsMissing()
+    {
+        // Arrange - Rule that excludes IoT from BOTH source AND destination
+        // This means no traffic involving IoT is blocked at all
+        var iotNetworkId = "iot-net-id";
+        var corpNetworkId = "corp-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: corpNetworkId)
+        };
+
+        // Rule excludes IoT from both source and destination
+        // So neither IoT->Corp nor Corp->IoT is blocked
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-except-iot",
+                Name = "Block (except IoT)",
+                Action = "DROP",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { iotNetworkId }, // Excludes IoT from source
+                SourceMatchOppositeNetworks = true,
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { iotNetworkId }, // Excludes IoT from destination
+                DestinationMatchOppositeNetworks = true
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // IoT<->Corporate has NEITHER direction blocked (IoT excluded from both source and dest)
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_AnySourceMatchingTarget_AppliesToAllNetworks()
+    {
+        // Arrange - Rule with ANY source should apply to all networks
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-1",
+                Name = "Allow UniFi Access (Any Source)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "ANY", // Matches all sources
+                WebDomains = new List<string> { "ui.com" }
+            },
+            new FirewallRule
+            {
+                Id = "rule-2",
+                Name = "Allow AFC (Any Source)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "ANY",
+                WebDomains = new List<string> { "qcs.qualcomm.com" }
+            },
+            new FirewallRule
+            {
+                Id = "rule-3",
+                Name = "Allow NTP (Any Source)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "udp",
+                SourceMatchingTarget = "ANY",
+                DestinationPort = "123"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - ANY source should match management network
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_IpSourceMatchingTarget_DoesNotMatchByNetworkId()
+    {
+        // Arrange - Rule with IP source should NOT match by network ID
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-1",
+                Name = "Allow UniFi Access (IP Source)",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP", // IP type, not NETWORK
+                SourceIps = new List<string> { "192.168.1.0/24" },
+                WebDomains = new List<string> { "ui.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
+
+        // Assert - IP source type should not match by network ID
+        issues.Should().HaveCount(3);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
