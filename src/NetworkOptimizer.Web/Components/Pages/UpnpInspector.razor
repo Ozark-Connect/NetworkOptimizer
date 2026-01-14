@@ -145,7 +145,7 @@
                                                 <div class="rule-main">
                                                     <div class="rule-name">@rule.ApplicationName</div>
                                                     <div class="rule-ports">
-                                                        <span class="rule-protocol @(rule.Proto?.Equals("udp", StringComparison.OrdinalIgnoreCase) == true ? "protocol-udp" : "")">@rule.ProtoDisplay</span>
+                                                        <span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span>
                                                         <span class="rule-port-mapping">@rule.DstPort → @rule.FwdPort</span>
                                                     </div>
                                                 </div>
@@ -210,7 +210,7 @@
                             {
                                 <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
                                     <td>@rule.Name</td>
-                                    <td><span class="rule-protocol @(rule.Proto?.Equals("udp", StringComparison.OrdinalIgnoreCase) == true ? "protocol-udp" : "")">@rule.ProtoDisplay</span></td>
+                                    <td><span class="rule-protocol @GetProtocolClass(rule.Proto)">@rule.ProtoDisplay</span></td>
                                     <td><code>@rule.DstPort</code></td>
                                     <td><code>@rule.Fwd</code>:<code>@rule.FwdPort</code></td>
                                     <td>@(rule.PfwdInterface?.ToUpperInvariant() ?? "WAN")</td>
@@ -575,6 +575,16 @@
         if (rule.IsExpiringSoon) return "status-expiring";
         if (!rule.HasTraffic) return "status-stale";
         return "status-active";
+    }
+
+    private string GetProtocolClass(string? proto)
+    {
+        return proto?.ToLowerInvariant() switch
+        {
+            "udp" => "protocol-udp",
+            "tcp_udp" => "protocol-both",
+            _ => ""
+        };
     }
 
     public void Dispose()

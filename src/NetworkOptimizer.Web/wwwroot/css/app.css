@@ -4557,6 +4557,11 @@ select.form-control {
     color: var(--purple-light);
 }
 
+.rule-protocol.protocol-both {
+    background: rgba(249, 115, 22, 0.2);
+    color: var(--accent-hover);
+}
+
 .rule-details .rule-port-mapping {
     font-family: ui-monospace, monospace;
 }
