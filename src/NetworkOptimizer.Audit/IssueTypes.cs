@@ -47,6 +47,7 @@ public static class IssueTypes
     public const string UpnpPrivilegedPort = "UPNP_PRIVILEGED_PORT";
     public const string UpnpPortsExposed = "UPNP_PORTS_EXPOSED";
     public const string StaticPortForward = "STATIC_PORT_FORWARD";
+    public const string StaticPrivilegedPort = "STATIC_PRIVILEGED_PORT";
 
     // DNS Security
     public const string DnsNoDoh = "DNS_NO_DOH";

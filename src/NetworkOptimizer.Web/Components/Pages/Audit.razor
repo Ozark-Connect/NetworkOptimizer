@@ -297,7 +297,7 @@
                                         @if (!string.IsNullOrEmpty(issue.Recommendation))
                                         {
                                             <div class="issue-recommendation">
-                                                <strong>Recommendation:</strong> @issue.Recommendation
+                                                <strong>Recommendation:</strong> @FormatRecommendation(issue.Recommendation)
                                             </div>
                                         }
                                     </div>
@@ -419,7 +419,7 @@
                                             @if (!string.IsNullOrEmpty(firstIssue.Recommendation))
                                             {
                                                 <div class="issue-type-recommendation">
-                                                    <strong>Recommendation:</strong> @firstIssue.Recommendation
+                                                    <strong>Recommendation:</strong> @FormatRecommendation(firstIssue.Recommendation)
                                                 </div>
                                             }
                                         </div>
@@ -1220,6 +1220,19 @@
     private bool HasDeviceInfo(Services.AuditIssue issue)
     {
         return !string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.Port);
+    }
+
+    private MarkupString FormatRecommendation(string recommendation)
+    {
+        if (string.IsNullOrEmpty(recommendation))
+            return new MarkupString("");
+
+        // Convert "UPnP Inspector" to a link
+        var formatted = recommendation.Replace(
+            "UPnP Inspector",
+            "<a href=\"/upnp-inspector\">UPnP Inspector</a>");
+
+        return new MarkupString(formatted);
     }
 
     private int GetSeverityOrder(AuditSeverity severity)

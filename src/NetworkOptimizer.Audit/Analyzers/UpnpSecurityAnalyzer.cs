@@ -18,6 +18,43 @@ public class UpnpSecurityAnalyzer
     /// </summary>
     private const int PrivilegedPortThreshold = 1024;
 
+    /// <summary>
+    /// Well-known ports and their service names for reporting
+    /// </summary>
+    private static readonly Dictionary<int, string> WellKnownPorts = new()
+    {
+        [20] = "FTP Data",
+        [21] = "FTP",
+        [22] = "SSH",
+        [23] = "Telnet",
+        [25] = "SMTP",
+        [53] = "DNS",
+        [67] = "DHCP Server",
+        [68] = "DHCP Client",
+        [69] = "TFTP",
+        [80] = "HTTP",
+        [110] = "POP3",
+        [119] = "NNTP",
+        [123] = "NTP",
+        [135] = "MS RPC",
+        [137] = "NetBIOS Name",
+        [138] = "NetBIOS Datagram",
+        [139] = "NetBIOS Session",
+        [143] = "IMAP",
+        [161] = "SNMP",
+        [162] = "SNMP Trap",
+        [389] = "LDAP",
+        [443] = "HTTPS",
+        [445] = "SMB",
+        [465] = "SMTPS",
+        [514] = "Syslog",
+        [515] = "LPD Print",
+        [587] = "SMTP Submission",
+        [636] = "LDAPS",
+        [993] = "IMAPS",
+        [995] = "POP3S"
+    };
+
     public UpnpSecurityAnalyzer(ILogger<UpnpSecurityAnalyzer> logger)
     {
         _logger = logger;
@@ -61,12 +98,9 @@ public class UpnpSecurityAnalyzer
         {
             // UPnP disabled is a hardening measure
             hardeningNotes.Add("UPnP is disabled on the gateway");
-            _logger.LogDebug("UPnP is disabled - no issues to report");
-            return new UpnpAnalysisResult { Issues = issues, HardeningNotes = hardeningNotes };
+            _logger.LogDebug("UPnP is disabled - checking static port forwards only");
         }
-
-        // UPnP is enabled - analyze the configuration
-        if (homeNetworks.Count == 0)
+        else if (homeNetworks.Count == 0)
         {
             // No Home network found, UPnP on any network is a warning
             issues.Add(new AuditIssue
@@ -108,13 +142,13 @@ public class UpnpSecurityAnalyzer
             });
         }
 
-        // Analyze UPnP rules for security concerns
-        if (upnpRules.Count > 0)
+        // Analyze UPnP rules for security concerns (only when UPnP is enabled)
+        if (isEnabled && upnpRules.Count > 0)
         {
             AnalyzeUpnpRules(upnpRules, issues, gatewayName);
         }
 
-        // Analyze static port forwards (informational - these are intentional)
+        // Analyze static port forwards regardless of UPnP status
         var staticRules = portForwardRules?.Where(r => r.IsUpnp != 1 && r.Enabled == true).ToList() ?? [];
         if (staticRules.Count > 0)
         {
@@ -125,34 +159,87 @@ public class UpnpSecurityAnalyzer
     }
 
     /// <summary>
-    /// Report static port forwards as informational items.
+    /// Report static port forwards, highlighting privileged ports.
     /// These are intentional configurations but worth documenting.
     /// </summary>
     private void AnalyzeStaticPortForwards(List<UniFiPortForwardRule> staticRules, List<AuditIssue> issues, string gatewayName)
     {
-        var exposedPorts = staticRules
-            .Where(r => !string.IsNullOrEmpty(r.DstPort))
-            .Select(r => r.DstPort!)
-            .ToList();
+        var privilegedPortRules = new List<(UniFiPortForwardRule Rule, int Port)>();
+        var nonPrivilegedRules = new List<UniFiPortForwardRule>();
+        var privilegedPortsCovered = new HashSet<int>();
 
-        if (exposedPorts.Count > 0)
+        foreach (var rule in staticRules)
+        {
+            var dstPort = rule.DstPort;
+            if (string.IsNullOrEmpty(dstPort))
+                continue;
+
+            var ports = ParsePorts(dstPort);
+            var hasPrivileged = false;
+
+            foreach (var port in ports)
+            {
+                if (port < PrivilegedPortThreshold)
+                {
+                    privilegedPortRules.Add((rule, port));
+                    privilegedPortsCovered.Add(port);
+                    hasPrivileged = true;
+                }
+            }
+
+            // Track rules that only have non-privileged ports
+            if (!hasPrivileged)
+            {
+                nonPrivilegedRules.Add(rule);
+            }
+        }
+
+        // Report privileged port exposure with service names
+        if (privilegedPortRules.Count > 0)
+        {
+            var portDetails = privilegedPortRules
+                .Select(p => WellKnownPorts.TryGetValue(p.Port, out var service)
+                    ? $"{p.Port}/{service} ({p.Rule.Name ?? "Unnamed"})"
+                    : $"{p.Port} ({p.Rule.Name ?? "Unnamed"})")
+                .Distinct()
+                .ToList();
+
+            issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.StaticPrivilegedPort,
+                Severity = AuditSeverity.Informational,
+                Message = $"Static port forward(s) exposing {privilegedPortsCovered.Count} privileged port(s): {string.Join(", ", portDetails.Take(5))}{(portDetails.Count > 5 ? "..." : "")}",
+                DeviceName = gatewayName,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["privileged_ports"] = portDetails,
+                    ["count"] = privilegedPortsCovered.Count
+                },
+                RuleId = "UPNP-006",
+                ScoreImpact = 0,
+                RecommendedAction = "Ensure these privileged ports are intentionally exposed and properly secured"
+            });
+        }
+
+        // Only report generic static forwards if there are non-privileged ports not already covered
+        if (nonPrivilegedRules.Count > 0)
         {
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.StaticPortForward,
                 Severity = AuditSeverity.Informational,
-                Message = $"{staticRules.Count} static port forward(s) configured",
+                Message = $"{nonPrivilegedRules.Count} static port forward(s) on non-privileged ports",
                 DeviceName = gatewayName,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["static_forwards"] = staticRules.Select(r => new
+                    ["static_forwards"] = nonPrivilegedRules.Select(r => new
                     {
                         name = r.Name ?? "Unnamed",
                         port = r.DstPort,
                         protocol = r.Proto,
                         target = r.Fwd
                     }).Take(10).ToList(),
-                    ["count"] = staticRules.Count
+                    ["count"] = nonPrivilegedRules.Count
                 },
                 RuleId = "UPNP-005",
                 ScoreImpact = 0,
@@ -167,7 +254,7 @@ public class UpnpSecurityAnalyzer
     private void AnalyzeUpnpRules(List<UniFiPortForwardRule> upnpRules, List<AuditIssue> issues, string gatewayName)
     {
         var privilegedPortRules = new List<(UniFiPortForwardRule Rule, int Port)>();
-        var allExposedPorts = new List<string>();
+        var nonPrivilegedRules = new List<UniFiPortForwardRule>();
 
         foreach (var rule in upnpRules)
         {
@@ -175,24 +262,33 @@ public class UpnpSecurityAnalyzer
             if (string.IsNullOrEmpty(dstPort))
                 continue;
 
-            allExposedPorts.Add(dstPort);
-
             // Check for privileged ports (< 1024)
             var ports = ParsePorts(dstPort);
+            var hasPrivileged = false;
+
             foreach (var port in ports)
             {
                 if (port < PrivilegedPortThreshold)
                 {
                     privilegedPortRules.Add((rule, port));
+                    hasPrivileged = true;
                 }
+            }
+
+            // Track rules that only have non-privileged ports
+            if (!hasPrivileged)
+            {
+                nonPrivilegedRules.Add(rule);
             }
         }
 
-        // Report privileged port exposure as warning
+        // Report privileged port exposure as warning with service names
         if (privilegedPortRules.Count > 0)
         {
             var portDetails = privilegedPortRules
-                .Select(p => $"{p.Port} ({p.Rule.ApplicationName ?? p.Rule.Name ?? "Unknown"})")
+                .Select(p => WellKnownPorts.TryGetValue(p.Port, out var service)
+                    ? $"{p.Port}/{service} ({p.Rule.ApplicationName ?? p.Rule.Name ?? "Unknown"})"
+                    : $"{p.Port} ({p.Rule.ApplicationName ?? p.Rule.Name ?? "Unknown"})")
                 .Distinct()
                 .ToList();
 
@@ -212,19 +308,20 @@ public class UpnpSecurityAnalyzer
                 RecommendedAction = "Review UPnP mappings - privileged ports are typically used by system services and should not be exposed via UPnP"
             });
         }
-        // If no privileged ports, just report that ports are exposed as informational
-        else if (allExposedPorts.Count > 0)
+
+        // Only report generic exposed ports if there are non-privileged ports not covered by the warning
+        if (nonPrivilegedRules.Count > 0)
         {
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.UpnpPortsExposed,
                 Severity = AuditSeverity.Informational,
-                Message = $"UPnP has {allExposedPorts.Count} active port mapping(s)",
+                Message = $"UPnP has {nonPrivilegedRules.Count} active port mapping(s) on non-privileged ports",
                 DeviceName = gatewayName,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["exposed_ports"] = allExposedPorts.Take(10).ToList(),
-                    ["count"] = allExposedPorts.Count
+                    ["exposed_ports"] = nonPrivilegedRules.Select(r => r.DstPort).Take(10).ToList(),
+                    ["count"] = nonPrivilegedRules.Count
                 },
                 RuleId = "UPNP-004",
                 ScoreImpact = 0,

@@ -1100,6 +1100,7 @@ public class AuditService
             Audit.IssueTypes.UpnpPrivilegedPort => "UPnP: Privileged Port Exposed",
             Audit.IssueTypes.UpnpPortsExposed => "UPnP: Ports Exposed",
             Audit.IssueTypes.StaticPortForward => "Port Forwards: Static Rules",
+            Audit.IssueTypes.StaticPrivilegedPort => "Port Forwards: Privileged Ports",
 
             _ => message.Split('.').FirstOrDefault() ?? type
         };
@@ -1185,6 +1186,7 @@ public class AuditService
         Audit.IssueTypes.UpnpPrivilegedPort => "Review UPnP mappings - privileged ports should not be exposed via UPnP",
         Audit.IssueTypes.UpnpPortsExposed => "Review UPnP mappings periodically in the UPnP Inspector",
         Audit.IssueTypes.StaticPortForward => "Review static port forwards periodically to ensure they are still needed",
+        Audit.IssueTypes.StaticPrivilegedPort => "Ensure these privileged ports are intentionally exposed and properly secured",
         _ => "Review the configuration and apply security best practices"
     };
 }

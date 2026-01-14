@@ -131,9 +131,9 @@ public class UpnpSecurityAnalyzerTests
     #region UPnP Port Mapping Tests
 
     [Fact]
-    public void Analyze_UpnpMappingsWithPrivilegedPort_ReturnsWarning()
+    public void Analyze_UpnpMappingsWithOnlyPrivilegedPorts_NoPortsExposedInfo()
     {
-        // Arrange
+        // Arrange - All ports are privileged, so no redundant "Ports Exposed" info
         var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
         var rules = new List<UniFiPortForwardRule>
         {
@@ -145,13 +145,34 @@ public class UpnpSecurityAnalyzerTests
         var result = _analyzer.Analyze(true, rules, networks);
 
         // Assert
-        result.Issues.Should().HaveCount(2); // UpnpEnabled + UpnpPrivilegedPort
+        result.Issues.Should().HaveCount(2); // UpnpEnabled + UpnpPrivilegedPort (NO UpnpPortsExposed)
         result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPortsExposed);
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.UpnpPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
         privIssue.ScoreImpact.Should().Be(8);
-        privIssue.Message.Should().Contain("80");
-        privIssue.Message.Should().Contain("443");
+        privIssue.Message.Should().Contain("80/HTTP");
+        privIssue.Message.Should().Contain("443/HTTPS");
+    }
+
+    [Fact]
+    public void Analyze_UpnpMappingsWithMixedPorts_ReportsBoth()
+    {
+        // Arrange - Mix of privileged and non-privileged ports
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("80", "Web Server"),
+            CreateUpnpRule("3074", "Xbox Live")
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should have both warning for privileged AND info for non-privileged
+        result.Issues.Should().HaveCount(3); // UpnpEnabled + UpnpPrivilegedPort + UpnpPortsExposed
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPortsExposed);
     }
 
     [Fact]
@@ -232,25 +253,90 @@ public class UpnpSecurityAnalyzerTests
     #region Static Port Forward Tests
 
     [Fact]
-    public void Analyze_StaticPortForwards_ReturnsInformational()
+    public void Analyze_StaticPortForwardsNonPrivileged_ReturnsInformational()
     {
-        // Arrange
+        // Arrange - Non-privileged ports only
         var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
         var rules = new List<UniFiPortForwardRule>
         {
-            CreateStaticRule("8080", "Minecraft Server", enabled: true),
+            CreateStaticRule("8080", "Web Proxy", enabled: true),
             CreateStaticRule("25565", "Game Server", enabled: true)
         };
 
         // Act
         var result = _analyzer.Analyze(true, rules, networks);
 
-        // Assert
+        // Assert - Should have StaticPortForward, NOT StaticPrivilegedPort
         result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.StaticPrivilegedPort);
         var staticIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPortForward);
         staticIssue.Severity.Should().Be(AuditSeverity.Informational);
         staticIssue.ScoreImpact.Should().Be(0);
         staticIssue.Message.Should().Contain("2 static port forward");
+    }
+
+    [Fact]
+    public void Analyze_StaticPortForwardsOnlyPrivileged_NoGenericInfo()
+    {
+        // Arrange - Only privileged ports, no generic "Static Rules" info needed
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("80", "Web Server", enabled: true),
+            CreateStaticRule("443", "HTTPS Server", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should have StaticPrivilegedPort, NOT StaticPortForward
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.StaticPortForward);
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Severity.Should().Be(AuditSeverity.Informational);
+        privIssue.Message.Should().Contain("80/HTTP");
+        privIssue.Message.Should().Contain("443/HTTPS");
+    }
+
+    [Fact]
+    public void Analyze_StaticPortForwardsMixedPorts_ReportsBoth()
+    {
+        // Arrange - Mix of privileged and non-privileged
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("80", "Web Server", enabled: true),
+            CreateStaticRule("8080", "Web Proxy", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should have BOTH StaticPrivilegedPort AND StaticPortForward
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+    }
+
+    [Fact]
+    public void Analyze_StaticPrivilegedPorts_ShowsServiceNames()
+    {
+        // Arrange - Various well-known ports
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("22", "SSH Access", enabled: true),
+            CreateStaticRule("25", "Mail Server", enabled: true),
+            CreateStaticRule("53", "DNS Server", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(true, rules, networks);
+
+        // Assert - Should show service names
+        var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        privIssue.Message.Should().Contain("22/SSH");
+        privIssue.Message.Should().Contain("25/SMTP");
+        privIssue.Message.Should().Contain("53/DNS");
     }
 
     [Fact]
@@ -268,6 +354,7 @@ public class UpnpSecurityAnalyzerTests
 
         // Assert
         result.Issues.Should().NotContain(i => i.Type == IssueTypes.StaticPortForward);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.StaticPrivilegedPort);
     }
 
     [Fact]
@@ -287,6 +374,48 @@ public class UpnpSecurityAnalyzerTests
         // Assert
         result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpEnabled);
         result.Issues.Should().Contain(i => i.Type == IssueTypes.UpnpPortsExposed);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+    }
+
+    [Fact]
+    public void Analyze_UpnpDisabled_StillReportsStaticForwards()
+    {
+        // Arrange - UPnP disabled but static forwards present
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateStaticRule("80", "Web Server", enabled: true),
+            CreateStaticRule("8080", "Web Proxy", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(false, rules, networks);
+
+        // Assert - Should still analyze static forwards
+        result.HardeningNotes.Should().ContainSingle().Which.Should().Contain("UPnP is disabled");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPrivilegedPort);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
+    }
+
+    [Fact]
+    public void Analyze_UpnpDisabled_NoUpnpIssues()
+    {
+        // Arrange - UPnP disabled with UPnP rules present (should be ignored)
+        var networks = new List<NetworkInfo> { CreateNetwork("Home", NetworkPurpose.Home) };
+        var rules = new List<UniFiPortForwardRule>
+        {
+            CreateUpnpRule("80", "Web Server"),
+            CreateStaticRule("8080", "Proxy", enabled: true)
+        };
+
+        // Act
+        var result = _analyzer.Analyze(false, rules, networks);
+
+        // Assert - UPnP rules should not be reported when disabled
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpEnabled);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPrivilegedPort);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.UpnpPortsExposed);
+        // But static should still be there
         result.Issues.Should().Contain(i => i.Type == IssueTypes.StaticPortForward);
     }
 
