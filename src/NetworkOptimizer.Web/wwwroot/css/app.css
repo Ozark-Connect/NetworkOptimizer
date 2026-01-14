@@ -4501,11 +4501,11 @@ select.form-control {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #4ade80;
+    background: var(--success-color);
 }
 
 .rule-status.status-active .status-dot {
-    background: #4ade80;
+    background: var(--success-color);
 }
 
 .rule-status.status-expiring .status-dot {
