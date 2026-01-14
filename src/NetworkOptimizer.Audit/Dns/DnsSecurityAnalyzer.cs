@@ -1475,7 +1475,7 @@ public class DnsSecurityAnalyzer
                 {
                     result.DnatRedirectTargetIsValid = false;
                     result.InvalidDnatRules.Add(
-                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp}");
+                        $"'{rule.Description ?? rule.Id}': {rule.RedirectIp}");
                 }
             }
         }
@@ -1521,7 +1521,7 @@ public class DnsSecurityAnalyzer
                     result.DnatRedirectTargetIsValid = false;
                     var expectedGateways = string.Join(" or ", ruleValidDestinations);
                     result.InvalidDnatRules.Add(
-                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp} (expected {expectedGateways})");
+                        $"'{rule.Description ?? rule.Id}': {rule.RedirectIp} (expected {expectedGateways})");
                 }
             }
 
