@@ -6,11 +6,11 @@ Production deployment guide for Network Optimizer.
 
 | Option | Best For | Guide |
 |--------|----------|-------|
+| Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux + Docker | Self-built servers, VMs, cloud | [Below](#1-linux-docker-recommended) |
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [Native Guide](NATIVE-DEPLOYMENT.md#macos-deployment) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
-| Windows | Windows servers | [Native Guide](NATIVE-DEPLOYMENT.md#windows-deployment) |
 
 ---
 
@@ -171,8 +171,10 @@ For commercial NAS devices with container support.
 #### Unraid
 
 1. Install Community Applications plugin
-2. Search for "Network Optimizer" (when published)
-3. Or use manual Docker Compose deployment
+2. Search for "Network Optimizer"
+3. Deploy both network-optimizer and network-optimizer-speedtest container
+---
+Or use manual Docker Compose deployment (note: cannot be managed by UNRAID GUI if deployed via compose)
 
 ### 4. Native Deployment (No Docker)
 
@@ -186,9 +188,9 @@ For maximum network performance or systems without Docker, run natively on the h
 **Supported Platforms:**
 - macOS 11+ (Intel or Apple Silicon)
 - Linux (Ubuntu 20.04+, Debian 11+, RHEL 8+)
-- Windows Server 2019+ / Windows 10+
+- Windows: Use the [Windows Installer](https://github.com/Ozark-Connect/NetworkOptimizer/releases) instead
 
-See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for detailed instructions.
+See [Native Deployment Guide](NATIVE-DEPLOYMENT.md) for macOS and Linux instructions.
 
 ## Pre-Deployment Checklist
 

@@ -54,7 +54,14 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort: null);
+
+    /// <summary>
+    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
+    /// </summary>
+    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
     {
         var result = new DnsSecurityResult();
 
@@ -108,14 +115,14 @@ public class DnsSecurityAnalyzer
         // Detect third-party LAN DNS (Pi-hole, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customPiholePort);
         }
 
         // Generate issues based on findings (includes async WAN DNS validation)
         await GenerateAuditIssuesAsync(result);
 
-        _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DoQ={DoQBlock}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
-            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.HasDoqBlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
+        _logger.LogDebug("DNS security analysis complete: DoH={DoHState}, Firewall rules found: DNS53={Dns53}, DoT={DoT}, DoH={DoHBlock}, DoQ={DoQBlock}, DoH3={DoH3Block}, DeviceDns={DeviceDnsOk}, WanDns={WanDnsCount}",
+            result.DohState, result.HasDns53BlockRule, result.HasDotBlockRule, result.HasDohBlockRule, result.HasDoqBlockRule, result.HasDoh3BlockRule, result.DeviceDnsPointsToGateway, result.WanDnsServers.Count);
 
         return result;
     }
@@ -394,25 +401,30 @@ public class DnsSecurityAnalyzer
                 }
             }
 
-            // Check for DNS over TLS (port 853) blocking - must be TCP only
-            // Valid protocols: tcp, tcp_udp, all
+            // Check for DNS over TLS (port 853) blocking - TCP only
+            // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250)
+            // Valid protocols: tcp, udp, tcp_udp, all
             if (isBlockAction && IncludesPort(destPort, "853"))
             {
+                // DoT = TCP 853
                 if (IncludesTcp(protocol))
                 {
                     result.HasDotBlockRule = true;
                     result.DotRuleName = name;
                     _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol})", name, protocol);
                 }
-                else
+
+                // DoQ = UDP 853 (RFC 9250 standard port)
+                if (IncludesUdp(protocol))
                 {
-                    _logger.LogDebug("Skipping DoT rule {Name}: protocol {Protocol} doesn't include TCP", name, protocol);
+                    result.HasDoqBlockRule = true;
+                    result.DoqRuleName = name;
+                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol})", name, protocol);
                 }
             }
 
-            // Check for DoH/DoQ blocking (port 443 with web domains containing DNS providers)
-            // DoH = TCP 443, DoQ = UDP 443 (QUIC)
-            // Rules can block either or both depending on protocol setting
+            // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
+            // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
             if (isBlockAction && IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
@@ -422,7 +434,7 @@ public class DnsSecurityAnalyzer
 
                 if (dnsProviderDomains.Count > 0)
                 {
-                    // DoH blocking requires TCP (tcp, tcp_udp, all)
+                    // DoH blocking (TCP 443)
                     if (IncludesTcp(protocol))
                     {
                         result.HasDohBlockRule = true;
@@ -436,17 +448,12 @@ public class DnsSecurityAnalyzer
                             name, protocol, dnsProviderDomains.Count);
                     }
 
-                    // DoQ blocking requires UDP (udp, tcp_udp, all) - QUIC runs over UDP
+                    // DoH3 blocking (UDP 443 / HTTP/3 over QUIC)
                     if (IncludesUdp(protocol))
                     {
-                        result.HasDoqBlockRule = true;
-                        foreach (var domain in dnsProviderDomains)
-                        {
-                            if (!result.DoqBlockedDomains.Contains(domain))
-                                result.DoqBlockedDomains.Add(domain);
-                        }
-                        result.DoqRuleName = name;
-                        _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
+                        result.HasDoh3BlockRule = true;
+                        result.Doh3RuleName = name;
+                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}) with {Count} DNS domains",
                             name, protocol, dnsProviderDomains.Count);
                     }
                 }
@@ -512,30 +519,43 @@ public class DnsSecurityAnalyzer
         {
             if (result.HasThirdPartyDns)
             {
-                // Third-party DNS detected - create Info issue (neutral, not a security gap)
                 var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
                 var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
+
+                // Known providers (Pi-hole, AdGuard) are trusted - neutral score impact
+                // Unknown third-party DNS servers get a minor penalty since we can't verify their filtering
+                var isKnownProvider = result.IsPiholeDetected; // Add AdGuard detection in the future
+                var scoreImpact = isKnownProvider ? 0 : 3; // Minor penalty for unknown providers
+                var severity = isKnownProvider ? AuditSeverity.Informational : AuditSeverity.Recommended;
+                var recommendedAction = isKnownProvider
+                    ? "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass."
+                    : "If using Pi-hole, configure the management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home) or CyberSecure Encrypted DNS (DoH).";
 
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsThirdPartyDetected,
-                    Severity = AuditSeverity.Informational,
+                    Severity = severity,
                     DeviceName = result.GatewayName,
                     Message = $"{result.ThirdPartyDnsProviderName} detected handling DNS queries. Networks using third-party DNS: {string.Join(", ", networkNames)}. DNS server(s): {string.Join(", ", dnsServerIps)}.",
-                    RecommendedAction = "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass.",
+                    RecommendedAction = recommendedAction,
                     RuleId = "DNS-3RDPARTY-001",
-                    ScoreImpact = 0, // Neutral - not a security gap
+                    ScoreImpact = scoreImpact,
                     Metadata = new Dictionary<string, object>
                     {
                         { "third_party_dns_ips", dnsServerIps },
                         { "is_pihole", result.IsPiholeDetected },
+                        { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
-                        { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" }
+                        { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" },
+                        { "configurable_setting", "Configure Pi-hole HTTP management port in Settings if detection fails" }
                     }
                 });
 
-                // Add hardening note for third-party DNS
-                result.HardeningNotes.Add($"{result.ThirdPartyDnsProviderName} configured as DNS resolver on {networkNames.Count} network(s)");
+                // Add hardening note only for known providers
+                if (isKnownProvider)
+                {
+                    result.HardeningNotes.Add($"{result.ThirdPartyDnsProviderName} configured as DNS resolver on {networkNames.Count} network(s)");
+                }
             }
             else
             {
@@ -546,21 +566,21 @@ public class DnsSecurityAnalyzer
                     Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
                     Message = "Unable to determine DNS security solution. No DoH configured and no third-party LAN DNS detected.",
-                    RecommendedAction = "Configure DoH in Network Settings or deploy a DNS security solution like Pi-hole",
+                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings or deploy a DNS filtering solution like Pi-hole or AdGuard Home",
                     RuleId = "DNS-UNKNOWN-001",
-                    ScoreImpact = 2
+                    ScoreImpact = 0  // No score impact - shown alongside DNS_NO_DOH which carries the penalty
                 });
 
                 // Also add the standard DoH recommendation
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsNoDoh,
-                    Severity = AuditSeverity.Recommended,
+                    Severity = AuditSeverity.Critical,
                     DeviceName = result.GatewayName,
                     Message = "DNS-over-HTTPS (DoH) is not configured. Network traffic uses unencrypted DNS which can be monitored or manipulated.",
-                    RecommendedAction = "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
+                    RecommendedAction = "Enable CyberSecure Encrypted DNS (DoH) in Network Settings with a trusted provider like NextDNS or Cloudflare",
                     RuleId = "DNS-DOH-001",
-                    ScoreImpact = 8
+                    ScoreImpact = 12
                 });
             }
         }
@@ -639,14 +659,10 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsNoDoqBlock,
                 Severity = AuditSeverity.Recommended,
                 DeviceName = result.GatewayName,
-                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS.",
-                RecommendedAction = "Create firewall rule: Block UDP 443 to known DoQ provider domains",
+                Message = "No firewall rule blocks DNS over QUIC (DoQ). Devices can bypass your DNS filtering using QUIC-based DNS on UDP port 853.",
+                RecommendedAction = "Create firewall rule: Block outbound UDP port 853 to Internet for all VLANs",
                 RuleId = "DNS-LEAK-004",
-                ScoreImpact = 4,
-                Metadata = new Dictionary<string, object>
-                {
-                    { "suggested_domains", "dns.google, cloudflare-dns.com, dns.quad9.net, dns.adguard.com" }
-                }
+                ScoreImpact = 4
             });
         }
 
@@ -668,7 +684,10 @@ public class DnsSecurityAnalyzer
         // Positive: All protections in place
         if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule)
         {
-            result.HardeningNotes.Add("DNS leak prevention fully configured with DoH and firewall blocking (DNS53, DoT, DoH, DoQ)");
+            var protocols = "DNS53, DoT, DoH, DoQ";
+            if (result.HasDoh3BlockRule)
+                protocols += ", DoH3";
+            result.HardeningNotes.Add($"DNS leak prevention fully configured with DoH and firewall blocking ({protocols})");
         }
         else if (result.DohConfigured && result.HasDns53BlockRule && result.HasDotBlockRule && result.HasDohBlockRule)
         {
@@ -1177,9 +1196,9 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPiholePort = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks);
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPiholePort);
 
         if (thirdPartyResults.Any())
         {
@@ -1199,6 +1218,92 @@ public class DnsSecurityAnalyzer
                 _logger.LogInformation("Third-party LAN DNS detected on {Count} network(s)",
                     thirdPartyResults.Count);
             }
+
+            // Check for DNS consistency across all DHCP-enabled networks
+            CheckDnsConsistencyAcrossNetworks(networks, thirdPartyResults, result);
+        }
+    }
+
+    /// <summary>
+    /// Check if all DHCP-enabled networks use the same third-party DNS server.
+    /// If a third-party DNS (like Pi-hole) is configured on some networks but not all,
+    /// this creates a security gap where DNS filtering can be bypassed.
+    /// </summary>
+    private void CheckDnsConsistencyAcrossNetworks(
+        List<NetworkInfo> networks,
+        List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> thirdPartyResults,
+        DnsSecurityResult result)
+    {
+        // Get the unique third-party DNS IPs that were detected
+        var thirdPartyDnsIps = thirdPartyResults
+            .Select(r => r.DnsServerIp)
+            .Distinct()
+            .ToHashSet();
+
+        // Get all DHCP-enabled networks
+        var dhcpNetworks = networks.Where(n => n.DhcpEnabled).ToList();
+
+        if (dhcpNetworks.Count == 0)
+        {
+            _logger.LogDebug("No DHCP-enabled networks found, skipping DNS consistency check");
+            return;
+        }
+
+        // Get the networks where third-party DNS was detected
+        var networksWithThirdPartyDns = thirdPartyResults
+            .Select(r => r.NetworkName)
+            .Distinct()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // Get DHCP networks that are NOT using the third-party DNS
+        var networksWithoutThirdPartyDns = dhcpNetworks
+            .Where(n => !networksWithThirdPartyDns.Contains(n.Name))
+            .ToList();
+
+        if (networksWithoutThirdPartyDns.Any())
+        {
+            var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+            var missingNetworkNames = networksWithoutThirdPartyDns.Select(n => n.Name).ToList();
+            var configuredNetworkNames = networksWithThirdPartyDns.ToList();
+            var dnsServerIps = string.Join(", ", thirdPartyDnsIps);
+
+            _logger.LogWarning(
+                "DNS consistency issue: {ProviderName} ({DnsIps}) configured on {ConfiguredCount} networks but missing on {MissingCount} DHCP-enabled networks: {MissingNetworks}",
+                providerName, dnsServerIps, configuredNetworkNames.Count, missingNetworkNames.Count, string.Join(", ", missingNetworkNames));
+
+            // Adjust message based on whether DoH is configured
+            var message = result.DohConfigured
+                ? $"{providerName} is configured on {configuredNetworkNames.Count} network(s) but {missingNetworkNames.Count} DHCP-enabled network(s) are using CyberSecure DoH instead: {string.Join(", ", missingNetworkNames)}."
+                : $"{providerName} is configured on {configuredNetworkNames.Count} network(s) but {missingNetworkNames.Count} DHCP-enabled network(s) are not using it: {string.Join(", ", missingNetworkNames)}. Devices on these networks can bypass DNS filtering.";
+
+            var recommendation = result.DohConfigured
+                ? $"Configure all DHCP-enabled networks to use {providerName} ({dnsServerIps}) for consistent filtering, or keep CyberSecure DoH for those networks"
+                : $"Configure all DHCP-enabled networks to use {providerName} ({dnsServerIps}) for consistent DNS filtering, or verify this is intentional";
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsInconsistentConfig,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = message,
+                RecommendedAction = recommendation,
+                RuleId = "DNS-CONSISTENCY-001",
+                ScoreImpact = 5,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "third_party_dns_ips", thirdPartyDnsIps.ToList() },
+                    { "configured_networks", configuredNetworkNames },
+                    { "missing_networks", missingNetworkNames },
+                    { "provider_name", providerName },
+                    { "doh_configured", result.DohConfigured }
+                }
+            });
+        }
+        else
+        {
+            _logger.LogInformation(
+                "DNS consistency check passed: All {Count} DHCP-enabled networks use {ProviderName}",
+                dhcpNetworks.Count, result.ThirdPartyDnsProviderName);
         }
     }
 
@@ -1271,6 +1376,8 @@ public class DnsSecurityResult
     public string? DohRuleName { get; set; }
     public bool HasDoqBlockRule { get; set; }
     public string? DoqRuleName { get; set; }
+    public bool HasDoh3BlockRule { get; set; }
+    public string? Doh3RuleName { get; set; }
     public List<string> DohBlockedDomains { get; } = new();
     public List<string> DoqBlockedDomains { get; } = new();
 

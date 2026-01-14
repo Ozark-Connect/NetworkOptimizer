@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <!-- Override the Welcome dialog description text -->
+  <String Id="WelcomeDlgDescription" Value="This wizard will install [ProductName] on your computer.&#13;&#10;&#13;&#10;Upgrading? Your data and settings are preserved automatically. Just select the same installation folder.&#13;&#10;&#13;&#10;Click Next to continue or Cancel to exit." />
+</WixLocalization>

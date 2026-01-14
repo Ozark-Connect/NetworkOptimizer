@@ -13,10 +13,10 @@ namespace NetworkOptimizer.UniFi;
 public static class UniFiProductDatabase
 {
     /// <summary>
-    /// Devices that cannot run iperf3.
-    /// Note: Not all of these are MIPS architecture, but they are all known to not include iperf3.
+    /// Devices that cannot run iperf3 (used to filter LAN speed test targets).
+    /// Includes MIPS-based devices and others that don't ship with iperf3.
     /// </summary>
-    private static readonly HashSet<string> MipsDevices = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> DevicesWithoutIperf3 = new(StringComparer.OrdinalIgnoreCase)
     {
         // Flex Series (all non-rackmount switches are MIPS)
         "USW-Flex",
@@ -55,7 +55,7 @@ public static class UniFiProductDatabase
         "USW-Enterprise-8-PoE",
         "USW-Aggregation",
 
-        // AC APs (no iperf3)
+        // AC APs (no iperf3) - QCA9563 MIPS architecture
         "UAP",
         "UAP-LR",
         "UAP-IW",
@@ -64,6 +64,12 @@ public static class UniFiProductDatabase
         "UAP-Outdoor5",
         "UAP-AC-Pro",
         "UAP-AC-Lite",
+        "UAP-AC-LR",
+        "UAP-AC-M",
+        "UAP-AC-Mesh",
+        "UAP-AC-IW",
+        "UAP-AC-EDU",
+        "UAP-AC-Outdoor",
     };
 
     /// <summary>
@@ -541,28 +547,28 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
-    /// Check if a device uses MIPS architecture (cannot run iperf3)
+    /// Check if a device can run iperf3 for LAN speed testing
     /// </summary>
     /// <param name="productName">The friendly product name (e.g., "USW-Flex-Mini")</param>
-    /// <returns>True if the device is MIPS-based</returns>
-    public static bool IsMipsArchitecture(string? productName)
+    /// <returns>True if the device supports iperf3</returns>
+    public static bool CanRunIperf3(string? productName)
     {
         if (string.IsNullOrEmpty(productName))
-            return false;
+            return true;
 
-        return MipsDevices.Contains(productName);
+        return !DevicesWithoutIperf3.Contains(productName);
     }
 
     /// <summary>
-    /// Check if a device uses MIPS architecture using multiple identification fields
+    /// Check if a device can run iperf3 using multiple identification fields
     /// </summary>
     /// <param name="model">The model field (internal code)</param>
     /// <param name="shortname">The shortname field</param>
     /// <param name="modelDisplay">The model_display field (if present)</param>
-    /// <returns>True if the device is MIPS-based</returns>
-    public static bool IsMipsArchitecture(string? model, string? shortname, string? modelDisplay)
+    /// <returns>True if the device supports iperf3</returns>
+    public static bool CanRunIperf3(string? model, string? shortname, string? modelDisplay)
     {
         var productName = GetBestProductName(model, shortname, modelDisplay);
-        return IsMipsArchitecture(productName);
+        return CanRunIperf3(productName);
     }
 }

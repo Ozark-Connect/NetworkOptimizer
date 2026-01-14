@@ -7,6 +7,7 @@ API_PATH="/api/public/speedtest/results"
 
 # Construct the save URL from environment variables
 # Priority: REVERSE_PROXIED_HOST_NAME > HOST_NAME > HOST_IP
+# IMPORTANT: Keep this logic in sync with NginxHostedService.cs:ConstructSaveDataUrl() (Windows installer)
 if [ -n "$REVERSE_PROXIED_HOST_NAME" ]; then
     # Behind reverse proxy - use https and no port (proxy handles it)
     SAVE_DATA_URL="https://${REVERSE_PROXIED_HOST_NAME}${API_PATH}"
@@ -73,13 +74,25 @@ fi
 
 if [ -n "$CANONICAL_HOST" ] && [ -f "$NGINX_CONF" ]; then
     echo "Enforcing canonical URL: $CANONICAL_URL"
-    # Redirect if host doesn't match (simple host check, not full URL)
-    sed -i "/server_name/a\\
+
+    # Redirect HTTP to HTTPS when HTTPS is enabled
+    # Check X-Forwarded-Proto (set by reverse proxy) - if not "https", we're on HTTP
+    if [ "$OPENSPEEDTEST_HTTPS" = "true" ]; then
+        sed -i "/server_name/a\\
+    # Redirect HTTP to HTTPS\\
+    if (\$http_x_forwarded_proto != \"https\") {\\
+        return 302 $CANONICAL_URL\$request_uri;\\
+    }" "$NGINX_CONF"
+        echo "Added HTTP->HTTPS redirect rule"
+    else
+        # Only add host redirect when not using HTTPS (HTTP->HTTPS covers host mismatch too)
+        sed -i "/server_name/a\\
     # Enforce canonical host - prevents browser caching issues on mobile\\
     if (\$host != \"$CANONICAL_HOST\") {\\
         return 302 $CANONICAL_URL\$request_uri;\\
     }" "$NGINX_CONF"
-    echo "Added host redirect rule"
+        echo "Added host redirect rule"
+    fi
 fi
 
 # Start nginx

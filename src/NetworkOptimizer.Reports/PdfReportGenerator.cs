@@ -567,7 +567,7 @@ public class PdfReportGenerator
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text(issue.GetPortDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(issue.Message).FontSize(8);
+                            .Text(TrimUniFiSuffix(issue.Message)).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text(issue.RecommendedAction).FontSize(8);
                     }
@@ -619,7 +619,7 @@ public class PdfReportGenerator
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text(issue.GetPortDisplay()).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                            .Text(issue.Message).FontSize(8);
+                            .Text(TrimUniFiSuffix(issue.Message)).FontSize(8);
                         table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                             .Text("Pending").FontSize(8);
                     }
@@ -1140,6 +1140,9 @@ public class PdfReportGenerator
             });
         });
     }
+
+    private static string TrimUniFiSuffix(string message) =>
+        message.Replace(" in UniFi Network", "");
 
     private string GetColor(string hexColor)
     {

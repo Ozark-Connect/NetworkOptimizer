@@ -20,6 +20,9 @@ public class NetworkHop
     /// <summary>Model of the device</summary>
     public string DeviceModel { get; set; } = "";
 
+    /// <summary>Firmware version of the device at test time</summary>
+    public string? DeviceFirmware { get; set; }
+
     /// <summary>IP address of the device</summary>
     public string DeviceIp { get; set; } = "";
 

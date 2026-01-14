@@ -1,6 +1,4 @@
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
-using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -63,6 +61,7 @@ public class DashboardService : IDashboardService
                     Status = d.State == 1 ? "Online" : "Offline",
                     IpAddress = d.DisplayIpAddress ?? "",
                     Model = d.FriendlyModelName,
+                    Firmware = d.Firmware,
                     Uptime = FormatUptime((long?)d.Uptime.TotalSeconds)
                 })
                 .OrderBy(d => ParseIpForSorting(d.IpAddress))
@@ -214,6 +213,7 @@ public class DeviceInfo
     public string Status { get; set; } = "";
     public string IpAddress { get; set; } = "";
     public string? Model { get; set; }
+    public string? Firmware { get; set; }
     public string? Uptime { get; set; }
     public int? ClientCount { get; set; }
 

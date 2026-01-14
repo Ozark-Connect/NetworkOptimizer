@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 

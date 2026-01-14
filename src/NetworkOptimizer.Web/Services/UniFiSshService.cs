@@ -1,31 +1,37 @@
-using System.Diagnostics;
-using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
+using NetworkOptimizer.Web.Services.Ssh;
 
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
 /// Service for managing shared SSH credentials and executing SSH commands on UniFi devices.
 /// All UniFi network devices (APs, switches) share the same SSH credentials.
+/// Uses SSH.NET via SshClientService for cross-platform support.
 /// </summary>
 public class UniFiSshService : IUniFiSshService
 {
     private readonly ILogger<UniFiSshService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly ICredentialProtectionService _credentialProtection;
+    private readonly SshClientService _sshClient;
 
     // Cache the settings to avoid repeated DB queries
     private UniFiSshSettings? _cachedSettings;
     private DateTime _cacheTime = DateTime.MinValue;
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
-    public UniFiSshService(ILogger<UniFiSshService> logger, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
+    public UniFiSshService(
+        ILogger<UniFiSshService> logger,
+        IServiceProvider serviceProvider,
+        ICredentialProtectionService credentialProtection,
+        SshClientService sshClient)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _credentialProtection = credentialProtection;
+        _sshClient = sshClient;
     }
 
     /// <summary>
@@ -51,7 +57,7 @@ public class UniFiSshService : IUniFiSshService
             {
                 Username = "",
                 Port = 22,
-                Enabled = false,
+                Enabled = true,  // Default to enabled for new installs
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -160,108 +166,28 @@ public class UniFiSshService : IUniFiSshService
         }
 
         var port = portOverride ?? settings.Port;
-        var usePassword = !string.IsNullOrEmpty(effectivePassword) && string.IsNullOrEmpty(effectivePrivateKeyPath);
 
-        var sshArgs = new List<string>
+        // Decrypt password if using password auth
+        string? decryptedPassword = null;
+        if (!string.IsNullOrEmpty(effectivePassword))
         {
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=5"
+            decryptedPassword = _credentialProtection.Decrypt(effectivePassword);
+        }
+
+        // Build connection info
+        var connection = new SshConnectionInfo
+        {
+            Host = host,
+            Port = port,
+            Username = effectiveUsername,
+            Password = decryptedPassword,
+            PrivateKeyPath = effectivePrivateKeyPath,
+            Timeout = TimeSpan.FromSeconds(30)
         };
 
-        // BatchMode=yes disables password prompts, only use with key auth
-        if (!usePassword)
-        {
-            sshArgs.Add("-o");
-            sshArgs.Add("BatchMode=yes");
-        }
+        var result = await _sshClient.ExecuteCommandAsync(connection, command, TimeSpan.FromSeconds(30), cancellationToken);
 
-        sshArgs.Add("-p");
-        sshArgs.Add(port.ToString());
-
-        // Add key authentication
-        if (!string.IsNullOrEmpty(effectivePrivateKeyPath))
-        {
-            sshArgs.Add("-i");
-            sshArgs.Add(effectivePrivateKeyPath);
-        }
-
-        sshArgs.Add($"{effectiveUsername}@{host}");
-        sshArgs.Add(command);
-
-        var startInfo = new ProcessStartInfo
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        // If password auth, use sshpass with environment variable
-        if (usePassword)
-        {
-            var decryptedPassword = _credentialProtection.Decrypt(effectivePassword!);
-            startInfo.FileName = "sshpass";
-            startInfo.Arguments = $"-e ssh {string.Join(" ", sshArgs)}";
-            startInfo.Environment["SSHPASS"] = decryptedPassword;
-        }
-        else
-        {
-            startInfo.FileName = "ssh";
-            startInfo.Arguments = string.Join(" ", sshArgs);
-        }
-
-        using var process = new Process { StartInfo = startInfo };
-
-        try
-        {
-            process.Start();
-
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-            // Create a linked token that cancels on timeout OR external cancellation
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-
-            try
-            {
-                await process.WaitForExitAsync(timeoutCts.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Timeout occurred (not external cancellation)
-                process.Kill();
-                return (false, "SSH command timed out");
-            }
-
-            // If we get here due to external cancellation, propagate it
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            if (process.ExitCode != 0)
-            {
-                return (false, string.IsNullOrEmpty(error) ? output : error);
-            }
-
-            return (true, output);
-        }
-        catch (OperationCanceledException)
-        {
-            if (!process.HasExited)
-            {
-                process.Kill();
-            }
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "SSH command execution failed for {Host}", host);
-            return (false, ex.Message);
-        }
+        return (result.Success, result.Success ? result.Output : result.CombinedOutput);
     }
 
     /// <summary>

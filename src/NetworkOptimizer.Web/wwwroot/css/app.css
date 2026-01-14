@@ -21,6 +21,10 @@
     --danger-color: #ee6368;
     --info-color: #4797ff;
 
+    /* Purple/Violet - WiFi 6E, sponsorship */
+    --purple-color: #a855f7;
+    --purple-light: #c084fc;
+
     /* Dark Mode Backgrounds - Ozark Connect blue-tinted */
     --bg-primary: #1a2029;
     --bg-secondary: #242c39;
@@ -1409,6 +1413,22 @@ select.form-control {
     gap: 0.75rem;
 }
 
+.input-with-button {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.input-with-button .form-control {
+    flex: 1;
+    min-width: 0;
+}
+
+.input-with-button .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 .checkbox-label,
 .radio-label {
     display: flex;
@@ -2397,6 +2417,53 @@ select.form-control {
     background: rgba(255, 255, 255, 0.9);
 }
 
+/* Sponsorship Banner */
+.sponsorship-banner {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(168, 85, 247, 0.08) 100%);
+    border: 1px solid var(--purple-color);
+    border-radius: var(--border-radius);
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.sponsorship-banner .banner-icon {
+    background: var(--purple-color);
+    color: white;
+}
+
+.sponsorship-banner .banner-text strong {
+    color: var(--purple-light);
+}
+
+.sponsorship-banner .banner-text span {
+    color: var(--text-primary);
+}
+
+.sponsorship-banner .banner-text a {
+    color: var(--purple-light);
+    text-decoration: underline;
+}
+
+.sponsorship-banner .banner-text a:hover {
+    color: white;
+}
+
+.sponsorship-banner .btn-dismiss {
+    background: rgba(168, 85, 247, 0.15);
+    color: var(--purple-light);
+    border: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.sponsorship-banner .btn-dismiss:hover {
+    background: rgba(168, 85, 247, 0.3);
+    color: white;
+}
+
 /* Loading State */
 .loading-state {
     display: flex;
@@ -3101,7 +3168,26 @@ select.form-control {
 
 .wifi-band-badge.wifi-band-6e {
     background: rgba(168, 85, 247, 0.2);
-    color: #c084fc;
+    color: var(--purple-light);
+}
+
+/* Device tooltip styling (path visualization) */
+.device-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    margin-bottom: 0.15rem;
+    color: #e2e8f0;
+}
+
+.device-tooltip-row:last-child {
+    margin-bottom: 0;
+}
+
+.device-tooltip-label {
+    color: #94a3b8;
+    font-weight: 500;
 }
 
 /* Warnings and badges */

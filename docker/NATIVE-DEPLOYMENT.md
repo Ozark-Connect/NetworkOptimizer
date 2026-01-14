@@ -22,7 +22,7 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 
 - [macOS Deployment](#macos-deployment)
 - [Linux Deployment](#linux-deployment)
-- [Windows Deployment](#windows-deployment)
+- [Windows Deployment](#windows-deployment) - Use the Windows Installer instead
 
 ---
 
@@ -385,109 +385,16 @@ journalctl -u network-optimizer -f
 
 ## Windows Deployment
 
-### Prerequisites
+**Use the Windows Installer instead of manual deployment.**
 
-**System Requirements:**
-- Windows 10/11 or Windows Server 2019+
-- x64 architecture
-- 2GB RAM minimum
-- 1GB disk space
+Download the MSI installer from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases). The installer provides:
 
-**Required Software:**
+- One-click installation
+- Automatic Windows Service setup (starts at boot)
+- Bundled iperf3 for speed testing
+- Proper uninstall via Windows Settings
 
-Install from [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/) or download manually:
-
-```powershell
-# Using winget (recommended)
-winget install iperf3
-winget install sshpass  # May need manual installation
-```
-
-Or download directly:
-- iperf3: https://iperf.fr/iperf-download.php
-- sshpass: Build from source or use Cygwin
-
-### Build from Source
-
-```powershell
-# Install .NET SDK from https://dotnet.microsoft.com/download/dotnet/10.0
-# Or via winget:
-winget install Microsoft.DotNet.SDK.10
-
-# Clone repository
-git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
-# or via SSH: git clone git@github.com:Ozark-Connect/NetworkOptimizer.git
-cd NetworkOptimizer
-
-# Build
-dotnet publish src/NetworkOptimizer.Web -c Release -r win-x64 --self-contained -o C:\NetworkOptimizer
-```
-
-### Create Startup Script
-
-Create `C:\NetworkOptimizer\start.bat`:
-
-```batch
-@echo off
-cd /d "%~dp0"
-
-set TZ=America/Chicago
-set ASPNETCORE_URLS=http://0.0.0.0:8042
-
-REM Host IP - required for iperf3 client result tracking
-set HOST_IP=192.168.1.100
-
-REM Enable iperf3 server for client speed testing (port 5201)
-set Iperf3Server__Enabled=true
-
-REM Optional: Set admin password
-REM set APP_PASSWORD=your-secure-password
-
-NetworkOptimizer.Web.exe
-```
-
-### Install as Windows Service
-
-Use [NSSM](https://nssm.cc/) (Non-Sucking Service Manager):
-
-```powershell
-# Download NSSM
-Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" -OutFile "nssm.zip"
-Expand-Archive -Path "nssm.zip" -DestinationPath "C:\nssm" -Force
-
-# Install service
-C:\nssm\nssm-2.24\win64\nssm.exe install NetworkOptimizer "C:\NetworkOptimizer\start.bat"
-
-# Configure service
-C:\nssm\nssm-2.24\win64\nssm.exe set NetworkOptimizer AppDirectory "C:\NetworkOptimizer"
-C:\nssm\nssm-2.24\win64\nssm.exe set NetworkOptimizer DisplayName "Network Optimizer"
-C:\nssm\nssm-2.24\win64\nssm.exe set NetworkOptimizer Description "UniFi Network Optimizer and Auditor"
-C:\nssm\nssm-2.24\win64\nssm.exe set NetworkOptimizer Start SERVICE_AUTO_START
-
-# Start service
-net start NetworkOptimizer
-```
-
-### Service Management
-
-```powershell
-# Check status
-Get-Service NetworkOptimizer
-
-# Stop
-Stop-Service NetworkOptimizer
-
-# Start
-Start-Service NetworkOptimizer
-
-# Restart
-Restart-Service NetworkOptimizer
-```
-
-### Data Location
-
-- **Database:** `%LOCALAPPDATA%\NetworkOptimizer\network_optimizer.db`
-- **Credentials:** `%LOCALAPPDATA%\NetworkOptimizer\.credential_key`
+After installation, access the web UI at **http://localhost:8042** (or use the machine's IP/hostname from other devices).
 
 ---
 

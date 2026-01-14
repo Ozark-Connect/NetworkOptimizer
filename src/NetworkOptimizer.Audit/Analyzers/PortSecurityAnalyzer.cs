@@ -180,13 +180,56 @@ public class PortSecurityAnalyzer
             _logger.LogDebug("Built client history lookup with {Count} historical wired clients for port correlation", historyByPort.Count);
         }
 
+        // Collect all device MACs for uplink-based gateway detection
+        // and build lookup for device uplinks (to identify which ports have APs/switches connected)
+        var allDeviceMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deviceUplinkLookup = new Dictionary<(string SwitchMac, int PortIndex), string>();
+        foreach (var device in deviceData.UnwrapDataArray())
+        {
+            var mac = device.GetStringOrNull("mac");
+            if (!string.IsNullOrEmpty(mac))
+            {
+                allDeviceMacs.Add(mac);
+            }
+
+            // Build uplink lookup: (switchMac, portIndex) -> device type
+            if (device.TryGetProperty("uplink", out var uplink))
+            {
+                var uplinkMac = uplink.GetStringOrNull("uplink_mac");
+                var deviceType = device.GetStringOrNull("type");
+
+                // Get uplink_remote_port if present (nullable int)
+                int? uplinkPort = null;
+                if (uplink.TryGetProperty("uplink_remote_port", out var portProp) && portProp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                {
+                    uplinkPort = portProp.GetInt32();
+                }
+
+                if (!string.IsNullOrEmpty(uplinkMac) && uplinkPort.HasValue && !string.IsNullOrEmpty(deviceType))
+                {
+                    var key = (uplinkMac.ToLowerInvariant(), uplinkPort.Value);
+                    if (!deviceUplinkLookup.ContainsKey(key))
+                    {
+                        deviceUplinkLookup[key] = deviceType;
+                        _logger.LogDebug("Device uplink: {DeviceType} connected to {SwitchMac} port {Port}",
+                            deviceType, uplinkMac, uplinkPort.Value);
+                    }
+                }
+            }
+        }
+
+        if (deviceUplinkLookup.Count > 0)
+        {
+            _logger.LogDebug("Built device uplink lookup with {Count} UniFi device connections", deviceUplinkLookup.Count);
+        }
+
         foreach (var device in deviceData.UnwrapDataArray())
         {
             var portTableItems = device.GetArrayOrEmpty("port_table").ToList();
             if (portTableItems.Count == 0)
                 continue;
 
-            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById);
+            var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup);
             if (switchInfo != null)
             {
                 switches.Add(switchInfo);
@@ -285,10 +328,17 @@ public class PortSecurityAnalyzer
     /// <summary>
     /// Parse a single switch from JSON with client history and port profiles
     /// </summary>
-    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort, Dictionary<string, UniFiPortProfile> portProfiles)
+    private SwitchInfo? ParseSwitch(
+        JsonElement device,
+        List<NetworkInfo> networks,
+        Dictionary<(string, int), UniFiClientResponse> clientsByPort,
+        Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort,
+        Dictionary<string, UniFiPortProfile> portProfiles,
+        HashSet<string>? allDeviceMacs = null,
+        Dictionary<(string, int), string>? deviceUplinkLookup = null)
     {
         var deviceType = device.GetStringOrNull("type");
-        var isGateway = FromUniFiApiType(deviceType).IsGateway();
+        var (isGateway, isAccessPoint) = DetermineDeviceRole(device, deviceType, allDeviceMacs);
         var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
 
         var mac = device.GetStringOrNull("mac");
@@ -322,11 +372,12 @@ public class PortSecurityAnalyzer
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
+            IsAccessPoint = isAccessPoint,
             Capabilities = capabilities
         };
 
         var ports = device.GetArrayOrEmpty("port_table")
-            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles))
+            .Select(port => ParsePort(port, switchInfoPlaceholder, networks, clientsByPort, historyByPort, portProfiles, deviceUplinkLookup))
             .Where(p => p != null)
             .Cast<PortInfo>()
             .ToList();
@@ -343,9 +394,51 @@ public class PortSecurityAnalyzer
             ConfiguredDns2 = dns2,
             NetworkConfigType = networkConfigType,
             IsGateway = isGateway,
+            IsAccessPoint = isAccessPoint,
             Capabilities = capabilities,
             Ports = ports
         };
+    }
+
+    /// <summary>
+    /// Determine the effective device role using uplink-based detection.
+    /// Gateway-class devices (UDR, UX, UDM, etc.) that uplink to another UniFi device
+    /// are mesh APs, not gateways. UDR/UX devices have integrated APs.
+    /// </summary>
+    /// <remarks>
+    /// This logic parallels UniFiDiscovery.DetermineDeviceType but works with raw JSON.
+    /// The audit engine receives raw JSON instead of pre-classified DiscoveredDevice objects.
+    /// </remarks>
+    private (bool IsGateway, bool IsAccessPoint) DetermineDeviceRole(JsonElement device, string? deviceType, HashSet<string>? allDeviceMacs)
+    {
+        var baseType = FromUniFiApiType(deviceType);
+
+        // Non-gateway types are switches (not gateway, not AP)
+        if (!baseType.IsGateway())
+            return (false, false);
+
+        // If we don't have device MAC info, fall back to API type (assume gateway)
+        if (allDeviceMacs == null || allDeviceMacs.Count == 0)
+            return (true, false);
+
+        // Check if this gateway-class device uplinks to another UniFi device
+        // If so, it's acting as a mesh AP, not the network gateway
+        string? uplinkMac = null;
+        if (device.TryGetProperty("uplink", out var uplink))
+        {
+            uplinkMac = uplink.GetStringOrNull("uplink_mac");
+        }
+
+        if (!string.IsNullOrEmpty(uplinkMac) && allDeviceMacs.Contains(uplinkMac))
+        {
+            var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
+            _logger.LogInformation(
+                "Gateway-class device {Name} uplinks to another UniFi device ({UplinkMac}), classifying as AP",
+                name, uplinkMac);
+            return (false, true); // It's an AP
+        }
+
+        return (true, false); // It's the gateway
     }
 
     /// <summary>
@@ -373,12 +466,19 @@ public class PortSecurityAnalyzer
     /// Parse a single port from JSON
     /// </summary>
     private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort = null)
-        => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null);
+        => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null, deviceUplinkLookup: null);
 
     /// <summary>
-    /// Parse a single port from JSON with port profile resolution
+    /// Parse a single port from JSON with port profile resolution and device uplink detection
     /// </summary>
-    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort, Dictionary<string, UniFiPortProfile>? portProfiles)
+    private PortInfo? ParsePort(
+        JsonElement port,
+        SwitchInfo switchInfo,
+        List<NetworkInfo> networks,
+        Dictionary<(string, int), UniFiClientResponse> clientsByPort,
+        Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort,
+        Dictionary<string, UniFiPortProfile>? portProfiles,
+        Dictionary<(string, int), string>? deviceUplinkLookup)
     {
         var portIdx = port.GetIntOrDefault("port_idx", -1);
         if (portIdx < 0)
@@ -488,6 +588,14 @@ public class PortSecurityAnalyzer
             lastConnectionSeen = historicalClient.LastSeen;
         }
 
+        // Check if a UniFi device (AP, switch, etc.) is connected to this port
+        string? connectedDeviceType = null;
+        if (deviceUplinkLookup != null && !string.IsNullOrEmpty(switchInfo.MacAddress))
+        {
+            var uplinkKey = (switchInfo.MacAddress.ToLowerInvariant(), portIdx);
+            deviceUplinkLookup.TryGetValue(uplinkKey, out connectedDeviceType);
+        }
+
         return new PortInfo
         {
             PortIndex = portIdx,
@@ -510,7 +618,8 @@ public class PortSecurityAnalyzer
             ConnectedClient = connectedClient,
             LastConnectionMac = lastConnectionMac,
             LastConnectionSeen = lastConnectionSeen,
-            HistoricalClient = historicalClient
+            HistoricalClient = historicalClient,
+            ConnectedDeviceType = connectedDeviceType
         };
     }
 

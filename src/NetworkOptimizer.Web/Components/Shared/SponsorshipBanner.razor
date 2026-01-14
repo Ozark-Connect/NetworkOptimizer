@@ -1,0 +1,108 @@
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Interfaces
+@using NetworkOptimizer.Web.Services
+@inject SystemSettingsService SettingsService
+@inject AuditService AuditService
+@inject Iperf3SpeedTestService SpeedTestService
+@inject ISpeedTestRepository SpeedTestRepository
+
+@if (_shouldShow && !_isDismissed)
+{
+    <div class="sponsorship-banner">
+        <div class="banner-content">
+            <span class="banner-icon">&#x2665;</span>
+            <div class="banner-text">
+                <strong>Finding this app useful?</strong>
+                <span>
+                    <a href="https://github.com/sponsors/tvancott42" target="_blank" rel="noopener noreferrer">Support development on GitHub</a>
+                    &nbsp;|&nbsp;
+                    Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.
+                </span>
+            </div>
+            <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// When true, always shows the banner (unless dismissed). Used on Settings page.
+    /// When false (default), only shows after user completes meaningful actions.
+    /// </summary>
+    [Parameter]
+    public bool AlwaysShow { get; set; } = false;
+
+    private bool _shouldShow = false;
+    private bool _isDismissed = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckConditionsAsync();
+        }
+    }
+
+    private async Task CheckConditionsAsync()
+    {
+        try
+        {
+            // Check if already dismissed
+            var dismissedValue = await SettingsService.GetAsync(SystemSettingKeys.SponsorshipBannerDismissed);
+            _isDismissed = !string.IsNullOrEmpty(dismissedValue) && dismissedValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+            if (_isDismissed)
+            {
+                return;
+            }
+
+            // If AlwaysShow is set, skip condition checks
+            if (AlwaysShow)
+            {
+                _shouldShow = true;
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+
+            // Check if user has completed meaningful actions (parallel)
+            var auditTask = AuditService.GetAuditSummaryAsync();
+            var speedTestTask = SpeedTestService.GetRecentResultsAsync(1);
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
+
+            await Task.WhenAll(auditTask, speedTestTask, wan1Task, wan2Task);
+
+            var hasRunAudit = auditTask.Result.LastAuditTime.HasValue;
+            var hasSpeedTestResults = speedTestTask.Result.Any();
+            var hasSqmEnabled = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
+
+            // Show banner if any condition is met
+            _shouldShow = hasRunAudit || hasSpeedTestResults || hasSqmEnabled;
+
+            if (_shouldShow)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // Silently fail - sponsorship banner is non-critical
+        }
+    }
+
+    private async Task DismissAsync()
+    {
+        try
+        {
+            await SettingsService.SetAsync(SystemSettingKeys.SponsorshipBannerDismissed, "true");
+            _isDismissed = true;
+            StateHasChanged();
+        }
+        catch
+        {
+            // Just hide it locally if save fails
+            _isDismissed = true;
+            StateHasChanged();
+        }
+    }
+}

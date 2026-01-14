@@ -739,7 +739,7 @@ public class PortSecurityAnalyzerTests
         result.Should().HaveCount(1);
         result[0].Network.Should().NotBeNull();
         result[0].Network!.Id.Should().Be("security-network-id");
-        result[0].Network.Name.Should().Be("Security");
+        result[0].Network!.Name.Should().Be("Security");
     }
 
     [Fact]

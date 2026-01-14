@@ -5,11 +5,13 @@
 @inject UniFiConnectionService ConnectionService
 @inject NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository SpeedTestRepository
 @inject TcMonitorClient SqmMonitorClient
+@inject IGatewaySshService GatewaySshService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
 @using SqmConfig = NetworkOptimizer.Sqm.Models.SqmConfiguration
 @using NetworkOptimizer.Sqm.Models
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services.Ssh
 
 <PageTitle>Adaptive SQM - Network Optimizer</PageTitle>
 
@@ -81,10 +83,18 @@
                     </div>
                     </div>
 
-                    @if (!string.IsNullOrEmpty(deploymentStatus?.Error))
+                    @if (!gatewayConfigured)
                     {
-                        <div class="alert alert-danger" style="margin-top: 1rem;">
-                            <strong>Status Check Error:</strong> @deploymentStatus.Error
+                        <div class="alert alert-warning" style="margin-top: 1rem;">
+                            <strong>Gateway SSH not configured.</strong>
+                            Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Adaptive SQM.
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(deploymentStatus?.Error))
+                    {
+                        <div class="alert alert-danger alert-with-tooltip" style="margin-top: 1rem;">
+                            <span class="alert-text"><strong>Connection Error:</strong> @deploymentStatus.Error</span>
+                            <SshTroubleshootingTooltip Context="gateway" />
                         </div>
                     }
 
@@ -146,7 +156,7 @@
                     @if (sqmMonitorData?.Timestamp != default)
                     {
                         <div class="tc-timestamp">
-                            <small>Updated: @sqmMonitorData.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
+                            <small>Updated: @sqmMonitorData?.Timestamp.ToLocalTime().ToString("HH:mm:ss")</small>
                         </div>
                     }
                     <button class="btn btn-sm btn-secondary" @onclick="RefreshDashboard" disabled="@isRefreshingDashboard">
@@ -163,7 +173,7 @@
             </div>
             <div class="card-body">
         <div class="sqm-live-dashboard">
-            @if (sqmMonitorData.Wan1?.Active == true)
+            @if (sqmMonitorData?.Wan1?.Active == true)
             {
                 <div class="wan-status-card">
                     <div class="wan-status-header">
@@ -224,7 +234,7 @@
                 </div>
             }
 
-            @if (sqmMonitorData.Wan2?.Active == true)
+            @if (sqmMonitorData?.Wan2?.Active == true)
             {
                 <div class="wan-status-card">
                     <div class="wan-status-header">
@@ -1129,6 +1139,7 @@
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
     private static bool _cachedGatewayConnected;
+    private static bool _cachedGatewayConfigured;
     private static bool _refreshNeeded = false;  // Flag to trigger refresh on next page load
 
     // State
@@ -1136,6 +1147,7 @@
     private bool isDeploying = false;
     private bool isInstallingUdmBoot = false;
     private bool gatewayConnected = false;
+    private bool gatewayConfigured = false;
     private string? statusMessage;
     private bool statusSuccess = false;
 
@@ -1211,6 +1223,7 @@
         if (IsCacheValid())
         {
             gatewayConnected = _cachedGatewayConnected;
+            gatewayConfigured = _cachedGatewayConfigured;
             deploymentStatus = _cachedDeploymentStatus;
             tcInterfaces = _cachedTcInterfaces;
             wanInterfaces = _cachedWanInterfaces ?? new();
@@ -1451,7 +1464,7 @@
                 wan1Config.Interface = availableWans[0].Interface;
                 wan1Config.Enabled = false;
                 if (!string.IsNullOrEmpty(availableWans[0].SuggestedPingIp))
-                    wan1Config.PingHost = availableWans[0].SuggestedPingIp;
+                    wan1Config.PingHost = availableWans[0].SuggestedPingIp!;
                 ApplyConnectionDefaults(wan1Config, availableWans[0].Name);
                 usedInterfaces.Add(availableWans[0].Interface);
                 availableWans.RemoveAt(0);
@@ -1629,14 +1642,36 @@
 
         try
         {
+            // Check if gateway SSH is configured first
+            var settings = await GatewaySshService.GetSettingsAsync();
+            gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
+
+            if (!gatewayConfigured)
+            {
+                // Not configured - don't try to connect
+                gatewayConnected = false;
+                _cachedGatewayConfigured = false;
+                _cachedGatewayConnected = false;
+                deploymentStatus = null;
+                _cachedDeploymentStatus = null;
+                isLoading = false;
+                _lastStatusCheck = DateTime.UtcNow;
+                StateHasChanged();
+                return;
+            }
+
             // Test gateway connection
             var connectionResult = await DeploymentService.TestConnectionAsync();
             gatewayConnected = connectionResult.success;
 
             if (gatewayConnected)
             {
-                // Check deployment status first (fast SSH check)
-                deploymentStatus = await DeploymentService.CheckDeploymentStatusAsync();
+                // Start deployment status and WAN interface detection in parallel
+                var deploymentTask = DeploymentService.CheckDeploymentStatusAsync();
+                var wanInterfacesTask = SqmService.GetWanInterfacesFromControllerAsync();
+
+                // Wait for deployment status first (needed to decide if we poll TC Monitor)
+                deploymentStatus = await deploymentTask;
 
                 // Only poll TC Monitor if scripts are deployed (avoids 15s timeout when not deployed)
                 if (deploymentStatus?.IsDeployed == true)
@@ -1655,10 +1690,10 @@
                     tcInterfaces = null;
                 }
 
-                // Get WAN interfaces from controller
+                // Get WAN interfaces result (already running in parallel)
                 try
                 {
-                    wanInterfaces = await SqmService.GetWanInterfacesFromControllerAsync();
+                    wanInterfaces = await wanInterfacesTask;
                     // Only apply detected interfaces if we don't have saved configs
                     if (!hasSavedConfigs)
                         ApplyDetectedWanInterfaces();
@@ -1670,6 +1705,7 @@
                 }
 
                 // Update cache - always update when gateway connected
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = gatewayConnected;
                 _cachedDeploymentStatus = deploymentStatus;
                 _cachedTcInterfaces = tcInterfaces;
@@ -1678,9 +1714,14 @@
             }
             else
             {
-                // Gateway not connected - still update cache timestamp to prevent repeated attempts
+                // Gateway not connected - clear stale data and update cache
+                _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = false;
-                _cachedDeploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
+                _cachedDeploymentStatus = deploymentStatus;
+                sqmMonitorData = null;
+                tcInterfaces = null;
+                _cachedTcInterfaces = null;
                 _lastStatusCheck = DateTime.UtcNow;
                 statusMessage = connectionResult.message;
                 statusSuccess = false;
@@ -1688,9 +1729,14 @@
         }
         catch (Exception ex)
         {
-            // Error occurred - still update cache timestamp to prevent repeated attempts
+            // Error occurred - clear stale data and update cache
+            _cachedGatewayConfigured = gatewayConfigured;
             _cachedGatewayConnected = false;
-            _cachedDeploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
+            deploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
+            _cachedDeploymentStatus = deploymentStatus;
+            sqmMonitorData = null;
+            tcInterfaces = null;
+            _cachedTcInterfaces = null;
             _lastStatusCheck = DateTime.UtcNow;
             statusMessage = $"Error: {ex.Message}";
             statusSuccess = false;
@@ -2088,6 +2134,17 @@
 
     private async Task LoadSqmMonitorDataAsync()
     {
+        // Only poll if SQM is deployed or we have saved enabled WAN configs
+        var shouldPoll = deploymentStatus?.IsDeployed == true ||
+                         deploymentStatus?.TcMonitorRunning == true ||
+                         (wan1HasSavedConfig && wan1Config.Enabled) ||
+                         (wan2HasSavedConfig && wan2Config.Enabled);
+
+        if (!shouldPoll)
+        {
+            return;
+        }
+
         try
         {
             var gatewayHost = await GetGatewayHostAsync();

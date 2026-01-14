@@ -148,8 +148,6 @@ public class FingerprintDetectorTests
     [InlineData(234)] // Weather Monitor
     [InlineData(139)] // Water Monitor
     [InlineData(109)] // Sleep Monitor
-    [InlineData(45)]  // Wearable devices
-    [InlineData(36)]  // Smart Watch
     public void Detect_SmartSensorDevCat_ReturnsSmartSensor(int devCat)
     {
         var client = new UniFiClientResponse { DevCat = devCat };
@@ -345,6 +343,8 @@ public class FingerprintDetectorTests
     [InlineData(44)] // Handheld
     [InlineData(29)] // Apple iOS Device
     [InlineData(32)] // Android Device
+    [InlineData(45)] // Wearable devices (Apple Watch, Fitbit, etc.)
+    [InlineData(36)] // Smart Watch
     public void Detect_SmartphoneDevCat_ReturnsSmartphone(int devCat)
     {
         var client = new UniFiClientResponse { DevCat = devCat };

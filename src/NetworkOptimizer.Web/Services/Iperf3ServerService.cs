@@ -1,8 +1,6 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -104,9 +102,12 @@ public class Iperf3ServerService : BackgroundService
     /// <returns>True if the process ran for more than 2 seconds (successful), false if it exited immediately.</returns>
     private async Task<bool> RunIperf3ServerAsync(CancellationToken stoppingToken)
     {
+        var iperf3Path = GetIperf3Path();
+        _logger.LogDebug("Using iperf3 at: {Path}", iperf3Path);
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = "iperf3",
+            FileName = iperf3Path,
             Arguments = $"-s -p {Iperf3Port} -J", // Server mode, JSON output
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -408,8 +409,8 @@ public class Iperf3ServerService : BackgroundService
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "pkill",
-                    // Use regex pattern - quotes don't work without shell interpretation
-                    Arguments = "-f iperf3.*-s",
+                    // Use -9 (SIGKILL) to ensure process dies, simple pattern matching
+                    Arguments = "-9 iperf3",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -451,5 +452,28 @@ public class Iperf3ServerService : BackgroundService
         {
             _logger.LogDebug(ex, "Error checking for orphaned iperf3 processes");
         }
+    }
+
+    /// <summary>
+    /// Gets the path to the iperf3 executable.
+    /// On Windows, looks for bundled iperf3 in the install directory.
+    /// On Linux/macOS, uses iperf3 from PATH.
+    /// </summary>
+    private static string GetIperf3Path()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Look for bundled iperf3 relative to the application directory
+            // This works regardless of where the app is installed
+            var bundledPath = Path.Combine(AppContext.BaseDirectory, "iperf3", "iperf3.exe");
+
+            if (File.Exists(bundledPath))
+            {
+                return bundledPath;
+            }
+        }
+
+        // Fall back to iperf3 in PATH (Linux/macOS/Docker)
+        return "iperf3";
     }
 }

@@ -1,9 +1,9 @@
+using System.Diagnostics;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Agents.Models;
 using Renci.SshNet;
 using Renci.SshNet.Common;
-using System.Diagnostics;
-using System.Text;
 
 namespace NetworkOptimizer.Agents;
 

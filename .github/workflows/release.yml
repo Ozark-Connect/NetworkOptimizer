@@ -105,3 +105,17 @@ jobs:
           labels: ${{ steps.speedtest-meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  publish-release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find draft release matching this tag and publish it
+          gh release edit ${{ github.ref_name }} --draft=false --repo ${{ github.repository }} || echo "No draft release found for ${{ github.ref_name }}"

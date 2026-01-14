@@ -8,12 +8,10 @@ using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
-
+using static NetworkOptimizer.Core.Helpers.DisplayFormatters;
 // Disambiguate types that exist in both Audit.Models and Core.Models
 using AuditResult = NetworkOptimizer.Audit.Models.AuditResult;
 using AuditStatistics = NetworkOptimizer.Audit.Models.AuditStatistics;
-
-using static NetworkOptimizer.Core.Helpers.DisplayFormatters;
 
 namespace NetworkOptimizer.Audit;
 
@@ -46,6 +44,7 @@ public class ConfigAuditEngine
         public required PortSecurityAnalyzer SecurityEngine { get; init; }
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
+        public int? PiholeManagementPort { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -297,7 +296,8 @@ public class ConfigAuditEngine
             ClientName = request.ClientName,
             SecurityEngine = securityEngine,
             AllowanceSettings = effectiveSettings,
-            PortProfiles = request.PortProfiles
+            PortProfiles = request.PortProfiles,
+            PiholeManagementPort = request.PiholeManagementPort
         };
     }
 
@@ -480,14 +480,31 @@ public class ConfigAuditEngine
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
         var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
 
+        // Different messaging for allowed vs not-allowed devices
+        string message;
+        string recommendedAction;
+        if (placement.IsAllowedBySettings)
+        {
+            message = $"{detection.CategoryName} allowed per Settings on {lastNetwork.Name} VLAN";
+            recommendedAction = "Change in Settings if you want to isolate this device type";
+        }
+        else
+        {
+            message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
+            recommendedAction = placement.RecommendedNetwork != null
+                ? $"Move to {placement.RecommendedNetworkLabel}"
+                : "Create IoT VLAN";
+        }
+
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
             "OFFLINE-IOT-VLAN",
-            $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated",
+            message,
             displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
-            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : "Create IoT VLAN",
+            recommendedAction,
             isRecent ? placement.Severity : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
-            placement.IsLowRisk));
+            placement.IsLowRisk,
+            placement.IsAllowedBySettings));
     }
 
     private void CheckOfflineCameraPlacement(
@@ -542,14 +559,31 @@ public class ConfigAuditEngine
         var isRecent = historyClient.LastSeen >= twoWeeksAgo;
         var displayName = historyClient.DisplayName ?? historyClient.Name ?? historyClient.Hostname ?? historyClient.Mac;
 
+        // Different messaging for allowed vs not-allowed devices
+        string message;
+        string recommendedAction;
+        if (placement.IsAllowedBySettings)
+        {
+            message = $"{detection.CategoryName} allowed per Settings on {lastNetwork.Name} VLAN";
+            recommendedAction = "Change in Settings if you want to isolate this device type";
+        }
+        else
+        {
+            message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
+            recommendedAction = placement.RecommendedNetwork != null
+                ? $"Move to {placement.RecommendedNetworkLabel}"
+                : "Create Printer or IoT VLAN";
+        }
+
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
             "OFFLINE-PRINTER-VLAN",
-            $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated",
+            message,
             displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
-            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : "Create Printer or IoT VLAN",
+            recommendedAction,
             isRecent ? placement.Severity : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
-            placement.IsLowRisk));
+            placement.IsLowRisk,
+            placement.IsAllowedBySettings));
     }
 
     private static AuditIssue CreateOfflineVlanIssue(
@@ -564,7 +598,8 @@ public class ConfigAuditEngine
         string recommendedAction,
         Models.AuditSeverity severity,
         int scoreImpact,
-        bool? isLowRisk = null)
+        bool? isLowRisk = null,
+        bool isAllowedBySettings = false)
     {
         var metadata = new Dictionary<string, object>
         {
@@ -577,6 +612,9 @@ public class ConfigAuditEngine
 
         if (isLowRisk.HasValue)
             metadata["isLowRisk"] = isLowRisk.Value;
+
+        if (isAllowedBySettings)
+            metadata["allowed_by_settings"] = true;
 
         return new AuditIssue
         {
@@ -662,7 +700,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);
@@ -791,7 +829,9 @@ public class ConfigAuditEngine
             DohConfigNames = configNames,
             DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
             DotBlocked = dnsSecurityResult.HasDotBlockRule,
+            DoqBlocked = dnsSecurityResult.HasDoqBlockRule,
             DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
+            Doh3Blocked = dnsSecurityResult.HasDoh3BlockRule,
             WanDnsServers = dnsSecurityResult.WanDnsServers.ToList(),
             WanDnsPtrResults = dnsSecurityResult.WanDnsPtrResults.ToList(),
             WanDnsMatchesDoH = dnsSecurityResult.WanDnsMatchesDoH,

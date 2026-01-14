@@ -1,5 +1,6 @@
 @using Microsoft.AspNetCore.Components.Web
 @using NetworkOptimizer.Web.Components
+@inject Microsoft.AspNetCore.Mvc.ViewFeatures.IFileVersionProvider FileVersionProvider
 <!DOCTYPE html>
 <html lang="en">
 
@@ -10,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="@FileVersionProvider.AddFileVersionToPath("/", "css/app.css")" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <!-- Custom Blazor reconnect modal styles -->
     <style>
@@ -72,11 +73,11 @@
     </div>
 
     <script src="_framework/blazor.web.js"></script>
-    <script src="js/scrollRestoration.js"></script>
-    <script src="js/updateCheck.js"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/scrollRestoration.js")"></script>
+    <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/updateCheck.js")"></script>
     @if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DEMO_MODE_MAPPINGS")))
     {
-        <script src="js/demo-mask.js"></script>
+        <script src="@FileVersionProvider.AddFileVersionToPath("/", "js/demo-mask.js")"></script>
     }
     <script>
         function downloadFile(fileName, contentType, base64Data) {
