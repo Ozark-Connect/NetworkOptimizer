@@ -459,28 +459,37 @@
         {
             if (string.IsNullOrEmpty(rule.DstPort)) continue;
 
+            int portCount;
             if (rule.DstPort.Contains('-'))
             {
                 // Port range like "19132-19133"
                 var parts = rule.DstPort.Split('-');
                 if (parts.Length == 2 && int.TryParse(parts[0], out var start) && int.TryParse(parts[1], out var end))
                 {
-                    count += Math.Max(0, end - start + 1);
+                    portCount = Math.Max(0, end - start + 1);
                 }
                 else
                 {
-                    count++;
+                    portCount = 1;
                 }
             }
             else if (rule.DstPort.Contains(','))
             {
                 // Port list like "80,443"
-                count += rule.DstPort.Split(',').Length;
+                portCount = rule.DstPort.Split(',').Length;
             }
             else
             {
-                count++;
+                portCount = 1;
             }
+
+            // TCP_UDP counts as 2 (one for each protocol)
+            if (rule.Proto?.Equals("tcp_udp", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                portCount *= 2;
+            }
+
+            count += portCount;
         }
         return count;
     }

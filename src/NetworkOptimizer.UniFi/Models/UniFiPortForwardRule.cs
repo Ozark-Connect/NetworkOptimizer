@@ -143,10 +143,14 @@ public class UniFiPortForwardRule
     }
 
     /// <summary>
-    /// Protocol display (uppercase)
+    /// Protocol display (uppercase, TCP_UDP shown as TCP+UDP)
     /// </summary>
     [JsonIgnore]
-    public string ProtoDisplay => Proto?.ToUpperInvariant() ?? "?";
+    public string ProtoDisplay => Proto?.ToUpperInvariant() switch
+    {
+        "TCP_UDP" => "TCP+UDP",
+        var p => p ?? "?"
+    };
 
     /// <summary>
     /// Clean application name (strips "UPnP [" prefix and "]" suffix)

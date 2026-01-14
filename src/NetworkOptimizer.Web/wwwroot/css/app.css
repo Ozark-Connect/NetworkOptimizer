@@ -4523,6 +4523,7 @@ select.form-control {
 }
 
 .rule-details .rule-main {
+    width: 220px;
     flex-shrink: 0;
 }
 
@@ -4598,8 +4599,8 @@ select.form-control {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex: 1;
-    min-width: 120px;
+    width: 180px;
+    flex-shrink: 0;
 }
 
 .rule-note .note-input {
