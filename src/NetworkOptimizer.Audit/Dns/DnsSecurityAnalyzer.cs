@@ -1447,7 +1447,7 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Validate that DNAT redirect destinations point to the correct DNS server.
     /// - With third-party DNS (Pi-hole): must redirect to the third-party server IP
-    /// - With DoH (no third-party DNS): must redirect to a gateway IP
+    /// - With DoH (no third-party DNS): must redirect to native VLAN gateway OR the specific VLAN gateway
     /// </summary>
     private void ValidateDnatRedirectTargets(
         DnatCoverageResult coverageResult,
@@ -1457,42 +1457,80 @@ public class DnsSecurityAnalyzer
         if (!coverageResult.HasDnatDnsRules)
             return;
 
-        // Build set of valid destinations
-        var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         if (result.HasThirdPartyDns)
         {
             // Third-party DNS: DNAT must point to the third-party server(s)
+            var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var thirdParty in result.ThirdPartyDnsServers)
                 validDestinations.Add(thirdParty.DnsServerIp);
+
+            result.ExpectedDnatDestinations.AddRange(validDestinations);
+
+            foreach (var rule in coverageResult.Rules)
+            {
+                if (string.IsNullOrEmpty(rule.RedirectIp))
+                    continue;
+
+                if (!validDestinations.Contains(rule.RedirectIp))
+                {
+                    result.DnatRedirectTargetIsValid = false;
+                    result.InvalidDnatRules.Add(
+                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp}");
+                }
+            }
         }
         else if (result.DohConfigured)
         {
-            // DoH: DNAT must point to a gateway IP (any network's gateway is valid)
-            foreach (var network in networks)
-                if (!string.IsNullOrEmpty(network.Gateway))
-                    validDestinations.Add(network.Gateway);
+            // DoH: DNAT must point to native VLAN gateway OR the rule's specific VLAN gateway
+            // Find native VLAN (VLAN 1) gateway - this is always valid
+            var nativeNetwork = networks.FirstOrDefault(n => n.IsNative || n.VlanId == 1);
+            var nativeGateway = nativeNetwork?.Gateway;
+
+            // Build lookup of network ID to gateway
+            var networkGatewayMap = networks
+                .Where(n => !string.IsNullOrEmpty(n.Gateway))
+                .ToDictionary(n => n.Id, n => n.Gateway!, StringComparer.OrdinalIgnoreCase);
+
+            // Track all valid destinations for reporting
+            var allValidDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(nativeGateway))
+                allValidDestinations.Add(nativeGateway);
+
+            foreach (var rule in coverageResult.Rules)
+            {
+                if (string.IsNullOrEmpty(rule.RedirectIp))
+                    continue;
+
+                // Build valid destinations for THIS rule
+                var ruleValidDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Native VLAN gateway is always valid
+                if (!string.IsNullOrEmpty(nativeGateway))
+                    ruleValidDestinations.Add(nativeGateway);
+
+                // If rule has a specific network (from in_interface or network_conf_id), that gateway is also valid
+                var ruleNetworkId = rule.InInterface ?? rule.NetworkId;
+                if (!string.IsNullOrEmpty(ruleNetworkId) && networkGatewayMap.TryGetValue(ruleNetworkId, out var ruleNetworkGateway))
+                {
+                    ruleValidDestinations.Add(ruleNetworkGateway);
+                    allValidDestinations.Add(ruleNetworkGateway);
+                }
+
+                if (!ruleValidDestinations.Contains(rule.RedirectIp))
+                {
+                    result.DnatRedirectTargetIsValid = false;
+                    var expectedGateways = string.Join(" or ", ruleValidDestinations);
+                    result.InvalidDnatRules.Add(
+                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp} (expected {expectedGateways})");
+                }
+            }
+
+            result.ExpectedDnatDestinations.AddRange(allValidDestinations);
         }
         else
         {
             // No DNS control solution - skip validation (other issues will be raised)
             return;
-        }
-
-        result.ExpectedDnatDestinations.AddRange(validDestinations);
-
-        // Validate each rule's redirect target
-        foreach (var rule in coverageResult.Rules)
-        {
-            if (string.IsNullOrEmpty(rule.RedirectIp))
-                continue;
-
-            if (!validDestinations.Contains(rule.RedirectIp))
-            {
-                result.DnatRedirectTargetIsValid = false;
-                result.InvalidDnatRules.Add(
-                    $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp}");
-            }
         }
 
         if (!result.DnatRedirectTargetIsValid)

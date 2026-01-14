@@ -3367,6 +3367,111 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_DnatWithDoH_VlanRulePointsToNativeGateway_NoIssue()
+    {
+        // Arrange - DoH configured, non-native VLAN rule points to native (VLAN 1) gateway
+        // This is valid - all rules can point to the native VLAN gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1, // VlanId = 1 makes IsNative = true
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""IoT DNS to native gateway"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Pointing to native gateway is always valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_VlanRulePointsToDifferentVlanGateway_RaisesIssue()
+    {
+        // Arrange - DoH configured, one VLAN rule points to a DIFFERENT non-native VLAN's gateway
+        // This is INVALID - rules must point to native gateway OR their own VLAN's gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1, // VlanId = 1 makes IsNative = true
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 30,
+                Subnet = "192.168.30.0/24", DhcpEnabled = true,
+                Gateway = "192.168.30.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""IoT DNS - wrong VLAN"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.30.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Pointing to a different VLAN's gateway (not native) is invalid
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().ContainSingle();
+        result.InvalidDnatRules[0].Should().Contain("IoT DNS - wrong VLAN");
+        result.InvalidDnatRules[0].Should().Contain("192.168.30.1"); // Wrong destination
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
     public async Task Analyze_DnatWithDoH_OneRuleWrongDestination_RaisesIssue()
     {
         // Arrange - DoH configured, one rule correct, one wrong
