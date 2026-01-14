@@ -1,0 +1,6 @@
+<Project>
+  <!-- Include shared FluentAssertions license initializer in all test projects -->
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)FluentAssertionsLicense.cs" Link="FluentAssertionsLicense.cs" />
+  </ItemGroup>
+</Project>

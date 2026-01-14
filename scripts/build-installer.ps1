@@ -77,7 +77,7 @@ if (-not (Test-Path $OutputDir)) {
 }
 
 $InstallerBin = Join-Path $RepoRoot "src\NetworkOptimizer.Installer\bin\$Configuration"
-$MsiFile = Get-ChildItem -Path $InstallerBin -Filter "*.msi" | Select-Object -First 1
+$MsiFile = Get-ChildItem -Path $InstallerBin -Filter "*.msi" -Recurse | Select-Object -First 1
 
 if ($MsiFile) {
     $OutputName = "NetworkOptimizer-$Version-win-x64.msi"
