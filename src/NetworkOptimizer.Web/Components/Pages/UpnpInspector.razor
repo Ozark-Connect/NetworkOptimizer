@@ -149,7 +149,7 @@
                                     @foreach (var rule in deviceGroup.OrderBy(r => r.ApplicationName))
                                     {
                                         <div class="upnp-rule-item">
-                                            <div class="rule-status @GetStatusClass(rule)">
+                                            <div class="rule-status @GetStatusClass(rule)" title="@GetStatusTooltip(rule)">
                                                 <span class="status-dot"></span>
                                             </div>
                                             <div class="rule-details">
@@ -221,7 +221,7 @@
                             {
                                 <tr class="@(rule.Enabled == false ? "row-disabled" : "")">
                                     <td>
-                                        <div class="rule-status @GetStaticStatusClass(rule)">
+                                        <div class="rule-status @GetStaticStatusClass(rule)" title="@GetStaticStatusTooltip(rule)">
                                             <span class="status-dot"></span>
                                         </div>
                                     </td>
@@ -587,11 +587,25 @@
         return "status-active";
     }
 
+    private string GetStatusTooltip(UniFiPortForwardRule rule)
+    {
+        if (rule.IsExpiringSoon) return "Expiring soon";
+        if (!rule.HasTraffic) return "No traffic";
+        return "Active";
+    }
+
     private string GetStaticStatusClass(UniFiPortForwardRule rule)
     {
         if (rule.Enabled == false) return "status-disabled";
         if (rule.HasTraffic) return "status-active";
         return "status-stale";
+    }
+
+    private string GetStaticStatusTooltip(UniFiPortForwardRule rule)
+    {
+        if (rule.Enabled == false) return "Disabled";
+        if (rule.HasTraffic) return "Active";
+        return "Idle";
     }
 
     private string GetProtocolClass(string? proto)
