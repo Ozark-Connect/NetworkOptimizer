@@ -4471,7 +4471,7 @@ select.form-control {
 
 .upnp-rule-item {
     display: grid;
-    grid-template-columns: auto 1fr auto auto 1fr;
+    grid-template-columns: auto 1fr auto auto;
     gap: 1rem;
     align-items: center;
     padding: 0.625rem 0;
@@ -4516,7 +4516,14 @@ select.form-control {
 
 /* Rule Details */
 .rule-details {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
     min-width: 0;
+}
+
+.rule-details .rule-main {
+    flex-shrink: 0;
 }
 
 .rule-details .rule-name {
@@ -4592,8 +4599,7 @@ select.form-control {
     align-items: center;
     gap: 0.5rem;
     flex: 1;
-    min-width: 150px;
-    max-width: 300px;
+    min-width: 120px;
 }
 
 .rule-note .note-input {
@@ -4689,8 +4695,18 @@ select.form-control {
 
     .upnp-rule-item {
         grid-template-columns: auto 1fr;
-        grid-template-rows: auto auto auto;
+        grid-template-rows: auto auto;
         gap: 0.5rem;
+    }
+
+    .rule-details {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .rule-note {
+        width: 100%;
     }
 
     .rule-lease,
@@ -4707,10 +4723,5 @@ select.form-control {
     .rule-traffic {
         display: inline;
         margin-left: 1rem;
-    }
-
-    .rule-note {
-        grid-column: 1 / -1;
-        max-width: none;
     }
 }

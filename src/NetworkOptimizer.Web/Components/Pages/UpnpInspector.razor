@@ -143,10 +143,29 @@
                                                 <span class="status-dot"></span>
                                             </div>
                                             <div class="rule-details">
-                                                <div class="rule-name">@rule.ApplicationName</div>
-                                                <div class="rule-ports">
-                                                    <span class="rule-protocol @(rule.Proto?.Equals("udp", StringComparison.OrdinalIgnoreCase) == true ? "protocol-udp" : "")">@rule.ProtoDisplay</span>
-                                                    <span class="rule-port-mapping">@rule.DstPort → @rule.FwdPort</span>
+                                                <div class="rule-main">
+                                                    <div class="rule-name">@rule.ApplicationName</div>
+                                                    <div class="rule-ports">
+                                                        <span class="rule-protocol @(rule.Proto?.Equals("udp", StringComparison.OrdinalIgnoreCase) == true ? "protocol-udp" : "")">@rule.ProtoDisplay</span>
+                                                        <span class="rule-port-mapping">@rule.DstPort → @rule.FwdPort</span>
+                                                    </div>
+                                                </div>
+                                                <div class="rule-note">
+                                                    <input type="text"
+                                                           class="note-input"
+                                                           placeholder="Add note..."
+                                                           value="@GetNote(GetNoteKey(rule))"
+                                                           @onchange="@(e => OnNoteChanged(rule, e.Value?.ToString()))"
+                                                           @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
+                                                           @onblur="@(() => { var k = GetNoteKey(rule); if (currentEditingNote == k) currentEditingNote = null; })" />
+                                                    @if (IsNoteSaving(GetNoteKey(rule)))
+                                                    {
+                                                        <span class="note-status saving">Saving...</span>
+                                                    }
+                                                    else if (IsNoteJustSaved(GetNoteKey(rule)))
+                                                    {
+                                                        <span class="note-status saved">Saved</span>
+                                                    }
                                                 </div>
                                             </div>
                                             <div class="rule-lease">
@@ -154,23 +173,6 @@
                                             </div>
                                             <div class="rule-traffic">
                                                 <span class="traffic-info @(rule.HasTraffic ? "" : "no-traffic")">@rule.TrafficDisplay</span>
-                                            </div>
-                                            <div class="rule-note">
-                                                <input type="text"
-                                                       class="note-input"
-                                                       placeholder="Add note..."
-                                                       value="@GetNote(GetNoteKey(rule))"
-                                                       @onchange="@(e => OnNoteChanged(rule, e.Value?.ToString()))"
-                                                       @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
-                                                       @onblur="@(() => { var k = GetNoteKey(rule); if (currentEditingNote == k) currentEditingNote = null; })" />
-                                                @if (IsNoteSaving(GetNoteKey(rule)))
-                                                {
-                                                    <span class="note-status saving">Saving...</span>
-                                                }
-                                                else if (IsNoteJustSaved(GetNoteKey(rule)))
-                                                {
-                                                    <span class="note-status saved">Saved</span>
-                                                }
                                             </div>
                                         </div>
                                     }
