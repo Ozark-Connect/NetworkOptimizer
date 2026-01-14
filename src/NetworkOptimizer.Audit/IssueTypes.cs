@@ -63,4 +63,9 @@ public static class IssueTypes
     public const string DnsThirdPartyDetected = "DNS_THIRD_PARTY_DETECTED";
     public const string DnsUnknownConfig = "DNS_UNKNOWN_CONFIG";
     public const string DnsInconsistentConfig = "DNS_INCONSISTENT_CONFIG";
+
+    // DNS DNAT Issues
+    public const string DnsDnatPartialCoverage = "DNS_DNAT_PARTIAL_COVERAGE";
+    public const string DnsDnatSingleIp = "DNS_DNAT_SINGLE_IP";
+    public const string DnsDnatWrongDestination = "DNS_DNAT_WRONG_DESTINATION";
 }

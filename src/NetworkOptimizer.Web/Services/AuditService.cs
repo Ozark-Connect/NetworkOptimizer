@@ -589,6 +589,22 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch firewall groups");
             }
 
+            // Fetch NAT rules for DNAT DNS detection
+            System.Text.Json.JsonElement? natRulesData = null;
+            try
+            {
+                var natDoc = await _connectionService.Client.GetNatRulesRawAsync();
+                if (natDoc != null)
+                {
+                    natRulesData = natDoc.RootElement;
+                    _logger.LogInformation("Fetched NAT rules for DNAT DNS analysis");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch NAT rules for DNAT DNS analysis");
+            }
+
             _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
 
             // Fetch UniFi Protect cameras for 100% confidence detection
@@ -660,6 +676,7 @@ public class AuditService
                 SettingsData = settingsData,
                 FirewallPoliciesData = firewallPoliciesData,
                 FirewallGroups = firewallGroups,
+                NatRulesData = natRulesData,
                 AllowanceSettings = allowanceSettings,
                 ProtectCameras = protectCameras,
                 PortProfiles = portProfiles,
@@ -888,7 +905,13 @@ public class AuditService
                         DnsServerIp = n.DnsServerIp,
                         DnsProviderName = n.DnsProviderName
                     })
-                    .ToList()
+                    .ToList(),
+                // DNAT DNS Coverage
+                HasDnatDnsRules = dns.HasDnatDnsRules,
+                DnatProvidesFullCoverage = dns.DnatProvidesFullCoverage,
+                DnatRedirectTarget = dns.DnatRedirectTarget,
+                DnatCoveredNetworks = dns.DnatCoveredNetworks.ToList(),
+                DnatUncoveredNetworks = dns.DnatUncoveredNetworks.ToList()
             };
         }
 
@@ -1067,6 +1090,9 @@ public class AuditService
             Audit.IssueTypes.DnsThirdPartyDetected => "DNS: Third-Party Detected",
             Audit.IssueTypes.DnsInconsistentConfig => "DNS: Inconsistent Configuration",
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
+            Audit.IssueTypes.DnsDnatPartialCoverage => "DNS: Partial DNAT Coverage",
+            Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
+            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Target",
 
             // UPnP security
             Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",
@@ -1152,6 +1178,8 @@ public class AuditService
         Audit.IssueTypes.DnsWanMismatch => "Set WAN DNS servers to match your DoH provider",
         Audit.IssueTypes.DnsWanNoStatic => "Configure static DNS on the WAN interface to use your DoH provider's servers",
         Audit.IssueTypes.DnsDeviceMisconfigured => "Configure device DNS to point to the gateway",
+        Audit.IssueTypes.DnsDnatPartialCoverage => "Add DNAT rules for remaining networks or block DNS port 53 at firewall",
+        Audit.IssueTypes.DnsDnatSingleIp => "Configure DNAT rules to use network references or CIDR ranges for complete coverage",
         Audit.IssueTypes.UpnpEnabled => "UPnP is acceptable on Home networks for gaming and media",
         Audit.IssueTypes.UpnpNonHomeNetwork => "Disable UPnP or ensure it's only enabled for Home/Gaming networks",
         Audit.IssueTypes.UpnpPrivilegedPort => "Review UPnP mappings - privileged ports should not be exposed via UPnP",
@@ -1228,6 +1256,13 @@ public class DnsSecurityReference
     public bool IsPiholeDetected { get; set; }
     public string? ThirdPartyDnsProviderName { get; set; }
     public List<ThirdPartyDnsNetworkReference> ThirdPartyNetworks { get; set; } = new();
+
+    // DNAT DNS Coverage
+    public bool HasDnatDnsRules { get; set; }
+    public bool DnatProvidesFullCoverage { get; set; }
+    public string? DnatRedirectTarget { get; set; }
+    public List<string> DnatCoveredNetworks { get; set; } = new();
+    public List<string> DnatUncoveredNetworks { get; set; } = new();
 }
 
 public class ThirdPartyDnsNetworkReference

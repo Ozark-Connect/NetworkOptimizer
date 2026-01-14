@@ -2865,4 +2865,1085 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region DNAT DNS Integration Tests
+
+    private static List<NetworkInfo> CreateDhcpNetworks(params (string id, string name, string subnet)[] networks)
+    {
+        return networks.Select(n => new NetworkInfo
+        {
+            Id = n.id,
+            Name = n.name,
+            VlanId = 1,
+            Subnet = n.subnet,
+            Gateway = DeriveGatewayFromSubnet(n.subnet),
+            DhcpEnabled = true
+        }).ToList();
+    }
+
+    private static string? DeriveGatewayFromSubnet(string subnet)
+    {
+        // Convert 192.168.1.0/24 -> 192.168.1.1
+        if (string.IsNullOrEmpty(subnet)) return null;
+        var parts = subnet.Split('/')[0].Split('.');
+        if (parts.Length != 4) return null;
+        parts[3] = "1";
+        return string.Join(".", parts);
+    }
+
+    private static JsonElement CreateDnatNatRules(params (string networkConfId, string redirectIp)[] rules)
+    {
+        var ruleJsons = rules.Select((r, i) => $$"""
+            {
+                "_id": "rule{{i}}",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "{{r.redirectIp}}",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "{{r.networkConfId}}" }
+            }
+            """);
+        return JsonDocument.Parse($"[{string.Join(",", ruleJsons)}]").RootElement;
+    }
+
+    private static JsonElement CreateSubnetDnatNatRules(params (string subnet, string redirectIp)[] rules)
+    {
+        var ruleJsons = rules.Select((r, i) => $$"""
+            {
+                "_id": "rule{{i}}",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "{{r.redirectIp}}",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "ADDRESS_AND_PORT", "address": "{{r.subnet}}" }
+            }
+            """);
+        return JsonDocument.Parse($"[{string.Join(",", ruleJsons)}]").RootElement;
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatFullCoverageAndDoH_SuppressesDnsNo53BlockIssue()
+    {
+        // Arrange - DoH configured + DNAT full coverage
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = CreateDhcpNetworks(("net1", "LAN", "192.168.1.0/24"));
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Should NOT have DNS_NO_53_BLOCK issue
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatPartialCoverage_GeneratesBothIssues()
+    {
+        // Arrange - DNAT only covers one of two networks
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1")); // Only covers net1
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Should have both DNS_NO_53_BLOCK and partial coverage issue
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatSingleIpRule_GeneratesInformationalIssue()
+    {
+        // Arrange - Single IP DNAT (abnormal configuration)
+        var networks = CreateDhcpNetworks(("net1", "LAN", "192.168.1.0/24"));
+        var singleIpRule = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""address"": ""192.168.1.100"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, singleIpRule);
+
+        // Assert
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatSingleIpRules.Should().Contain("192.168.1.100");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatSingleIp);
+    }
+
+    [Fact]
+    public async Task Analyze_WithBothFirewallBlockAndDnat_NoIssues()
+    {
+        // Arrange - Both firewall block AND DNAT (redundant but valid)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""DROP"",
+                ""destination"": { ""port_matching_type"": ""SPECIFIC"", ""port"": ""53"" },
+                ""protocol"": ""udp""
+            }
+        ]").RootElement;
+        var networks = CreateDhcpNetworks(("net1", "LAN", "192.168.1.0/24"));
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks, null, null, natRules);
+
+        // Assert - Should NOT have DNS_NO_53_BLOCK (firewall handles it)
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatFullCoverageButNoDoH_StillGeneratesDoHIssue()
+    {
+        // Arrange - DNAT full coverage but no DoH
+        var networks = CreateDhcpNetworks(("net1", "LAN", "192.168.1.0/24"));
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Should still have DNS_NO_DOH issue (DNAT doesn't replace DoH)
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNoDoh);
+        // But should suppress DNS_NO_53_BLOCK since no DNS control solution
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithSubnetDnatCoveringAllNetworks_ProvidesFullCoverage()
+    {
+        // Arrange - Single /16 DNAT covers multiple /24 networks
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+        var natRules = CreateSubnetDnatNatRules(("192.168.0.0/16", "192.168.1.1"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("IoT");
+    }
+
+    [Fact]
+    public async Task Analyze_DnatResultPropertiesPopulatedCorrectly()
+    {
+        // Arrange
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+        var natRules = CreateDnatNatRules(("net1", "10.0.0.1"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatRedirectTarget.Should().Be("10.0.0.1");
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatUncoveredNetworks.Should().Contain("IoT");
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDnsAndDnatFullCoverage_SuppressesDnsNo53BlockIssue()
+    {
+        // Arrange - Third-party DNS (Pi-hole style) + DNAT full coverage, no firewall block
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Third-party DNS
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5"));
+
+        // Act - No firewall data (port 53 open)
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Third-party DNS + DNAT should suppress DNS_NO_53_BLOCK
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDnsAndNoDnatAndNoFirewallBlock_GeneratesDnsNo53BlockIssue()
+    {
+        // Arrange - Third-party DNS but no DNAT and no firewall block = DNS leak risk
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Third-party DNS
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act - No firewall block, no DNAT
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: null);
+
+        // Assert - Should raise DNS_NO_53_BLOCK even with third-party DNS
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDnsAndDnatPartialCoverage_OnlyPartialCoverageIssue()
+    {
+        // Arrange - Third-party DNS + DNAT only covers one of two networks
+        // With valid partial DNAT coverage, DNS_NO_53_BLOCK is suppressed (partial coverage issue is more actionable)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT",
+                VlanId = 20,
+                Subnet = "192.168.20.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT only covers net1, not net2
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Only partial coverage issue (DNS_NO_53_BLOCK suppressed for valid partial DNAT)
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDnsAndFirewallBlock_NoDnsNo53BlockIssue()
+    {
+        // Arrange - Third-party DNS (Pi-hole) + firewall blocks port 53 (ideal config)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // Firewall rule blocking port 53
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]");
+
+        // Act - No DNAT, but firewall blocks port 53
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: firewall.RootElement,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: null);
+
+        // Assert - Firewall block should be sufficient, no DNS_NO_53_BLOCK issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_WithThirdPartyDnsAndFirewallBlockAndDnat_NoDnsNo53BlockIssue()
+    {
+        // Arrange - Third-party DNS + firewall block + DNAT (redundant but valid)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]");
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: firewall.RootElement,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Both protections in place, no issues
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    #endregion
+
+    #region Real-World Multi-VLAN Scenario Tests
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MultipleVlansWithPiholeAndFullDnatCoverage()
+    {
+        // Arrange - Typical home/SMB setup:
+        // - LAN (VLAN 1): Main network with DHCP, Pi-hole DNS
+        // - IoT (VLAN 20): IoT devices with DHCP, Pi-hole DNS
+        // - Guest (VLAN 50): Guest network with DHCP, Pi-hole DNS
+        // - Management (VLAN 99): Static IPs only (no DHCP), Pi-hole DNS
+        // - DNAT rules redirect all DNS to Pi-hole
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "192.168.50.0/24", DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net4", Name = "Management", VlanId = 99,
+                Subnet = "192.168.99.0/24", DhcpEnabled = false, // Static IPs only
+                Gateway = "192.168.99.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // Single /16 DNAT rule covers all /24 networks
+        var natRules = CreateSubnetDnatNatRules(("192.168.0.0/16", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Full coverage including non-DHCP Management network
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatCoveredNetworks.Should().HaveCount(4);
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("IoT");
+        result.DnatCoveredNetworks.Should().Contain("Guest");
+        result.DnatCoveredNetworks.Should().Contain("Management");
+        result.DnatUncoveredNetworks.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MultipleVlansWithPartialDnatCoverage()
+    {
+        // Arrange - Setup where DNAT only covers some networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "10.10.50.0/24", DhcpEnabled = true, // Different subnet range!
+                Gateway = "10.10.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // /16 DNAT only covers 192.168.x.x networks, not 10.10.x.x
+        var natRules = CreateSubnetDnatNatRules(("192.168.0.0/16", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Partial coverage, Guest network not covered
+        // DNS_NO_53_BLOCK is suppressed for valid partial DNAT (partial coverage issue is more actionable)
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("IoT");
+        result.DnatUncoveredNetworks.Should().Contain("Guest");
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_PerNetworkDnatRules()
+    {
+        // Arrange - Individual DNAT rules per network (common UniFi setup)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 50,
+                Subnet = "192.168.50.0/24", DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // Individual network-ref DNAT rules for each network
+        var natRules = CreateDnatNatRules(
+            ("net1", "192.168.1.5"),
+            ("net2", "192.168.1.5"),
+            ("net3", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Full coverage via individual rules
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatCoveredNetworks.Should().HaveCount(3);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
+    }
+
+    [Fact]
+    public async Task Analyze_RealWorldScenario_MixedDhcpAndStaticNetworksAllNeedCoverage()
+    {
+        // Arrange - Mix of DHCP and static-only networks
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "Servers", VlanId = 10,
+                Subnet = "192.168.10.0/24", DhcpEnabled = false, // Static only
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT only covers LAN, not Servers
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5"));
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customPiholePort: null,
+            natRulesData: natRules);
+
+        // Assert - Servers network (non-DHCP) still needs coverage
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatUncoveredNetworks.Should().Contain("Servers");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
+    }
+
+    #endregion
+
+    #region DNAT Redirect Destination Validation Tests
+
+    [Fact]
+    public async Task Analyze_DnatWithPihole_RedirectsToPiholeIp_NoIssue()
+    {
+        // Arrange - Pi-hole configured, DNAT correctly points to Pi-hole
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            }
+        };
+        var switches = new List<SwitchInfo>();
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.5")); // Points to Pi-hole
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks, null, null, natRules);
+
+        // Assert - No wrong destination issue
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithPihole_RedirectsToGateway_RaisesIssue()
+    {
+        // Arrange - Pi-hole configured, but DNAT incorrectly points to gateway
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            }
+        };
+        var switches = new List<SwitchInfo>();
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1")); // Wrong - points to gateway
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks, null, null, natRules);
+
+        // Assert - Should raise wrong destination issue
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().NotBeEmpty();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_RedirectsToGateway_NoIssue()
+    {
+        // Arrange - DoH configured, DNAT correctly points to gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1")); // Points to gateway
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - No wrong destination issue
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_RedirectsToRandomIp_RaisesIssue()
+    {
+        // Arrange - DoH configured, but DNAT points to non-gateway IP
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "10.99.99.99")); // Wrong - random IP
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Should raise wrong destination issue
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_RedirectsToVlanGateway_NoIssue()
+    {
+        // Arrange - DoH configured, DNAT points to VLAN-specific gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            },
+            {
+                ""_id"": ""rule2"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.20.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Both rules point to valid gateways
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_VlanRulePointsToNativeGateway_NoIssue()
+    {
+        // Arrange - DoH configured, non-native VLAN rule points to native (VLAN 1) gateway
+        // This is valid - all rules can point to the native VLAN gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1, // VlanId = 1 makes IsNative = true
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""IoT DNS to native gateway"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Pointing to native gateway is always valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_VlanRulePointsToDifferentVlanGateway_RaisesIssue()
+    {
+        // Arrange - DoH configured, one VLAN rule points to a DIFFERENT non-native VLAN's gateway
+        // This is INVALID - rules must point to native gateway OR their own VLAN's gateway
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1, // VlanId = 1 makes IsNative = true
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net3", Name = "Guest", VlanId = 30,
+                Subnet = "192.168.30.0/24", DhcpEnabled = true,
+                Gateway = "192.168.30.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""IoT DNS - wrong VLAN"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.30.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Pointing to a different VLAN's gateway (not native) is invalid
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().ContainSingle();
+        result.InvalidDnatRules[0].Should().Contain("IoT DNS - wrong VLAN");
+        result.InvalidDnatRules[0].Should().Contain("192.168.30.1"); // Wrong destination
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithDoH_OneRuleWrongDestination_RaisesIssue()
+    {
+        // Arrange - DoH configured, one rule correct, one wrong
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "IoT", VlanId = 20,
+                Subnet = "192.168.20.0/24", DhcpEnabled = true,
+                Gateway = "192.168.20.1"
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""LAN DNS"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            },
+            {
+                ""_id"": ""rule2"",
+                ""description"": ""IoT DNS - wrong"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""8.8.8.8"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - One rule is invalid
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().ContainSingle();
+        result.InvalidDnatRules[0].Should().Contain("IoT DNS - wrong");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithNoDnsControl_SkipsDestinationValidation()
+    {
+        // Arrange - No DoH, no Pi-hole - skip destination validation
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "10.99.99.99")); // "Wrong" IP but no validation
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - No validation without DNS control solution
+        result.DnatRedirectTargetIsValid.Should().BeTrue(); // Default true, not validated
+        result.ExpectedDnatDestinations.Should().BeEmpty(); // No expected destinations
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithMultiplePiholes_AnyPiholeIpIsValid()
+    {
+        // Arrange - Multiple Pi-hole servers, DNAT points to one of them
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5", "192.168.1.6" } // Two Pi-holes
+            }
+        };
+        var switches = new List<SwitchInfo>();
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.6")); // Points to secondary
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks, null, null, natRules);
+
+        // Assert - Secondary Pi-hole is valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWrongDestination_WillNotSuppressDnsNo53Block()
+    {
+        // Arrange - DoH configured, DNAT has wrong destination - should NOT suppress DNS_NO_53_BLOCK
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+            }
+        };
+        var natRules = CreateDnatNatRules(("net1", "8.8.8.8")); // Wrong destination
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - DNAT is not a valid alternative due to wrong destination
+        result.DnatProvidesFullCoverage.Should().BeTrue(); // Coverage is full
+        result.DnatRedirectTargetIsValid.Should().BeFalse(); // But destination is wrong
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block); // So DNS leak issue raised
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    #endregion
 }

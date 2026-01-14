@@ -227,6 +227,31 @@ public class DnsSecurityInfo
     public List<ThirdPartyDnsNetwork> ThirdPartyNetworks { get; set; } = new();
 
     /// <summary>
+    /// Whether DNAT DNS rules exist (redirecting UDP port 53)
+    /// </summary>
+    public bool HasDnatDnsRules { get; set; }
+
+    /// <summary>
+    /// Whether DNAT rules provide full coverage across all DHCP-enabled networks
+    /// </summary>
+    public bool DnatProvidesFullCoverage { get; set; }
+
+    /// <summary>
+    /// The IP address DNS traffic is redirected to
+    /// </summary>
+    public string? DnatRedirectTarget { get; set; }
+
+    /// <summary>
+    /// Network names that have DNAT DNS coverage
+    /// </summary>
+    public List<string> DnatCoveredNetworks { get; set; } = new();
+
+    /// <summary>
+    /// Network names that lack DNAT DNS coverage
+    /// </summary>
+    public List<string> DnatUncoveredNetworks { get; set; } = new();
+
+    /// <summary>
     /// Whether full DNS protection is in place
     /// </summary>
     public bool FullyProtected => DohEnabled && DnsLeakProtection && DotBlocked && DohBypassBlocked && WanDnsMatchesDoH && DeviceDnsPointsToGateway;
