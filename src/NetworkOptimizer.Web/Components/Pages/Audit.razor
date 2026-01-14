@@ -167,7 +167,7 @@
                                     </button>
                                 </div>
                                 <div class="issue-title">@issue.Title</div>
-                                <div class="issue-description">@issue.Description</div>
+                                <div class="issue-description">@FormatIssueText(issue.Description)</div>
 
                                 @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
                                 {
@@ -261,7 +261,7 @@
                                             </button>
                                         </div>
                                         <div class="issue-title">@issue.Title</div>
-                                        <div class="issue-description">@issue.Description</div>
+                                        <div class="issue-description">@FormatIssueText(issue.Description)</div>
 
                                         @if (!string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.PortName))
                                         {
@@ -297,7 +297,7 @@
                                         @if (!string.IsNullOrEmpty(issue.Recommendation))
                                         {
                                             <div class="issue-recommendation">
-                                                <strong>Recommendation:</strong> @FormatRecommendation(issue.Recommendation)
+                                                <strong>Recommendation:</strong> @FormatIssueText(issue.Recommendation)
                                             </div>
                                         }
                                     </div>
@@ -353,7 +353,7 @@
                                         <div class="expand-content">
                                             @if (isDeviceGroup)
                                             {
-                                                <div class="issue-type-description">@firstIssue.Description</div>
+                                                <div class="issue-type-description">@FormatIssueText(firstIssue.Description)</div>
                                             }
                                             <div class="issue-type-items-list">
                                                 @foreach (var issue in issueTypeGroup)
@@ -399,7 +399,7 @@
                                                         {
                                                             @* Non-device group: show description per item *@
                                                             <div class="issue-context">
-                                                                <span class="context-item issue-item-description">@issue.Description</span>
+                                                                <span class="context-item issue-item-description">@FormatIssueText(issue.Description)</span>
                                                                 <button class="btn btn-sm btn-ghost issue-action" @onclick="() => DismissIssue(issue)" @onclick:stopPropagation="true" title="Dismiss this issue">
                                                                     Dismiss
                                                                 </button>
@@ -419,7 +419,7 @@
                                             @if (!string.IsNullOrEmpty(firstIssue.Recommendation))
                                             {
                                                 <div class="issue-type-recommendation">
-                                                    <strong>Recommendation:</strong> @FormatRecommendation(firstIssue.Recommendation)
+                                                    <strong>Recommendation:</strong> @FormatIssueText(firstIssue.Recommendation)
                                                 </div>
                                             }
                                         </div>
@@ -1222,12 +1222,12 @@
         return !string.IsNullOrEmpty(issue.DeviceName) || !string.IsNullOrEmpty(issue.Port);
     }
 
-    private MarkupString FormatRecommendation(string recommendation)
+    private MarkupString FormatIssueText(string? text)
     {
-        if (string.IsNullOrEmpty(recommendation))
+        if (string.IsNullOrEmpty(text))
             return new MarkupString("");
 
-        var formatted = recommendation;
+        var formatted = text;
 
         // Convert "UPnP Inspector" to a link
         formatted = formatted.Replace(

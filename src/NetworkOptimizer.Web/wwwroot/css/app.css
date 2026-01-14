@@ -1792,7 +1792,10 @@ select.form-control {
 }
 
 .issue-recommendation a,
-.issue-type-recommendation a {
+.issue-type-recommendation a,
+.issue-description a,
+.issue-type-description a,
+.issue-item-description a {
     color: var(--text-secondary);
     text-decoration: underline;
     text-decoration-style: dotted;
@@ -1800,7 +1803,10 @@ select.form-control {
 }
 
 .issue-recommendation a:hover,
-.issue-type-recommendation a:hover {
+.issue-type-recommendation a:hover,
+.issue-description a:hover,
+.issue-type-description a:hover,
+.issue-item-description a:hover {
     color: var(--text-primary);
     text-decoration-style: solid;
 }
