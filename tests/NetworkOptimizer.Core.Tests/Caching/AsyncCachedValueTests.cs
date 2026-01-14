@@ -176,11 +176,11 @@ public class AsyncCachedValueTests
     {
         // Arrange
         var callCount = 0;
-        var cache = new AsyncCachedValue<string?>(
+        var cache = new AsyncCachedValue<string>(
             () =>
             {
                 callCount++;
-                return Task.FromResult<string?>(null);
+                return Task.FromResult<string>(null!);
             },
             TimeSpan.FromMinutes(5));
 

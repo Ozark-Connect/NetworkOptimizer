@@ -1178,7 +1178,7 @@ public class MetricsAggregatorTests
     #region Thread Safety Tests
 
     [Fact]
-    public void AddMetrics_ConcurrentAccess_DoesNotCorrupt()
+    public async Task AddMetrics_ConcurrentAccess_DoesNotCorrupt()
     {
         // Arrange
         var tasks = new List<Task>();
@@ -1196,7 +1196,7 @@ public class MetricsAggregatorTests
             }));
         }
 
-        Task.WaitAll(tasks.ToArray());
+        await Task.WhenAll(tasks);
         var batch = _aggregator.GetBatch();
 
         // Assert
@@ -1204,7 +1204,7 @@ public class MetricsAggregatorTests
     }
 
     [Fact]
-    public void GetBatchCount_ConcurrentAccess_ReturnsConsistentCount()
+    public async Task GetBatchCount_ConcurrentAccess_ReturnsConsistentCount()
     {
         // Arrange
         var addTask = Task.Run(() =>
@@ -1227,7 +1227,7 @@ public class MetricsAggregatorTests
         });
 
         // Act
-        Task.WaitAll(addTask, countTask);
+        await Task.WhenAll(addTask, countTask);
 
         // Assert - counts should be non-decreasing (unless ClearBatch is called)
         for (int i = 1; i < countResults.Count; i++)

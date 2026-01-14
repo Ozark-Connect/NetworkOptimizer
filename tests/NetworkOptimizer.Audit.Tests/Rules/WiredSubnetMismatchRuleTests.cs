@@ -558,9 +558,9 @@ public class WiredSubnetMismatchRuleTests
         return new UniFiClientResponse
         {
             Mac = mac,
-            Name = name,
-            Hostname = hostname,
-            Oui = oui,
+            Name = name ?? string.Empty,
+            Hostname = hostname ?? string.Empty,
+            Oui = oui ?? string.Empty,
             Ip = ip ?? string.Empty,
             FixedIp = fixedIp,
             UseFixedIp = useFixedIp,
