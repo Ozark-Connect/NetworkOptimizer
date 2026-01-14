@@ -196,7 +196,7 @@ public class VlanAnalyzerTests
     [InlineData("Media Room")]        // Word boundary match for "media"
     [InlineData("Media Devices")]     // Word boundary match for "media"
     [InlineData("AV Equipment")]      // Word boundary match for "av"
-    [InlineData("AV Room")]           // Word boundary match for "av"
+    [InlineData("A/V Room")]          // Explicit "a/v" pattern match
     [InlineData("TV Network")]        // Word boundary match for "tv"
     [InlineData("Smart TV")]          // Word boundary match for "tv"
     public void ClassifyNetwork_EntertainmentWordBoundary_ReturnsIoT(string networkName)
@@ -302,7 +302,7 @@ public class VlanAnalyzerTests
 
     [Theory]
     [InlineData("Game Room")]      // Word boundary match for "game"
-    [InlineData("Game VLAN")]      // Word boundary match for "game"
+    [InlineData("Games")]          // Explicit "games" pattern match
     [InlineData("Game Network")]   // Word boundary match for "game"
     public void ClassifyNetwork_GameWordBoundary_ReturnsHome(string networkName)
     {

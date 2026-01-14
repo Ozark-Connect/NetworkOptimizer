@@ -16,7 +16,7 @@ public class VlanAnalyzer
     // Network classification patterns (case-insensitive)
     // Note: "device" removed from IoT - too generic, causes false positives with "Security Devices"
     // Entertainment patterns (streaming, theater, etc.) classify as IoT - isolated but internet-enabled
-    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust", "entertainment", "streaming", "theater", "theatre", "recreation", "living room" };
+    private static readonly string[] IoTPatterns = { "iot", "smart", "automation", "zero trust", "entertainment", "streaming", "theater", "theatre", "recreation", "living room", "a/v" };
     // IoT patterns requiring word boundary matching (to avoid "Dave" matching "av", etc.)
     private static readonly string[] IoTWordBoundaryPatterns = { "media", "av", "tv" };
     private static readonly string[] SecurityPatterns = { "camera", "security", "nvr", "surveillance", "protect", "cctv" };
@@ -25,7 +25,7 @@ public class VlanAnalyzer
     private static readonly string[] ManagementPatterns = { "management", "mgmt", "admin", "infrastructure" };
     private static readonly string[] GuestPatterns = { "guest", "visitor", "hotspot" };
     // Gaming patterns classify as Home - game consoles need UPnP and full network access
-    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private", "gaming", "gamer", "xbox", "playstation", "nintendo", "console", "lan party" };
+    private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private", "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
     // Home patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
     private static readonly string[] HomeWordBoundaryPatterns = { "game" };
     // Note: "work" removed - it matches "network" which causes false positives
