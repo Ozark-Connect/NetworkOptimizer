@@ -624,7 +624,14 @@ public class DnsSecurityAnalyzer
             && hasDnsControlSolution
             && result.DnatRedirectTargetIsValid;
 
-        if (!result.HasDns53BlockRule && !dnatIsValidAlternative)
+        // Partial DNAT coverage is better than nothing - don't double-penalize
+        // The partial coverage issue (6 pts) is more actionable than the generic no-block issue (12 pts)
+        var hasPartialDnatCoverage = result.HasDnatDnsRules
+            && !result.DnatProvidesFullCoverage
+            && hasDnsControlSolution
+            && result.DnatRedirectTargetIsValid;
+
+        if (!result.HasDns53BlockRule && !dnatIsValidAlternative && !hasPartialDnatCoverage)
         {
             result.Issues.Add(new AuditIssue
             {

@@ -2819,9 +2819,10 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithThirdPartyDnsAndDnatPartialCoverage_GeneratesBothIssues()
+    public async Task Analyze_WithThirdPartyDnsAndDnatPartialCoverage_OnlyPartialCoverageIssue()
     {
         // Arrange - Third-party DNS + DNAT only covers one of two networks
+        // With valid partial DNAT coverage, DNS_NO_53_BLOCK is suppressed (partial coverage issue is more actionable)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
@@ -2862,10 +2863,10 @@ public class DnsSecurityAnalyzerTests : IDisposable
             customPiholePort: null,
             natRulesData: natRules);
 
-        // Assert - Should have both issues
+        // Assert - Only partial coverage issue (DNS_NO_53_BLOCK suppressed for valid partial DNAT)
         result.HasThirdPartyDns.Should().BeTrue();
         result.DnatProvidesFullCoverage.Should().BeFalse();
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
     }
 
@@ -3086,12 +3087,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
             natRulesData: natRules);
 
         // Assert - Partial coverage, Guest network not covered
+        // DNS_NO_53_BLOCK is suppressed for valid partial DNAT (partial coverage issue is more actionable)
         result.HasThirdPartyDns.Should().BeTrue();
         result.DnatProvidesFullCoverage.Should().BeFalse();
         result.DnatCoveredNetworks.Should().Contain("LAN");
         result.DnatCoveredNetworks.Should().Contain("IoT");
         result.DnatUncoveredNetworks.Should().Contain("Guest");
-        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsNo53Block);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block);
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatPartialCoverage);
     }
 
