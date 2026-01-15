@@ -453,7 +453,7 @@
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan1Config.PingHost" placeholder="1.1.1.1" />
-                <small class="form-hint">ISP host/router recommended for accurate latency monitoring</small>
+                <small class="form-hint">ISP infrastructure IP (first or second hop that responds to pings), or a near Internet host like Google or Cloudflare</small>
             </div>
 
             <div class="form-group">
@@ -591,6 +591,7 @@
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan2Config.PingHost" placeholder="100.64.0.1" />
+                <small class="form-hint">ISP infrastructure IP (first or second hop that responds to pings), or a near Internet host like Google or Cloudflare</small>
             </div>
 
             <div class="form-group">
