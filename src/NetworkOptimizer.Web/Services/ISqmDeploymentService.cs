@@ -45,8 +45,8 @@ public interface ISqmDeploymentService
     /// <param name="wan1Name">Friendly name for WAN1 (e.g., "Yelcot").</param>
     /// <param name="wan2Interface">Physical interface name for WAN2 (e.g., "ifbeth0").</param>
     /// <param name="wan2Name">Friendly name for WAN2 (e.g., "Starlink").</param>
-    /// <returns>True if deployment succeeded, false otherwise.</returns>
-    Task<bool> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name);
+    /// <returns>A tuple with success status and optional warning message if the service didn't start correctly.</returns>
+    Task<(bool success, string? warning)> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name);
 
     /// <summary>
     /// Remove SQM scripts from the gateway.
