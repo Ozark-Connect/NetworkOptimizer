@@ -362,7 +362,7 @@ public class VlanPlacementCheckerTests
             AllowAllTVsOnMainNetwork = true
         };
 
-        // SmartPlug IS low-risk, but allowance settings only cover StreamingDevice and SmartTV
+        // SmartPlug IS low-risk, but allowance settings only cover StreamingDevice, SmartTV, and SmartSpeaker (Apple only)
         // So SmartPlug stays at Recommended severity, not Informational
         var result = VlanPlacementChecker.CheckIoTPlacement(
             ClientDeviceCategory.SmartPlug,
@@ -374,6 +374,66 @@ public class VlanPlacementCheckerTests
 
         result.Severity.Should().Be(AuditSeverity.Recommended);
         result.IsLowRisk.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartSpeaker_AppleWithAllowApple_ReturnsInformational()
+    {
+        // Apple HomePod is categorized as SmartSpeaker
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartSpeaker,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Apple Inc");
+
+        result.Severity.Should().Be(AuditSeverity.Informational);
+        result.ScoreImpact.Should().Be(0); // User explicitly allowed - no score penalty
+        result.IsLowRisk.Should().BeTrue();
+        result.IsAllowedBySettings.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartSpeaker_AmazonWithAllowApple_StaysRecommended()
+    {
+        // Amazon Echo should not be affected by Apple streaming allowance
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartSpeaker,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Amazon");
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(ScoreConstants.LowRiskIoTImpact);
+        result.IsAllowedBySettings.Should().BeFalse();
+    }
+
+    [Fact]
+    public void CheckIoTPlacement_SmartSpeaker_GoogleWithAllowApple_StaysRecommended()
+    {
+        // Google Home should not be affected by Apple streaming allowance
+        var network = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 1, Purpose = NetworkPurpose.Corporate };
+        var allowance = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        var result = VlanPlacementChecker.CheckIoTPlacement(
+            ClientDeviceCategory.SmartSpeaker,
+            network,
+            TestNetworks,
+            defaultScoreImpact: 10,
+            allowance,
+            vendorName: "Google");
+
+        result.Severity.Should().Be(AuditSeverity.Recommended);
+        result.IsAllowedBySettings.Should().BeFalse();
     }
 
     #endregion
