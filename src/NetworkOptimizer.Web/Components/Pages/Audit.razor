@@ -852,7 +852,7 @@
             // Load dismissed issues
             dismissedIssues = await AuditService.GetDismissedIssuesAsync();
 
-            lastAuditTime = previousResult.CompletedAt.ToString("MMM dd, yyyy HH:mm");
+            lastAuditTime = previousResult.CompletedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
         }
     }

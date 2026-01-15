@@ -824,7 +824,7 @@ public class DnsSecurityAnalyzer
                 // DNS53 blocking provides full coverage - DNAT partial coverage is just informational
                 severity = AuditSeverity.Informational;
                 scoreImpact = 0;
-                message = $"DNAT DNS rules provide partial coverage (networks not covered: {string.Join(", ", result.DnatUncoveredNetworks)}). This is informational since firewall port 53 blocking provides full coverage.";
+                message = $"DNAT DNS rules don't cover all networks ({string.Join(", ", result.DnatUncoveredNetworks)} not covered). Your firewall already blocks external DNS for all networks, so this is just for your awareness.";
                 action = "If you intend to use DNAT as primary DNS control, add rules for uncovered networks. Otherwise, this can be ignored.";
             }
             else if (result.HasDns53BlockRule)
