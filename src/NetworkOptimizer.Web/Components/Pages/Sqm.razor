@@ -1824,6 +1824,38 @@
             return;
         }
 
+        // Security validation: validate inputs before any deployment actions
+        if (wan1Ready)
+        {
+            var pingResult = NetworkOptimizer.Sqm.InputSanitizer.ValidatePingHost(wan1Config.PingHost);
+            if (!pingResult.isValid)
+                errors.Add($"{wan1Config.Name}: {pingResult.error}");
+            var serverIdResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateSpeedtestServerId(wan1Config.SpeedtestServerId);
+            if (!serverIdResult.isValid)
+                errors.Add($"{wan1Config.Name}: {serverIdResult.error}");
+            var interfaceResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateInterface(wan1Config.Interface);
+            if (!interfaceResult.isValid)
+                errors.Add($"{wan1Config.Name}: {interfaceResult.error}");
+        }
+        if (wan2Ready)
+        {
+            var pingResult = NetworkOptimizer.Sqm.InputSanitizer.ValidatePingHost(wan2Config.PingHost);
+            if (!pingResult.isValid)
+                errors.Add($"{wan2Config.Name}: {pingResult.error}");
+            var serverIdResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateSpeedtestServerId(wan2Config.SpeedtestServerId);
+            if (!serverIdResult.isValid)
+                errors.Add($"{wan2Config.Name}: {serverIdResult.error}");
+            var interfaceResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateInterface(wan2Config.Interface);
+            if (!interfaceResult.isValid)
+                errors.Add($"{wan2Config.Name}: {interfaceResult.error}");
+        }
+        if (errors.Count > 0)
+        {
+            statusMessage = string.Join("; ", errors);
+            statusSuccess = false;
+            return;
+        }
+
         // Disable any configs without interfaces (safety check)
         if (wan1Config.Enabled && string.IsNullOrEmpty(wan1Config.Interface))
             wan1Config.Enabled = false;
