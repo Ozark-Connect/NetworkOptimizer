@@ -94,7 +94,7 @@ public class UniFiProductDatabaseTests
     [InlineData("UX", "UX")]
     [InlineData("EXPRESS", "UX")]
     [InlineData("UX7", "UX7")]
-    [InlineData("UXMAX", "UX-Max")]
+    [InlineData("UXMAX", "UXG-Max")]
     public void GetProductName_UniFiExpress_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -191,7 +191,7 @@ public class UniFiProductDatabaseTests
     [Theory]
     [InlineData("USWAGGREGATION", "USW-Aggregation")]
     [InlineData("USWAGGPRO", "USW-Pro-Aggregation")]
-    [InlineData("US16XG", "USW-16-XG")]
+    [InlineData("US16XG", "US-16-XG")]
     public void GetProductName_AggregationSwitches_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -249,7 +249,7 @@ public class UniFiProductDatabaseTests
     [InlineData("UAPLR", "UAP-AC-LR")]
     [InlineData("UAPLITE", "UAP-AC-Lite")]
     [InlineData("UAPM", "UAP-AC-M")]
-    [InlineData("UAPMESH", "UAP-AC-Mesh")]
+    [InlineData("UAPMESH", "UAP-AC-M")]
     public void GetProductName_ACAPs_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -264,7 +264,7 @@ public class UniFiProductDatabaseTests
     [InlineData("BZ2LR", "UAP-LR")]
     [InlineData("U2IW", "UAP-IW")]
     [InlineData("U2O", "UAP-Outdoor")]
-    [InlineData("U5O", "UAP-Outdoor5")]
+    [InlineData("U5O", "UAP-Outdoor-5")]
     public void GetProductName_LegacyAPs_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -289,7 +289,7 @@ public class UniFiProductDatabaseTests
 
     [Theory]
     [InlineData("ULTE", "U-LTE")]
-    [InlineData("ULTEPRO", "U-LTE-Pro")]
+    [InlineData("ULTEPRO", "U-LTE")]
     [InlineData("U5GMAX", "U5G-Max")]
     public void GetProductName_CellularDevices_ReturnsCorrectName(string modelCode, string expected)
     {
@@ -548,7 +548,7 @@ public class UniFiProductDatabaseTests
     [InlineData("UAP-IW")]
     [InlineData("UAP-Outdoor")]
     [InlineData("UAP-Outdoor+")]
-    [InlineData("UAP-Outdoor5")]
+    [InlineData("UAP-Outdoor-5")]
     public void CanRunIperf3_LegacyUAPs_ReturnsFalse(string productName)
     {
         // Act
@@ -563,7 +563,6 @@ public class UniFiProductDatabaseTests
     [InlineData("UAP-AC-Lite")]
     [InlineData("UAP-AC-LR")]
     [InlineData("UAP-AC-M")]
-    [InlineData("UAP-AC-Mesh")]
     [InlineData("UAP-AC-IW")]
     [InlineData("UAP-AC-EDU")]
     [InlineData("UAP-AC-Outdoor")]
@@ -669,7 +668,6 @@ public class UniFiProductDatabaseTests
     #region Coverage for Specific Model Codes
 
     [Theory]
-    [InlineData("UCK", "UC-CK")]
     [InlineData("UCK-G2", "UCK-G2")]
     [InlineData("UCKP", "UCK-G2-Plus")]
     [InlineData("UCKENT", "CK-Enterprise")]
@@ -724,22 +722,9 @@ public class UniFiProductDatabaseTests
     }
 
     [Theory]
-    [InlineData("UMR", "UMR")]
-    [InlineData("UMR-INDUSTRIAL", "UMR-Industrial")]
-    [InlineData("UMR-ULTRA", "UMR-Ultra")]
-    public void GetProductName_MobileRouters_ReturnsCorrectName(string modelCode, string expected)
-    {
-        // Act
-        var result = UniFiProductDatabase.GetProductName(modelCode);
-
-        // Assert
-        result.Should().Be(expected);
-    }
-
-    [Theory]
     [InlineData("UBB", "UBB")]
     [InlineData("UBBXG", "UBB-XG")]
-    [InlineData("UDB", "UDB")]
+    [InlineData("UDB", "UDB-Pro")]
     [InlineData("UDBPRO", "UDB-Pro")]
     public void GetProductName_BuildingBridges_ReturnsCorrectName(string modelCode, string expected)
     {
@@ -751,7 +736,6 @@ public class UniFiProductDatabaseTests
     }
 
     [Theory]
-    [InlineData("USP", "USP")]
     [InlineData("USPPLUG", "USP-Plug")]
     [InlineData("USPSTRIP", "USP-Strip")]
     [InlineData("UP1", "USP-Plug")]
@@ -779,9 +763,9 @@ public class UniFiProductDatabaseTests
     }
 
     [Theory]
-    [InlineData("EAS24", "ECS-24")]
+    [InlineData("EAS24", "ECS-24-PoE")]
     [InlineData("EAS24P", "ECS-24-PoE")]
-    [InlineData("EAS48", "ECS-48")]
+    [InlineData("EAS48", "ECS-48-PoE")]
     [InlineData("EAS48P", "ECS-48-PoE")]
     [InlineData("ECSAGG", "ECS-Aggregation")]
     public void GetProductName_EnterpriseCampus_ReturnsCorrectName(string modelCode, string expected)

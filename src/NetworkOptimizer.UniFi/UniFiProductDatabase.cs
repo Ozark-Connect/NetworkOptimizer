@@ -61,12 +61,11 @@ public static class UniFiProductDatabase
         "UAP-IW",
         "UAP-Outdoor",
         "UAP-Outdoor+",
-        "UAP-Outdoor5",
+        "UAP-Outdoor-5",
         "UAP-AC-Pro",
         "UAP-AC-Lite",
         "UAP-AC-LR",
         "UAP-AC-M",
-        "UAP-AC-Mesh",
         "UAP-AC-IW",
         "UAP-AC-EDU",
         "UAP-AC-Outdoor",
@@ -85,7 +84,7 @@ public static class UniFiProductDatabase
         { "UDMPRO", "UDM-Pro" },
         { "UDM-PRO", "UDM-Pro" },
         { "UDMPROSE", "UDM-SE" },
-        { "UDM-PRO-SE", "UDM-Pro-SE" },
+        { "UDM-PRO-SE", "UDM-SE" },
         { "UDMPROMAX", "UDM-Pro-Max" },
         { "UDM-PRO-MAX", "UDM-Pro-Max" },
         { "UDM", "UDM" },
@@ -99,20 +98,19 @@ public static class UniFiProductDatabase
         { "UDMENT", "EFG" },
 
         // Cloud Gateways
-        { "UCG", "UCG" },
         { "UCGF", "UCG-Fiber" },
         { "UDMA6A8", "UCG-Fiber" },
         { "UCGMAX", "UCG-Max" },
         { "UCG-ULTRA", "UCG-Ultra" },
 
         // Cloud Keys
-        { "UCK", "UC-CK" },
         { "UCK-G2", "UCK-G2" },
         { "UCKG2", "UCK-G2" },
         { "UCKP", "UCK-G2-Plus" },
         { "UCK-G2-PLUS", "UCK-G2-Plus" },
         { "UCKP2", "UCK-G2-Plus" },
         { "UCKENT", "CK-Enterprise" },
+        { "UCK-v3", "UCK" },
 
         // UniFi Security Gateways (legacy)
         { "USG", "USG" },
@@ -120,9 +118,14 @@ public static class UniFiProductDatabase
         { "UGW3", "USG-3P" },
         { "UGW4", "USG-Pro-4" },
         { "UGWXG", "USG-XG-8" },
+        { "UGW8", "UGW8" },
+        { "UGWHD4", "USG" },
+
+        // UniFi Application Server
+        { "UASXG", "UAS-XG" },
 
         // UniFi Gateways (Next-Gen)
-        { "UXG", "UXG" },
+        { "UXG", "UXG-Lite" },
         { "UXGPRO", "UXG-Pro" },
         { "UXG-PRO", "UXG-Pro" },
         { "UXGPROV2", "UXG-Pro" },
@@ -130,22 +133,22 @@ public static class UniFiProductDatabase
         { "UXGFIBER", "UXG-Fiber" },
         { "UXGENT", "UXG-Enterprise" },
         { "UXGB", "UXG-Max" },
-        { "UXGA6AA", "UXG-Max" },
+        { "UXGA6AA", "UXG-Fiber" },
 
         // Dream Routers
         { "UDR", "UDR" },
         { "UDR7", "UDR7" },
         { "UDR5G", "UDR-5G-Max" },
         { "UDRULT", "UCG-Ultra" },
-        { "UDMA67A", "UDR" },
-        { "UDMA6B9", "UDR" },
+        { "UDMA67A", "UDR7" },
+        { "UDMA6B9", "UDR-5G-Max" },
 
         // UniFi Express
         { "UX", "UX" },
         { "EXPRESS", "UX" },
         { "UX7", "UX7" },
-        { "UDMA69B", "UX" },
-        { "UXMAX", "UX-Max" },
+        { "UDMA69B", "UX7" },
+        { "UXMAX", "UXG-Max" },
 
         // =====================================================================
         // SWITCHES
@@ -186,12 +189,12 @@ public static class UniFiProductDatabase
         { "USL8MP", "USW-Mission-Critical" },
 
         // ----- USW Standard Series (Gen2) -----
-        { "USW8", "USW-8" },
-        { "USC8", "USW-8" },
-        { "USW8P60", "USW-8-60W" },
-        { "USC8P60", "USW-8-60W" },
-        { "USW8P150", "USW-8-150W" },
-        { "USC8P150", "USW-8-150W" },
+        { "USW8", "US-8" },
+        { "USC8", "US-8" },
+        { "USW8P60", "US-8-60W" },
+        { "USC8P60", "US-8-60W" },
+        { "USW8P150", "US-8-150W" },
+        { "USC8P150", "US-8-150W" },
         { "USC8P450", "USW-Industrial" },
         { "USW16P150", "USW-16-PoE" },
         { "USL16P", "USW-16-PoE" },
@@ -202,28 +205,26 @@ public static class UniFiProductDatabase
         { "USW24P250", "USW-24-PoE" },
         { "USL24P", "USW-24-PoE" },
         { "USL24PB", "USW-24-PoE" },                  // Hardware revision B
-        { "USW24P500", "USW-24-PoE-500W" },
         { "USW48", "USW-48" },
         { "USL48", "USW-48" },
         { "USL48B", "USW-48" },                       // Hardware revision B
         { "USW48P500", "USW-48-PoE" },
         { "USL48P", "USW-48-PoE" },
         { "USL48PB", "USW-48-PoE" },                  // Hardware revision B
-        { "USW48P750", "USW-48-PoE-750W" },
 
         // ----- USW Pro Series -----
         { "USWPRO24", "USW-Pro-24" },
         { "US24PRO2", "USW-Pro-24" },
         { "USWPRO24POE", "USW-Pro-24-PoE" },
         { "US24PRO", "USW-Pro-24-PoE" },
-        { "US24P250", "USW-Pro-24-PoE" },
-        { "US24P500", "USW-Pro-24-PoE-500W" },
+        { "US24P250", "US-24-250W" },
+        { "US24P500", "US-24-500W" },
         { "USWPRO48", "USW-Pro-48" },
         { "US48PRO2", "USW-Pro-48" },
         { "USWPRO48POE", "USW-Pro-48-PoE" },
         { "US48PRO", "USW-Pro-48-PoE" },
-        { "US48P500", "USW-Pro-48-PoE" },
-        { "US48P750", "USW-Pro-48-PoE-750W" },
+        { "US48P500", "US-48-500W" },
+        { "US48P750", "US-48-750W" },
 
         // ----- USW Pro Max Series -----
         { "USPM16", "USW-Pro-Max-16" },
@@ -246,40 +247,40 @@ public static class UniFiProductDatabase
 
         // ----- USW XP Series (PoE variants) -----
         { "USLP8P", "USW-Pro-8-PoE" },
-        { "USLP24P", "USW-XP-24-PoE" },
-        { "USLP48P", "USW-XP-48-PoE" },
+        { "USLP24P", "USW-Pro-24-PoE" },
+        { "USLP48P", "USW-Pro-48-PoE" },
 
         // ----- USW L2 Series -----
-        { "US24PL2", "USW-L2-24-PoE" },
-        { "US48PL2", "USW-L2-48-PoE" },
+        { "US24PL2", "US-L2-24-PoE" },
+        { "US48PL2", "US-L2-48-PoE" },
 
         // ----- USW Enterprise Series -----
         { "US68P", "USW-Enterprise-8-PoE" },
         { "USWENTERPRISE8POE", "USW-Enterprise-8-PoE" },
-        { "USWED44", "USW-Enterprise-8-PoE" },
+        { "USWED44", "USW-Pro-XG-24-PoE" },
         { "US624P", "USW-Enterprise-24-PoE" },
         { "USWENTERPRISE24POE", "USW-Enterprise-24-PoE" },
-        { "USWED42", "USW-Enterprise-24-PoE" },
+        { "USWED42", "USW-Pro-XG-48-PoE" },
         { "US648P", "USW-Enterprise-48-PoE" },
         { "USWENTERPRISE48POE", "USW-Enterprise-48-PoE" },
-        { "USWED43", "USW-Enterprise-48-PoE" },
+        { "USWED43", "USW-Pro-XG-48" },
         { "USWENTERPRISEXG24", "USW-EnterpriseXG-24" },
         { "USXG24", "USW-EnterpriseXG-24" },
-        { "USWED45", "USW-EnterpriseXG-24" },
+        { "USWED45", "USW-Pro-XG-24" },
 
         // ----- USW Aggregation Series -----
         { "USWAGGREGATION", "USW-Aggregation" },
         { "USL8A", "USW-Aggregation" },
         { "USWAGGPRO", "USW-Pro-Aggregation" },
         { "USAGGPRO", "USW-Pro-Aggregation" },
-        { "US16XG", "USW-16-XG" },
-        { "USXG", "USW-16-XG" },
+        { "US16XG", "US-16-XG" },
+        { "USXG", "US-16-XG" },
         { "US6XG150", "US-XG-6PoE" },
 
         // ----- Enterprise Campus Series -----
-        { "EAS24", "ECS-24" },
+        { "EAS24", "ECS-24-PoE" },
         { "EAS24P", "ECS-24-PoE" },
-        { "EAS48", "ECS-48" },
+        { "EAS48", "ECS-48-PoE" },
         { "EAS48P", "ECS-48-PoE" },
         { "ECS-AGG", "ECS-Aggregation" },
         { "ECSAGG", "ECS-Aggregation" },
@@ -298,10 +299,10 @@ public static class UniFiProductDatabase
         { "S28150", "US-8-150W" },
         { "US16P150", "US-16-150W" },
         { "S216150", "US-16-150W" },
-        { "US24", "US-24" },
+        { "US24", "US-24-G1" },
         { "S224250", "US-24-250W" },
         { "S224500", "US-24-500W" },
-        { "US48", "US-48" },
+        { "US48", "US-48-G1" },
         { "S248500", "US-48-500W" },
         { "S248750", "US-48-750W" },
 
@@ -309,17 +310,23 @@ public static class UniFiProductDatabase
         { "USPPDUP", "USP-PDU-Pro" },
         { "USPPDUHD", "USP-PDU-HD" },
         { "USPRPS", "USP-RPS" },
-        { "USPRPSP", "USP-RPS" },
+        { "USPRPSP", "USP-RPS-Pro" },
 
         // ----- Hardware Revision Codes (USWED/USWF series - map to best guess) -----
         { "USWED72", "USW-Pro-HD-24-PoE" },
         { "USWED73", "USW-Pro-HD-24" },
-        { "USWF067", "USW-Pro" },
-        { "USWF068", "USW-Pro" },
-        { "USWF069", "USW-Pro" },
-        { "USWF070", "USW-Pro" },
-        { "WRS3", "USW-Pro" },
-        { "WRS3F", "USW-Pro" },
+        { "USWF067", "ECS-24-PoE" },
+        { "USWF068", "USW-Pro-24" },
+        { "USWF069", "ECS-48-PoE" },
+        { "USWF070", "USW-Pro-24" },
+        { "USWED05", "USW-Industrial" },
+        { "USWED74", "USW-WAN" },
+        { "USWED75", "USW-WAN-RJ45" },
+        { "USWF003", "USW-Pro-XG-Aggregation" },
+        { "USWF004", "ECS-24S-PoE" },
+        { "USWF006", "ECS-48S-PoE" },
+        { "WRS3", "USW-Pro-24" },
+        { "WRS3F", "USW-Pro-24" },
 
         // =====================================================================
         // ACCESS POINTS
@@ -362,7 +369,7 @@ public static class UniFiProductDatabase
         // ----- WiFi 6 (U6) Series -----
         { "U6PRO", "U6-Pro" },
         { "UAP6MP", "U6-Pro" },
-        { "U6MP", "U6-Pro" },
+        { "U6MP", "U6-Mesh-Pro" },
         { "U6LR", "U6-LR" },
         { "UALR6", "U6-LR" },
         { "UALR6V2", "U6-LR" },
@@ -382,9 +389,9 @@ public static class UniFiProductDatabase
 
         // ----- AC Wave 2 / HD Series -----
         { "U7HD", "UAP-AC-HD" },
-        { "UAPHD", "UAP-HD" },
+        { "UAPHD", "UAP-AC-HD" },
         { "U7SHD", "UAP-AC-SHD" },
-        { "UAPSHD", "UAP-SHD" },
+        { "UAPSHD", "UAP-AC-SHD" },
         { "U7NHD", "UAP-nanoHD" },
         { "UAPNANOHD", "UAP-nanoHD" },
         { "UFLHD", "UAP-FlexHD" },
@@ -397,16 +404,16 @@ public static class UniFiProductDatabase
         // ----- AC Series -----
         { "UAPPRO", "UAP-AC-Pro" },
         { "U7PG2", "UAP-AC-Pro" },
-        { "U7P", "UAP-AC-Pro" },
+        { "U7P", "UAP-Pro" },
         { "UAPLR", "UAP-AC-LR" },
         { "U7LR", "UAP-AC-LR" },
         { "UAPLITE", "UAP-AC-Lite" },
         { "U7LT", "UAP-AC-Lite" },
         { "UAPM", "UAP-AC-M" },
-        { "UAPMESH", "UAP-AC-Mesh" },
-        { "U7MSH", "UAP-AC-Mesh" },
-        { "UAPMESHPRO", "UAP-AC-Mesh-Pro" },
-        { "U7MP", "UAP-AC-Mesh-Pro" },
+        { "UAPMESH", "UAP-AC-M" },
+        { "U7MSH", "UAP-AC-M" },
+        { "UAPMESHPRO", "UAP-AC-M-PRO" },
+        { "U7MP", "UAP-AC-M-PRO" },
         { "UAPIW", "UAP-AC-IW" },
         { "U7IW", "UAP-AC-IW" },
         { "UAPIWPRO", "UAP-AC-IW-Pro" },
@@ -415,36 +422,41 @@ public static class UniFiProductDatabase
         { "U7UKU", "UK-Ultra" },
         { "UAPXG", "UAP-XG" },
         { "UCXG", "UAP-XG" },
-        { "UAPBASESTATION", "UAP-BaseStationXG" },
+        { "UAPBASESTATION", "UAP-XG" },
         { "UXSDM", "UWB-XG" },
         { "UXBSDM", "UWB-XG-BK" },
 
         // ----- Legacy APs (802.11n, MIPS) -----
         { "BZ2", "UAP" },
         { "U2S48", "UAP" },
-        { "U2SV2", "UAP" },
+        { "U2SV2", "UAPv2" },
         { "BZ2LR", "UAP-LR" },
         { "U2L48", "UAP-LR" },
-        { "U2LV2", "UAP-LR" },
+        { "U2LV2", "UAP-LRv2" },
         { "U2IW", "UAP-IW" },
         { "U2O", "UAP-Outdoor" },
         { "U2HSR", "UAP-Outdoor+" },
-        { "U5O", "UAP-Outdoor5" },
+        { "U5O", "UAP-Outdoor-5" },
         { "UAP", "UAP" },
 
-        // ----- AP Hardware Revision Codes -----
-        { "UAPA697", "U6-Series" },
-        { "UAPA693", "U6-Series" },
-        { "UAPA6A5", "U6-Series" },
-        { "UAPA6A4", "U6-Series" },
-        { "UAPA6A9", "U6-Series" },
-        { "UAPA6A6", "U6-Series" },
-        { "UAPA698", "U6-Series" },
-        { "UAPA6B1", "U6-Series" },
-        { "UAPA699", "U6-Series" },
-        { "UAPA6AB", "U6-Series" },
-        { "UAPA6B0", "U6-Series" },
-        { "UAPA6B3", "U6-Series" },
+        // ----- AP Hardware Revision Codes (U7/E7 Series) -----
+        { "UAPA693", "U7-Lite" },
+        { "UAPA697", "E7" },
+        { "UAPA698", "E7-Campus" },
+        { "UAPA699", "E7-Audience" },
+        { "UAPA6A4", "U7-Pro-XGS" },
+        { "UAPA6A5", "U7-IW" },
+        { "UAPA6A6", "U7-Pro-Outdoor" },
+        { "UAPA6A9", "U7-Pro-XG" },
+        { "UAPA6AB", "E7-Audience" },
+        { "UAPA6B0", "U7-Pro-Outdoor" },
+        { "UAPA6B1", "E7-Campus" },
+        { "UAPA6B3", "U7-LR" },
+        { "UAPA6AC", "U7-Pro-XGS-B" },
+        { "UAPA6AE", "U7-Pro-XG-B" },
+        { "UAPA6AF", "E7-Audience-Indoor" },
+        { "UAPA6BA", "U7-Pro-XG-Wall" },
+        { "UAPA6BC", "E7-Campus-Indoor" },
         { "UDMB", "UAP-BeaconHD" },
 
         // =====================================================================
@@ -456,49 +468,64 @@ public static class UniFiProductDatabase
         { "UNVR4", "UNVR" },
         { "UNVRPRO", "UNVR-Pro" },
         { "UNVR-PRO", "UNVR-Pro" },
+        { "ENVR", "ENVR" },
+        { "UNVRINS", "UNVR-Instant" },
 
         // ----- UniFi NAS -----
         { "UNASPRO", "UNAS-Pro" },
-        { "UNASSTU", "UNAS" },
-        { "UNASSTU-BK", "UNAS" },
-        { "UNASSTUBK", "UNAS" },
-
-        // ----- UniFi Connect -----
-        { "ULED", "UC-LED" },
+        { "UNAS2B", "UNAS-2-B" },
+        { "UNAS2W", "UNAS-2-W" },
+        { "UNASEA63", "UNAS-Pro-8" },
+        { "UNASEA65", "UNAS-4-W" },
+        { "UNASEA66", "UNAS-4-B" },
+        { "UNASEA67", "UNAS-Pro-4" },
 
         // ----- Cellular / LTE -----
         { "U5GMAX", "U5G-Max" },
+        { "UMBBE630", "U5G-Max" },
+        { "UMBBE631", "U5G-Max-Outdoor" },
+        { "UCI", "UCI" },
         { "ULTE", "U-LTE" },
-        { "ULTEPRO", "U-LTE-Pro" },
-        { "ULTEPUS", "U-LTE-Pro" },
-        { "ULTEPEU", "U-LTE-Pro" },
-
-        // ----- Mobile Routers -----
-        { "UMR", "UMR" },
-        { "UMR-INDUSTRIAL", "UMR-Industrial" },
-        { "UMR-ULTRA", "UMR-Ultra" },
+        { "ULTEPRO", "U-LTE" },
+        { "ULTEPUS", "U-LTE-Backup-Pro" },
+        { "ULTEPEU", "U-LTE-Backup-Pro" },
 
         // ----- UPS -----
-        { "UPS", "USP" },
         { "UPS2U", "USP-RPS" },
+        { "USWDA23", "UPS-Tower" },
+        { "USWDA24", "UPS-Tower" },
+        { "USWDA25", "UPS-2U" },
+        { "USWDA26", "UPS-2U" },
 
         // ----- Building Bridge -----
         { "UBB", "UBB" },
         { "UBBXG", "UBB-XG" },
 
         // ----- Device Bridge -----
-        { "UDB", "UDB" },
+        { "UDB", "UDB-Pro" },
         { "UDBPRO", "UDB-Pro" },
-        { "UDBE802", "UDB-Pro" },
+        { "UDBE802", "UDB-Pro-Sector" },
         { "UDBPROSECTOR", "UDB-Pro-Sector" },
-        { "UACCMPOEAF", "U-POE-af" },
+        { "UACCMPOEAF", "UDB" },
+        { "UACCEA03", "UDB-IoT" },
+        { "UDBA69F", "UDB-Switch" },
 
         // ----- Smart Power -----
-        { "USP", "USP" },
         { "USPPLUG", "USP-Plug" },
         { "USPSTRIP", "USP-Strip" },
         { "UP1", "USP-Plug" },
         { "UP6", "USP-Strip" },
+
+        // ----- VoIP Phones -----
+        { "UP4", "UVP-X" },
+        { "UP5c", "UVP" },
+        { "UP5tc", "UVP-Pro" },
+        { "UP7c", "UVP-Executive" },
+
+        // ----- Other -----
+        { "USFPW", "UACC-SFP-Wizard" },
+        { "UTREA06", "UTR" },
+        { "p2N", "PICOM2HP" },
     };
 
     /// <summary>
