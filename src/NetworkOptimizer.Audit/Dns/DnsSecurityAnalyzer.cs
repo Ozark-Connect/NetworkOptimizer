@@ -806,22 +806,51 @@ public class DnsSecurityAnalyzer
         }
 
         // Issue: DNAT provides partial coverage (some networks not covered)
-        // Severity depends on coverage ratio: >= 2/3 covered = Recommended, < 2/3 covered = Critical
+        // If DNS53 firewall blocking provides full coverage, downgrade to Informational (DNAT is redundant/supplementary)
+        // Otherwise, severity depends on coverage ratio
         if (result.HasDnatDnsRules && !result.DnatProvidesFullCoverage && result.DnatUncoveredNetworks.Any())
         {
             var totalNetworks = result.DnatCoveredNetworks.Count + result.DnatUncoveredNetworks.Count;
             var coverageRatio = totalNetworks > 0 ? (double)result.DnatCoveredNetworks.Count / totalNetworks : 0;
-            // If 2/3 or more networks are covered, use Recommended severity; otherwise Critical
-            var severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
-            var scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+
+            // Determine severity based on whether DNS53 blocking is the primary protection
+            AuditSeverity severity;
+            int scoreImpact;
+            string message;
+            string action;
+
+            if (result.HasDns53BlockRule && result.Dns53ProvidesFullCoverage)
+            {
+                // DNS53 blocking provides full coverage - DNAT partial coverage is just informational
+                severity = AuditSeverity.Informational;
+                scoreImpact = 0;
+                message = $"DNAT DNS rules provide partial coverage (networks not covered: {string.Join(", ", result.DnatUncoveredNetworks)}). This is informational since firewall port 53 blocking provides full coverage.";
+                action = "If you intend to use DNAT as primary DNS control, add rules for uncovered networks. Otherwise, this can be ignored.";
+            }
+            else if (result.HasDns53BlockRule)
+            {
+                // DNS53 blocking exists but partial - DNAT partial is lower priority
+                severity = AuditSeverity.Recommended;
+                scoreImpact = 3;
+                message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Firewall port 53 blocking is also present.";
+                action = "Consider whether you want to use firewall blocking or DNAT as your primary DNS control method, then ensure full coverage for your chosen approach";
+            }
+            else
+            {
+                // No DNS53 blocking - DNAT is primary protection, partial coverage is significant
+                severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
+                scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+                message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Devices on these networks can bypass DNS settings.";
+                action = "Add DNAT rules for the remaining networks, create a firewall rule to block outbound UDP port 53, or exclude intentionally uncovered networks in Settings";
+            }
 
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDnatPartialCoverage,
                 Severity = severity,
                 DeviceName = result.GatewayName,
-                Message = $"DNAT DNS rules provide partial coverage. Networks without DNAT coverage: {string.Join(", ", result.DnatUncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
-                RecommendedAction = "Add DNAT rules for the remaining networks, create a firewall rule to block outbound UDP port 53, or exclude intentionally uncovered networks in Settings",
+                Message = message,
+                RecommendedAction = action,
                 RuleId = "DNS-DNAT-001",
                 ScoreImpact = scoreImpact,
                 Metadata = new Dictionary<string, object>
@@ -830,6 +859,8 @@ public class DnsSecurityAnalyzer
                     { "uncovered_networks", result.DnatUncoveredNetworks.ToList() },
                     { "redirect_target", result.DnatRedirectTarget ?? "" },
                     { "coverage_ratio", coverageRatio },
+                    { "has_dns53_block", result.HasDns53BlockRule },
+                    { "dns53_full_coverage", result.Dns53ProvidesFullCoverage },
                     { "configurable_setting", "Exclude VLANs from coverage checks in Settings → Audit Settings → DNAT DNS Coverage: Excluded VLANs" }
                 }
             });
