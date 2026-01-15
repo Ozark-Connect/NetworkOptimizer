@@ -1,4 +1,5 @@
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Storage.Interfaces;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -13,19 +14,22 @@ public class DashboardService : IDashboardService
     private readonly AuditService _auditService;
     private readonly GatewaySpeedTestService _gatewayService;
     private readonly TcMonitorClient _tcMonitorClient;
+    private readonly ISpeedTestRepository _speedTestRepository;
 
     public DashboardService(
         ILogger<DashboardService> logger,
         UniFiConnectionService connectionService,
         AuditService auditService,
         GatewaySpeedTestService gatewayService,
-        TcMonitorClient tcMonitorClient)
+        TcMonitorClient tcMonitorClient,
+        ISpeedTestRepository speedTestRepository)
     {
         _logger = logger;
         _connectionService = connectionService;
         _auditService = auditService;
         _gatewayService = gatewayService;
         _tcMonitorClient = tcMonitorClient;
+        _speedTestRepository = speedTestRepository;
     }
 
     /// <summary>
@@ -102,7 +106,7 @@ public class DashboardService : IDashboardService
             _logger.LogWarning(ex, "Failed to load audit summary");
         }
 
-        // Get SQM status (quick check - just TC monitor HTTP poll, no SSH)
+        // Get SQM status (quick check - only poll TC monitor if SQM is configured)
         try
         {
             var gatewaySettings = await _gatewayService.GetSettingsAsync();
@@ -112,10 +116,21 @@ public class DashboardService : IDashboardService
             }
             else
             {
-                // Poll TC Monitor directly (fast HTTP call, 2s timeout, no static cache)
-                var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
-                var interfaces = tcStats?.GetAllInterfaces();
-                data.SqmStatus = interfaces?.Any() == true ? "Active" : "Not Deployed";
+                // Check if any SQM WAN configs are enabled before polling
+                var sqmConfigs = await _speedTestRepository.GetAllSqmWanConfigsAsync();
+                var hasEnabledSqm = sqmConfigs.Any(c => c.Enabled);
+
+                if (!hasEnabledSqm)
+                {
+                    data.SqmStatus = "Not Configured";
+                }
+                else
+                {
+                    // Poll TC Monitor directly (fast HTTP call, 2s timeout, no static cache)
+                    var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewaySettings.Host);
+                    var interfaces = tcStats?.GetAllInterfaces();
+                    data.SqmStatus = interfaces?.Any() == true ? "Active" : "Not Deployed";
+                }
             }
         }
         catch (Exception ex)

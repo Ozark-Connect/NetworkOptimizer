@@ -152,11 +152,22 @@
                 return;
             }
 
-            // Check if we have saved WAN configs with SQM enabled (parallel)
+            // Check if we have saved WAN configs with SQM enabled BEFORE polling TC monitor
             var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
             var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
             await Task.WhenAll(wan1Task, wan2Task);
             hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
+
+            // Skip TC monitor poll if no SQM config exists - avoids connection failures
+            if (!hasSavedEnabledConfig)
+            {
+                statusLabel = "Not Deployed";
+                statusClass = "offline";
+                errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                _shouldPoll = false;
+                isLoading = false;
+                return;
+            }
 
             // Poll TC Monitor directly (fast HTTP call, 2s timeout)
             var response = await TcMonitorClient.GetTcStatsAsync(gatewaySettings.Host, forceRefresh: forceRefresh);
