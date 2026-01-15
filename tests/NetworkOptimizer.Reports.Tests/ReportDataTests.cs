@@ -582,6 +582,85 @@ public class AuditIssueTests
     }
 }
 
+public class DnsSecuritySummaryTests
+{
+    #region GetDnsLeakProtectionDetail Tests
+
+    [Fact]
+    public void GetDnsLeakProtectionDetail_NoProtection_ReturnsCanBypass()
+    {
+        // Arrange
+        var dns = new DnsSecuritySummary
+        {
+            DnsLeakProtection = false,
+            HasDns53BlockRule = false,
+            DnatProvidesFullCoverage = false
+        };
+
+        // Act
+        var detail = dns.GetDnsLeakProtectionDetail();
+
+        // Assert
+        detail.Should().Be("Devices can bypass network DNS");
+    }
+
+    [Fact]
+    public void GetDnsLeakProtectionDetail_Dns53Only_ReturnsBlocked()
+    {
+        // Arrange
+        var dns = new DnsSecuritySummary
+        {
+            DnsLeakProtection = true,
+            HasDns53BlockRule = true,
+            DnatProvidesFullCoverage = false
+        };
+
+        // Act
+        var detail = dns.GetDnsLeakProtectionDetail();
+
+        // Assert
+        detail.Should().Be("External DNS queries blocked");
+    }
+
+    [Fact]
+    public void GetDnsLeakProtectionDetail_DnatOnly_ReturnsRedirected()
+    {
+        // Arrange
+        var dns = new DnsSecuritySummary
+        {
+            DnsLeakProtection = true,
+            HasDns53BlockRule = false,
+            DnatProvidesFullCoverage = true
+        };
+
+        // Act
+        var detail = dns.GetDnsLeakProtectionDetail();
+
+        // Assert
+        detail.Should().Be("External DNS queries redirected");
+    }
+
+    [Fact]
+    public void GetDnsLeakProtectionDetail_BothProtections_ReturnsRedirectedAndBlocked()
+    {
+        // Arrange
+        var dns = new DnsSecuritySummary
+        {
+            DnsLeakProtection = true,
+            HasDns53BlockRule = true,
+            DnatProvidesFullCoverage = true
+        };
+
+        // Act
+        var detail = dns.GetDnsLeakProtectionDetail();
+
+        // Assert
+        detail.Should().Be("External DNS queries redirected and leakage blocked");
+    }
+
+    #endregion
+}
+
 public class PortSecuritySummaryTests
 {
     [Fact]
