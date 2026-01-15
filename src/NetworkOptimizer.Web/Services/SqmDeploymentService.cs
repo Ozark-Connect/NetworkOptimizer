@@ -271,7 +271,9 @@ WantedBy=multi-user.target
             // Apply profile-based settings
             config.ApplyProfileSettings();
 
-            // Security: Validate all inputs before script generation to prevent command injection
+            // Security: Validate all inputs before script generation to prevent command injection.
+            // This is defense-in-depth - the UI also validates before calling DeployAsync,
+            // but we validate again here to protect against direct API calls or code changes.
             var manager = new SqmManager(config);
             var validationErrors = manager.ValidateConfiguration();
             if (validationErrors.Count > 0)
