@@ -230,6 +230,16 @@ public class PortSecurityAnalyzer
             if (portTableItems.Count == 0)
                 continue;
 
+            // Skip APs with 1-2 ports (passthrough ports that can't be disabled)
+            // 4+ port APs (in-wall with switch) may have manageable ports - TBD
+            var deviceType = device.GetStringOrNull("type");
+            if (deviceType == "uap" && portTableItems.Count <= 2)
+            {
+                var name = device.GetStringFromAny("name", "mac") ?? "Unknown";
+                _logger.LogDebug("Skipping AP {Name} with {Count} passthrough port(s)", name, portTableItems.Count);
+                continue;
+            }
+
             var switchInfo = ParseSwitch(device, networks, clientsByPort, historyByPort, profilesById, allDeviceMacs, deviceUplinkLookup);
             if (switchInfo != null)
             {
@@ -413,6 +423,11 @@ public class PortSecurityAnalyzer
     private (bool IsGateway, bool IsAccessPoint) DetermineDeviceRole(JsonElement device, string? deviceType, HashSet<string>? allDeviceMacs)
     {
         var baseType = FromUniFiApiType(deviceType);
+
+        // Access points (type=uap) are always APs, not switches
+        // This handles in-wall APs with integrated switch ports (4+ ports)
+        if (baseType == DeviceType.AccessPoint)
+            return (false, true);
 
         // Non-gateway types are switches (not gateway, not AP)
         if (!baseType.IsGateway())

@@ -872,6 +872,237 @@ public class PortSecurityAnalyzerTests
 
     #endregion
 
+    #region AP Device Role Tests
+
+    [Fact]
+    public void ExtractSwitches_ApWith1Port_SkippedAsPassthrough()
+    {
+        // AP with single port is a passthrough port that can't be disabled
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""uap"",
+                ""name"": ""Office AP"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""LAN"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().BeEmpty("APs with 1-2 ports should be skipped (passthrough ports)");
+    }
+
+    [Fact]
+    public void ExtractSwitches_ApWith2Ports_SkippedAsPassthrough()
+    {
+        // AP with 2 ports (uplink + LAN passthrough) should be skipped
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""uap"",
+                ""name"": ""Wall AP"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Uplink"", ""up"": true },
+                    { ""port_idx"": 2, ""name"": ""LAN"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().BeEmpty("APs with 1-2 ports should be skipped (passthrough ports)");
+    }
+
+    [Fact]
+    public void ExtractSwitches_ApWith4Ports_IncludedAndMarkedAsAp()
+    {
+        // In-wall AP with integrated 4-port switch should be included and marked as AP
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""uap"",
+                ""name"": ""In-Wall AP"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""model"": ""UAP-IW-HD"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Uplink"", ""up"": true },
+                    { ""port_idx"": 2, ""name"": ""Port 1"", ""up"": true },
+                    { ""port_idx"": 3, ""name"": ""Port 2"", ""up"": false },
+                    { ""port_idx"": 4, ""name"": ""Port 3"", ""up"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(1);
+        result[0].Name.Should().Be("In-Wall AP");
+        result[0].IsAccessPoint.Should().BeTrue("AP devices should be marked as access points");
+        result[0].IsGateway.Should().BeFalse("AP devices are not gateways");
+        result[0].Ports.Should().HaveCount(4);
+    }
+
+    [Fact]
+    public void ExtractSwitches_ApWith3Ports_IncludedAndMarkedAsAp()
+    {
+        // AP with 3 ports should be included (boundary case: > 2 ports)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""uap"",
+                ""name"": ""Multi-Port AP"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Uplink"", ""up"": true },
+                    { ""port_idx"": 2, ""name"": ""Port 1"", ""up"": true },
+                    { ""port_idx"": 3, ""name"": ""Port 2"", ""up"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsAccessPoint.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExtractSwitches_SwitchNotMarkedAsAp()
+    {
+        // Regular switch should NOT be marked as AP
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Office Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""Port 1"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsAccessPoint.Should().BeFalse("Switches should not be marked as access points");
+        result[0].IsGateway.Should().BeFalse("Switches are not gateways");
+    }
+
+    [Fact]
+    public void ExtractSwitches_GatewayActingAsAp_MarkedAsAp()
+    {
+        // UDM-class device that uplinks to another UniFi device is acting as AP (mesh)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""name"": ""Main Gateway"",
+                ""mac"": ""11:22:33:44:55:66"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""WAN"", ""up"": true }
+                ]
+            },
+            {
+                ""type"": ""udm"",
+                ""name"": ""UX Express (Mesh)"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""uplink"": {
+                    ""uplink_mac"": ""11:22:33:44:55:66""
+                },
+                ""port_table"": [
+                    { ""port_idx"": 1, ""name"": ""LAN"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        result.Should().HaveCount(2);
+
+        // Main gateway should be marked as gateway
+        var mainGateway = result.First(s => s.Name == "Main Gateway");
+        mainGateway.IsGateway.Should().BeTrue();
+        mainGateway.IsAccessPoint.Should().BeFalse();
+
+        // UX Express acting as mesh AP should be marked as AP, not gateway
+        var meshAp = result.First(s => s.Name == "UX Express (Mesh)");
+        meshAp.IsAccessPoint.Should().BeTrue("Gateway-class device acting as mesh should be marked as AP");
+        meshAp.IsGateway.Should().BeFalse("Gateway-class device acting as mesh is not the network gateway");
+    }
+
+    [Fact]
+    public void ExtractSwitches_MixedDevices_CorrectlyClassified()
+    {
+        // Test with mix of gateway, switch, AP with ports, and AP without ports
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""name"": ""Gateway"",
+                ""mac"": ""11:11:11:11:11:11"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""up"": true }
+                ]
+            },
+            {
+                ""type"": ""usw"",
+                ""name"": ""Main Switch"",
+                ""mac"": ""22:22:22:22:22:22"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""up"": true },
+                    { ""port_idx"": 2, ""up"": true }
+                ]
+            },
+            {
+                ""type"": ""uap"",
+                ""name"": ""Standard AP"",
+                ""mac"": ""33:33:33:33:33:33"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""up"": true }
+                ]
+            },
+            {
+                ""type"": ""uap"",
+                ""name"": ""In-Wall AP"",
+                ""mac"": ""44:44:44:44:44:44"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""up"": true },
+                    { ""port_idx"": 2, ""up"": true },
+                    { ""port_idx"": 3, ""up"": false },
+                    { ""port_idx"": 4, ""up"": false }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks);
+
+        // Standard AP (1 port) should be skipped
+        result.Should().HaveCount(3, "Standard AP with 1 port should be skipped");
+        result.Should().NotContain(s => s.Name == "Standard AP");
+
+        // Gateway
+        var gateway = result.First(s => s.Name == "Gateway");
+        gateway.IsGateway.Should().BeTrue();
+        gateway.IsAccessPoint.Should().BeFalse();
+
+        // Switch
+        var sw = result.First(s => s.Name == "Main Switch");
+        sw.IsGateway.Should().BeFalse();
+        sw.IsAccessPoint.Should().BeFalse();
+
+        // In-Wall AP (4 ports)
+        var inWallAp = result.First(s => s.Name == "In-Wall AP");
+        inWallAp.IsGateway.Should().BeFalse();
+        inWallAp.IsAccessPoint.Should().BeTrue();
+    }
+
+    #endregion
+
     #region AddRule Tests
 
     [Fact]
