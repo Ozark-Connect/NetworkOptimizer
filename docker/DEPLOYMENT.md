@@ -601,6 +601,22 @@ docker compose pull && docker compose up -d
 
 ## Troubleshooting
 
+### Reset Admin Password
+
+If you've forgotten your password or need to reset it:
+
+```bash
+# Clear the password from the database
+docker exec network-optimizer sqlite3 /app/data/network_optimizer.db "UPDATE AdminSettings SET Password = NULL;"
+
+# Restart to trigger auto-generated password
+cd /path/to/network-optimizer/docker
+docker compose up -d
+
+# View the new auto-generated password
+docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
+```
+
 ### Container Won't Start
 
 ```bash

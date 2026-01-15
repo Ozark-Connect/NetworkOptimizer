@@ -147,6 +147,22 @@ APP_PASSWORD=your_secure_password
 
 **Note:** Database passwords override the environment variable. Clear the database password in Settings to use `APP_PASSWORD`.
 
+### Reset Admin Password
+
+If you've forgotten your password or need to reset it:
+
+```bash
+# Clear the password from the database
+docker exec network-optimizer sqlite3 /app/data/network_optimizer.db "UPDATE AdminSettings SET Password = NULL;"
+
+# Restart to trigger auto-generated password
+cd /path/to/network-optimizer/docker
+docker compose up -d
+
+# View the new auto-generated password
+docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
+```
+
 ## Configuration
 
 ### Environment Variables
