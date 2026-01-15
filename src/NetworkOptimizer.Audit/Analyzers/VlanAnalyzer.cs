@@ -28,8 +28,9 @@ public class VlanAnalyzer
     private static readonly string[] HomePatterns = { "home", "main", "primary", "personal", "family", "trusted", "private", "gaming", "gamer", "games", "xbox", "playstation", "nintendo", "console", "lan party" };
     // Home patterns requiring word boundary matching (to avoid "GameChanger" matching "game")
     private static readonly string[] HomeWordBoundaryPatterns = { "game" };
-    // Note: "work" removed - it matches "network" which causes false positives
     private static readonly string[] CorporatePatterns = { "corporate", "office", "business", "enterprise" };
+    // Word boundary patterns for Corporate (to avoid "network" matching "work")
+    private static readonly string[] CorporateWordBoundaryPatterns = { "work", "biz" };
     private static readonly string[] PrinterPatterns = { "print" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
@@ -276,6 +277,9 @@ public class VlanAnalyzer
         else if (GuestPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Guest;
         else if (CorporatePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Corporate;
+        // Word-boundary patterns for Corporate (e.g., "Work Devices" but not "Network")
+        else if (CorporateWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Corporate;
         else if (HomePatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Home;

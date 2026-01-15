@@ -274,6 +274,38 @@ public class VlanAnalyzerTests
     }
 
     [Theory]
+    [InlineData("Work Devices")]
+    [InlineData("Work")]
+    [InlineData("Work VLAN")]
+    [InlineData("Remote Work")]
+    [InlineData("Biz")]
+    [InlineData("Biz Network")]
+    [InlineData("Small Biz")]
+    [InlineData("Biz-Network")]    // Hyphen is a word boundary
+    [InlineData("Work-From-Home")] // Hyphen is a word boundary
+    public void ClassifyNetwork_CorporateWordBoundaryPatterns_ReturnsCorporate(string networkName)
+    {
+        // Word boundary patterns should match Corporate (e.g., "Work Devices" but not "Network")
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("Network")]
+    [InlineData("My Network")]
+    [InlineData("Home Network")]
+    [InlineData("Guest Network")]
+    [InlineData("IoT Network")]
+    [InlineData("Homework")]
+    [InlineData("Artwork Storage")]
+    public void ClassifyNetwork_NetworkNames_DoNotMatchCorporate(string networkName)
+    {
+        // Names containing "network" or "work" as substring should NOT match Corporate
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().NotBe(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
     [InlineData("Home", NetworkPurpose.Home)]
     [InlineData("Main", NetworkPurpose.Home)]
     [InlineData("Primary", NetworkPurpose.Home)]
@@ -375,6 +407,85 @@ public class VlanAnalyzerTests
     {
         // Use a name that doesn't match any patterns (avoid "work", "home", "guest", etc.)
         var result = _analyzer.ClassifyNetwork("MyCustomVlan");
+        result.Should().Be(NetworkPurpose.Unknown);
+    }
+
+    #endregion
+
+    #region Word Boundary Edge Cases
+
+    // Tests verifying word boundary matching works with various delimiters
+
+    [Theory]
+    [InlineData("work-devices", NetworkPurpose.Corporate)]     // Hyphen before
+    [InlineData("my-work-vlan", NetworkPurpose.Corporate)]     // Hyphen both sides
+    [InlineData("remote-work", NetworkPurpose.Corporate)]      // Hyphen after
+    [InlineData("biz-lan", NetworkPurpose.Corporate)]          // Hyphen after
+    [InlineData("my-biz-network", NetworkPurpose.Corporate)]   // Hyphen both sides
+    public void ClassifyNetwork_WordBoundary_HyphenDelimiter_Matches(string networkName, NetworkPurpose expected)
+    {
+        // Hyphens should act as word boundaries
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("work_devices", NetworkPurpose.Corporate)]     // Underscore before
+    [InlineData("my_work_vlan", NetworkPurpose.Corporate)]     // Underscore both sides
+    [InlineData("biz_lan", NetworkPurpose.Corporate)]          // Underscore after
+    public void ClassifyNetwork_WordBoundary_UnderscoreDelimiter_Matches(string networkName, NetworkPurpose expected)
+    {
+        // Underscores should act as word boundaries
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("work123", NetworkPurpose.Corporate)]          // Number after
+    [InlineData("123work", NetworkPurpose.Corporate)]          // Number before
+    [InlineData("vlan10work", NetworkPurpose.Corporate)]       // Number before
+    [InlineData("biz2024", NetworkPurpose.Corporate)]          // Number after
+    public void ClassifyNetwork_WordBoundary_NumberDelimiter_Matches(string networkName, NetworkPurpose expected)
+    {
+        // Numbers are not letters, so they should act as word boundaries
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("media-room", NetworkPurpose.IoT)]             // Hyphen delimiter
+    [InlineData("av-equipment", NetworkPurpose.IoT)]           // Hyphen delimiter
+    [InlineData("tv-network", NetworkPurpose.IoT)]             // Hyphen delimiter
+    [InlineData("game-room", NetworkPurpose.Home)]             // Hyphen delimiter
+    [InlineData("not-vlan", NetworkPurpose.Security)]          // Hyphen delimiter for "NoT"
+    public void ClassifyNetwork_WordBoundary_HyphenDelimiter_OtherPatterns(string networkName, NetworkPurpose expected)
+    {
+        // Verify hyphen word boundaries work for all word boundary pattern types
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("rework")]           // "work" embedded in word
+    [InlineData("coworking")]        // "work" embedded in word
+    [InlineData("networkadmin")]     // "work" embedded in "network"
+    [InlineData("bizarro")]          // "biz" embedded in word
+    public void ClassifyNetwork_WordBoundary_EmbeddedPatterns_DoNotMatch(string networkName)
+    {
+        // Patterns embedded within words (no boundary) should NOT match
+        var result = _analyzer.ClassifyNetwork(networkName);
+        result.Should().NotBe(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("multimedia")]       // "media" embedded in word
+    [InlineData("activision")]       // "tv" embedded in word (a-tv-ision)
+    [InlineData("pregame")]          // "game" embedded in word
+    public void ClassifyNetwork_WordBoundary_EmbeddedPatterns_DoNotMatchOther(string networkName)
+    {
+        // Verify embedded patterns don't match for other word boundary patterns
+        var result = _analyzer.ClassifyNetwork(networkName);
+        // These should all be Unknown since none of the patterns match
         result.Should().Be(NetworkPurpose.Unknown);
     }
 
