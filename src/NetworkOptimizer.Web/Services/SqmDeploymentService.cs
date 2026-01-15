@@ -782,12 +782,10 @@ WantedBy=multi-user.target
     /// </summary>
     private string GenerateSqmMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
     {
-        // Security: Sanitize all user-provided values to prevent command injection
-        // These values are embedded in shell scripts that run on the gateway with root privileges
+        // Security: Sanitize connection names for use in file paths (lowercase, safe chars)
+        // Display names use EscapeForShellDoubleQuote to preserve casing while preventing injection
         var wan1LogName = Sqm.InputSanitizer.SanitizeConnectionName(wan1Name);
         var wan2LogName = Sqm.InputSanitizer.SanitizeConnectionName(wan2Name);
-        var sanitizedWan1Name = Sqm.InputSanitizer.SanitizeConnectionName(wan1Name);
-        var sanitizedWan2Name = Sqm.InputSanitizer.SanitizeConnectionName(wan2Name);
 
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/sh");
@@ -811,10 +809,10 @@ WantedBy=multi-user.target
         sb.AppendLine();
         sb.AppendLine("# WAN Configuration");
         sb.AppendLine($"WAN1_INTERFACE=\"{wan1Interface}\"");
-        sb.AppendLine($"WAN1_NAME=\"{sanitizedWan1Name}\"");
+        sb.AppendLine($"WAN1_NAME=\"{Sqm.InputSanitizer.EscapeForShellDoubleQuote(wan1Name)}\"");
         sb.AppendLine($"WAN1_LOG_NAME=\"{wan1LogName}\"");
         sb.AppendLine($"WAN2_INTERFACE=\"{wan2Interface}\"");
-        sb.AppendLine($"WAN2_NAME=\"{sanitizedWan2Name}\"");
+        sb.AppendLine($"WAN2_NAME=\"{Sqm.InputSanitizer.EscapeForShellDoubleQuote(wan2Name)}\"");
         sb.AppendLine($"WAN2_LOG_NAME=\"{wan2LogName}\"");
         sb.AppendLine();
         sb.AppendLine("# Get current TC rate for an interface");
