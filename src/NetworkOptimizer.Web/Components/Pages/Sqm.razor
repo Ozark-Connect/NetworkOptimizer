@@ -1825,9 +1825,9 @@
         }
 
         // Trim inputs before validation
-        wan1Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan1Config.PingHost);
+        wan1Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan1Config.PingHost) ?? "";
         wan1Config.SpeedtestServerId = NetworkOptimizer.Sqm.InputSanitizer.TrimSpeedtestServerId(wan1Config.SpeedtestServerId);
-        wan2Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan2Config.PingHost);
+        wan2Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan2Config.PingHost) ?? "";
         wan2Config.SpeedtestServerId = NetworkOptimizer.Sqm.InputSanitizer.TrimSpeedtestServerId(wan2Config.SpeedtestServerId);
 
         // Security validation: validate inputs before any deployment actions
