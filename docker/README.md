@@ -280,12 +280,16 @@ docker-compose up -d
 ### Standard Updates
 
 ```bash
-docker-compose down
-docker-compose pull
-docker-compose up -d
+docker compose down
+docker compose pull
+docker compose up -d
 ```
 
 Data persists in the `./data` volume.
+
+### Migrating from Build-from-Source
+
+If you've been building locally with `docker compose build` and want to switch to pre-built images, see the [Migration Guide](DEPLOYMENT.md#migrating-from-build-from-source-to-pre-built-images). A simple `docker compose pull` won't work because your locally-built image already has the registry tag.
 
 ### Before Major Updates
 

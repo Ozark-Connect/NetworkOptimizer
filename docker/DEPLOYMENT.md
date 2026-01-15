@@ -563,6 +563,42 @@ docker compose ps
 docker compose logs -f
 ```
 
+## Migrating from Build-from-Source to Pre-Built Images
+
+If you've been building from source and want to switch to the pre-built Docker images:
+
+**Why migrate?** Pre-built images are faster to update (no build step), tested before release, and don't require the full git repository.
+
+**Important:** When you build locally, Docker tags your image as `ghcr.io/ozark-connect/network-optimizer:latest`. Simply running `docker compose pull` won't overwrite this because the compose file has a `build:` directive. You need to force the pull and switch to the production compose file.
+
+```bash
+cd /opt/network-optimizer  # or wherever you deployed
+
+# Stop running containers
+docker compose down
+
+# Force pull registry images (overwrites locally-built images)
+docker pull ghcr.io/ozark-connect/network-optimizer:latest
+docker pull ghcr.io/ozark-connect/speedtest:latest
+
+# Back up your current compose file (optional)
+mv docker-compose.yml docker-compose.yml.build-backup
+
+# Download the production compose file (no build directives)
+curl -o docker-compose.yml https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/docker/docker-compose.prod.yml
+
+# Start with pre-built images
+docker compose up -d
+
+# Optional: clean up old build cache to free disk space
+docker builder prune -f
+```
+
+Your `data/`, `logs/`, and `.env` files are preserved. Future updates are now just:
+```bash
+docker compose pull && docker compose up -d
+```
+
 ## Troubleshooting
 
 ### Container Won't Start
