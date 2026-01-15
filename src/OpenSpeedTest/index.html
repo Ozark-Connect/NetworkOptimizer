@@ -81,9 +81,9 @@
         var ulDelay = 300;
         var dlDelay = 300;
 
-    // Overhead Compensation factor, This is a browser-dependent test, Many Unknowns. Currently, 4%. That is within the margin of error.
-        var upAdjust = 1.04;
-        var dlAdjust = 1.04;
+    // Overhead Compensation factor - 0.3% adjustment for HTTP overhead (original was 4%, likely a typo)
+        var upAdjust = 1.003;
+        var dlAdjust = 1.003;
 
    // You can pass "Clean" or "C" as a URL Parameter and reset the Overhead Compensation factor to Zero or set any value between 0 and 4. 1 = 1% to 4 = 4% 
    // "clean" will not accept values above 4, so Compensation is limited to a maximum of 4%.
