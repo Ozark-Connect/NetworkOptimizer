@@ -526,8 +526,8 @@ WantedBy=multi-user.target
 
         try
         {
-            // Normalize wan name for script path (lowercase, no spaces/parens)
-            var scriptName = wanName.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
+            // Use same sanitization as deployment to ensure script path matches
+            var scriptName = Sqm.InputSanitizer.SanitizeConnectionName(wanName);
             var scriptPath = $"/data/sqm/{scriptName}-speedtest.sh";
 
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
