@@ -255,6 +255,24 @@ public static partial class InputSanitizer
             .Replace("!", "\\!");
     }
 
+    /// <summary>
+    /// Trims and normalizes a ping host value. Returns null if empty.
+    /// </summary>
+    public static string? TrimPingHost(string? pingHost)
+        => string.IsNullOrWhiteSpace(pingHost) ? null : pingHost.Trim();
+
+    /// <summary>
+    /// Trims and normalizes a speedtest server ID. Returns null if empty.
+    /// </summary>
+    public static string? TrimSpeedtestServerId(string? serverId)
+        => string.IsNullOrWhiteSpace(serverId) ? null : serverId.Trim();
+
+    /// <summary>
+    /// Trims and normalizes an interface name. Returns null if empty.
+    /// </summary>
+    public static string? TrimInterface(string? interfaceName)
+        => string.IsNullOrWhiteSpace(interfaceName) ? null : interfaceName.Trim();
+
     // Compiled regex patterns for performance
     [GeneratedRegex(@"^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$")]
     private static partial Regex HostnameRegex();
