@@ -142,21 +142,8 @@ public class DashboardService : IDashboardService
         return data;
     }
 
-    private static string FormatRelativeTime(DateTime utcTime)
-    {
-        var elapsed = DateTime.UtcNow - utcTime;
-
-        if (elapsed.TotalMinutes < 1)
-            return "Just now";
-        if (elapsed.TotalMinutes < 60)
-            return $"{(int)elapsed.TotalMinutes} minutes ago";
-        if (elapsed.TotalHours < 24)
-            return $"{(int)elapsed.TotalHours} hours ago";
-        if (elapsed.TotalDays < 7)
-            return $"{(int)elapsed.TotalDays} days ago";
-
-        return utcTime.ToLocalTime().ToString("MMM dd, yyyy");
-    }
+    private static string FormatRelativeTime(DateTime utcTime) =>
+        TimeFormatHelper.FormatRelativeTime(utcTime);
 
     private static string FormatUptime(long? uptimeSeconds)
     {

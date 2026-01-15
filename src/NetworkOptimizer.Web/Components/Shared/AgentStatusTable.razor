@@ -106,17 +106,8 @@
         return displayAgents;
     }
 
-    private string FormatLastCheckIn(DateTime lastCheckIn)
-    {
-        var elapsed = DateTime.UtcNow - lastCheckIn;
-        if (elapsed.TotalSeconds < 60)
-            return $"{(int)elapsed.TotalSeconds}s ago";
-        if (elapsed.TotalMinutes < 60)
-            return $"{(int)elapsed.TotalMinutes}m ago";
-        if (elapsed.TotalHours < 24)
-            return $"{(int)elapsed.TotalHours}h ago";
-        return $"{(int)elapsed.TotalDays}d ago";
-    }
+    private string FormatLastCheckIn(DateTime lastCheckIn) =>
+        TimeFormatHelper.FormatRelativeTimeCompact(lastCheckIn);
 
     private string GetAgentIcon(string agentType)
     {

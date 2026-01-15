@@ -142,17 +142,8 @@
         }
     }
 
-    private string FormatTimeAgo(DateTime time)
-    {
-        var elapsed = DateTime.UtcNow - time;
-        if (elapsed.TotalMinutes < 1)
-            return "Just now";
-        if (elapsed.TotalMinutes < 60)
-            return $"{(int)elapsed.TotalMinutes} mins ago";
-        if (elapsed.TotalHours < 24)
-            return $"{(int)elapsed.TotalHours} hours ago";
-        return $"{(int)elapsed.TotalDays} days ago";
-    }
+    private string FormatTimeAgo(DateTime time) =>
+        TimeFormatHelper.FormatRelativeTimeShort(time);
 
     private IEnumerable<AlertInfo> GetDisplayAlerts()
     {
