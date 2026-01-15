@@ -182,6 +182,64 @@ public class DeviceAllowanceSettingsTests
 
     #endregion
 
+    #region IsSmartSpeakerAllowed Tests
+
+    [Fact]
+    public void IsSmartSpeakerAllowed_AllowAppleStreaming_ReturnsTrue_ForAppleVendor()
+    {
+        // Apple HomePod is categorized as SmartSpeaker
+        // so the Apple streaming allowance should apply
+        var settings = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        settings.IsSmartSpeakerAllowed("Apple").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed("Apple Inc").Should().BeTrue();
+        settings.IsSmartSpeakerAllowed("apple").Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsSmartSpeakerAllowed_AllowAppleStreaming_ReturnsFalse_ForNonAppleVendor()
+    {
+        var settings = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        settings.IsSmartSpeakerAllowed("Amazon").Should().BeFalse();
+        settings.IsSmartSpeakerAllowed("Google").Should().BeFalse();
+        settings.IsSmartSpeakerAllowed("Sonos").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSmartSpeakerAllowed_AllowAppleStreaming_ReturnsFalse_ForNullVendor()
+    {
+        var settings = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        settings.IsSmartSpeakerAllowed(null).Should().BeFalse();
+        settings.IsSmartSpeakerAllowed("").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsSmartSpeakerAllowed_NoAllowances_ReturnsFalse()
+    {
+        var settings = new DeviceAllowanceSettings();
+
+        settings.IsSmartSpeakerAllowed("Apple").Should().BeFalse();
+        settings.IsSmartSpeakerAllowed("Amazon").Should().BeFalse();
+        settings.IsSmartSpeakerAllowed("Google").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("apple")]
+    [InlineData("Apple")]
+    [InlineData("APPLE")]
+    [InlineData("Apple Inc")]
+    [InlineData("Apple, Inc.")]
+    public void IsSmartSpeakerAllowed_AllowAppleStreaming_CaseInsensitive(string vendor)
+    {
+        var settings = new DeviceAllowanceSettings { AllowAppleStreamingOnMainNetwork = true };
+
+        settings.IsSmartSpeakerAllowed(vendor).Should().BeTrue();
+    }
+
+    #endregion
+
     #region Default Settings Tests
 
     [Fact]

@@ -8,7 +8,7 @@ namespace NetworkOptimizer.Audit.Models;
 public class DeviceAllowanceSettings
 {
     /// <summary>
-    /// Allow Apple streaming devices (Apple TV) on main network.
+    /// Allow Apple streaming devices (Apple TV, HomePod) on main network.
     /// </summary>
     public bool AllowAppleStreamingOnMainNetwork { get; set; } = false;
 
@@ -41,6 +41,20 @@ public class DeviceAllowanceSettings
         if (AllowAllStreamingOnMainNetwork)
             return true;
 
+        if (AllowAppleStreamingOnMainNetwork &&
+            !string.IsNullOrEmpty(vendor) &&
+            vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a smart speaker should be allowed on main network based on vendor.
+    /// Apple HomePods are categorized as SmartSpeaker, so we check AllowAppleStreamingOnMainNetwork.
+    /// </summary>
+    public bool IsSmartSpeakerAllowed(string? vendor)
+    {
         if (AllowAppleStreamingOnMainNetwork &&
             !string.IsNullOrEmpty(vendor) &&
             vendor.Contains("Apple", StringComparison.OrdinalIgnoreCase))
