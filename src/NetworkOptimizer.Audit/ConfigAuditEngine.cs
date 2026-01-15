@@ -857,7 +857,7 @@ public class ConfigAuditEngine
             DohState = dnsSecurityResult.DohState,
             DohProviders = providerNames,
             DohConfigNames = configNames,
-            DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule,
+            DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule || (dnsSecurityResult.DnatProvidesFullCoverage && dnsSecurityResult.DnatRedirectTargetIsValid),
             DotBlocked = dnsSecurityResult.HasDotBlockRule,
             DoqBlocked = dnsSecurityResult.HasDoqBlockRule,
             DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,
