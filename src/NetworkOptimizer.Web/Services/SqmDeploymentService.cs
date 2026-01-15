@@ -319,8 +319,27 @@ WantedBy=multi-user.target
 
             if (!setupResult.success)
             {
-                _logger.LogWarning("Boot script returned: {Output}", setupResult.output);
-                // Don't fail deployment, script is in place for next boot
+                // Log detailed output for debugging
+                _logger.LogWarning(
+                    "Boot script execution failed for {Name} ({Interface}). Output: {Output}",
+                    config.ConnectionName, config.Interface, setupResult.output);
+
+                // Add user-visible warning - script is deployed but didn't run correctly
+                var logFile = $"/var/log/sqm-{config.ConnectionName?.ToLowerInvariant() ?? config.Interface}.log";
+                var warningMsg = $"Boot script did not complete successfully. " +
+                    $"Check gateway logs at {logFile} for details. " +
+                    $"Consider removing Adaptive SQM and contacting support if the issue persists.";
+                result.Warnings.Add(warningMsg);
+                steps.Add($"⚠️ Warning: {warningMsg}");
+
+                // Log truncated output for UI visibility if available
+                if (!string.IsNullOrWhiteSpace(setupResult.output))
+                {
+                    var truncatedOutput = setupResult.output.Length > 500
+                        ? setupResult.output[..500] + "..."
+                        : setupResult.output;
+                    _logger.LogWarning("Boot script output (truncated): {Output}", truncatedOutput);
+                }
             }
 
             result.Success = true;
@@ -377,13 +396,13 @@ WantedBy=multi-user.target
     /// Deploy SQM Monitor script. Uses TcMonitorPort from gateway settings.
     /// Exposes all SQM data (TC rates, speedtest results, ping data) via HTTP.
     /// </summary>
-    public async Task<bool> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
+    public async Task<(bool success, string? warning)> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
     {
         var settings = await GetGatewaySettingsAsync();
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             _logger.LogError("Gateway SSH not configured");
-            return false;
+            return (false, null);
         }
 
         var device = new DeviceSshConfiguration
@@ -403,7 +422,7 @@ WantedBy=multi-user.target
             var success = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
             if (!success)
             {
-                return false;
+                return (false, null);
             }
 
             // Run the script to set up SQM monitor
@@ -412,15 +431,32 @@ WantedBy=multi-user.target
 
             if (!runResult.success)
             {
-                _logger.LogWarning("SQM Monitor setup returned: {Output}", runResult.output);
+                // Log detailed output for debugging
+                _logger.LogWarning(
+                    "SQM Monitor setup script did not complete successfully. Output: {Output}",
+                    runResult.output);
+
+                // Log truncated output if available
+                if (!string.IsNullOrWhiteSpace(runResult.output))
+                {
+                    var truncatedOutput = runResult.output.Length > 500
+                        ? runResult.output[..500] + "..."
+                        : runResult.output;
+                    _logger.LogWarning("SQM Monitor script output (truncated): {Output}", truncatedOutput);
+                }
+
+                var warning = "SQM Monitor script did not complete successfully. " +
+                    "Check /var/log/sqm-monitor.log on the gateway for details. " +
+                    "Consider removing Adaptive SQM and contacting support if the issue persists.";
+                return (true, warning); // Still return success since script is deployed
             }
 
-            return true;
+            return (true, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to deploy SQM Monitor");
-            return false;
+            return (false, null);
         }
     }
 
@@ -1100,4 +1136,15 @@ public class SqmDeploymentResult
     public string? Message { get; set; }
     public string? Error { get; set; }
     public List<string> Steps { get; set; } = new();
+
+    /// <summary>
+    /// Non-fatal warnings that occurred during deployment.
+    /// Scripts are deployed but may not have activated correctly.
+    /// </summary>
+    public List<string> Warnings { get; set; } = new();
+
+    /// <summary>
+    /// True if there are warnings the user should be aware of.
+    /// </summary>
+    public bool HasWarnings => Warnings.Count > 0;
 }

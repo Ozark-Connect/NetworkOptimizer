@@ -1161,6 +1161,7 @@
     // Deployment status
     private SqmDeploymentStatus? deploymentStatus;
     private List<string> deploymentSteps = new();
+    private List<string> deploymentWarnings = new();
     private List<TcInterfaceStats>? tcInterfaces;
 
     // WAN interfaces from controller
@@ -1879,6 +1880,7 @@
 
         isDeploying = true;
         deploymentSteps.Clear();
+        deploymentWarnings.Clear();
         statusMessage = null;
         StateHasChanged();
 
@@ -1927,6 +1929,10 @@
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
+                    if (result.HasWarnings)
+                    {
+                        deploymentWarnings.AddRange(result.Warnings);
+                    }
                     deploymentSteps.Add($"{wan1Config.Name} deployed successfully (speedtest in 5s)");
                 }
                 else
@@ -1947,6 +1953,10 @@
                 if (result.Success)
                 {
                     deploymentSteps.AddRange(result.Steps);
+                    if (result.HasWarnings)
+                    {
+                        deploymentWarnings.AddRange(result.Warnings);
+                    }
                     deploymentSteps.Add($"{wan2Config.Name} deployed successfully (speedtest in 50s)");
                 }
                 else
@@ -1970,12 +1980,25 @@
                 var w2Interface = (wan1Config.Enabled && wan2Config.Enabled) ? $"ifb{wan2Config.Interface}" : "";
                 var w2Name = (wan1Config.Enabled && wan2Config.Enabled) ? wan2Config.Name : "";
 
-                await DeploymentService.DeploySqmMonitorAsync(w1Interface, w1Name, w2Interface, w2Name);
+                var (monitorSuccess, monitorWarning) = await DeploymentService.DeploySqmMonitorAsync(w1Interface, w1Name, w2Interface, w2Name);
 
+                if (monitorWarning != null)
+                {
+                    deploymentWarnings.Add(monitorWarning);
+                    deploymentSteps.Add($"⚠️ Warning: {monitorWarning}");
+                }
                 deploymentSteps.Add("SQM Monitor deployed");
             }
 
-            statusMessage = "SQM deployment completed successfully!";
+            // Set final status - include warning note if any
+            if (deploymentWarnings.Count > 0)
+            {
+                statusMessage = $"SQM deployment completed with {deploymentWarnings.Count} warning(s). Check the deployment log for details.";
+            }
+            else
+            {
+                statusMessage = "SQM deployment completed successfully!";
+            }
             statusSuccess = true;
 
             // Invalidate cache and refresh status
@@ -1998,6 +2021,7 @@
     {
         isDeploying = true;
         deploymentSteps.Clear();
+        deploymentWarnings.Clear();
         statusMessage = null;
         StateHasChanged();
 
@@ -2006,14 +2030,23 @@
             deploymentSteps.Add("Deploying SQM Monitor...");
             await ScrollDeploymentLog();
 
-            var success = await DeploymentService.DeploySqmMonitorAsync(
+            var (success, warning) = await DeploymentService.DeploySqmMonitorAsync(
                 $"ifb{wan1Config.Interface}", wan1Config.Name,
                 $"ifb{wan2Config.Interface}", wan2Config.Name);
 
             if (success)
             {
-                deploymentSteps.Add("SQM Monitor deployed successfully");
-                statusMessage = "SQM Monitor deployed!";
+                if (warning != null)
+                {
+                    deploymentWarnings.Add(warning);
+                    deploymentSteps.Add($"⚠️ Warning: {warning}");
+                    statusMessage = "SQM Monitor deployed with warnings. Check the deployment log for details.";
+                }
+                else
+                {
+                    deploymentSteps.Add("SQM Monitor deployed successfully");
+                    statusMessage = "SQM Monitor deployed!";
+                }
                 statusSuccess = true;
                 InvalidateCache();
                 await RefreshStatus();
@@ -2041,6 +2074,7 @@
         isDeploying = true;
         statusMessage = null;
         deploymentSteps.Clear();
+        deploymentWarnings.Clear();
         deploymentSteps.Add("Removing SQM and SQM Monitor...");
         await ScrollDeploymentLog();
 
