@@ -513,7 +513,7 @@ public class SqmManagerTests
         var errors = manager.ValidateConfiguration();
 
         // Assert
-        errors.Should().Contain("PingHost is required");
+        errors.Should().Contain("Ping Target Host is required");
     }
 
     [Fact]

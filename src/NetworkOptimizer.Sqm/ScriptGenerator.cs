@@ -17,10 +17,11 @@ public class ScriptGenerator
     {
         _config = config;
         _initialDelaySeconds = initialDelaySeconds;
-        // Normalize connection name for use in filenames (lowercase, no spaces/parens)
+        // Sanitize connection name for safe use in filenames and shell variables
+        // Security: prevents command injection via filename/path manipulation
         _name = string.IsNullOrWhiteSpace(config.ConnectionName)
-            ? config.Interface.ToLowerInvariant()
-            : config.ConnectionName.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
+            ? InputSanitizer.SanitizeConnectionName(config.Interface)
+            : InputSanitizer.SanitizeConnectionName(config.ConnectionName);
     }
 
     /// <summary>
