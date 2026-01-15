@@ -119,7 +119,7 @@ public class DnsSecurityAnalyzer
         // Analyze firewall rules
         if (firewallData.HasValue)
         {
-            AnalyzeFirewallRules(firewallData.Value, result);
+            AnalyzeFirewallRules(firewallData.Value, networks, result);
         }
         else
         {
@@ -384,7 +384,7 @@ public class DnsSecurityAnalyzer
         }
     }
 
-    private void AnalyzeFirewallRules(JsonElement firewallData, DnsSecurityResult result)
+    private void AnalyzeFirewallRules(JsonElement firewallData, List<NetworkInfo>? networks, DnsSecurityResult result)
     {
         // Parse firewall policies to find DNS-related rules
         foreach (var policy in firewallData.UnwrapDataArray())
@@ -400,6 +400,26 @@ public class DnsSecurityAnalyzer
 
             if (!enabled)
                 continue;
+
+            // Parse source network info for coverage tracking
+            string? sourceMatchingTarget = null;
+            List<string>? sourceNetworkIds = null;
+            bool sourceMatchOppositeNetworks = false;
+
+            if (policy.TryGetProperty("source", out var source))
+            {
+                sourceMatchingTarget = source.GetStringOrNull("matching_target");
+                sourceMatchOppositeNetworks = source.GetBoolOrDefault("match_opposite_networks", false);
+
+                if (source.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
+                {
+                    sourceNetworkIds = netIds.EnumerateArray()
+                        .Select(n => n.GetString())
+                        .Where(n => !string.IsNullOrEmpty(n))
+                        .Select(n => n!)
+                        .ToList();
+                }
+            }
 
             // Check destination port and matching target
             string? destPort = null;
@@ -459,6 +479,12 @@ public class DnsSecurityAnalyzer
                     result.HasDns53BlockRule = true;
                     result.Dns53RuleName = name;
                     _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
+
+                    // Track network coverage for this rule
+                    if (networks != null)
+                    {
+                        AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                    }
                 }
                 else
                 {
@@ -522,6 +548,92 @@ public class DnsSecurityAnalyzer
                     }
                 }
             }
+        }
+
+        // Calculate DNS53 network coverage stats
+        if (networks != null && result.HasDns53BlockRule)
+        {
+            CalculateDns53Coverage(networks, result);
+        }
+    }
+
+    /// <summary>
+    /// Add covered networks to the set based on source matching rules.
+    /// Handles Match Opposite logic: when true, rule applies to all networks EXCEPT those listed.
+    /// </summary>
+    private static void AddCoveredNetworks(
+        List<NetworkInfo> networks,
+        string? sourceMatchingTarget,
+        List<string>? sourceNetworkIds,
+        bool matchOpposite,
+        HashSet<string> coveredNetworkIds)
+    {
+        // If source matching target is ANY or not set with no network IDs, rule covers all networks
+        if (string.IsNullOrEmpty(sourceMatchingTarget) ||
+            sourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var network in networks)
+            {
+                coveredNetworkIds.Add(network.Id);
+            }
+            return;
+        }
+
+        // If matching target is NETWORK, check the network IDs with Match Opposite handling
+        if (sourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+        {
+            var networkIds = sourceNetworkIds ?? new List<string>();
+
+            if (matchOpposite)
+            {
+                // Match Opposite: rule applies to all networks EXCEPT those listed
+                foreach (var network in networks)
+                {
+                    if (!networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase))
+                    {
+                        coveredNetworkIds.Add(network.Id);
+                    }
+                }
+            }
+            else
+            {
+                // Normal: rule applies ONLY to networks listed
+                foreach (var networkId in networkIds)
+                {
+                    coveredNetworkIds.Add(networkId);
+                }
+            }
+            return;
+        }
+
+        // For other matching targets (IP, CLIENT, etc.), we can't determine network coverage
+        // These are more targeted rules that don't provide broad network coverage
+    }
+
+    /// <summary>
+    /// Calculate DNS53 coverage statistics after processing all rules
+    /// </summary>
+    private void CalculateDns53Coverage(List<NetworkInfo> networks, DnsSecurityResult result)
+    {
+        foreach (var network in networks)
+        {
+            if (result.Dns53CoveredNetworkIds.Contains(network.Id))
+            {
+                result.Dns53CoveredNetworks.Add(network.Name);
+            }
+            else
+            {
+                result.Dns53UncoveredNetworks.Add(network.Name);
+            }
+        }
+
+        result.Dns53ProvidesFullCoverage = result.Dns53UncoveredNetworks.Count == 0;
+
+        if (!result.Dns53ProvidesFullCoverage)
+        {
+            _logger.LogInformation("DNS53 blocking provides partial coverage. Covered: {Covered}, Uncovered: {Uncovered}",
+                string.Join(", ", result.Dns53CoveredNetworks),
+                string.Join(", ", result.Dns53UncoveredNetworks));
         }
     }
 
@@ -656,6 +768,34 @@ public class DnsSecurityAnalyzer
                 RecommendedAction = "Create firewall rule: Block outbound UDP port 53 to Internet for all VLANs (except gateway), or configure DNAT rules to redirect DNS traffic",
                 RuleId = "DNS-LEAK-001",
                 ScoreImpact = 12
+            });
+        }
+
+        // Issue: DNS53 firewall rules provide partial coverage (some networks not covered)
+        // This happens when rules use source network restrictions with or without Match Opposite
+        if (result.HasDns53BlockRule && !result.Dns53ProvidesFullCoverage && result.Dns53UncoveredNetworks.Any() && !dnatIsValidAlternative)
+        {
+            var totalNetworks = result.Dns53CoveredNetworks.Count + result.Dns53UncoveredNetworks.Count;
+            var coverageRatio = totalNetworks > 0 ? (double)result.Dns53CoveredNetworks.Count / totalNetworks : 0;
+            // If 2/3 or more networks are covered, use Recommended severity; otherwise Critical
+            var severity = coverageRatio >= 2.0 / 3.0 ? AuditSeverity.Recommended : AuditSeverity.Critical;
+            var scoreImpact = severity == AuditSeverity.Recommended ? 6 : 10;
+
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.Dns53PartialCoverage,
+                Severity = severity,
+                DeviceName = result.GatewayName,
+                Message = $"DNS port 53 blocking rules provide partial network coverage. Uncovered networks: {string.Join(", ", result.Dns53UncoveredNetworks)}. Devices on these networks can bypass DNS settings.",
+                RecommendedAction = "Update firewall rules to cover all networks, or create separate rules for uncovered networks, or configure DNAT rules as an alternative",
+                RuleId = "DNS-LEAK-002",
+                ScoreImpact = scoreImpact,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "covered_networks", result.Dns53CoveredNetworks },
+                    { "uncovered_networks", result.Dns53UncoveredNetworks },
+                    { "coverage_ratio", coverageRatio }
+                }
             });
         }
 
@@ -1645,6 +1785,24 @@ public class DnsSecurityResult
     public string? Doh3RuleName { get; set; }
     public List<string> DohBlockedDomains { get; } = new();
     public List<string> DoqBlockedDomains { get; } = new();
+
+    // DNS53 Firewall Rule Network Coverage
+    /// <summary>
+    /// Whether DNS53 blocking rules provide full coverage across all networks
+    /// </summary>
+    public bool Dns53ProvidesFullCoverage { get; set; }
+    /// <summary>
+    /// Network IDs covered by DNS53 blocking rules
+    /// </summary>
+    public HashSet<string> Dns53CoveredNetworkIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Network names covered by DNS53 blocking rules
+    /// </summary>
+    public List<string> Dns53CoveredNetworks { get; } = new();
+    /// <summary>
+    /// Network names NOT covered by DNS53 blocking rules
+    /// </summary>
+    public List<string> Dns53UncoveredNetworks { get; } = new();
 
     // Device DNS Configuration
     public bool DeviceDnsPointsToGateway { get; set; } = true;

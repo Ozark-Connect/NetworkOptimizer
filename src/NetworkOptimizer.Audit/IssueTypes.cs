@@ -55,6 +55,7 @@ public static class IssueTypes
     public const string DnsNoDoh = "DNS_NO_DOH";
     public const string DnsDohAuto = "DNS_DOH_AUTO";
     public const string DnsNo53Block = "DNS_NO_53_BLOCK";
+    public const string Dns53PartialCoverage = "DNS_53_PARTIAL_COVERAGE";
     public const string DnsNoDotBlock = "DNS_NO_DOT_BLOCK";
     public const string DnsNoDohBlock = "DNS_NO_DOH_BLOCK";
     public const string DnsNoDoqBlock = "DNS_NO_DOQ_BLOCK";

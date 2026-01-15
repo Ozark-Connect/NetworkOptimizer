@@ -3946,4 +3946,269 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region Source Network Match Opposite Tests
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_MatchOppositeNetworks_ExcludesSpecifiedNetwork()
+    {
+        // Arrange - DNS block rule with Match Opposite: applies to all networks EXCEPT net2
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Guest", "192.168.3.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS (Match Opposite)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net2""],
+                    ""match_opposite_networks"": true
+                },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+
+        // Assert - Rule covers LAN and Guest (all except IoT)
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53ProvidesFullCoverage.Should().BeFalse();
+        result.Dns53CoveredNetworks.Should().Contain("LAN");
+        result.Dns53CoveredNetworks.Should().Contain("Guest");
+        result.Dns53CoveredNetworks.Should().NotContain("IoT");
+        result.Dns53UncoveredNetworks.Should().Contain("IoT");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_SpecificNetworks_OnlyCoversListedNetworks()
+    {
+        // Arrange - DNS block rule applies ONLY to net1 (no Match Opposite)
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for LAN Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net1""],
+                    ""match_opposite_networks"": false
+                },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+
+        // Assert - Only LAN is covered
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53ProvidesFullCoverage.Should().BeFalse();
+        result.Dns53CoveredNetworks.Should().Contain("LAN");
+        result.Dns53UncoveredNetworks.Should().Contain("IoT");
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_SourceAny_CoversAllNetworks()
+    {
+        // Arrange - DNS block rule with source ANY covers all networks
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for All"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""ANY""
+                },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+
+        // Assert - All networks covered
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.Dns53CoveredNetworks.Should().Contain("LAN");
+        result.Dns53CoveredNetworks.Should().Contain("IoT");
+        result.Dns53UncoveredNetworks.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_MultipleRulesCombineCoverage()
+    {
+        // Arrange - Multiple DNS block rules cover different networks
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Guest", "192.168.3.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for LAN"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net1""]
+                },
+                ""destination"": { ""port"": ""53"" }
+            },
+            {
+                ""name"": ""Block DNS for IoT and Guest"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net2"", ""net3""]
+                },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+
+        // Assert - All networks covered by combined rules
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.Dns53CoveredNetworks.Should().HaveCount(3);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatRule_MatchOpposite_CoversAllExceptSpecified()
+    {
+        // Arrange - DNAT rule with Match Opposite: applies to all networks EXCEPT net2
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"),
+            ("net3", "Guest", "192.168.3.0/24"));
+
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""port"": ""53"" },
+                ""source_filter"": {
+                    ""filter_type"": ""NETWORK_CONF"",
+                    ""network_conf_id"": ""net2"",
+                    ""match_opposite"": true
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Covers LAN and Guest (all except IoT)
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatCoveredNetworks.Should().Contain("Guest");
+        result.DnatUncoveredNetworks.Should().Contain("IoT");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDnatRule_NoMatchOpposite_OnlyCoversSpecifiedNetwork()
+    {
+        // Arrange - DNAT rule without Match Opposite: applies only to net1
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""destination_filter"": { ""port"": ""53"" },
+                ""source_filter"": {
+                    ""filter_type"": ""NETWORK_CONF"",
+                    ""network_conf_id"": ""net1"",
+                    ""match_opposite"": false
+                }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - Only LAN is covered
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeFalse();
+        result.DnatCoveredNetworks.Should().Contain("LAN");
+        result.DnatUncoveredNetworks.Should().Contain("IoT");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53PartialCoverage_DnatFullCoverage_SuppressesPartialIssue()
+    {
+        // Arrange - DNS53 firewall rule covers only LAN, but DNAT covers all
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS for LAN Only"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net1""]
+                },
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        var natRules = CreateDnatNatRules(("net1", "192.168.1.1"), ("net2", "192.168.1.1"));
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, firewall, null, networks, null, null, natRules);
+
+        // Assert - DNAT provides full coverage, so no partial coverage issue
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53ProvidesFullCoverage.Should().BeFalse(); // Firewall alone is partial
+        result.DnatProvidesFullCoverage.Should().BeTrue(); // But DNAT covers all
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.Dns53PartialCoverage); // Suppressed by DNAT
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block); // Firewall handles part of it
+    }
+
+    #endregion
 }

@@ -106,6 +106,12 @@ public class DnatRuleInfo
     /// When set, this scopes the rule to traffic from that VLAN even if source is "any".
     /// </summary>
     public string? InInterface { get; init; }
+
+    /// <summary>
+    /// When true, the rule applies to all networks EXCEPT the specified NetworkId.
+    /// This inverts the network matching logic.
+    /// </summary>
+    public bool MatchOpposite { get; init; }
 }
 
 /// <summary>
@@ -168,8 +174,30 @@ public class DnatDnsAnalyzer
             switch (rule.CoverageType)
             {
                 case "network":
+                    // Network reference - coverage depends on MatchOpposite
+                    if (!string.IsNullOrEmpty(rule.NetworkId))
+                    {
+                        if (rule.MatchOpposite)
+                        {
+                            // Match Opposite: covers all networks EXCEPT the specified one
+                            foreach (var network in allNetworks)
+                            {
+                                if (!string.Equals(network.Id, rule.NetworkId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    coveredNetworkIds.Add(network.Id);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Normal: covers only the specified network
+                            coveredNetworkIds.Add(rule.NetworkId);
+                        }
+                    }
+                    break;
+
                 case "interface":
-                    // Network reference or in_interface scoping - full coverage for that network
+                    // in_interface scoping - full coverage for that network
                     if (!string.IsNullOrEmpty(rule.NetworkId))
                     {
                         coveredNetworkIds.Add(rule.NetworkId);
@@ -278,13 +306,16 @@ public class DnatDnsAnalyzer
             var filterType = sourceFilter?.GetStringOrNull("filter_type");
             var networkConfId = sourceFilter?.GetStringOrNull("network_conf_id");
             var address = sourceFilter?.GetStringOrNull("address");
+            var matchOpposite = sourceFilter?.GetBoolOrDefault("match_opposite", false) ?? false;
 
             DnatRuleInfo ruleInfo;
 
             if (string.Equals(filterType, "NETWORK_CONF", StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrEmpty(networkConfId))
             {
-                // Network reference - full coverage for that network
+                // Network reference - coverage depends on MatchOpposite
+                // If MatchOpposite=false: covers only the specified network
+                // If MatchOpposite=true: covers all networks EXCEPT the specified one
                 ruleInfo = new DnatRuleInfo
                 {
                     Id = id,
@@ -292,7 +323,8 @@ public class DnatDnsAnalyzer
                     CoverageType = "network",
                     NetworkId = networkConfId,
                     RedirectIp = redirectIp,
-                    InInterface = inInterface
+                    InInterface = inInterface,
+                    MatchOpposite = matchOpposite
                 };
             }
             else if (!string.IsNullOrEmpty(address))
