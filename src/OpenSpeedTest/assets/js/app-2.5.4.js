@@ -332,14 +332,14 @@ window.onload = function() {
     var ShowData = data;
     if (Display === "Ping") {
       if (ShowData >= 1 && ShowData < 10000) {
-        this.pingResult.el.textContent = ShowData.toFixed(1);
-        this.pingMobres.el.textContent = ShowData.toFixed(1);
+        this.pingResult.el.textContent = Math.floor(ShowData);
+        this.pingMobres.el.textContent = Math.floor(ShowData);
       } else if (ShowData >= 0 && ShowData < 1) {
         if (ShowData == 0) {
           ShowData = 0;
         }
-        this.pingResult.el.textContent = ShowData.toFixed(1);
-        this.pingMobres.el.textContent = ShowData.toFixed(1);
+        this.pingResult.el.textContent = Math.floor(ShowData);
+        this.pingMobres.el.textContent = Math.floor(ShowData);
       }
     }
     if (Display === "Error") {
@@ -366,9 +366,9 @@ window.onload = function() {
     var ShowData = data;
     if (Display === "Jitter") {
       if (ShowData >= 1 && ShowData < 10000) {
-        this.jitterDesk.el.textContent = ShowData.toFixed(1);
+        this.jitterDesk.el.textContent = Math.floor(ShowData);
         if (ShowData >= 1 && ShowData < 100) {
-          this.JitterResultMon.el.textContent = ShowData.toFixed(1);
+          this.JitterResultMon.el.textContent = Math.floor(ShowData);
         }
         if (ShowData >= 100) {
           var kData = (ShowData / 1000).toFixed(1);
@@ -378,8 +378,8 @@ window.onload = function() {
         if (ShowData == 0) {
           ShowData = 0;
         }
-        this.jitterDesk.el.textContent = ShowData.toFixed(1);
-        this.JitterResultMon.el.textContent = ShowData.toFixed(1);
+        this.jitterDesk.el.textContent = Math.floor(ShowData);
+        this.JitterResultMon.el.textContent = Math.floor(ShowData);
       }
     }
   };
