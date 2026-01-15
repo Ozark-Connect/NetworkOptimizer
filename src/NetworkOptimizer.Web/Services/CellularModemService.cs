@@ -2,6 +2,7 @@ using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
+using NetworkOptimizer.UniFi;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -70,20 +71,10 @@ public class CellularModemService : ICellularModemService
 
             foreach (var device in devices)
             {
-                // Look for U5G-Max devices - check model, shortname, and type
-                var model = device.Model?.ToUpperInvariant() ?? "";
-                var shortname = device.Shortname?.ToUpperInvariant() ?? "";
-                var type = device.Type?.ToUpperInvariant() ?? "";
-
-                // U5G-Max appears as shortname "U5GMAX" or type "umbb"
-                bool isCellularModem = model.Contains("U5G") || model.Contains("ULTE") || model.Contains("U-LTE") ||
-                                       shortname.Contains("U5G") || shortname.Contains("ULTE") || shortname.Contains("U-LTE") ||
-                                       type.Contains("UMBB") || type == "LTE";
-
-                if (isCellularModem)
+                // Use product database to identify cellular modems
+                if (UniFiProductDatabase.IsCellularModem(device.Model, device.Shortname, device.Type))
                 {
-                    var rawModel = !string.IsNullOrEmpty(device.Shortname) ? device.Shortname : device.Model ?? "Unknown";
-                    var displayModel = FormatModelName(rawModel);
+                    var displayModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname, null);
                     discovered.Add(new DiscoveredModem
                     {
                         DeviceId = device.Id,
@@ -361,23 +352,6 @@ public class CellularModemService : ICellularModemService
         }
 
         return sections;
-    }
-
-    /// <summary>
-    /// Format model names for display (e.g., U5GMAX -> U5G-Max)
-    /// </summary>
-    private static string FormatModelName(string model)
-    {
-        if (string.IsNullOrEmpty(model))
-            return "Unknown";
-
-        return model.ToUpperInvariant() switch
-        {
-            "U5GMAX" => "U5G-Max",
-            "ULTE" => "U-LTE",
-            "ULTEPRO" => "U-LTE-Pro",
-            _ => model
-        };
     }
 
     public void Dispose()

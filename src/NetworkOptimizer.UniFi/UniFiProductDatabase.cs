@@ -13,6 +13,24 @@ namespace NetworkOptimizer.UniFi;
 public static class UniFiProductDatabase
 {
     /// <summary>
+    /// Model codes for cellular/LTE modems.
+    /// Used for auto-discovery in Cellular Modem Settings.
+    /// </summary>
+    private static readonly HashSet<string> CellularModemModelCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Official codes
+        "ULTE",           // U-LTE
+        "ULTEPUS",        // U-LTE-Backup-Pro (US)
+        "ULTEPEU",        // U-LTE-Backup-Pro (EU)
+        "UMBBE630",       // U5G-Max
+        "UMBBE631",       // U5G-Max-Outdoor
+
+        // Legacy/alternate codes
+        "U5GMAX",         // U5G-Max (legacy)
+        "ULTEPRO",        // U-LTE (legacy)
+    };
+
+    /// <summary>
     /// Devices that cannot run iperf3 (used to filter LAN speed test targets).
     /// Includes MIPS-based devices and others that don't ship with iperf3.
     /// </summary>
@@ -612,5 +630,43 @@ public static class UniFiProductDatabase
     {
         var productName = GetBestProductName(model, shortname, modelDisplay);
         return CanRunIperf3(productName);
+    }
+
+    /// <summary>
+    /// Check if a model code represents a cellular/LTE modem
+    /// </summary>
+    /// <param name="modelCode">The model or shortname from the UniFi API</param>
+    /// <returns>True if the device is a cellular modem</returns>
+    public static bool IsCellularModem(string? modelCode)
+    {
+        if (string.IsNullOrEmpty(modelCode))
+            return false;
+
+        return CellularModemModelCodes.Contains(modelCode);
+    }
+
+    /// <summary>
+    /// Check if a device is a cellular/LTE modem using multiple identification fields
+    /// </summary>
+    /// <param name="model">The model field (internal code)</param>
+    /// <param name="shortname">The shortname field</param>
+    /// <param name="deviceType">The type field from UniFi API (e.g., "umbb" for modems)</param>
+    /// <returns>True if the device is a cellular modem</returns>
+    public static bool IsCellularModem(string? model, string? shortname, string? deviceType)
+    {
+        // Check model code first
+        if (IsCellularModem(model))
+            return true;
+
+        // Check shortname
+        if (IsCellularModem(shortname))
+            return true;
+
+        // Check device type - "umbb" is the UniFi type for mobile broadband devices
+        if (!string.IsNullOrEmpty(deviceType) &&
+            deviceType.Equals("umbb", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 }

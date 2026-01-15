@@ -804,4 +804,147 @@ public class UniFiProductDatabaseTests
     }
 
     #endregion
+
+    #region IsCellularModem Tests (Single Parameter)
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void IsCellularModem_NullOrEmpty_ReturnsFalse(string? modelCode)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(modelCode);
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("ULTE")]
+    [InlineData("ULTEPUS")]
+    [InlineData("ULTEPEU")]
+    [InlineData("UMBBE630")]
+    [InlineData("UMBBE631")]
+    [InlineData("U5GMAX")]
+    [InlineData("ULTEPRO")]
+    public void IsCellularModem_OfficialModemCodes_ReturnsTrue(string modelCode)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(modelCode);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("ulte")]
+    [InlineData("Ulte")]
+    [InlineData("ULTE")]
+    public void IsCellularModem_CaseInsensitive(string modelCode)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(modelCode);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("UDMPRO")]
+    [InlineData("USW-Pro-24")]
+    [InlineData("U7-Pro")]
+    [InlineData("UAP-AC-Pro")]
+    public void IsCellularModem_NonModemDevices_ReturnsFalse(string modelCode)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(modelCode);
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region IsCellularModem Tests (Three Parameters)
+
+    [Theory]
+    [InlineData("ULTE", null, null)]
+    [InlineData(null, "ULTE", null)]
+    [InlineData("UMBBE630", "U5GMAX", null)]
+    public void IsCellularModem_ThreeParams_ModelOrShortname_ReturnsTrue(string? model, string? shortname, string? deviceType)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(model, shortname, deviceType);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(null, null, "umbb")]
+    [InlineData(null, null, "UMBB")]
+    [InlineData("unknown", "unknown", "umbb")]
+    public void IsCellularModem_ThreeParams_UmbbDeviceType_ReturnsTrue(string? model, string? shortname, string? deviceType)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(model, shortname, deviceType);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsCellularModem_ThreeParams_AllNull_ReturnsFalse()
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(null, null, null);
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("UDMPRO", "UDM-PRO", "ugw")]
+    [InlineData("USW-Pro-24", null, "usw")]
+    [InlineData(null, null, "uap")]
+    public void IsCellularModem_ThreeParams_NonModemDevices_ReturnsFalse(string? model, string? shortname, string? deviceType)
+    {
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(model, shortname, deviceType);
+
+        // Assert
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsCellularModem_ThreeParams_RealWorldU5GMax_ReturnsTrue()
+    {
+        // Arrange - typical U5G-Max API response
+        var model = "UMBBE630";
+        var shortname = "U5GMAX";
+        var deviceType = "umbb";
+
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(model, shortname, deviceType);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsCellularModem_ThreeParams_RealWorldULTE_ReturnsTrue()
+    {
+        // Arrange - typical U-LTE API response
+        var model = "ULTE";
+        string? shortname = null;
+        var deviceType = "umbb";
+
+        // Act
+        var result = UniFiProductDatabase.IsCellularModem(model, shortname, deviceType);
+
+        // Assert
+        result.Should().BeTrue();
+    }
+
+    #endregion
 }
