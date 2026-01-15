@@ -910,6 +910,8 @@ public class AuditService
                         DnsProviderName = n.DnsProviderName
                     })
                     .ToList(),
+                // DNS Leak Protection Details
+                HasDns53BlockRule = dns.HasDns53BlockRule,
                 // DNAT DNS Coverage
                 HasDnatDnsRules = dns.HasDnatDnsRules,
                 DnatProvidesFullCoverage = dns.DnatProvidesFullCoverage,
@@ -1283,6 +1285,9 @@ public class DnsSecurityReference
     public bool IsPiholeDetected { get; set; }
     public string? ThirdPartyDnsProviderName { get; set; }
     public List<ThirdPartyDnsNetworkReference> ThirdPartyNetworks { get; set; } = new();
+
+    // DNS Leak Protection Details
+    public bool HasDns53BlockRule { get; set; }
 
     // DNAT DNS Coverage
     public bool HasDnatDnsRules { get; set; }

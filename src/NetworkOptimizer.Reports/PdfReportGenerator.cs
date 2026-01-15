@@ -330,7 +330,7 @@ public class PdfReportGenerator
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
                     .Text(leakStatus).FontSize(9).FontColor(leakStatusColor);
                 table.Cell().Border(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(6)
-                    .Text(dns.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS").FontSize(9);
+                    .Text(dns.GetDnsLeakProtectionDetail()).FontSize(9);
 
                 // DoT Blocking row
                 var dotStatus = dns.DotBlocked ? "Blocked" : "Open";

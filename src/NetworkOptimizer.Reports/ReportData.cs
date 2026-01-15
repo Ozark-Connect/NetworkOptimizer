@@ -32,6 +32,8 @@ public class DnsSecuritySummary
     public List<string> DohProviders { get; set; } = new();
     public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
+    public bool HasDns53BlockRule { get; set; }
+    public bool DnatProvidesFullCoverage { get; set; }
     public bool DotBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
     public bool FullyProtected { get; set; }
@@ -65,6 +67,18 @@ public class DnsSecuritySummary
             WanDnsServers, WanDnsPtrResults, MatchedDnsServers, MismatchedDnsServers,
             InterfacesWithMismatch, InterfacesWithoutDns,
             WanDnsProvider, ExpectedDnsProvider, WanDnsMatchesDoH, WanDnsOrderCorrect);
+    }
+
+    public string GetDnsLeakProtectionDetail()
+    {
+        if (!DnsLeakProtection)
+            return "Devices can bypass network DNS";
+
+        if (DnatProvidesFullCoverage && HasDns53BlockRule)
+            return "External DNS queries redirected and leakage blocked";
+        if (DnatProvidesFullCoverage)
+            return "External DNS queries redirected";
+        return "External DNS queries blocked";
     }
 
     // Device DNS validation

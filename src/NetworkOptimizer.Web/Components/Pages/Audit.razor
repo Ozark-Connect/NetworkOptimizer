@@ -504,7 +504,7 @@
                                 <td class="@(lastResult.DnsSecurity.DnsLeakProtection ? "status-success" : "status-warning")">
                                     @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : "Unprotected")
                                 </td>
-                                <td>@(lastResult.DnsSecurity.DnsLeakProtection ? "External DNS queries blocked" : "Devices can bypass network DNS")</td>
+                                <td>@GetDnsLeakProtectionDetail()</td>
                             </tr>
                             <tr>
                                 <td>DNS-over-TLS (TCP 853)</td>
@@ -1372,6 +1372,24 @@
         }
 
         return "Not Configured";
+    }
+
+    private string GetDnsLeakProtectionDetail()
+    {
+        if (lastResult?.DnsSecurity == null) return "N/A";
+        var dns = lastResult.DnsSecurity;
+
+        if (!dns.DnsLeakProtection)
+            return "Devices can bypass network DNS";
+
+        var hasDnat = dns.DnatProvidesFullCoverage;
+        var hasDns53 = dns.HasDns53BlockRule;
+
+        if (hasDnat && hasDns53)
+            return "External DNS queries redirected and leakage blocked";
+        if (hasDnat)
+            return "External DNS queries redirected";
+        return "External DNS queries blocked";
     }
 
     private string GetDnsProtectionClass()

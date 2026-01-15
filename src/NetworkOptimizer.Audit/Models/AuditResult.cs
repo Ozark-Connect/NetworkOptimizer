@@ -112,6 +112,11 @@ public class DnsSecurityInfo
     public bool DnsLeakProtection { get; set; }
 
     /// <summary>
+    /// Whether DNS port 53 blocking rule exists
+    /// </summary>
+    public bool HasDns53BlockRule { get; set; }
+
+    /// <summary>
     /// Whether DoT (TCP port 853) is blocked
     /// </summary>
     public bool DotBlocked { get; set; }
