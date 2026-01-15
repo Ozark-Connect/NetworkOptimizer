@@ -523,6 +523,27 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         }
     }
 
+    /// <summary>
+    /// Gets the path to the local iperf3 executable for client operations.
+    /// On Windows, prefers the bundled/installed iperf3 over PATH.
+    /// On Linux/macOS, uses iperf3 from PATH.
+    /// </summary>
+    private static string GetLocalIperf3Path()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Look for bundled iperf3 relative to the application directory
+            var bundledPath = Path.Combine(AppContext.BaseDirectory, "iperf3", "iperf3.exe");
+            if (File.Exists(bundledPath))
+            {
+                return bundledPath;
+            }
+        }
+
+        // Fall back to iperf3 in PATH (Linux/macOS/Docker)
+        return "iperf3";
+    }
+
     private async Task<(bool success, string output)> RunLocalIperf3Async(string host, int duration, int streams, bool reverse)
     {
         // --connect-timeout in ms - fail fast if server isn't running (5 second connection timeout)
@@ -534,7 +555,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "iperf3",
+            FileName = GetLocalIperf3Path(),
             Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
