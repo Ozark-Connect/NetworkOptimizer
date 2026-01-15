@@ -108,6 +108,11 @@
     // Track if polling should continue
     private bool _shouldPoll = false;
 
+    // Constants for repeated status messages
+    private const string NotDeployedLabel = "Not Deployed";
+    private const string NotDeployedClass = "offline";
+    private const string NotDeployedMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+
     // Auto-refresh timer (60 seconds)
     private System.Threading.Timer? _refreshTimer;
 
@@ -161,9 +166,7 @@
             // Skip TC monitor poll if no SQM config exists - avoids connection failures
             if (!hasSavedEnabledConfig)
             {
-                statusLabel = "Not Deployed";
-                statusClass = "offline";
-                errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                SetNotDeployedStatus();
                 _shouldPoll = false;
                 isLoading = false;
                 return;
@@ -190,9 +193,7 @@
                 else
                 {
                     // TC Monitor responded but no interfaces configured
-                    statusLabel = "Not Deployed";
-                    statusClass = "offline";
-                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                    SetNotDeployedStatus();
                     // Only poll if we have saved enabled configs (user is setting up)
                     _shouldPoll = hasSavedEnabledConfig;
                 }
@@ -210,9 +211,7 @@
                 else
                 {
                     // Never seen active, show as not deployed
-                    statusLabel = "Not Deployed";
-                    statusClass = "offline";
-                    errorMessage = "Experiencing bufferbloat? Deploy Adaptive SQM to optimize your WAN performance.";
+                    SetNotDeployedStatus();
                     // Only poll if we have saved enabled configs (user is setting up)
                     _shouldPoll = hasSavedEnabledConfig;
                 }
@@ -239,6 +238,13 @@
         {
             isLoading = false;
         }
+    }
+
+    private void SetNotDeployedStatus()
+    {
+        statusLabel = NotDeployedLabel;
+        statusClass = NotDeployedClass;
+        errorMessage = NotDeployedMessage;
     }
 
     private async Task RefreshStats()
