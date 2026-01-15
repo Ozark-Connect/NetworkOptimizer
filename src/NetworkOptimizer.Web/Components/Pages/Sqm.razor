@@ -453,7 +453,7 @@
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan1Config.PingHost" placeholder="1.1.1.1" />
-                <small class="form-hint">ISP host/router recommended for accurate latency monitoring</small>
+                <small class="form-hint">ISP infrastructure IP (first or second hop that responds to pings), or a near Internet host like Google or Cloudflare</small>
             </div>
 
             <div class="form-group">
@@ -591,6 +591,7 @@
             <div class="form-group">
                 <label class="form-label">Ping Target Host</label>
                 <input type="text" class="form-control" @bind="wan2Config.PingHost" placeholder="100.64.0.1" />
+                <small class="form-hint">ISP infrastructure IP (first or second hop that responds to pings), or a near Internet host like Google or Cloudflare</small>
             </div>
 
             <div class="form-group">
@@ -1816,6 +1817,44 @@
                 errors.Add($"{wan2Config.Name}: Upload speed must be greater than 0");
             if (string.IsNullOrWhiteSpace(wan2Config.PingHost))
                 errors.Add($"{wan2Config.Name}: Ping host is required");
+        }
+        if (errors.Count > 0)
+        {
+            statusMessage = string.Join("; ", errors);
+            statusSuccess = false;
+            return;
+        }
+
+        // Trim inputs before validation
+        wan1Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan1Config.PingHost) ?? "";
+        wan1Config.SpeedtestServerId = NetworkOptimizer.Sqm.InputSanitizer.TrimSpeedtestServerId(wan1Config.SpeedtestServerId);
+        wan2Config.PingHost = NetworkOptimizer.Sqm.InputSanitizer.TrimPingHost(wan2Config.PingHost) ?? "";
+        wan2Config.SpeedtestServerId = NetworkOptimizer.Sqm.InputSanitizer.TrimSpeedtestServerId(wan2Config.SpeedtestServerId);
+
+        // Security validation: validate inputs before any deployment actions
+        if (wan1Ready)
+        {
+            var pingResult = NetworkOptimizer.Sqm.InputSanitizer.ValidatePingHost(wan1Config.PingHost);
+            if (!pingResult.isValid)
+                errors.Add($"{wan1Config.Name}: {pingResult.error}");
+            var serverIdResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateSpeedtestServerId(wan1Config.SpeedtestServerId);
+            if (!serverIdResult.isValid)
+                errors.Add($"{wan1Config.Name}: {serverIdResult.error}");
+            var interfaceResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateInterface(wan1Config.Interface);
+            if (!interfaceResult.isValid)
+                errors.Add($"{wan1Config.Name}: {interfaceResult.error}");
+        }
+        if (wan2Ready)
+        {
+            var pingResult = NetworkOptimizer.Sqm.InputSanitizer.ValidatePingHost(wan2Config.PingHost);
+            if (!pingResult.isValid)
+                errors.Add($"{wan2Config.Name}: {pingResult.error}");
+            var serverIdResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateSpeedtestServerId(wan2Config.SpeedtestServerId);
+            if (!serverIdResult.isValid)
+                errors.Add($"{wan2Config.Name}: {serverIdResult.error}");
+            var interfaceResult = NetworkOptimizer.Sqm.InputSanitizer.ValidateInterface(wan2Config.Interface);
+            if (!interfaceResult.isValid)
+                errors.Add($"{wan2Config.Name}: {interfaceResult.error}");
         }
         if (errors.Count > 0)
         {

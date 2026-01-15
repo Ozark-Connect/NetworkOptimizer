@@ -213,15 +213,17 @@ public class SqmManager
     }
 
     /// <summary>
-    /// Validate configuration
+    /// Validate configuration including security validation for script generation
     /// </summary>
     public List<string> ValidateConfiguration()
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(_config.Interface))
+        // Interface validation (security: prevents command injection)
+        var interfaceResult = InputSanitizer.ValidateInterface(_config.Interface);
+        if (!interfaceResult.isValid)
         {
-            errors.Add("Interface is required");
+            errors.Add(interfaceResult.error!);
         }
 
         if (_config.MaxDownloadSpeed <= 0)
@@ -249,9 +251,31 @@ public class SqmManager
             errors.Add("OverheadMultiplier should be between 1.0 and 1.2 (0-20% overhead)");
         }
 
-        if (string.IsNullOrWhiteSpace(_config.PingHost))
+        // PingHost validation (security: prevents command injection in ping command)
+        var pingHostResult = InputSanitizer.ValidatePingHost(_config.PingHost);
+        if (!pingHostResult.isValid)
         {
-            errors.Add("PingHost is required");
+            errors.Add(pingHostResult.error!);
+        }
+
+        // SpeedtestServerId validation (security: prevents command injection in speedtest --server-id)
+        var serverIdResult = InputSanitizer.ValidateSpeedtestServerId(_config.PreferredSpeedtestServerId);
+        if (!serverIdResult.isValid)
+        {
+            errors.Add(serverIdResult.error!);
+        }
+
+        // Cron schedule validation (security: prevents command injection in crontab)
+        if (_config.SpeedtestSchedule != null)
+        {
+            for (int i = 0; i < _config.SpeedtestSchedule.Count; i++)
+            {
+                var cronResult = InputSanitizer.ValidateCronSchedule(_config.SpeedtestSchedule[i]);
+                if (!cronResult.isValid)
+                {
+                    errors.Add($"Schedule {i + 1}: {cronResult.error}");
+                }
+            }
         }
 
         if (_config.BaselineLatency <= 0)

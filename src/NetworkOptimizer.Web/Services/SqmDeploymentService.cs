@@ -270,6 +270,19 @@ WantedBy=multi-user.target
         {
             // Apply profile-based settings
             config.ApplyProfileSettings();
+
+            // Security: Validate all inputs before script generation to prevent command injection.
+            // This is defense-in-depth - the UI also validates before calling DeployAsync,
+            // but we validate again here to protect against direct API calls or code changes.
+            var manager = new SqmManager(config);
+            var validationErrors = manager.ValidateConfiguration();
+            if (validationErrors.Count > 0)
+            {
+                result.Success = false;
+                result.Error = $"Configuration validation failed: {string.Join("; ", validationErrors)}";
+                _logger.LogWarning("SQM deployment blocked due to validation errors: {Errors}", validationErrors);
+                return result;
+            }
             _logger.LogInformation("Deploying SQM with config: {Summary}", config.GetParameterSummary());
 
             // Step 1: Create directories
@@ -513,8 +526,8 @@ WantedBy=multi-user.target
 
         try
         {
-            // Normalize wan name for script path (lowercase, no spaces/parens)
-            var scriptName = wanName.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
+            // Use same sanitization as deployment to ensure script path matches
+            var scriptName = Sqm.InputSanitizer.SanitizeConnectionName(wanName);
             var scriptPath = $"/data/sqm/{scriptName}-speedtest.sh";
 
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
@@ -769,9 +782,10 @@ WantedBy=multi-user.target
     /// </summary>
     private string GenerateSqmMonitorScript(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name, int port)
     {
-        // Normalize names for log file lookup (lowercase, no spaces/parens)
-        var wan1LogName = wan1Name.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
-        var wan2LogName = wan2Name.ToLowerInvariant().Replace(" ", "-").Replace("(", "").Replace(")", "");
+        // Security: Sanitize connection names for use in file paths (lowercase, safe chars)
+        // Display names use EscapeForShellDoubleQuote to preserve casing while preventing injection
+        var wan1LogName = Sqm.InputSanitizer.SanitizeConnectionName(wan1Name);
+        var wan2LogName = Sqm.InputSanitizer.SanitizeConnectionName(wan2Name);
 
         var sb = new StringBuilder();
         sb.AppendLine("#!/bin/sh");
@@ -795,10 +809,10 @@ WantedBy=multi-user.target
         sb.AppendLine();
         sb.AppendLine("# WAN Configuration");
         sb.AppendLine($"WAN1_INTERFACE=\"{wan1Interface}\"");
-        sb.AppendLine($"WAN1_NAME=\"{wan1Name}\"");
+        sb.AppendLine($"WAN1_NAME=\"{Sqm.InputSanitizer.EscapeForShellDoubleQuote(wan1Name)}\"");
         sb.AppendLine($"WAN1_LOG_NAME=\"{wan1LogName}\"");
         sb.AppendLine($"WAN2_INTERFACE=\"{wan2Interface}\"");
-        sb.AppendLine($"WAN2_NAME=\"{wan2Name}\"");
+        sb.AppendLine($"WAN2_NAME=\"{Sqm.InputSanitizer.EscapeForShellDoubleQuote(wan2Name)}\"");
         sb.AppendLine($"WAN2_LOG_NAME=\"{wan2LogName}\"");
         sb.AppendLine();
         sb.AppendLine("# Get current TC rate for an interface");
