@@ -338,8 +338,8 @@ window.onload = function() {
         if (ShowData == 0) {
           ShowData = 0;
         }
-        this.pingResult.el.textContent = Math.floor(ShowData);
-        this.pingMobres.el.textContent = Math.floor(ShowData);
+        this.pingResult.el.textContent = ShowData;
+        this.pingMobres.el.textContent = ShowData;
       }
     }
     if (Display === "Error") {
@@ -378,8 +378,8 @@ window.onload = function() {
         if (ShowData == 0) {
           ShowData = 0;
         }
-        this.jitterDesk.el.textContent = Math.floor(ShowData);
-        this.JitterResultMon.el.textContent = Math.floor(ShowData);
+        this.jitterDesk.el.textContent = ShowData;
+        this.JitterResultMon.el.textContent = ShowData;
       }
     }
   };
