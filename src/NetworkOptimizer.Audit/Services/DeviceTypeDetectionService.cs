@@ -411,6 +411,7 @@ public class DeviceTypeDetectionService
                 Category = ClientDeviceCategory.SmartPlug,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic matches
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
@@ -447,6 +448,7 @@ public class DeviceTypeDetectionService
                 Category = ClientDeviceCategory.SmartLighting,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic matches
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
@@ -464,6 +466,7 @@ public class DeviceTypeDetectionService
                 Category = ClientDeviceCategory.Printer,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic matches
                 RecommendedNetwork = NetworkPurpose.Corporate,
                 Metadata = new Dictionary<string, object>
                 {
@@ -509,48 +512,267 @@ public class DeviceTypeDetectionService
             };
         }
 
-        // VR headsets (Quest, Oculus, etc.) - often misdetected as Smartphone
-        if (IsVRHeadsetName(nameLower))
+        // VR headsets with vendor-specific detection - often misdetected as Smartphone
+        // Meta Quest / Oculus
+        if (nameLower.Contains("quest") || nameLower.Contains("oculus") || nameLower.Contains("meta quest"))
         {
             return new DeviceDetectionResult
             {
                 Category = ClientDeviceCategory.GameConsole,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Meta",
                 RecommendedNetwork = NetworkPurpose.Corporate,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["override_reason"] = "Name contains VR headset keyword - overrides fingerprint",
+                    ["override_reason"] = "Quest/Oculus is a Meta VR headset",
                     ["matched_name"] = checkName
                 }
             };
         }
 
-        // Obvious camera/doorbell keywords - overrides vendor OUI (e.g., Nest cameras misdetected as thermostats)
+        // HTC Vive
+        if (nameLower.Contains("vive"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "HTC",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Vive is an HTC VR headset",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Valve Index
+        if (nameLower.Contains("valve index"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Valve",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Index is a Valve VR headset",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Sony PSVR
+        if (nameLower.Contains("psvr"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Sony",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "PSVR is a Sony VR headset",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Pico VR
+        if (nameLower.Contains("pico"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Pico",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Pico is a Pico VR headset",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Generic VR tag (e.g., "[VR]" in name)
+        if (nameLower.Contains("[vr]"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.GameConsole,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic VR tag
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Name contains [VR] tag indicating VR headset",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Cloud cameras with vendor-specific detection (require internet/cloud services → IoT VLAN)
+        // Ring (Amazon)
+        if (nameLower.Contains("ring") && IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.CloudCamera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Ring",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Ring is a cloud camera requiring internet access",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Nest/Google cameras
+        if ((nameLower.Contains("nest") || nameLower.Contains("google")) && IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.CloudCamera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Google",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Nest/Google is a cloud camera requiring internet access",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Wyze cameras
+        if (nameLower.Contains("wyze") && IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.CloudCamera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Wyze",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Wyze is a cloud camera requiring internet access",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Blink cameras (Amazon)
+        if (nameLower.Contains("blink") && IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.CloudCamera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Amazon",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Blink is an Amazon cloud camera requiring internet access",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Arlo cameras
+        if (nameLower.Contains("arlo") && IsCameraName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.CloudCamera,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Arlo",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Arlo is a cloud camera requiring internet access",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Generic camera/doorbell - preserve OUI vendor, check OUI for cloud vendor
         if (IsCameraName(nameLower))
         {
-            // Check if this is a cloud camera vendor (requires internet/cloud services)
-            // Check both device name and OUI for cloud camera vendors
             var ouiLower = oui?.ToLowerInvariant() ?? "";
-            var isCloudCamera = IsCloudCameraVendor(nameLower) || IsCloudCameraVendor(ouiLower);
+            var isCloudCamera = IsCloudCameraVendor(ouiLower);
             return new DeviceDetectionResult
             {
                 Category = isCloudCamera ? ClientDeviceCategory.CloudCamera : ClientDeviceCategory.Camera,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic camera matches
                 RecommendedNetwork = isCloudCamera ? NetworkPurpose.IoT : NetworkPurpose.Security,
                 Metadata = new Dictionary<string, object>
                 {
                     ["override_reason"] = isCloudCamera
-                        ? "Camera detected from cloud vendor (Nest/Google/Ring/etc.)"
-                        : "Name contains camera/doorbell keyword - overrides vendor OUI",
+                        ? "Camera detected with cloud vendor OUI"
+                        : "Name contains camera/doorbell keyword",
                     ["matched_name"] = checkName,
                     ["is_cloud_camera"] = isCloudCamera
                 }
             };
         }
 
-        // Obvious thermostat keywords - overrides vendor OUI (e.g., Nest thermostats misdetected as cameras)
+        // Thermostats with vendor-specific detection
+        // Ecobee
+        if (nameLower.Contains("ecobee"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartThermostat,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Ecobee",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Ecobee is a smart thermostat",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Nest thermostat (Google)
+        if (nameLower.Contains("nest") && IsThermostatName(nameLower))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartThermostat,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Google",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Nest thermostat is a Google device",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Generic thermostat - preserve OUI vendor
         if (IsThermostatName(nameLower))
         {
             return new DeviceDetectionResult
@@ -558,27 +780,69 @@ public class DeviceTypeDetectionService
                 Category = ClientDeviceCategory.SmartThermostat,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = oui,  // Preserve OUI vendor for generic matches
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["override_reason"] = "Name contains thermostat keyword - overrides vendor OUI",
+                    ["override_reason"] = "Name contains thermostat keyword",
                     ["matched_name"] = checkName
                 }
             };
         }
 
-        // Obvious speaker/voice assistant keywords
-        if (IsSpeakerName(nameLower))
+        // Smart speakers with vendor-specific detection
+        // Apple HomePod
+        if (nameLower.Contains("homepod"))
         {
             return new DeviceDetectionResult
             {
                 Category = ClientDeviceCategory.SmartSpeaker,
                 Source = DetectionSource.DeviceName,
                 ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Apple",
                 RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["override_reason"] = "Name contains speaker/voice assistant keyword - overrides vendor OUI",
+                    ["override_reason"] = "HomePod is an Apple smart speaker",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Amazon Echo devices
+        if (nameLower.Contains("echo dot") || nameLower.Contains("echo show") ||
+            nameLower.Contains("echo pop") || nameLower.Contains("echo studio") ||
+            (nameLower.Contains("echo") && nameLower.Contains("amazon")))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartSpeaker,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Amazon",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Echo is an Amazon smart speaker",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Google/Nest speakers
+        if (nameLower.Contains("google home") || nameLower.Contains("nest mini") ||
+            nameLower.Contains("nest audio") || nameLower.Contains("nest hub"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.SmartSpeaker,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Google",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Google Home/Nest is a Google smart speaker",
                     ["matched_name"] = checkName
                 }
             };
@@ -635,42 +899,12 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
-    /// Check if a name indicates a thermostat device
+    /// Check if a name indicates a thermostat device (used for generic matching after vendor-specific checks)
     /// </summary>
     private static bool IsThermostatName(string nameLower)
     {
         return nameLower.Contains("thermostat") ||
-               nameLower.Contains("ecobee") ||
                nameLower.Contains("hvac");
-    }
-
-    /// <summary>
-    /// Check if a name indicates a smart speaker/voice assistant
-    /// </summary>
-    private static bool IsSpeakerName(string nameLower)
-    {
-        return nameLower.Contains("echo dot") ||
-               nameLower.Contains("echo show") ||
-               nameLower.Contains("homepod") ||
-               nameLower.Contains("google home") ||
-               nameLower.Contains("nest mini") ||
-               nameLower.Contains("nest audio") ||
-               nameLower.Contains("nest hub");
-    }
-
-    /// <summary>
-    /// Check if a name indicates a VR headset (Meta Quest, Oculus, etc.)
-    /// </summary>
-    private static bool IsVRHeadsetName(string nameLower)
-    {
-        return nameLower.Contains("quest") ||
-               nameLower.Contains("oculus") ||
-               nameLower.Contains("meta quest") ||
-               nameLower.Contains("[vr]") ||
-               nameLower.Contains("vive") ||
-               nameLower.Contains("valve index") ||
-               nameLower.Contains("psvr") ||
-               nameLower.Contains("pico");
     }
 
     /// <summary>

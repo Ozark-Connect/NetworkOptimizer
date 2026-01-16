@@ -778,4 +778,464 @@ public class DeviceTypeDetectionServiceTests
     }
 
     #endregion
+
+    #region Vendor Preservation Tests - Speakers
+
+    [Theory]
+    [InlineData("HomePod")]
+    [InlineData("Living Room HomePod")]
+    [InlineData("Kitchen HomePod Mini")]
+    [InlineData("[IoT] HomePod")]
+    public void DetectDeviceType_HomePod_SetsAppleVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.VendorName.Should().Be("Apple");
+    }
+
+    [Theory]
+    [InlineData("Echo Dot")]
+    [InlineData("Kitchen Echo Dot")]
+    [InlineData("Echo Show 10")]
+    [InlineData("Echo Pop")]
+    [InlineData("Echo Studio")]
+    [InlineData("Amazon Echo")]
+    public void DetectDeviceType_EchoDevices_SetsAmazonVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.VendorName.Should().Be("Amazon");
+    }
+
+    [Theory]
+    [InlineData("Google Home")]
+    [InlineData("Living Room Google Home")]
+    [InlineData("Nest Mini")]
+    [InlineData("Kitchen Nest Audio")]
+    [InlineData("Nest Hub Max")]
+    public void DetectDeviceType_GoogleNestSpeakers_SetsGoogleVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartSpeaker);
+        result.VendorName.Should().Be("Google");
+    }
+
+    #endregion
+
+    #region Vendor Preservation Tests - VR Headsets
+
+    [Theory]
+    [InlineData("Quest 3")]
+    [InlineData("Meta Quest Pro")]
+    [InlineData("Oculus Quest 2")]
+    public void DetectDeviceType_MetaVR_SetsMetaVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("Meta");
+    }
+
+    [Fact]
+    public void DetectDeviceType_HTCVive_SetsHTCVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "HTC Vive Pro"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("HTC");
+    }
+
+    [Fact]
+    public void DetectDeviceType_ValveIndex_SetsValveVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Valve Index"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("Valve");
+    }
+
+    [Fact]
+    public void DetectDeviceType_PSVR_SetsSonyVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "PSVR 2"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("Sony");
+    }
+
+    [Fact]
+    public void DetectDeviceType_Pico_SetsPicoVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Pico 4"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("Pico");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericVRTag_PreservesOuiVendor()
+    {
+        // Arrange - [VR] tag should preserve OUI vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "[VR] Custom Headset",
+            Oui = "Some VR Company"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.GameConsole);
+        result.VendorName.Should().Be("Some VR Company");
+    }
+
+    #endregion
+
+    #region Vendor Preservation Tests - Cloud Cameras
+
+    [Theory]
+    [InlineData("Ring Doorbell")]
+    [InlineData("Ring Camera")]
+    [InlineData("Front Door Ring Cam")]
+    public void DetectDeviceType_RingCamera_SetsRingVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Ring");
+    }
+
+    [Theory]
+    [InlineData("Nest Doorbell")]
+    [InlineData("Nest Cam")]
+    [InlineData("Google Camera")]
+    public void DetectDeviceType_NestGoogleCamera_SetsGoogleVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Google");
+    }
+
+    [Theory]
+    [InlineData("Wyze Cam")]
+    [InlineData("Wyze Doorbell")]
+    [InlineData("Wyze Video Camera")]
+    public void DetectDeviceType_WyzeCamera_SetsWyzeVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Wyze");
+    }
+
+    [Theory]
+    [InlineData("Blink Camera")]
+    [InlineData("Blink Doorbell")]
+    public void DetectDeviceType_BlinkCamera_SetsAmazonVendor(string deviceName)
+    {
+        // Arrange - Blink is owned by Amazon
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Amazon");
+    }
+
+    [Theory]
+    [InlineData("Arlo Camera")]
+    [InlineData("Arlo Doorbell")]
+    [InlineData("Arlo Pro Cam")]
+    public void DetectDeviceType_ArloCamera_SetsArloVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Arlo");
+    }
+
+    #endregion
+
+    #region Vendor Preservation Tests - Thermostats
+
+    [Theory]
+    [InlineData("Ecobee")]
+    [InlineData("Living Room Ecobee")]
+    [InlineData("Ecobee Smart Thermostat")]
+    public void DetectDeviceType_Ecobee_SetsEcobeeVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartThermostat);
+        result.VendorName.Should().Be("Ecobee");
+    }
+
+    [Theory]
+    [InlineData("Nest Thermostat")]
+    [InlineData("Nest Learning Thermostat")]
+    public void DetectDeviceType_NestThermostat_SetsGoogleVendor(string deviceName)
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartThermostat);
+        result.VendorName.Should().Be("Google");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericThermostat_PreservesOuiVendor()
+    {
+        // Arrange - Generic thermostat should preserve OUI vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Living Room Thermostat",
+            Oui = "Honeywell Inc"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartThermostat);
+        result.VendorName.Should().Be("Honeywell Inc");
+    }
+
+    #endregion
+
+    #region Vendor Preservation Tests - Generic Matches
+
+    [Fact]
+    public void DetectDeviceType_GenericPlug_PreservesOuiVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Living Room Plug",
+            Oui = "TP-Link Technologies"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartPlug);
+        result.VendorName.Should().Be("TP-Link Technologies");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericBulb_PreservesOuiVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Bedroom Bulb",
+            Oui = "Philips Lighting"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.SmartLighting);
+        result.VendorName.Should().Be("Philips Lighting");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericPrinter_PreservesOuiVendor()
+    {
+        // Arrange
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Office Printer",
+            Oui = "HP Inc"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Printer);
+        result.VendorName.Should().Be("HP Inc");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericCamera_PreservesOuiVendor()
+    {
+        // Arrange - Generic camera (not a cloud vendor) should preserve OUI
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Garage Camera",
+            Oui = "Reolink Innovation"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Camera);  // Self-hosted, not CloudCamera
+        result.VendorName.Should().Be("Reolink Innovation");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GenericCamera_WithCloudOui_SetsCloudCameraAndPreservesVendor()
+    {
+        // Arrange - Camera with cloud vendor OUI
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door Camera",  // Generic name without specific vendor
+            Oui = "Ring LLC"  // Cloud vendor OUI
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("Ring LLC");
+    }
+
+    #endregion
 }

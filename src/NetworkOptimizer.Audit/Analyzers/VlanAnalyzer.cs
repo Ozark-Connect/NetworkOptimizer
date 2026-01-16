@@ -510,7 +510,7 @@ public class VlanAnalyzer
                 {
                     issues.Add(new AuditIssue
                     {
-                        Type = IssueTypes.DnsLeakage,
+                        Type = IssueTypes.DnsSharedServers,
                         Severity = AuditSeverity.Informational,
                         Message = $"Network '{isolated.Name}' shares DNS servers with corporate network",
                         Metadata = new Dictionary<string, object>

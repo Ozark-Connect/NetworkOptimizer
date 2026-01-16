@@ -1396,7 +1396,7 @@ public class AuditService
         Audit.IssueTypes.MacRestriction or Audit.IssueTypes.UnusedPort or Audit.IssueTypes.PortIsolation or "PORT_SECURITY" => "Port Security",
 
         // DNS security issues
-        Audit.IssueTypes.DnsLeakage or Audit.IssueTypes.DnsNoDoh or Audit.IssueTypes.DnsDohAuto or Audit.IssueTypes.DnsNo53Block or
+        Audit.IssueTypes.DnsLeakage or Audit.IssueTypes.DnsSharedServers or Audit.IssueTypes.DnsNoDoh or Audit.IssueTypes.DnsDohAuto or Audit.IssueTypes.DnsNo53Block or
         Audit.IssueTypes.DnsNoDotBlock or Audit.IssueTypes.DnsNoDohBlock or Audit.IssueTypes.DnsIsp or
         Audit.IssueTypes.DnsWanMismatch or Audit.IssueTypes.DnsWanOrder or Audit.IssueTypes.DnsWanNoStatic or Audit.IssueTypes.DnsDeviceMisconfigured => "DNS Security",
 
@@ -1478,6 +1478,7 @@ public class AuditService
 
             // DNS security
             Audit.IssueTypes.DnsLeakage => "DNS: Leak Detected",
+            Audit.IssueTypes.DnsSharedServers => "DNS: Shared Servers",
             Audit.IssueTypes.DnsNoDoh => "DNS: DoH Not Configured",
             Audit.IssueTypes.DnsDohAuto => "DNS: DoH Set to Auto Mode",
             Audit.IssueTypes.DnsNo53Block => "DNS: No Leak Prevention",
@@ -1588,6 +1589,7 @@ public class AuditService
         Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
         Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
         Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks",
+        Audit.IssueTypes.DnsSharedServers => "Use separate DNS for isolated networks to prevent internal hostname resolution",
         Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
         Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption",
         Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP port 53 to Internet for all VLANs",

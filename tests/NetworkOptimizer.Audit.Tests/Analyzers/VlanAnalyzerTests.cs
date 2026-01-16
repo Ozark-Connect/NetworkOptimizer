@@ -936,7 +936,7 @@ public class VlanAnalyzerTests
         var result = _analyzer.AnalyzeDnsConfiguration(networks);
 
         result.Should().NotBeEmpty();
-        result.First().Type.Should().Be("DNS_LEAKAGE");
+        result.First().Type.Should().Be("DNS_SHARED_SERVERS");
     }
 
     [Fact]
