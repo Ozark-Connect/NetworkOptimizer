@@ -1221,6 +1221,9 @@
         UpdateCalculatedSpeeds(wan1Config);
         UpdateCalculatedSpeeds(wan2Config);
 
+        // Subscribe to connection changes (handles reconnection after server restart)
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+
         // Check cache synchronously BEFORE first render to avoid loading flash
         if (IsCacheValid())
         {
@@ -1231,6 +1234,15 @@
             wanInterfaces = _cachedWanInterfaces ?? new();
             isLoading = false;  // Prevents "Checking deployment status..." flash
         }
+    }
+
+    private async void OnConnectionChanged()
+    {
+        // Connection changed (reconnect after server restart, etc.) - refresh all data
+        await LoadSavedConfigsAsync();
+        await RefreshStatus(forceRefresh: true);
+        await LoadSqmMonitorDataAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -2285,6 +2297,7 @@
 
     public void Dispose()
     {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
         _refreshTimer?.Dispose();
     }
 }
