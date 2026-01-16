@@ -1059,6 +1059,14 @@
 
             <div class="form-group">
                 <label class="checkbox-label">
+                    <input type="checkbox" @bind="allowMediaPlayersOnMainNetwork" />
+                    <span>Allow media players on main network</span>
+                </label>
+                <small class="form-help">AV receivers, soundbars, and media center devices on main/corporate VLANs will show as Info instead of Warning</small>
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
                     <input type="checkbox" @bind="allowPrintersOnMainNetwork" />
                     <span>Allow printers on main network</span>
                 </label>
@@ -1249,6 +1257,7 @@
     private bool allowAllStreamingOnMainNetwork = false;
     private bool allowNameBrandTVsOnMainNetwork = false;
     private bool allowAllTVsOnMainNetwork = false;
+    private bool allowMediaPlayersOnMainNetwork = false;
     private bool allowPrintersOnMainNetwork = true;
     private string dnatExcludedVlans = "";
     private int? piholeManagementPort = null;
@@ -2411,6 +2420,7 @@
             var allStreaming = await SystemSettings.GetAsync("audit:allowAllStreamingOnMainNetwork");
             var nameBrandTVs = await SystemSettings.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await SystemSettings.GetAsync("audit:allowAllTVsOnMainNetwork");
+            var mediaPlayers = await SystemSettings.GetAsync("audit:allowMediaPlayersOnMainNetwork");
             var printers = await SystemSettings.GetAsync("audit:allowPrintersOnMainNetwork");
             var excludedVlans = await SystemSettings.GetAsync("audit:dnatExcludedVlans");
             var piholePort = await SystemSettings.GetAsync("audit:piholeManagementPort");
@@ -2421,6 +2431,7 @@
             allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
             allowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
             allowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
+            allowMediaPlayersOnMainNetwork = mediaPlayers?.ToLower() == "true";
             // Printers default to true if not set
             allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // DNAT excluded VLANs
@@ -2450,6 +2461,7 @@
             await SystemSettings.SetAsync("audit:allowAllStreamingOnMainNetwork", allowAllStreamingOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowNameBrandTVsOnMainNetwork", allowNameBrandTVsOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowAllTVsOnMainNetwork", allowAllTVsOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync("audit:allowMediaPlayersOnMainNetwork", allowMediaPlayersOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:allowPrintersOnMainNetwork", allowPrintersOnMainNetwork.ToString().ToLower());
             await SystemSettings.SetAsync("audit:dnatExcludedVlans", dnatExcludedVlans ?? "");
             await SystemSettings.SetAsync("audit:piholeManagementPort", piholeManagementPort?.ToString() ?? "");

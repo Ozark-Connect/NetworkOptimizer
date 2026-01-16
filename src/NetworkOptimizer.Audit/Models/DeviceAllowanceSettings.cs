@@ -28,6 +28,11 @@ public class DeviceAllowanceSettings
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
 
     /// <summary>
+    /// Allow media players (AV receivers, soundbars, media centers) on main network.
+    /// </summary>
+    public bool AllowMediaPlayersOnMainNetwork { get; set; } = false;
+
+    /// <summary>
     /// Allow printers on main network. When false, printers on main network
     /// will be flagged as Informational (should move to IoT or Printer VLAN).
     /// </summary>
@@ -89,6 +94,15 @@ public class DeviceAllowanceSettings
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Check if a media player should be allowed on main network.
+    /// Media players include AV receivers, soundbars, and media center devices.
+    /// </summary>
+    public bool IsMediaPlayerAllowed()
+    {
+        return AllowMediaPlayersOnMainNetwork;
     }
 
     /// <summary>

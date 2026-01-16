@@ -132,6 +132,7 @@ public class AuditService
             var allStreaming = await _settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
             var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
             var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
+            var mediaPlayers = await _settingsService.GetAsync("audit:allowMediaPlayersOnMainNetwork");
             var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
             var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
             var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
@@ -142,6 +143,7 @@ public class AuditService
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
             options.AllowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
             options.AllowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
+            options.AllowMediaPlayersOnMainNetwork = mediaPlayers?.ToLower() == "true";
             // Printers default to true (allowed) if not set
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // DNAT excluded VLANs (parse comma-separated VLAN IDs)
@@ -152,9 +154,9 @@ public class AuditService
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
             options.NamedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
 
-            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowPrinters={Printers}",
+            _logger.LogDebug("Loaded audit settings: AllowApple={Apple}, AllowAllStreaming={AllStreaming}, AllowNameBrandTVs={NameBrandTVs}, AllowAllTVs={AllTVs}, AllowMediaPlayers={MediaPlayers}, AllowPrinters={Printers}",
                 options.AllowAppleStreamingOnMainNetwork, options.AllowAllStreamingOnMainNetwork,
-                options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork, options.AllowPrintersOnMainNetwork);
+                options.AllowNameBrandTVsOnMainNetwork, options.AllowAllTVsOnMainNetwork, options.AllowMediaPlayersOnMainNetwork, options.AllowPrintersOnMainNetwork);
         }
         catch (Exception ex)
         {
@@ -663,6 +665,7 @@ public class AuditService
                 AllowAllStreamingOnMainNetwork = options.AllowAllStreamingOnMainNetwork,
                 AllowNameBrandTVsOnMainNetwork = options.AllowNameBrandTVsOnMainNetwork,
                 AllowAllTVsOnMainNetwork = options.AllowAllTVsOnMainNetwork,
+                AllowMediaPlayersOnMainNetwork = options.AllowMediaPlayersOnMainNetwork,
                 AllowPrintersOnMainNetwork = options.AllowPrintersOnMainNetwork
             };
 
@@ -1227,6 +1230,7 @@ public class AuditOptions
     public bool AllowAllStreamingOnMainNetwork { get; set; } = false;
     public bool AllowNameBrandTVsOnMainNetwork { get; set; } = false;
     public bool AllowAllTVsOnMainNetwork { get; set; } = false;
+    public bool AllowMediaPlayersOnMainNetwork { get; set; } = false;
     public bool AllowPrintersOnMainNetwork { get; set; } = true;
     public List<int>? DnatExcludedVlanIds { get; set; }
     public int? PiholeManagementPort { get; set; }
