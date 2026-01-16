@@ -78,14 +78,10 @@ public class AuditRequest
     public List<int>? DnatExcludedVlanIds { get; init; }
 
     /// <summary>
-    /// Optional: Custom Pi-hole management port (defaults to auto-probe 80, 443, 8080)
+    /// Optional: Custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)
+    /// If not specified, auto-probes ports 80, 443, 8080, 3000
     /// </summary>
-    public int? PiholeManagementPort { get; init; }
-
-    /// <summary>
-    /// Optional: Custom AdGuard Home web interface port (defaults to auto-probe 80, 443, 3000)
-    /// </summary>
-    public int? AdGuardHomeManagementPort { get; init; }
+    public int? PiholeManagementPort { get; init; }  // Name kept for backwards compatibility
 
     /// <summary>
     /// Optional: Whether UPnP is enabled on the gateway (from GetUpnpEnabledAsync)

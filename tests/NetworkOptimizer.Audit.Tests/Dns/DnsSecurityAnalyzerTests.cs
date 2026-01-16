@@ -2771,7 +2771,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: 8080);
+            customDnsManagementPort: 8080);
 
         // Assert - Should still detect third-party DNS even if Pi-hole probe fails
         result.HasThirdPartyDns.Should().BeTrue();
@@ -3102,7 +3102,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Third-party DNS + DNAT should suppress DNS_NO_53_BLOCK
@@ -3141,7 +3141,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: null);
 
         // Assert - Should raise DNS_NO_53_BLOCK even with third-party DNS
@@ -3192,7 +3192,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Only partial coverage issue (DNS_NO_53_BLOCK suppressed for valid partial DNAT)
@@ -3241,7 +3241,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: null);
 
         // Assert - Firewall block should be sufficient, no DNS_NO_53_BLOCK issue
@@ -3289,7 +3289,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Both protections in place, no issues
@@ -3357,7 +3357,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Full coverage including non-DHCP Management network
@@ -3415,7 +3415,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Partial coverage, Guest network not covered
@@ -3474,7 +3474,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Full coverage via individual rules
@@ -3519,7 +3519,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Servers network (non-DHCP) still needs coverage

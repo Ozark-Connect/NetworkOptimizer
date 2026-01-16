@@ -39,9 +39,8 @@ public class ThirdPartyDnsDetector
     /// Detect third-party LAN DNS servers across all networks
     /// </summary>
     /// <param name="networks">List of networks to check</param>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole admin interface</param>
-    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
-    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPiholePort = null, int? customAdGuardHomePort = null)
+    /// <param name="customPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
+    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPort = null)
     {
         var results = new List<ThirdPartyDnsInfo>();
         var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
@@ -101,7 +100,7 @@ public class ThirdPartyDnsDetector
                     probedIps.Add(dnsServer);
 
                     // Try Pi-hole detection first
-                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPiholePort);
+                    (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPort);
                     if (isPihole)
                     {
                         providerName = "Pi-hole";
@@ -110,7 +109,7 @@ public class ThirdPartyDnsDetector
                     else
                     {
                         // If not Pi-hole, try AdGuard Home detection
-                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customAdGuardHomePort);
+                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customPort);
                         if (isAdGuardHome)
                         {
                             providerName = "AdGuard Home";

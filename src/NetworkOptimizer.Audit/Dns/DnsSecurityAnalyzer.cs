@@ -58,66 +58,39 @@ public class DnsSecurityAnalyzer
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
     public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort: null, customAdGuardHomePort: null);
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort: null);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
     /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort: null);
-
-    /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
-    /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, int? customAdGuardHomePort)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort, firewallGroups: null, natRulesData: null);
+    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups: null, natRulesData: null);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and firewall groups
     /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
     /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, List<UniFiFirewallGroup>? firewallGroups)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort: null, firewallGroups, natRulesData: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups, natRulesData: null);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and NAT rules
     /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
+    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
     /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, JsonElement? natRulesData)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort: null, firewallGroups: null, natRulesData);
-
-    /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and firewall groups
-    /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
-    /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, int? customAdGuardHomePort, List<UniFiFirewallGroup>? firewallGroups)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort, firewallGroups, natRulesData: null);
-
-    /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and NAT rules
-    /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
-    /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, int? customAdGuardHomePort, JsonElement? natRulesData)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customPiholePort, customAdGuardHomePort, firewallGroups: null, natRulesData);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData)
+        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups: null, natRulesData);
 
     /// <summary>
     /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, firewall groups, and NAT rules
     /// </summary>
-    /// <param name="customPiholePort">Optional custom port for Pi-hole management interface</param>
-    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
+    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
     /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
     /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customPiholePort, int? customAdGuardHomePort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null)
     {
         // Store firewall groups for resolving port_group_id references
         _firewallGroups = firewallGroups?.ToDictionary(g => g.Id, g => g);
@@ -170,10 +143,10 @@ public class DnsSecurityAnalyzer
             result.GatewayName = switches.FirstOrDefault(s => s.IsGateway)?.Name;
         }
 
-        // Detect third-party LAN DNS (Pi-hole, etc.)
+        // Detect third-party LAN DNS (Pi-hole, AdGuard Home, etc.)
         if (networks?.Any() == true)
         {
-            await AnalyzeThirdPartyDnsAsync(networks, result, customPiholePort, customAdGuardHomePort);
+            await AnalyzeThirdPartyDnsAsync(networks, result, customDnsManagementPort);
         }
 
         // Analyze DNAT DNS rules (alternative to firewall blocking)
@@ -689,14 +662,14 @@ public class DnsSecurityAnalyzer
                 var dnsServerIps = result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Distinct().ToList();
                 var networkNames = result.ThirdPartyDnsServers.Select(t => t.NetworkName).Distinct().ToList();
 
-                // Known providers (Pi-hole, AdGuard) are trusted - neutral score impact
+                // Known providers (Pi-hole, AdGuard Home) are trusted - neutral score impact
                 // Unknown third-party DNS servers get a minor penalty since we can't verify their filtering
-                var isKnownProvider = result.IsPiholeDetected; // Add AdGuard detection in the future
+                var isKnownProvider = result.IsPiholeDetected || result.IsAdGuardHomeDetected;
                 var scoreImpact = isKnownProvider ? 0 : 3; // Minor penalty for unknown providers
                 var severity = isKnownProvider ? AuditSeverity.Informational : AuditSeverity.Recommended;
                 var recommendedAction = isKnownProvider
                     ? "Verify third-party DNS provides adequate security and filtering. Consider enabling DNS firewall rules to prevent bypass."
-                    : "If using Pi-hole, configure the management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home) or CyberSecure Encrypted DNS (DoH).";
+                    : "Configure the third-party DNS management port in Settings to enable detection. Otherwise, consider a known DNS filtering solution (Pi-hole, AdGuard Home) or CyberSecure Encrypted DNS (DoH).";
 
                 result.Issues.Add(new AuditIssue
                 {
@@ -711,10 +684,11 @@ public class DnsSecurityAnalyzer
                     {
                         { "third_party_dns_ips", dnsServerIps },
                         { "is_pihole", result.IsPiholeDetected },
+                        { "is_adguard_home", result.IsAdGuardHomeDetected },
                         { "is_known_provider", isKnownProvider },
                         { "affected_networks", networkNames },
                         { "provider_name", result.ThirdPartyDnsProviderName ?? "Third-Party LAN DNS" },
-                        { "configurable_setting", "Configure Pi-hole HTTP management port in Settings if detection fails" }
+                        { "configurable_setting", "Configure third-party DNS management port in Settings if detection fails" }
                     }
                 });
 
@@ -1518,9 +1492,9 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Detect third-party LAN DNS servers (like Pi-hole, AdGuard Home) across networks
     /// </summary>
-    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPiholePort = null, int? customAdGuardHomePort = null)
+    private async Task AnalyzeThirdPartyDnsAsync(List<NetworkInfo> networks, DnsSecurityResult result, int? customPort = null)
     {
-        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPiholePort, customAdGuardHomePort);
+        var thirdPartyResults = await _thirdPartyDetector.DetectThirdPartyDnsAsync(networks, customPort);
 
         if (thirdPartyResults.Any())
         {
@@ -1877,10 +1851,11 @@ public class DnsSecurityResult
     public int DhcpDeviceCount { get; set; }
     public List<DeviceDnsInfo> DeviceDnsDetails { get; } = new();
 
-    // Third-Party DNS (Pi-hole, etc.)
+    // Third-Party DNS (Pi-hole, AdGuard Home, etc.)
     public bool HasThirdPartyDns { get; set; }
     public List<ThirdPartyDnsDetector.ThirdPartyDnsInfo> ThirdPartyDnsServers { get; } = new();
     public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
+    public bool IsAdGuardHomeDetected => ThirdPartyDnsServers.Any(t => t.IsAdGuardHome);
     public string? ThirdPartyDnsProviderName { get; set; }
 
     // DNAT DNS Coverage

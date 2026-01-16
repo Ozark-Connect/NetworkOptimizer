@@ -48,8 +48,7 @@ public class ConfigAuditEngine
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
         public List<int>? DnatExcludedVlanIds { get; init; }
-        public int? PiholeManagementPort { get; init; }
-        public int? AdGuardHomeManagementPort { get; init; }
+        public int? PiholeManagementPort { get; init; }  // Used for all third-party DNS (Pi-hole, AdGuard Home, etc.)
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
 
@@ -312,7 +311,6 @@ public class ConfigAuditEngine
             PortProfiles = request.PortProfiles,
             DnatExcludedVlanIds = request.DnatExcludedVlanIds,
             PiholeManagementPort = request.PiholeManagementPort,
-            AdGuardHomeManagementPort = request.AdGuardHomeManagementPort,
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules
         };
@@ -720,7 +718,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue || ctx.NatRulesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.AdGuardHomeManagementPort, ctx.FirewallGroups, ctx.NatRulesData, ctx.DnatExcludedVlanIds);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.FirewallGroups, ctx.NatRulesData, ctx.DnatExcludedVlanIds);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

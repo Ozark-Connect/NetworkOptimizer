@@ -1092,9 +1092,9 @@
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
-                <label class="form-label">For Pi-hole users: Management Port (optional)</label>
+                <label class="form-label">Third-Party DNS Management Port (optional)</label>
                 <input type="number" class="form-control" @bind="piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 240px;" />
-                <small class="form-help">Custom HTTP port for Pi-hole admin interface. Leave empty to auto-probe ports 80, 443, 8080. Both HTTP and HTTPS are tried.</small>
+                <small class="form-help">Custom HTTP port for Pi-hole or AdGuard Home admin interface. Leave empty to auto-probe ports 80, 443, 3000, 8080.</small>
             </div>
 
             <div class="action-buttons">
@@ -2436,7 +2436,7 @@
             allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // DNAT excluded VLANs
             dnatExcludedVlans = excludedVlans ?? "";
-            // Pi-hole port (null means auto-detect)
+            // Third-party DNS port (Pi-hole, AdGuard Home, etc.) - null means auto-detect
             piholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
