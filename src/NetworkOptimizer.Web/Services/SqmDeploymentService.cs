@@ -387,13 +387,24 @@ WantedBy=multi-user.target
                     "Boot script execution failed for {Name} ({Interface}). Output: {Output}",
                     config.ConnectionName, config.Interface, setupResult.output);
 
-                // Log truncated output for UI visibility if available
+                // Add truncated output to steps for UI visibility
                 if (!string.IsNullOrWhiteSpace(setupResult.output))
                 {
-                    var truncatedOutput = setupResult.output.Length > 500
-                        ? setupResult.output[..500] + "..."
+                    var truncatedOutput = setupResult.output.Length > 300
+                        ? setupResult.output[..300] + "..."
                         : setupResult.output;
                     _logger.LogWarning("Boot script output (truncated): {Output}", truncatedOutput);
+
+                    // Split output into lines for better UI display
+                    var outputLines = truncatedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in outputLines.Take(10)) // Limit to 10 lines
+                    {
+                        steps.Add($"  {line.Trim()}");
+                    }
+                    if (outputLines.Length > 10)
+                    {
+                        steps.Add($"  ... ({outputLines.Length - 10} more lines)");
+                    }
                 }
 
                 // Clean up the failed deployment
@@ -502,19 +513,21 @@ WantedBy=multi-user.target
                     "SQM Monitor setup script did not complete successfully. Output: {Output}",
                     runResult.output);
 
-                // Log truncated output if available
+                // Build error message with truncated output
+                var errorMessage = "SQM Monitor script did not complete successfully.";
                 if (!string.IsNullOrWhiteSpace(runResult.output))
                 {
-                    var truncatedOutput = runResult.output.Length > 500
-                        ? runResult.output[..500] + "..."
+                    var truncatedOutput = runResult.output.Length > 300
+                        ? runResult.output[..300] + "..."
                         : runResult.output;
                     _logger.LogWarning("SQM Monitor script output (truncated): {Output}", truncatedOutput);
+                    errorMessage += $" Output: {truncatedOutput}";
                 }
 
                 // Clean up the failed deployment
                 await CleanupFailedSqmMonitorAsync();
 
-                return (false, "SQM Monitor script did not complete successfully. Check /var/log/sqm-monitor.log on the gateway for details.");
+                return (false, errorMessage);
             }
 
             return (true, null);
