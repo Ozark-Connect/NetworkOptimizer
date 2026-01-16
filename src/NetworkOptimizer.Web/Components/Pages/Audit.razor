@@ -53,9 +53,18 @@
                     }
                 </button>
 
-                <button class="btn btn-secondary" @onclick="ExportReport" disabled="@(!hasResults)">
-                    Export Report
-                </button>
+                @if (hasResults)
+                {
+                    <a href="/api/reports/latest/pdf" class="btn btn-secondary" download>
+                        Download PDF
+                    </a>
+                }
+                else
+                {
+                    <button class="btn btn-secondary" disabled>
+                        Download PDF
+                    </button>
+                }
 
                 <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings#security-audit"))">
                     Settings

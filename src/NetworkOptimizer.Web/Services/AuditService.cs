@@ -5,6 +5,7 @@ using NetworkOptimizer.Audit;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -18,6 +19,7 @@ public class AuditService
     // Cache keys for IMemoryCache
     private const string CacheKeyLastAuditResult = "AuditService_LastAuditResult";
     private const string CacheKeyLastAuditTime = "AuditService_LastAuditTime";
+    private const string CacheKeyLastAuditId = "AuditService_LastAuditId";
     private const string CacheKeyDismissedIssues = "AuditService_DismissedIssues";
     private const string CacheKeyDismissedIssuesLoaded = "AuditService_DismissedIssuesLoaded";
 
@@ -27,6 +29,7 @@ public class AuditService
     private readonly IAuditRepository _auditRepository;
     private readonly SystemSettingsService _settingsService;
     private readonly FingerprintDatabaseService _fingerprintService;
+    private readonly PdfStorageService _pdfStorageService;
     private readonly IMemoryCache _cache;
 
     public AuditService(
@@ -36,6 +39,7 @@ public class AuditService
         IAuditRepository auditRepository,
         SystemSettingsService settingsService,
         FingerprintDatabaseService fingerprintService,
+        PdfStorageService pdfStorageService,
         IMemoryCache cache)
     {
         _logger = logger;
@@ -44,6 +48,7 @@ public class AuditService
         _auditRepository = auditRepository;
         _settingsService = settingsService;
         _fingerprintService = fingerprintService;
+        _pdfStorageService = pdfStorageService;
         _cache = cache;
     }
 
@@ -72,6 +77,21 @@ public class AuditService
         }
     }
 
+    /// <summary>
+    /// The database ID of the last audit result, used for PDF retrieval.
+    /// </summary>
+    public int? LastAuditId
+    {
+        get => _cache.Get<int?>(CacheKeyLastAuditId);
+        private set
+        {
+            if (value != null)
+                _cache.Set(CacheKeyLastAuditId, value);
+            else
+                _cache.Remove(CacheKeyLastAuditId);
+        }
+    }
+
     private ConcurrentDictionary<string, byte> DismissedIssuesCache
     {
         get => _cache.GetOrCreate(CacheKeyDismissedIssues, _ => new ConcurrentDictionary<string, byte>())!;
@@ -91,6 +111,7 @@ public class AuditService
     {
         _cache.Remove(CacheKeyLastAuditResult);
         _cache.Remove(CacheKeyLastAuditTime);
+        _cache.Remove(CacheKeyLastAuditId);
         _cache.Remove(CacheKeyDismissedIssues);
         _cache.Remove(CacheKeyDismissedIssuesLoaded);
         _logger.LogInformation("Audit cache cleared");
@@ -458,14 +479,382 @@ public class AuditService
                 CreatedAt = DateTime.UtcNow
             };
 
-            await _auditRepository.SaveAuditResultAsync(storageResult);
+            var auditId = await _auditRepository.SaveAuditResultAsync(storageResult);
+            LastAuditId = auditId;
 
-            _logger.LogInformation("Persisted audit result to database with {IssueCount} issues, {ReportSize} bytes report data",
-                result.Issues.Count, reportDataJson.Length);
+            _logger.LogInformation("Persisted audit result to database with ID {AuditId}, {IssueCount} issues, {ReportSize} bytes report data",
+                auditId, result.Issues.Count, reportDataJson.Length);
+
+            // Generate and save PDF for direct download (avoids JS interop issues on mobile)
+            try
+            {
+                var pdfReportData = BuildReportData(result);
+                await _pdfStorageService.SavePdfAsync(auditId, pdfReportData);
+            }
+            catch (Exception pdfEx)
+            {
+                _logger.LogError(pdfEx, "Failed to generate PDF for audit {AuditId}", auditId);
+                // Don't fail the whole persist operation if PDF generation fails
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist audit result to database");
+        }
+    }
+
+    /// <summary>
+    /// Builds a ReportData object from an AuditResult for PDF generation.
+    /// </summary>
+    public Reports.ReportData BuildReportData(AuditResult result, string clientName = "Client")
+    {
+        return new Reports.ReportData
+        {
+            ClientName = clientName,
+            GeneratedAt = result.CompletedAt,
+
+            // Security score
+            SecurityScore = new Reports.SecurityScore
+            {
+                Rating = Reports.SecurityScore.CalculateRating(result.CriticalCount, result.WarningCount),
+                CriticalIssueCount = result.CriticalCount,
+                WarningCount = result.WarningCount,
+                TotalPorts = result.Statistics?.TotalPorts ?? 0,
+                DisabledPorts = result.Statistics?.DisabledPorts ?? 0,
+                MacRestrictedPorts = result.Statistics?.MacRestrictedPorts ?? 0,
+                UnprotectedActivePorts = result.Statistics?.ActivePorts ?? 0
+            },
+
+            // Networks
+            Networks = result.Networks.Select(n => new Reports.NetworkInfo
+            {
+                NetworkId = n.Id,
+                Name = n.Name,
+                VlanId = n.VlanId,
+                Subnet = n.Subnet ?? "",
+                Purpose = n.Purpose,
+                Type = Reports.NetworkInfo.ParsePurpose(n.Purpose)
+            }).ToList(),
+
+            // Switches
+            Switches = result.Switches.Select(s => new Reports.SwitchDetail
+            {
+                Name = s.Name,
+                Mac = s.Mac ?? "",
+                Model = s.Model ?? "",
+                ModelName = s.ModelName ?? "",
+                DeviceType = s.DeviceType ?? "",
+                IpAddress = "", // Not available in SwitchReference
+                IsGateway = s.IsGateway,
+                MaxCustomMacAcls = s.MaxCustomMacAcls,
+                Ports = s.Ports.Select(p => new Reports.PortDetail
+                {
+                    PortIndex = p.PortIndex,
+                    Name = p.Name,
+                    IsUp = p.IsUp,
+                    Speed = p.Speed,
+                    Forward = p.Forward,
+                    IsUplink = p.IsUplink,
+                    NativeNetwork = p.NativeNetwork,
+                    NativeVlan = p.NativeVlan,
+                    ExcludedNetworks = p.ExcludedNetworks.ToList(),
+                    PoeEnabled = p.PoeEnabled,
+                    PoePower = p.PoePower,
+                    PoeMode = p.PoeMode ?? "",
+                    PortSecurityEnabled = p.PortSecurityEnabled,
+                    PortSecurityMacs = p.PortSecurityMacs.ToList(),
+                    Isolation = p.Isolation,
+                    ConnectedDeviceType = p.ConnectedDeviceType
+                }).ToList()
+            }).ToList(),
+
+            // Critical issues
+            CriticalIssues = result.Issues
+                .Where(i => i.Severity == AuditModels.AuditSeverity.Critical)
+                .Select(i => MapAuditIssueToReport(i, Reports.IssueSeverity.Critical))
+                .ToList(),
+
+            // Recommended improvements
+            RecommendedImprovements = result.Issues
+                .Where(i => i.Severity == AuditModels.AuditSeverity.Recommended)
+                .Select(i => MapAuditIssueToReport(i, Reports.IssueSeverity.Warning))
+                .ToList(),
+
+            // Hardening notes
+            HardeningNotes = result.HardeningMeasures.ToList(),
+
+            // DNS Security
+            DnsSecurity = result.DnsSecurity != null ? new Reports.DnsSecuritySummary
+            {
+                DohEnabled = result.DnsSecurity.DohEnabled,
+                DohState = result.DnsSecurity.DohState,
+                DohProviders = result.DnsSecurity.DohProviders.ToList(),
+                DohConfigNames = result.DnsSecurity.DohConfigNames.ToList(),
+                DnsLeakProtection = result.DnsSecurity.DnsLeakProtection,
+                HasDns53BlockRule = result.DnsSecurity.HasDns53BlockRule,
+                DnatProvidesFullCoverage = result.DnsSecurity.DnatProvidesFullCoverage,
+                DotBlocked = result.DnsSecurity.DotBlocked,
+                DohBypassBlocked = result.DnsSecurity.DohBypassBlocked,
+                FullyProtected = result.DnsSecurity.FullyProtected,
+                WanDnsServers = result.DnsSecurity.WanDnsServers.ToList(),
+                WanDnsPtrResults = result.DnsSecurity.WanDnsPtrResults.ToList(),
+                WanDnsMatchesDoH = result.DnsSecurity.WanDnsMatchesDoH,
+                WanDnsOrderCorrect = result.DnsSecurity.WanDnsOrderCorrect,
+                WanDnsProvider = result.DnsSecurity.WanDnsProvider,
+                ExpectedDnsProvider = result.DnsSecurity.ExpectedDnsProvider,
+                MismatchedDnsServers = result.DnsSecurity.MismatchedDnsServers.ToList(),
+                MatchedDnsServers = result.DnsSecurity.MatchedDnsServers.ToList(),
+                InterfacesWithMismatch = result.DnsSecurity.InterfacesWithMismatch.ToList(),
+                InterfacesWithoutDns = result.DnsSecurity.InterfacesWithoutDns.ToList(),
+                DeviceDnsPointsToGateway = result.DnsSecurity.DeviceDnsPointsToGateway,
+                TotalDevicesChecked = result.DnsSecurity.TotalDevicesChecked,
+                DevicesWithCorrectDns = result.DnsSecurity.DevicesWithCorrectDns,
+                DhcpDeviceCount = result.DnsSecurity.DhcpDeviceCount,
+                HasThirdPartyDns = result.DnsSecurity.HasThirdPartyDns,
+                IsPiholeDetected = result.DnsSecurity.IsPiholeDetected,
+                ThirdPartyDnsProviderName = result.DnsSecurity.ThirdPartyDnsProviderName,
+                ThirdPartyNetworks = result.DnsSecurity.ThirdPartyNetworks
+                    .Select(n => new Reports.ThirdPartyDnsNetworkInfo
+                    {
+                        NetworkName = n.NetworkName,
+                        VlanId = n.VlanId,
+                        DnsServerIp = n.DnsServerIp,
+                        DnsProviderName = n.DnsProviderName
+                    })
+                    .ToList()
+            } : null,
+
+            // Access Points with wireless clients
+            AccessPoints = result.WirelessClients
+                .GroupBy(wc => wc.AccessPointMac ?? "unknown")
+                .Select(g =>
+                {
+                    var firstClient = g.First();
+                    return new Reports.AccessPointDetail
+                    {
+                        Name = firstClient.AccessPointName ?? "Unknown AP",
+                        Mac = g.Key,
+                        Model = firstClient.AccessPointModel ?? string.Empty,
+                        ModelName = firstClient.AccessPointModelName ?? string.Empty,
+                        Clients = g.Select(wc =>
+                        {
+                            var clientIssue = result.Issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == wc.Mac);
+                            return new Reports.WirelessClientDetail
+                            {
+                                DisplayName = wc.DisplayName,
+                                Mac = wc.Mac,
+                                Network = wc.NetworkName,
+                                VlanId = wc.VlanId,
+                                DeviceCategory = wc.DeviceCategory,
+                                VendorName = wc.VendorName,
+                                DetectionConfidence = wc.DetectionConfidence,
+                                IsIoT = wc.IsIoT,
+                                IsCamera = wc.IsCamera,
+                                HasIssue = clientIssue != null,
+                                IssueTitle = clientIssue?.Title,
+                                IssueMessage = clientIssue?.Description
+                            };
+                        }).ToList()
+                    };
+                })
+                .OrderBy(ap => ap.Name)
+                .ToList(),
+
+            // Offline clients
+            OfflineClients = result.OfflineClients
+                .Select(oc =>
+                {
+                    var clientIssue = result.Issues.FirstOrDefault(i => i.IsWireless && i.ClientMac == oc.Mac);
+                    return new Reports.OfflineClientDetail
+                    {
+                        DisplayName = oc.DisplayName,
+                        Mac = oc.Mac ?? "",
+                        Network = oc.LastNetwork?.Name,
+                        VlanId = oc.LastNetwork?.VlanId,
+                        DeviceCategory = oc.Detection.CategoryName,
+                        LastUplinkName = oc.LastUplinkName,
+                        LastSeenDisplay = oc.LastSeenDisplay,
+                        IsRecentlyActive = oc.IsRecentlyActive,
+                        IsIoT = oc.Detection.Category.IsIoT(),
+                        IsCamera = oc.Detection.Category.IsSurveillance(),
+                        HasIssue = clientIssue != null,
+                        IssueTitle = clientIssue?.Title,
+                        IssueSeverity = clientIssue?.Severity.ToString()
+                    };
+                })
+                .ToList()
+        };
+    }
+
+    private static Reports.AuditIssue MapAuditIssueToReport(AuditIssue issue, Reports.IssueSeverity severity)
+    {
+        // Extract device name from "ClientName on SwitchName" format
+        string deviceName;
+        if (issue.DeviceName?.Contains(" on ") == true)
+            deviceName = issue.DeviceName.Split(" on ")[0];
+        else
+            deviceName = issue.DeviceName ?? "";
+
+        return new Reports.AuditIssue
+        {
+            Severity = severity,
+            SwitchName = deviceName,
+            SwitchMac = issue.DeviceMac,
+            PortIndex = int.TryParse(issue.Port, out var p) ? p : null,
+            PortId = int.TryParse(issue.Port, out _) ? null : issue.Port,
+            PortName = issue.PortName ?? "",
+            CurrentNetwork = issue.CurrentNetwork ?? "",
+            CurrentVlan = issue.CurrentVlan,
+            Message = issue.Description,
+            RecommendedAction = issue.Recommendation,
+            IsWireless = issue.IsWireless,
+            ClientName = issue.ClientName,
+            ClientMac = issue.ClientMac,
+            AccessPoint = issue.AccessPoint,
+            WifiBand = issue.WifiBand
+        };
+    }
+
+    /// <summary>
+    /// Gets the PDF bytes for a specific audit by ID.
+    /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
+    /// </summary>
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId)
+    {
+        var audit = await _auditRepository.GetAuditResultAsync(auditId);
+        if (audit == null)
+        {
+            _logger.LogWarning("Audit {AuditId} not found", auditId);
+            return (null, null);
+        }
+        return await GetPdfForAuditAsync(audit);
+    }
+
+    /// <summary>
+    /// Gets the PDF bytes for the most recent audit.
+    /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
+    /// </summary>
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync()
+    {
+        var audit = await _auditRepository.GetLatestAuditResultAsync();
+        if (audit == null)
+        {
+            _logger.LogWarning("No audit results found");
+            return (null, null);
+        }
+        return await GetPdfForAuditAsync(audit);
+    }
+
+    /// <summary>
+    /// Common logic for retrieving or regenerating a PDF for an audit.
+    /// </summary>
+    private async Task<(byte[]? PdfBytes, string? FileName)> GetPdfForAuditAsync(StorageAuditResult audit)
+    {
+        var pdfBytes = await _pdfStorageService.GetPdfAsync(audit.Id);
+        if (pdfBytes == null)
+        {
+            _logger.LogInformation("PDF not found for audit {AuditId}, attempting to regenerate", audit.Id);
+            pdfBytes = await RegeneratePdfFromStoredDataAsync(audit);
+        }
+
+        if (pdfBytes == null)
+        {
+            _logger.LogWarning("Could not get or regenerate PDF for audit {AuditId}", audit.Id);
+            return (null, null);
+        }
+
+        var fileName = $"NetworkAudit_{audit.AuditDate:yyyyMMdd_HHmmss}.pdf";
+        return (pdfBytes, fileName);
+    }
+
+    /// <summary>
+    /// Regenerates a PDF from the stored audit data (ReportDataJson and FindingsJson).
+    /// Saves the regenerated PDF for future use.
+    /// </summary>
+    private async Task<byte[]?> RegeneratePdfFromStoredDataAsync(StorageAuditResult audit)
+    {
+        if (string.IsNullOrEmpty(audit.ReportDataJson))
+        {
+            _logger.LogWarning("Cannot regenerate PDF for audit {AuditId}: no ReportDataJson stored", audit.Id);
+            return null;
+        }
+
+        try
+        {
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+            // Reconstruct AuditResult from stored data
+            var result = new AuditResult
+            {
+                Score = (int)audit.ComplianceScore,
+                ScoreLabel = GetScoreLabel((int)audit.ComplianceScore),
+                ScoreClass = GetScoreClass((int)audit.ComplianceScore),
+                CriticalCount = audit.FailedChecks,
+                WarningCount = audit.WarningChecks,
+                InfoCount = audit.PassedChecks,
+                CompletedAt = audit.AuditDate
+            };
+
+            // Parse issues from FindingsJson
+            if (!string.IsNullOrEmpty(audit.FindingsJson))
+            {
+                result.Issues = JsonSerializer.Deserialize<List<AuditIssue>>(audit.FindingsJson, options) ?? new();
+            }
+
+            // Parse report data from ReportDataJson
+            using var doc = JsonDocument.Parse(audit.ReportDataJson);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("Statistics", out var statsEl) || root.TryGetProperty("statistics", out statsEl))
+            {
+                result.Statistics = JsonSerializer.Deserialize<AuditStatistics>(statsEl.GetRawText(), options);
+            }
+
+            if (root.TryGetProperty("HardeningMeasures", out var hardeningEl) || root.TryGetProperty("hardeningMeasures", out hardeningEl))
+            {
+                result.HardeningMeasures = JsonSerializer.Deserialize<List<string>>(hardeningEl.GetRawText(), options) ?? new();
+            }
+
+            if (root.TryGetProperty("Networks", out var networksEl) || root.TryGetProperty("networks", out networksEl))
+            {
+                result.Networks = JsonSerializer.Deserialize<List<NetworkReference>>(networksEl.GetRawText(), options) ?? new();
+            }
+
+            if (root.TryGetProperty("Switches", out var switchesEl) || root.TryGetProperty("switches", out switchesEl))
+            {
+                result.Switches = JsonSerializer.Deserialize<List<SwitchReference>>(switchesEl.GetRawText(), options) ?? new();
+            }
+
+            if (root.TryGetProperty("WirelessClients", out var wirelessEl) || root.TryGetProperty("wirelessClients", out wirelessEl))
+            {
+                result.WirelessClients = JsonSerializer.Deserialize<List<WirelessClientReference>>(wirelessEl.GetRawText(), options) ?? new();
+            }
+
+            if (root.TryGetProperty("OfflineClients", out var offlineEl) || root.TryGetProperty("offlineClients", out offlineEl))
+            {
+                result.OfflineClients = JsonSerializer.Deserialize<List<OfflineClientReference>>(offlineEl.GetRawText(), options) ?? new();
+            }
+
+            if (root.TryGetProperty("DnsSecurity", out var dnsEl) || root.TryGetProperty("dnsSecurity", out dnsEl))
+            {
+                result.DnsSecurity = JsonSerializer.Deserialize<DnsSecurityReference>(dnsEl.GetRawText(), options);
+            }
+
+            // Build ReportData and generate PDF
+            var reportData = BuildReportData(result);
+            var generator = new Reports.PdfReportGenerator();
+            var pdfBytes = generator.GenerateReportBytes(reportData);
+
+            // Save for future use
+            await _pdfStorageService.SavePdfAsync(audit.Id, reportData);
+
+            _logger.LogInformation("Regenerated and saved PDF for audit {AuditId}: {Size} bytes", audit.Id, pdfBytes.Length);
+            return pdfBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to regenerate PDF for audit {AuditId}", audit.Id);
+            return null;
         }
     }
 

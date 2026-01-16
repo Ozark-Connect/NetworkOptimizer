@@ -241,6 +241,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cache fingerprint data
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
+builder.Services.AddSingleton<PdfStorageService>(); // Singleton - manages PDF report file storage
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
@@ -532,6 +533,22 @@ app.MapPost("/api/metrics", async (HttpContext context) =>
 });
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+// Audit Report PDF download endpoints (serves pre-generated PDFs)
+// Auth handled by middleware for all /api/* paths
+// Uses strongly-typed int to prevent path traversal attacks
+app.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, AuditService auditService) =>
+{
+    var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId);
+    return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
+});
+
+// Get the latest audit report PDF (works across restarts since it queries database)
+app.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
+{
+    var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync();
+    return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
+});
 
 // iperf3 Speed Test API endpoints
 app.MapGet("/api/iperf3/devices", async (Iperf3SpeedTestService service) =>
