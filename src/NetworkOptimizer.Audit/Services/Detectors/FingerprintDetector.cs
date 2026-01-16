@@ -393,18 +393,25 @@ public class FingerprintDetector
             {
                 var deviceName = deviceEntry.Name?.Trim();
 
-                // When user explicitly selects a device type (dev_id_override), use the vendor
-                // from the fingerprint database entry for that device, not the client's DevVendor.
+                // When user explicitly selects a device type (dev_id_override), prefer the vendor
+                // from the fingerprint database entry for that device over the client's DevVendor.
                 // The client's DevVendor may be incorrect (e.g., reporting "Avaya" for a HomePod).
+                // Fall back to client's DevVendor if the database entry has no vendor.
                 int? vendorId = null;
                 if (!string.IsNullOrEmpty(deviceEntry.VendorId) &&
                     int.TryParse(deviceEntry.VendorId, out var entryVendorId))
                 {
                     vendorId = entryVendorId;
+                    _logger?.LogDebug("[FingerprintDetector] dev_id_override={DevIdOverride}: using DB entry VendorId={EntryVendorId} (client DevVendor={ClientVendor})",
+                        clientFingerprint.DevIdOverride, deviceEntry.VendorId, clientFingerprint.DevVendor);
+                }
+                else if (clientFingerprint.DevVendor.HasValue)
+                {
+                    vendorId = clientFingerprint.DevVendor;
+                    _logger?.LogDebug("[FingerprintDetector] dev_id_override={DevIdOverride}: DB entry has no vendor, falling back to client DevVendor={ClientVendor}",
+                        clientFingerprint.DevIdOverride, clientFingerprint.DevVendor);
                 }
                 var vendorName = _database.GetVendorName(vendorId);
-                _logger?.LogDebug("[FingerprintDetector] dev_id_override={DevIdOverride}: using entry VendorId={EntryVendorId} → '{VendorName}' (client DevVendor={ClientVendor} ignored for user override)",
-                    clientFingerprint.DevIdOverride, deviceEntry.VendorId, vendorName, clientFingerprint.DevVendor);
 
                 return new DeviceDetectionResult
                 {
