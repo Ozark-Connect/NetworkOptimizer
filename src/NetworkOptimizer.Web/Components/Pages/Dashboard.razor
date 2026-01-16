@@ -99,12 +99,20 @@
                     {
                         <span class="spinner-sm"></span>
                     }
+                    else if (sqmStatus == "Not Configured")
+                    {
+                        <span class="desktop-label">Not Configured</span>
+                        <span class="mobile-label">Off</span>
+                    }
                     else
                     {
                         @sqmStatus
                     }
                 </div>
-                <div class="stat-label">SQM Status</div>
+                <div class="stat-label">
+                    <span class="desktop-label">Adaptive SQM Status</span>
+                    <span class="mobile-label">Adaptive SQM</span>
+                </div>
             </div>
         </a>
 

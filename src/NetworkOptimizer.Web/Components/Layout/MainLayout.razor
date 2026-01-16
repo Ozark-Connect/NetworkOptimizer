@@ -7,9 +7,8 @@
     <div class="sidebar-overlay @(sidebarOpen ? "visible" : "")" @onclick="CloseSidebar"></div>
     <div class="sidebar @(sidebarOpen ? "open" : "")">
         <a href="/" class="sidebar-header" @onclick="CloseSidebar">
-            <img src="images/ozark-connect-logo.png" alt="Ozark Connect" class="sidebar-logo" />
-            <h2 class="app-title">Network Optimizer</h2>
-            <p class="app-subtitle">for UniFi</p>
+            <img src="images/network-optimizer-logo.png" alt="Network Optimizer" class="sidebar-logo" />
+            <p class="app-subtitle"><strong>for UniFi</strong></p>
         </a>
         <NavMenu OnNavigate="CloseSidebar" />
     </div>
@@ -21,6 +20,9 @@
                 <span></span>
                 <span></span>
             </button>
+            <a href="/" class="mobile-logo">
+                <img src="images/network-optimizer-logo.png" alt="Network Optimizer" />
+            </a>
             <div class="status-indicators">
                 @if (ConnectionService.IsConnected)
                 {
@@ -38,7 +40,6 @@
                 }
             </div>
             <div class="header-actions">
-                <span class="timestamp">@DateTime.Now.ToString("MMM dd, yyyy HH:mm")</span>
                 <a href="/api/auth/logout" class="logout-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
@@ -55,7 +56,7 @@
         </main>
 
         <footer class="app-footer">
-            <p>&copy; 2025 Ozark Connect - Network Optimizer @(Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion is string v && !v.StartsWith("0.0.0") ? $"v{v}" : "(source build)")</p>
+            <p>&copy; 2026 Ozark Connect - Network Optimizer @(Assembly.GetExecutingAssembly().GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion is string v && !v.StartsWith("0.0.0") ? $"v{v}" : "(source build)")</p>
         </footer>
     </div>
 </div>

@@ -117,7 +117,6 @@ a:hover {
 .sidebar-logo {
     max-width: 180px;
     height: auto;
-    margin-bottom: 0.75rem;
 }
 
 .app-title {
@@ -595,6 +594,15 @@ a.stat-card-link:active {
 .stat-label {
     font-size: 0.875rem;
     color: var(--text-secondary);
+}
+
+/* Responsive label helpers */
+.mobile-label { display: none; }
+.desktop-label { display: inline; }
+
+@media (max-width: 768px) {
+    .mobile-label { display: inline; }
+    .desktop-label { display: none; }
 }
 
 /* Content Grid */
@@ -2037,6 +2045,11 @@ select.form-control {
     transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
+/* Mobile logo - hidden on desktop */
+.mobile-logo {
+    display: none;
+}
+
 /* Sidebar Overlay - hidden on desktop */
 .sidebar-overlay {
     display: none;
@@ -2046,6 +2059,19 @@ select.form-control {
     /* Show hamburger button on mobile */
     .hamburger-btn {
         display: block;
+    }
+
+    /* Show mobile logo next to hamburger */
+    .mobile-logo {
+        display: block;
+        height: 60px;
+        margin: -0.5rem 0;
+        max-height: 7vh;
+    }
+
+    .mobile-logo img {
+        height: 100%;
+        width: auto;
     }
 
     /* Off-canvas sidebar */
@@ -2480,6 +2506,21 @@ select.form-control {
 .sponsorship-banner .btn-dismiss:hover {
     background: rgba(168, 85, 247, 0.3);
     color: white;
+}
+
+@media (max-width: 768px) {
+    .sponsorship-banner {
+        padding: 1rem;
+    }
+
+    .sponsorship-banner .banner-separator {
+        display: none;
+    }
+
+    .sponsorship-banner .banner-commercial {
+        display: block;
+        margin-top: 0.25rem;
+    }
 }
 
 /* Loading State */
