@@ -57,8 +57,13 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 // Configure logging with Serilog
+// Read log levels from configuration (supports env vars like Logging__LogLevel__NetworkOptimizer=Debug)
+var defaultLogLevel = builder.Configuration.GetValue("Logging:LogLevel:Default", "Information");
+var appLogLevel = builder.Configuration.GetValue("Logging:LogLevel:NetworkOptimizer", "Information");
+
 var loggerConfig = new LoggerConfiguration()
-    .MinimumLevel.Information()
+    .MinimumLevel.Is(Enum.Parse<LogEventLevel>(defaultLogLevel, ignoreCase: true))
+    .MinimumLevel.Override("NetworkOptimizer", Enum.Parse<LogEventLevel>(appLogLevel, ignoreCase: true))
     .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
