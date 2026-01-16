@@ -169,7 +169,7 @@ public class AuditService
             options.AllowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
             // DNAT excluded VLANs (parse comma-separated VLAN IDs)
             options.DnatExcludedVlanIds = ParseVlanIds(dnatExcludedVlans);
-            // Pi-hole port (null means auto-detect)
+            // Third-party DNS port (Pi-hole, AdGuard Home, etc.) - null means auto-detect
             options.PiholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
             // Unused port thresholds (defaults: 15 days unnamed, 45 days named)
             options.UnusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;

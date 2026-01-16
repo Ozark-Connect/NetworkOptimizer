@@ -48,7 +48,7 @@ public class ConfigAuditEngine
         public required DeviceAllowanceSettings AllowanceSettings { get; init; }
         public required List<UniFiPortProfile>? PortProfiles { get; init; }
         public List<int>? DnatExcludedVlanIds { get; init; }
-        public int? PiholeManagementPort { get; init; }
+        public int? PiholeManagementPort { get; init; }  // Used for all third-party DNS (Pi-hole, AdGuard Home, etc.)
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
 

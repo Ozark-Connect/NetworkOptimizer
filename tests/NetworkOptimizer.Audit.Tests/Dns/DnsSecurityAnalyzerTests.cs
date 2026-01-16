@@ -1108,6 +1108,143 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
     #endregion
 
+    #region Third-Party DNS Detection Properties Tests
+
+    [Fact]
+    public void DnsSecurityResult_IsPiholeDetected_ReturnsTrue_WhenPiholeInThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_IsAdGuardHomeDetected_ReturnsTrue_WhenAdGuardHomeInThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_BothPiholeAndAdGuardHome_WhenBothDetected()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.6",
+            NetworkName = "IoT",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_NeitherDetected_WhenUnknownProvider()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_NeitherDetected_WhenNoThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_PiholeDetected_WhenMixedServersIncludePihole()
+    {
+        var result = new DnsSecurityResult();
+        // First server is unknown
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Network1",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+        // Second server is Pi-hole
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.10",
+            NetworkName = "Network2",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_AdGuardHomeDetected_WhenMixedServersIncludeAdGuardHome()
+    {
+        var result = new DnsSecurityResult();
+        // First server is unknown
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Network1",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+        // Second server is AdGuard Home
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.10",
+            NetworkName = "Network2",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    #endregion
+
     #region WanInterfaceDns Tests
 
     [Fact]
@@ -2771,7 +2908,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: 8080);
+            customDnsManagementPort: 8080);
 
         // Assert - Should still detect third-party DNS even if Pi-hole probe fails
         result.HasThirdPartyDns.Should().BeTrue();
@@ -3102,7 +3239,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Third-party DNS + DNAT should suppress DNS_NO_53_BLOCK
@@ -3141,7 +3278,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: null);
 
         // Assert - Should raise DNS_NO_53_BLOCK even with third-party DNS
@@ -3192,7 +3329,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Only partial coverage issue (DNS_NO_53_BLOCK suppressed for valid partial DNAT)
@@ -3241,7 +3378,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: null);
 
         // Assert - Firewall block should be sufficient, no DNS_NO_53_BLOCK issue
@@ -3289,7 +3426,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Both protections in place, no issues
@@ -3357,7 +3494,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Full coverage including non-DHCP Management network
@@ -3415,7 +3552,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Partial coverage, Guest network not covered
@@ -3474,7 +3611,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Full coverage via individual rules
@@ -3519,7 +3656,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             switches: switches,
             networks: networks,
             deviceData: null,
-            customPiholePort: null,
+            customDnsManagementPort: null,
             natRulesData: natRules);
 
         // Assert - Servers network (non-DHCP) still needs coverage
