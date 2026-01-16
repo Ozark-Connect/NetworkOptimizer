@@ -1108,6 +1108,143 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
     #endregion
 
+    #region Third-Party DNS Detection Properties Tests
+
+    [Fact]
+    public void DnsSecurityResult_IsPiholeDetected_ReturnsTrue_WhenPiholeInThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_IsAdGuardHomeDetected_ReturnsTrue_WhenAdGuardHomeInThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_BothPiholeAndAdGuardHome_WhenBothDetected()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.6",
+            NetworkName = "IoT",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_NeitherDetected_WhenUnknownProvider()
+    {
+        var result = new DnsSecurityResult();
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Corporate",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_NeitherDetected_WhenNoThirdPartyServers()
+    {
+        var result = new DnsSecurityResult();
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_PiholeDetected_WhenMixedServersIncludePihole()
+    {
+        var result = new DnsSecurityResult();
+        // First server is unknown
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Network1",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+        // Second server is Pi-hole
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.10",
+            NetworkName = "Network2",
+            IsPihole = true,
+            DnsProviderName = "Pi-hole"
+        });
+
+        result.IsPiholeDetected.Should().BeTrue();
+        result.IsAdGuardHomeDetected.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnsSecurityResult_AdGuardHomeDetected_WhenMixedServersIncludeAdGuardHome()
+    {
+        var result = new DnsSecurityResult();
+        // First server is unknown
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.5",
+            NetworkName = "Network1",
+            IsPihole = false,
+            IsAdGuardHome = false,
+            DnsProviderName = "Third-Party LAN DNS"
+        });
+        // Second server is AdGuard Home
+        result.ThirdPartyDnsServers.Add(new ThirdPartyDnsDetector.ThirdPartyDnsInfo
+        {
+            DnsServerIp = "192.168.1.10",
+            NetworkName = "Network2",
+            IsAdGuardHome = true,
+            DnsProviderName = "AdGuard Home"
+        });
+
+        result.IsPiholeDetected.Should().BeFalse();
+        result.IsAdGuardHomeDetected.Should().BeTrue();
+    }
+
+    #endregion
+
     #region WanInterfaceDns Tests
 
     [Fact]
