@@ -83,6 +83,11 @@ public class AuditRequest
     public int? PiholeManagementPort { get; init; }
 
     /// <summary>
+    /// Optional: Custom AdGuard Home web interface port (defaults to auto-probe 80, 443, 3000)
+    /// </summary>
+    public int? AdGuardHomeManagementPort { get; init; }
+
+    /// <summary>
     /// Optional: Whether UPnP is enabled on the gateway (from GetUpnpEnabledAsync)
     /// </summary>
     public bool? UpnpEnabled { get; init; }

@@ -616,8 +616,10 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         var result = await detector.DetectThirdPartyDnsAsync(networks);
 
         result.Should().HaveCount(2);
-        // HTTP handler should only be called once per unique IP (3 attempts: port 80, 4711, 443)
-        callCount.Should().BeLessThanOrEqualTo(3);
+        // HTTP handler should only be called once per unique IP
+        // Pi-hole probe: 3 attempts (port 80, 443, 8080)
+        // AdGuard Home probe: 3 attempts (port 80, 443, 3000)
+        callCount.Should().BeLessThanOrEqualTo(6);
     }
 
     #endregion

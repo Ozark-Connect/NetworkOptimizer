@@ -30,6 +30,8 @@ public class ThirdPartyDnsDetector
         public bool IsLanIp { get; init; }
         public bool IsPihole { get; init; }
         public string? PiholeVersion { get; init; }
+        public bool IsAdGuardHome { get; init; }
+        public string? AdGuardHomeVersion { get; init; }
         public string DnsProviderName { get; init; } = "Third-Party LAN DNS";
     }
 
@@ -38,7 +40,8 @@ public class ThirdPartyDnsDetector
     /// </summary>
     /// <param name="networks">List of networks to check</param>
     /// <param name="customPiholePort">Optional custom port for Pi-hole admin interface</param>
-    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPiholePort = null)
+    /// <param name="customAdGuardHomePort">Optional custom port for AdGuard Home web interface (default: 80)</param>
+    public async Task<List<ThirdPartyDnsInfo>> DetectThirdPartyDnsAsync(List<NetworkInfo> networks, int? customPiholePort = null, int? customAdGuardHomePort = null)
     {
         var results = new List<ThirdPartyDnsInfo>();
         var probedIps = new HashSet<string>(); // Avoid probing the same IP multiple times
@@ -89,16 +92,30 @@ public class ThirdPartyDnsDetector
                 // Only probe each IP once
                 bool isPihole = false;
                 string? piholeVersion = null;
+                bool isAdGuardHome = false;
+                string? adGuardHomeVersion = null;
                 string providerName = "Third-Party LAN DNS";
 
                 if (!probedIps.Contains(dnsServer))
                 {
                     probedIps.Add(dnsServer);
+
+                    // Try Pi-hole detection first
                     (isPihole, piholeVersion) = await ProbePiholeAsync(dnsServer, customPiholePort);
                     if (isPihole)
                     {
                         providerName = "Pi-hole";
                         _logger.LogInformation("Detected Pi-hole at {Ip} (version: {Version})", dnsServer, piholeVersion ?? "unknown");
+                    }
+                    else
+                    {
+                        // If not Pi-hole, try AdGuard Home detection
+                        (isAdGuardHome, adGuardHomeVersion) = await ProbeAdGuardHomeAsync(dnsServer, customAdGuardHomePort);
+                        if (isAdGuardHome)
+                        {
+                            providerName = "AdGuard Home";
+                            _logger.LogInformation("Detected AdGuard Home at {Ip} (version: {Version})", dnsServer, adGuardHomeVersion ?? "unknown");
+                        }
                     }
                 }
                 else
@@ -109,6 +126,8 @@ public class ThirdPartyDnsDetector
                     {
                         isPihole = existingResult.IsPihole;
                         piholeVersion = existingResult.PiholeVersion;
+                        isAdGuardHome = existingResult.IsAdGuardHome;
+                        adGuardHomeVersion = existingResult.AdGuardHomeVersion;
                         providerName = existingResult.DnsProviderName;
                     }
                 }
@@ -121,6 +140,8 @@ public class ThirdPartyDnsDetector
                     IsLanIp = true,
                     IsPihole = isPihole,
                     PiholeVersion = piholeVersion,
+                    IsAdGuardHome = isAdGuardHome,
+                    AdGuardHomeVersion = adGuardHomeVersion,
                     DnsProviderName = providerName
                 });
             }
@@ -239,6 +260,98 @@ public class ThirdPartyDnsDetector
         catch (Exception ex)
         {
             _logger.LogDebug("Pi-hole probe to {Ip}:{Port} error: {Type} - {Message}", ipAddress, port, ex.GetType().Name, ex.Message);
+            return (false, null);
+        }
+    }
+
+    /// <summary>
+    /// Probe an IP address to detect if it's running AdGuard Home
+    /// </summary>
+    /// <param name="ipAddress">IP address to probe</param>
+    /// <param name="customPort">Optional custom port (default: 80)</param>
+    private async Task<(bool IsAdGuardHome, string? Version)> ProbeAdGuardHomeAsync(string ipAddress, int? customPort = null)
+    {
+        // Build list of ports to try
+        var portsToTry = new List<(int Port, bool UseHttps)>();
+
+        // If custom port is specified, try it first (both HTTP and HTTPS)
+        if (customPort.HasValue && customPort.Value > 0)
+        {
+            portsToTry.Add((customPort.Value, false));
+            portsToTry.Add((customPort.Value, true));
+        }
+
+        // Add default ports: 80 (default), 443 (HTTPS), 3000 (setup wizard)
+        portsToTry.Add((80, false));
+        portsToTry.Add((443, true));
+        portsToTry.Add((3000, false));
+
+        foreach (var (port, useHttps) in portsToTry)
+        {
+            var result = await TryProbeAdGuardHomeEndpointAsync(ipAddress, port, useHttps);
+            if (result.IsAdGuardHome)
+                return result;
+        }
+
+        return (false, null);
+    }
+
+    private async Task<(bool IsAdGuardHome, string? Version)> TryProbeAdGuardHomeEndpointAsync(string ipAddress, int port, bool useHttps = false)
+    {
+        try
+        {
+            var scheme = useHttps ? "https" : "http";
+            var loginUrl = $"{scheme}://{ipAddress}:{port}/login.html";
+
+            _logger.LogDebug("Probing AdGuard Home at {Url}", loginUrl);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var response = await _httpClient.GetAsync(loginUrl, cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+                return (false, null);
+
+            var content = await response.Content.ReadAsStringAsync(cts.Token);
+
+            // AdGuard Home login.html references a login.*.js file
+            // Extract the JS filename and fetch it to check for "AdGuard" string
+            var jsMatch = System.Text.RegularExpressions.Regex.Match(content, @"src=""(login\.[^""]+\.js)""");
+            if (!jsMatch.Success)
+                return (false, null);
+
+            var jsFileName = jsMatch.Groups[1].Value;
+            var jsUrl = $"{scheme}://{ipAddress}:{port}/{jsFileName}";
+
+            _logger.LogDebug("Fetching AdGuard Home JS bundle at {Url}", jsUrl);
+
+            var jsResponse = await _httpClient.GetAsync(jsUrl, cts.Token);
+            if (!jsResponse.IsSuccessStatusCode)
+                return (false, null);
+
+            var jsContent = await jsResponse.Content.ReadAsStringAsync(cts.Token);
+
+            // Check if the JS bundle contains "AdGuard"
+            if (jsContent.Contains("AdGuard"))
+            {
+                _logger.LogInformation("Detected AdGuard Home at {Url}", loginUrl);
+                return (true, "detected");
+            }
+
+            return (false, null);
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Ip}:{Port} timed out", ipAddress, port);
+            return (false, null);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Ip}:{Port} failed: {Message}", ipAddress, port, ex.Message);
+            return (false, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("AdGuard Home probe to {Ip}:{Port} error: {Type} - {Message}", ipAddress, port, ex.GetType().Name, ex.Message);
             return (false, null);
         }
     }
