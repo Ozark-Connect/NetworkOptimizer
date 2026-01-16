@@ -389,7 +389,15 @@ public class FingerprintDetector
                 DevTypeMapping.TryGetValue(devTypeId, out var mappedCategory))
             {
                 var deviceName = deviceEntry.Name?.Trim();
-                var vendorName = _database.GetVendorName(clientFingerprint.DevVendor);
+
+                // Get vendor from client fingerprint, or fall back to device entry in database
+                int? vendorId = clientFingerprint.DevVendor;
+                if (!vendorId.HasValue && !string.IsNullOrEmpty(deviceEntry.VendorId) &&
+                    int.TryParse(deviceEntry.VendorId, out var entryVendorId))
+                {
+                    vendorId = entryVendorId;
+                }
+                var vendorName = _database.GetVendorName(vendorId);
 
                 return new DeviceDetectionResult
                 {
