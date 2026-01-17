@@ -125,8 +125,10 @@ public class FirewallRuleAnalyzer
                                 ScoreImpact = 5,
                                 RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
                             });
+                            // For subverts, only report the first one
+                            break;
                         }
-                        break;
+                        // For exception patterns, continue to find all of them
                     }
                     else if (!earlierIsAllow && laterIsAllow)
                     {
@@ -169,7 +171,7 @@ public class FirewallRuleAnalyzer
                                 RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
                             });
                         }
-                        break;
+                        // Continue checking other earlier rules that may also shadow this allow
                     }
                 }
             }
