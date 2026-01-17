@@ -50,6 +50,34 @@ services:
       retries: 3
       start_period: 40s
 
+  # Network Optimizer Speed Test - customized OpenSpeedTest that sends results to Network Optimizer
+  # Requires HOST_IP or HOST_NAME to be set in .env for result reporting
+  network-optimizer-speedtest:
+    build:
+      context: ..
+      dockerfile: docker/openspeedtest/Dockerfile
+    image: ozark-connect/speedtest:latest
+    container_name: network-optimizer-speedtest
+    restart: unless-stopped
+    ports:
+      - "${OPENSPEEDTEST_PORT:-3005}:3000"
+    environment:
+      - TZ=${TZ:-UTC}
+      # For URL construction and host enforcement redirect
+      - HOST_NAME=${HOST_NAME:-}
+      - HOST_IP=${HOST_IP:-}
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      # For result reporting URL
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # InfluxDB and Grafana available if needed for future monitoring features
   # Uncomment below when time-series metrics are implemented
 

@@ -13,10 +13,9 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 **Use Docker instead if:**
 - You prefer containerized deployments
 - You need easy updates via image pulls
-- You want bundled OpenSpeedTest™ for browser-based client speed testing
 - Your network speeds are under 2 Gbps (except macOS - see below)
 
-**macOS note:** Docker Desktop's virtualization limits network throughput to ~1.8 Gbps. If you need accurate multi-gigabit speed tests, use native deployment. If browser-based client speed testing (OpenSpeedTest) is more important than raw speed test accuracy, Docker may be acceptable.
+**macOS note:** Docker Desktop's virtualization limits network throughput to ~1.8 Gbps. For accurate multi-gigabit speed tests on macOS, use native deployment. The native install script includes OpenSpeedTest setup, so you get both maximum performance and browser-based speed testing.
 
 ## Platform-Specific Instructions
 
@@ -27,6 +26,28 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 ---
 
 ## macOS Deployment
+
+### Quick Install (Recommended)
+
+Use the automated installation script:
+
+```bash
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+cd NetworkOptimizer
+./scripts/install-macos-native.sh
+```
+
+The script handles everything: prerequisites, build, code signing, OpenSpeedTest setup, and launchd service creation.
+
+After installation:
+- Web UI: http://localhost:8042
+- SpeedTest: http://localhost:3005
+
+---
+
+### Manual Installation
+
+If you prefer to install manually, follow the steps below.
 
 ### Prerequisites
 
@@ -398,11 +419,21 @@ After installation, access the web UI at **http://localhost:8042** (or use the m
 
 ---
 
-## Client Speed Testing (Native Limitation)
+## Client Speed Testing
 
-**Docker Advantage:** Docker deployment includes bundled OpenSpeedTest™ for browser-based speed testing from any device (phones, tablets, laptops). This is not available with native deployment.
+Native deployments support both browser-based and CLI-based client speed testing.
 
-Native deployments can run iperf3 server mode for CLI-based client speed testing, but this requires iperf3 installed on client devices.
+### OpenSpeedTest™ (Browser-Based)
+
+The macOS install script (`scripts/install-macos-native.sh`) automatically sets up OpenSpeedTest with nginx, providing browser-based speed testing from any device - no client software required.
+
+After installation, access SpeedTest at: **http://your-mac-ip:3005**
+
+For manual setup or Linux, see [Manual OpenSpeedTest Setup](#manual-openspeedtest-setup) below.
+
+### iperf3 Server Mode
+
+For CLI-based testing with iperf3 clients.
 
 ### Enable iperf3 Server Mode
 
@@ -435,7 +466,54 @@ iperf3 -c your-server-ip -R
 
 Results appear in Network Optimizer's Client Speed Test page.
 
-**Note:** OpenSpeedTest (browser-based) is only available with Docker deployment. For native deployments, use iperf3 clients or run a separate OpenSpeedTest instance and configure it to POST to `http://your-server:8042/api/speedtest/results`.
+### Manual OpenSpeedTest Setup
+
+If you installed manually (without the install script), you can set up OpenSpeedTest:
+
+**macOS:**
+```bash
+# Install nginx
+brew install nginx
+
+# Create SpeedTest directory
+mkdir -p ~/network-optimizer/SpeedTest/{conf,logs,temp,html/assets/{css,js,fonts,images/icons}}
+cd ~/network-optimizer/SpeedTest
+
+# Copy files from repo (adjust path as needed)
+REPO=~/NetworkOptimizer
+cp $REPO/src/NetworkOptimizer.Installer/SpeedTest/nginx.conf conf/
+cp $REPO/src/NetworkOptimizer.Installer/SpeedTest/nginx/conf/mime.types conf/
+cp $REPO/src/OpenSpeedTest/{index.html,hosted.html,downloading,upload} html/
+cp -r $REPO/src/OpenSpeedTest/assets/* html/assets/
+
+# Create config.js with your server's IP
+cat > html/assets/js/config.js << 'EOF'
+window.NETWORK_OPTIMIZER_CONFIG = {
+    resultsApiUrl: "http://YOUR_IP:8042/api/public/speedtest/results"
+};
+EOF
+
+# Start nginx
+nginx -c ~/network-optimizer/SpeedTest/conf/nginx.conf -p ~/network-optimizer/SpeedTest
+```
+
+**Linux:**
+```bash
+# Install nginx
+sudo apt install nginx  # Debian/Ubuntu
+# or
+sudo dnf install nginx  # RHEL/Fedora
+
+# Create SpeedTest directory
+sudo mkdir -p /opt/network-optimizer/SpeedTest/{conf,logs,temp,html/assets/{css,js,fonts,images/icons}}
+sudo chown -R $USER: /opt/network-optimizer/SpeedTest
+
+# Copy files from repo and create config.js (same as macOS, adjust paths)
+# Start nginx with the SpeedTest config
+sudo nginx -c /opt/network-optimizer/SpeedTest/conf/nginx.conf -p /opt/network-optimizer/SpeedTest
+```
+
+Access SpeedTest at `http://your-server:3005`. Results automatically appear in Network Optimizer.
 
 ## Firewall Configuration
 
