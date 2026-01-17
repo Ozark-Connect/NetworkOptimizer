@@ -607,11 +607,56 @@ public class FirewallRuleAnalyzerTests
             }
         };
 
-        var issues = _analyzer.DetectShadowedRules(rules);
+        // Pass the external zone ID so it can identify external access patterns
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone-1");
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
         issue!.Description.Should().Be("External Access Exception");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ExceptionToGatewayBlock_SetsFirewallExceptionDescription()
+    {
+        // Allow rule before deny rule that blocks Gateway zone access (NOT external)
+        // Gateway zone blocks should NOT be categorized as "External Access Exception"
+        // Using IP/ANY sources to avoid triggering "Cross-VLAN" categorization
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow SSH to Gateway",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.10.50" },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "gateway-zone-1",
+                DestinationPort = "22"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "[Block] All Gateway Access",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "lan-zone-1",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "gateway-zone-1"
+            }
+        };
+
+        // Pass the external zone ID - Gateway zone is different
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: "external-zone-1");
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        // Gateway zone blocks should fall back to generic "Firewall Exception" (not "External Access Exception")
+        issue!.Description.Should().Be("Firewall Exception");
     }
 
     [Fact]

@@ -44,7 +44,7 @@ public class FirewallRuleAnalyzer
     /// - Info: DENY before ALLOW makes the ALLOW ineffective
     /// - Warning: ALLOW before DENY subverts a security rule
     /// </summary>
-    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null)
+    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -97,7 +97,7 @@ public class FirewallRuleAnalyzer
                             }
 
                             // Determine traffic pattern description for grouping
-                            var description = GetExceptionPatternDescription(laterRule);
+                            var description = GetExceptionPatternDescription(laterRule, externalZoneId);
 
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
@@ -597,13 +597,13 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Run all firewall analyses
     /// </summary>
-    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null)
+    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
-        issues.AddRange(DetectShadowedRules(rules, networkConfigs));
+        issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId));
         issues.AddRange(DetectPermissiveRules(rules));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks));
@@ -943,15 +943,15 @@ public class FirewallRuleAnalyzer
     /// Determines a description for firewall exception patterns based on the deny rule being excepted.
     /// Used for grouping similar exceptions in the UI.
     /// </summary>
-    private static string GetExceptionPatternDescription(FirewallRule denyRule)
+    private static string GetExceptionPatternDescription(FirewallRule denyRule, string? externalZoneId)
     {
         var destTarget = denyRule.DestinationMatchingTarget?.ToUpperInvariant();
         var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
 
-        // Check for external/internet blocking rules (dest zone is external or dest is ANY with external zone)
-        // These are typically "block internet" rules
-        if (!string.IsNullOrEmpty(denyRule.DestinationZoneId) &&
-            denyRule.DestinationZoneId != denyRule.SourceZoneId &&
+        // Check for external/internet blocking rules - must target the external zone specifically
+        // Only categorize as "External Access Exception" if we can confirm the destination is the external zone
+        if (!string.IsNullOrEmpty(externalZoneId) &&
+            string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase) &&
             destTarget == "ANY")
         {
             return "External Access Exception";
@@ -963,7 +963,7 @@ public class FirewallRuleAnalyzer
             return "Cross-VLAN Access Exception";
         }
 
-        // Default for other patterns
+        // Default for other patterns (including Gateway zone blocks)
         return "Firewall Exception";
     }
 
