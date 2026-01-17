@@ -1161,8 +1161,8 @@ public class AuditService
             {
                 Severity = issue.Severity,
                 Category = category,
-                Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity),
-                Description = issue.Description ?? issue.Message,
+                Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity, issue.Description),
+                Description = issue.Message,
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
                 // Context fields
                 DeviceName = issue.DeviceName,
@@ -1434,7 +1434,7 @@ public class AuditService
         _ => true
     };
 
-    private static string GetIssueTitle(string type, string message, Audit.Models.AuditSeverity severity)
+    private static string GetIssueTitle(string type, string message, Audit.Models.AuditSeverity severity, string? description = null)
     {
         // Extract a short title from the issue type
         // For informational IoT/Camera issues, use "Possibly" wording
@@ -1447,7 +1447,7 @@ public class AuditService
             Audit.IssueTypes.PermissiveRule => "Firewall: Overly Permissive Rule",
             Audit.IssueTypes.BroadRule => "Firewall: Broad Rule",
             Audit.IssueTypes.OrphanedRule => "Firewall: Orphaned Rule",
-            Audit.IssueTypes.AllowExceptionPattern => "Firewall: Allow Exception Pattern",
+            Audit.IssueTypes.AllowExceptionPattern => $"Firewall: {description ?? "Allow Exception Pattern"}",
             Audit.IssueTypes.AllowSubvertsDeny => "Firewall: Rule Order Issue",
             Audit.IssueTypes.DenyShadowsAllow => "Firewall: Ineffective Allow Rule",
             Audit.IssueTypes.MissingIsolation => "Firewall: Missing VLAN Isolation",

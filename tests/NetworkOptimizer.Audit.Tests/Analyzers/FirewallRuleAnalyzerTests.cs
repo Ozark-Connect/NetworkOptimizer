@@ -574,6 +574,402 @@ public class FirewallRuleAnalyzerTests
         issue.Message.Should().Contain("Block Access to Isolated VLANs");
     }
 
+    [Fact]
+    public void DetectShadowedRules_ExceptionToExternalBlock_SetsExternalAccessDescription()
+    {
+        // Allow rule before deny rule that blocks external/WAN access
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow NAS DoH",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.10.50" },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "external-zone-1"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "[Block] Management Internet Access",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                SourceZoneId = "lan-zone-1",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = "external-zone-1"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Description.Should().Be("External Access Exception");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ExceptionToNetworkBlock_SetsCrossVlanDescription()
+    {
+        // Allow rule before deny rule that blocks network-to-network traffic
+        // Both rules use network source for proper overlap detection
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow Printer Access",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-network-1" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.20.100" },
+                DestinationPort = "631"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block IoT to Home",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-network-1" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "home-network-1" }
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Description.Should().Be("Cross-VLAN Access Exception");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ExceptionToGenericBlock_SetsFirewallExceptionDescription()
+    {
+        // Allow rule before deny rule with non-network, non-external pattern
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow HTTP",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.1.100" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8" },
+                DestinationPort = "80"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block All IP Range",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.1.0/24" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.0/8" }
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        issue!.Description.Should().Be("Firewall Exception");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_UniFiDomainException_IsFiltered()
+    {
+        // UniFi domain exception should be filtered out (covered by MGMT_MISSING_UNIFI_ACCESS)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow UniFi Cloud",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY",
+                WebDomains = new List<string> { "*.ui.com" }
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT create an exception pattern issue for UniFi domain rules
+        issues.Should().NotContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_AfcDomainException_IsFiltered()
+    {
+        // AFC domain exception should be filtered out (covered by MGMT_MISSING_AFC_ACCESS)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow AFC Traffic",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY",
+                WebDomains = new List<string> { "afcapi.qcs.qualcomm.com" }
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT create an exception pattern issue for AFC domain rules
+        issues.Should().NotContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NtpDomainException_IsFiltered()
+    {
+        // NTP domain exception should be filtered out (covered by MGMT_MISSING_NTP_ACCESS)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow NTP",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY",
+                WebDomains = new List<string> { "pool.ntp.org" }
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT create an exception pattern issue for NTP domain rules
+        issues.Should().NotContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NtpPortException_IsFiltered()
+    {
+        // NTP port 123 exception should be filtered out (covered by MGMT_MISSING_NTP_ACCESS)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow NTP Port",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "123",
+                Protocol = "udp"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT create an exception pattern issue for NTP port rules
+        issues.Should().NotContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_5gDomainException_IsFiltered()
+    {
+        // 5G modem domain exception should be filtered out (covered by MGMT_MISSING_5G_ACCESS)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow 5G Registration",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY",
+                WebDomains = new List<string> { "*.trafficmanager.net", "*.t-mobile.com" }
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT create an exception pattern issue for 5G domain rules
+        issues.Should().NotContain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NonMgmtServiceException_IsNotFiltered()
+    {
+        // Non-management service exceptions should still be reported
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow Custom Service",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.10.50" },
+                DestinationMatchingTarget = "ANY",
+                WebDomains = new List<string> { "custom-service.example.com" }
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Management Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should create an exception pattern issue for non-management service domains
+        issues.Should().Contain(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_FindsAllExceptionPatterns()
+    {
+        // Multiple exceptions to the same deny rule should all be found
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule-1",
+                Name = "Allow Service A",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.10.50" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443"
+            },
+            new FirewallRule
+            {
+                Id = "allow-rule-2",
+                Name = "Allow Service B",
+                Action = "allow",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.10.51" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "8080"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Network Internet",
+                Action = "drop",
+                Enabled = true,
+                Index = 3,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "network-1" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should find both exception patterns
+        var exceptionIssues = issues.Where(i => i.Type == "ALLOW_EXCEPTION_PATTERN").ToList();
+        exceptionIssues.Should().HaveCount(2);
+        exceptionIssues.Should().Contain(i => i.Message.Contains("Allow Service A"));
+        exceptionIssues.Should().Contain(i => i.Message.Contains("Allow Service B"));
+    }
+
     #endregion
 
     #region DetectPermissiveRules Tests

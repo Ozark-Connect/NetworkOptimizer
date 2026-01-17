@@ -87,6 +87,15 @@ public class FirewallRuleAnalyzer
 
                         if (isNarrowException)
                         {
+                            // Skip known management service exceptions - they're covered by MGMT_MISSING_* rules
+                            if (IsKnownManagementServiceException(earlierRule))
+                            {
+                                _logger.LogDebug(
+                                    "Skipping management service exception: '{AllowRule}' allows known service traffic",
+                                    earlierRule.Name);
+                                continue;
+                            }
+
                             // Determine traffic pattern description for grouping
                             var description = GetExceptionPatternDescription(laterRule);
 
@@ -956,5 +965,44 @@ public class FirewallRuleAnalyzer
 
         // Default for other patterns
         return "Firewall Exception";
+    }
+
+    /// <summary>
+    /// Check if an allow rule is for a known management service (UniFi, AFC, NTP, 5G).
+    /// These exceptions are already covered by MGMT_MISSING_* audit rules and don't need
+    /// to be reported as generic firewall exceptions.
+    /// </summary>
+    private static bool IsKnownManagementServiceException(FirewallRule allowRule)
+    {
+        // Check web domains for known management service domains
+        if (allowRule.WebDomains != null)
+        {
+            foreach (var domain in allowRule.WebDomains)
+            {
+                // UniFi cloud management
+                if (domain.Contains("ui.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // AFC (Automated Frequency Coordination) for 6GHz WiFi
+                if (domain.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // NTP time sync (domain-based)
+                if (domain.Contains("ntp.org", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // 5G/LTE modem registration
+                if (domain.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
+                    domain.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
+                    domain.Contains("gsma.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        // NTP port-based rule (UDP 123)
+        if (FirewallGroupHelper.RuleAllowsPortAndProtocol(allowRule, "123", "udp"))
+            return true;
+
+        return false;
     }
 }
