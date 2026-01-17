@@ -100,8 +100,11 @@ public class FirewallRuleAnalyzer
                             var description = GetExceptionPatternDescription(laterRule, externalZoneId, networks);
 
                             _logger.LogDebug(
-                                "Exception pattern: '{AllowRule}' -> '{DenyRule}', destZone={DestZone}, externalZone={ExtZone}, description={Desc}",
-                                earlierRule.Name, laterRule.Name, laterRule.DestinationZoneId, externalZoneId, description);
+                                "Exception pattern: '{AllowRule}' -> '{DenyRule}', destZone={DestZone}, externalZone={ExtZone}, " +
+                                "destNetworkIds={DestNetIds}, networksCount={NetCount}, description={Desc}",
+                                earlierRule.Name, laterRule.Name, laterRule.DestinationZoneId, externalZoneId,
+                                laterRule.DestinationNetworkIds != null ? string.Join(",", laterRule.DestinationNetworkIds) : "null",
+                                networks?.Count ?? 0, description);
 
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
