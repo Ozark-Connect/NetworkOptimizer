@@ -603,7 +603,11 @@ public class FirewallRuleAnalyzer
     /// When a management network has isolation enabled but internet disabled,
     /// it needs specific firewall rules to allow UniFi cloud, AFC, and device registration traffic.
     /// </summary>
-    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false)
+    /// <param name="rules">Firewall rules to analyze</param>
+    /// <param name="networks">Network configurations</param>
+    /// <param name="has5GDevice">Whether a 5G/LTE device is present on the network</param>
+    /// <param name="externalZoneId">Optional External/WAN zone ID for validating port-based rule destinations</param>
+    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -684,15 +688,17 @@ public class FirewallRuleAnalyzer
             }
 
             // Check for NTP access rule - needed for time sync (required for AFC)
-            // Can be satisfied by: web domain containing ntp.org (TCP) OR destination port 123 (UDP)
+            // Can be satisfied by: web domain containing ntp.org (TCP) OR destination port 123 (UDP) to External zone
             // Note: Must check that ports and protocol are not inverted
+            // For port-based rules, we must verify the destination zone is External
             var hasNtpAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 ((r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true &&
                   FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp")) ||
-                 FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp")));
+                 (FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp") &&
+                  TargetsExternalZone(r, externalZoneId))));
 
             if (!hasNtpAccess)
             {
@@ -901,5 +907,20 @@ public class FirewallRuleAnalyzer
     private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
     {
         return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
+    }
+
+    /// <summary>
+    /// Check if a firewall rule targets the External/WAN zone.
+    /// Returns true if the rule's destination zone matches the external zone ID,
+    /// or if we don't have an external zone ID to check against.
+    /// </summary>
+    private static bool TargetsExternalZone(FirewallRule rule, string? externalZoneId)
+    {
+        // If no external zone ID is provided, we can't validate - assume it targets external
+        if (string.IsNullOrEmpty(externalZoneId))
+            return true;
+
+        // Check if the rule's destination zone matches the external zone
+        return string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -874,6 +874,127 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HasDns53BlockRule.Should().BeTrue();
     }
 
+    #region External Zone ID Tests
+
+    private const string ExternalZoneId = "external-zone-123";
+    private const string LanZoneId = "lan-zone-456";
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_TargetingExternalZone_DetectsRule()
+    {
+        // Arrange - Rule explicitly targets the external zone
+        var firewall = JsonDocument.Parse($@"[
+            {{
+                ""name"": ""Block External DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {{
+                    ""port"": ""53"",
+                    ""zone_id"": ""{ExternalZoneId}""
+                }}
+            }}
+        ]").RootElement;
+
+        // Act - Pass the matching external zone ID
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+
+        // Assert - Rule is detected because it targets the external zone
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block External DNS");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_TargetingLanZone_DoesNotDetectRule()
+    {
+        // Arrange - Rule targets the LAN zone, not external
+        var firewall = JsonDocument.Parse($@"[
+            {{
+                ""name"": ""Block LAN DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {{
+                    ""port"": ""53"",
+                    ""zone_id"": ""{LanZoneId}""
+                }}
+            }}
+        ]").RootElement;
+
+        // Act - Pass the external zone ID (different from rule's destination)
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+
+        // Assert - Rule is NOT detected because it doesn't target the external zone
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_NoZoneIdProvided_FallsBackToDetecting()
+    {
+        // Arrange - Rule has no zone_id specified
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": { ""port"": ""53"" }
+            }
+        ]").RootElement;
+
+        // Act - Pass external zone ID, but rule doesn't have zone_id (matches any zone)
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+
+        // Assert - Rule is detected (no zone_id means it applies to all zones)
+        result.HasDns53BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDns53BlockRule_NoExternalZoneIdProvided_DetectsAnyRule()
+    {
+        // Arrange - Rule with zone_id, but we don't know the external zone
+        var firewall = JsonDocument.Parse($@"[
+            {{
+                ""name"": ""Block Some Zone DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {{
+                    ""port"": ""53"",
+                    ""zone_id"": ""{LanZoneId}""
+                }}
+            }}
+        ]").RootElement;
+
+        // Act - Don't pass external zone ID (null)
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, null);
+
+        // Assert - Rule is detected because we can't validate zone (fallback behavior)
+        result.HasDns53BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDotBlockRule_TargetingWrongZone_DoesNotDetect()
+    {
+        // Arrange - DoT rule targets wrong zone
+        var firewall = JsonDocument.Parse($@"[
+            {{
+                ""name"": ""Block LAN DoT"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {{
+                    ""port"": ""853"",
+                    ""zone_id"": ""{LanZoneId}""
+                }}
+            }}
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+
+        // Assert - Not detected because it targets the wrong zone
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeFalse();
+    }
+
+    #endregion
+
     #endregion
 
     #region WAN DNS Extraction Tests

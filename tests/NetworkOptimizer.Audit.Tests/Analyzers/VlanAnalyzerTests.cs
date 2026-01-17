@@ -1211,7 +1211,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1241,7 +1241,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1270,7 +1270,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - Issue returned because disabled rule doesn't block
         issues.Should().HaveCount(1);
@@ -1300,7 +1300,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - Issue returned because ALLOW rule doesn't block internet
         issues.Should().HaveCount(1);
@@ -1330,7 +1330,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - Issue returned because only TCP is blocked, not all traffic
         issues.Should().HaveCount(1);
@@ -1379,7 +1379,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - No issues because both networks have internet blocked via firewall
         issues.Should().BeEmpty();
@@ -1415,7 +1415,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - Only one issue for the unblocked network
         issues.Should().HaveCount(1);
@@ -1423,9 +1423,9 @@ public class VlanAnalyzerTests
     }
 
     [Fact]
-    public void AnalyzeInternetAccess_NoWanZoneDetected_FallsBackToConfigSetting()
+    public void AnalyzeInternetAccess_NoExternalZoneId_FallsBackToConfigSetting()
     {
-        // Arrange - No WAN network to detect WAN zone ID
+        // Arrange - No external zone ID provided (simulates when zone can't be determined from API)
         var networkId = "security-network-001";
         var networks = new List<NetworkInfo>
         {
@@ -1434,7 +1434,6 @@ public class VlanAnalyzerTests
                 firewallZoneId: LanZoneId,
                 networkGroup: "LAN",
                 id: networkId)
-            // No WAN network
         };
 
         var firewallRules = new List<FirewallRule>
@@ -1442,10 +1441,11 @@ public class VlanAnalyzerTests
             CreateInternetBlockRule(networkId, LanZoneId, WanZoneId)
         };
 
-        // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        // Act - Pass null for externalZoneId to simulate when it can't be determined
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, externalZoneId: null);
 
-        // Assert - Issue returned because WAN zone couldn't be detected (falls back to config setting)
+        // Assert - Issue returned because without external zone ID, firewall rules can't be validated
+        // so it falls back to the config setting (internet_access_enabled=true)
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
     }
@@ -1493,7 +1493,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - No issues, internet blocked via both methods
         issues.Should().BeEmpty();
@@ -1524,7 +1524,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - Issue returned because rule doesn't target WAN zone
         issues.Should().HaveCount(1);
@@ -1555,7 +1555,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
 
         // Assert - No issues because DROP also blocks internet
         issues.Should().BeEmpty();

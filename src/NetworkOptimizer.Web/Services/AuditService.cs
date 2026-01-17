@@ -1047,6 +1047,22 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
             }
 
+            // Fetch network configs for External zone ID detection (used for firewall rule analysis)
+            List<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs = null;
+            try
+            {
+                networkConfigs = await _connectionService.Client.GetNetworkConfigsAsync();
+                if (networkConfigs.Count > 0)
+                {
+                    var wanCount = networkConfigs.Count(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
+                    _logger.LogInformation("Fetched {Count} network configs ({WanCount} WAN) for zone ID detection", networkConfigs.Count, wanCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch network configs for zone ID detection");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -1079,7 +1095,8 @@ public class AuditService
                 DnatExcludedVlanIds = options.DnatExcludedVlanIds,
                 PiholeManagementPort = options.PiholeManagementPort,
                 UpnpEnabled = upnpEnabled,
-                PortForwardRules = portForwardRules
+                PortForwardRules = portForwardRules,
+                NetworkConfigs = networkConfigs
             });
 
             // Convert audit result to web models

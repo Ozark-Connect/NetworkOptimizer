@@ -51,6 +51,7 @@ public class ConfigAuditEngine
         public int? PiholeManagementPort { get; init; }  // Used for all third-party DNS (Pi-hole, AdGuard Home, etc.)
         public bool? UpnpEnabled { get; init; }
         public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
+        public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
 
         // Populated by phases
         public List<NetworkInfo> Networks { get; set; } = [];
@@ -62,6 +63,13 @@ public class ConfigAuditEngine
         public List<string> HardeningMeasures { get; set; } = [];
         public DnsSecurityResult? DnsSecurityResult { get; set; }
         public AuditStatistics? Statistics { get; set; }
+
+        /// <summary>
+        /// The firewall zone ID for external/WAN traffic.
+        /// Determined early from NetworkConfigs by finding a WAN network's firewall_zone_id.
+        /// Used by firewall rule analysis to identify rules targeting internet traffic.
+        /// </summary>
+        public string? ExternalZoneId { get; set; }
     }
 
     /// <summary>
@@ -214,6 +222,33 @@ public class ConfigAuditEngine
         // Initialize context with parsed data and security engine
         var ctx = InitializeAuditContext(request);
 
+        // Check if external zone could be determined from network configs
+        if (ctx.ExternalZoneId == null && ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
+        {
+            var wanNetworkCount = ctx.NetworkConfigs.Count(n =>
+                string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
+
+            _logger.LogWarning("Could not determine External Zone ID from {Count} network configs ({WanCount} WAN networks). " +
+                "This may indicate a bug or UniFi API difference. Please report this issue.",
+                ctx.NetworkConfigs.Count, wanNetworkCount);
+
+            ctx.AllIssues.Add(new AuditIssue
+            {
+                Type = IssueTypes.ExternalZoneNotDetected,
+                Severity = Models.AuditSeverity.Critical,
+                Message = "Unable to determine External/WAN firewall zone ID. Firewall rule destination zone validation is disabled.",
+                Metadata = new Dictionary<string, object>
+                {
+                    { "network_config_count", ctx.NetworkConfigs.Count },
+                    { "wan_network_count", wanNetworkCount }
+                },
+                RuleId = "FW-ZONE-001",
+                ScoreImpact = 5,
+                RecommendedAction = "This may indicate a bug in Network Optimizer or an unexpected UniFi API response. " +
+                    "Please report this issue at https://github.com/anthropics/claude-code/issues with your UniFi controller version."
+            });
+        }
+
         // Execute audit phases
         ExecutePhase1_ExtractNetworks(ctx);
         ExecutePhase2_ExtractSwitches(ctx);
@@ -312,8 +347,34 @@ public class ConfigAuditEngine
             DnatExcludedVlanIds = request.DnatExcludedVlanIds,
             PiholeManagementPort = request.PiholeManagementPort,
             UpnpEnabled = request.UpnpEnabled,
-            PortForwardRules = request.PortForwardRules
+            PortForwardRules = request.PortForwardRules,
+            NetworkConfigs = request.NetworkConfigs,
+            ExternalZoneId = DetermineExternalZoneId(request.NetworkConfigs)
         };
+    }
+
+    /// <summary>
+    /// Determine the External/WAN firewall zone ID from network configurations.
+    /// Looks for networks with purpose "wan" and extracts their firewall_zone_id.
+    /// </summary>
+    private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs)
+    {
+        if (networkConfigs == null || networkConfigs.Count == 0)
+            return null;
+
+        // Find a WAN network and get its firewall zone ID
+        var wanNetwork = networkConfigs.FirstOrDefault(n =>
+            string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
+
+        if (wanNetwork?.FirewallZoneId != null)
+        {
+            _logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
+                wanNetwork.Name, wanNetwork.FirewallZoneId);
+            return wanNetwork.FirewallZoneId;
+        }
+
+        _logger.LogDebug("No WAN network with firewall_zone_id found in {Count} network configs", networkConfigs.Count);
+        return null;
     }
 
     private void ExecutePhase1_ExtractNetworks(AuditContext ctx)
@@ -690,13 +751,13 @@ public class ConfigAuditEngine
             s.Model?.StartsWith("U5G", StringComparison.OrdinalIgnoreCase) == true ||
             s.Model?.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase) == true);
 
-        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice);
+        var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice, ctx.ExternalZoneId);
 
         // Analyze internet access with firewall rules to detect both methods of blocking:
         // 1. internet_access_enabled=false in network config
         // 2. Firewall rule blocking network -> external zone
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
-        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules);
+        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules, ctx.ExternalZoneId);
 
         ctx.AllIssues.AddRange(firewallIssues);
         ctx.AllIssues.AddRange(mgmtFirewallIssues);
@@ -724,7 +785,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue || ctx.NatRulesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.FirewallGroups, ctx.NatRulesData, ctx.DnatExcludedVlanIds);
+                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.FirewallGroups, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

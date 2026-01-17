@@ -701,22 +701,18 @@ public class VlanAnalyzer
     /// <param name="networks">List of networks to analyze</param>
     /// <param name="gatewayName">Name of the gateway device</param>
     /// <param name="firewallRules">Optional firewall rules to check for internet-blocking rules</param>
+    /// <param name="externalZoneId">The External/WAN firewall zone ID (pre-computed from network configs)</param>
     public List<AuditIssue> AnalyzeInternetAccess(
         List<NetworkInfo> networks,
         string gatewayName = "Gateway",
-        List<FirewallRule>? firewallRules = null)
+        List<FirewallRule>? firewallRules = null,
+        string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
-        // Find WAN zone ID by looking for networks with NetworkGroup starting with "WAN"
-        var wanZoneId = networks
-            .Where(n => n.NetworkGroup?.StartsWith("WAN", StringComparison.OrdinalIgnoreCase) == true)
-            .Select(n => n.FirewallZoneId)
-            .FirstOrDefault(id => !string.IsNullOrEmpty(id));
-
-        if (wanZoneId != null)
+        if (externalZoneId != null)
         {
-            _logger.LogDebug("Detected WAN zone ID: {WanZoneId}", wanZoneId);
+            _logger.LogDebug("Using External Zone ID: {ExternalZoneId}", externalZoneId);
         }
 
         foreach (var network in networks)
@@ -726,7 +722,7 @@ public class VlanAnalyzer
                 continue;
 
             // Check if internet is effectively enabled (not disabled via setting OR firewall rule)
-            var hasEffectiveInternetAccess = HasEffectiveInternetAccess(network, firewallRules, wanZoneId);
+            var hasEffectiveInternetAccess = HasEffectiveInternetAccess(network, firewallRules, externalZoneId);
 
             // Check Security/Camera networks - should NOT have internet access
             if (network.Purpose == NetworkPurpose.Security && hasEffectiveInternetAccess)
@@ -782,12 +778,12 @@ public class VlanAnalyzer
     /// Determine if a network has effective internet access.
     /// Internet is considered blocked if EITHER:
     /// 1. internet_access_enabled is false in network config, OR
-    /// 2. A firewall rule blocks all traffic from this network to the WAN zone
+    /// 2. A firewall rule blocks all traffic from this network to the External zone
     /// </summary>
     private bool HasEffectiveInternetAccess(
         NetworkInfo network,
         List<FirewallRule>? firewallRules,
-        string? wanZoneId)
+        string? externalZoneId)
     {
         // If internet access is disabled in network config, it's blocked
         if (!network.InternetAccessEnabled)
@@ -796,14 +792,14 @@ public class VlanAnalyzer
             return false;
         }
 
-        // If no firewall rules provided or no WAN zone detected, use the config setting
-        if (firewallRules == null || firewallRules.Count == 0 || string.IsNullOrEmpty(wanZoneId))
+        // If no firewall rules provided or no External zone detected, use the config setting
+        if (firewallRules == null || firewallRules.Count == 0 || string.IsNullOrEmpty(externalZoneId))
         {
             return network.InternetAccessEnabled;
         }
 
         // Check if there's a firewall rule that blocks internet access for this network
-        var isBlockedByFirewall = IsInternetBlockedViaFirewall(network, firewallRules, wanZoneId);
+        var isBlockedByFirewall = IsInternetBlockedViaFirewall(network, firewallRules, externalZoneId);
         if (isBlockedByFirewall)
         {
             _logger.LogDebug("Network '{Name}' has internet blocked via firewall rule", network.Name);
@@ -819,14 +815,14 @@ public class VlanAnalyzer
     /// - Rule is enabled
     /// - Action is block/drop/reject/deny
     /// - Source matching target is "NETWORK" and network_ids contains this network's ID
-    /// - Destination zone ID matches the WAN zone
+    /// - Destination zone ID matches the External zone
     /// - Destination matching target is "ANY" (all destinations in the zone)
     /// - Protocol is "all" (blocks all traffic, not just specific ports)
     /// </summary>
     private bool IsInternetBlockedViaFirewall(
         NetworkInfo network,
         List<FirewallRule> firewallRules,
-        string wanZoneId)
+        string externalZoneId)
     {
         foreach (var rule in firewallRules)
         {
@@ -845,8 +841,8 @@ public class VlanAnalyzer
             if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(network.Id))
                 continue;
 
-            // Destination zone must be the WAN zone
-            if (!string.Equals(rule.DestinationZoneId, wanZoneId, StringComparison.OrdinalIgnoreCase))
+            // Destination zone must be the External zone
+            if (!string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             // Destination must target ANY (all destinations in the zone)

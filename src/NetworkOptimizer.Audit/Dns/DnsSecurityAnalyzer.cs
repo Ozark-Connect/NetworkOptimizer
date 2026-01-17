@@ -90,7 +90,8 @@ public class DnsSecurityAnalyzer
     /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
     /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null)
+    /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null)
     {
         // Store firewall groups for resolving port_group_id references
         _firewallGroups = firewallGroups?.ToDictionary(g => g.Id, g => g);
@@ -119,7 +120,7 @@ public class DnsSecurityAnalyzer
         // Analyze firewall rules
         if (firewallData.HasValue)
         {
-            AnalyzeFirewallRules(firewallData.Value, networks, result);
+            AnalyzeFirewallRules(firewallData.Value, networks, result, externalZoneId);
         }
         else
         {
@@ -384,7 +385,7 @@ public class DnsSecurityAnalyzer
         }
     }
 
-    private void AnalyzeFirewallRules(JsonElement firewallData, List<NetworkInfo>? networks, DnsSecurityResult result)
+    private void AnalyzeFirewallRules(JsonElement firewallData, List<NetworkInfo>? networks, DnsSecurityResult result, string? externalZoneId)
     {
         // Parse firewall policies to find DNS-related rules
         foreach (var policy in firewallData.UnwrapDataArray())
@@ -421,8 +422,9 @@ public class DnsSecurityAnalyzer
                 }
             }
 
-            // Check destination port and matching target
+            // Check destination port, zone, and matching target
             string? destPort = null;
+            string? destZoneId = null;
             string? matchingTarget = null;
             List<string>? webDomains = null;
             bool matchOppositePorts = false;
@@ -430,6 +432,7 @@ public class DnsSecurityAnalyzer
             if (policy.TryGetProperty("destination", out var dest))
             {
                 destPort = dest.GetStringOrNull("port");
+                destZoneId = dest.GetStringOrNull("zone_id");
                 matchingTarget = dest.GetStringOrNull("matching_target");
                 matchOppositePorts = dest.GetBoolOrDefault("match_opposite_ports", false);
 
@@ -455,6 +458,14 @@ public class DnsSecurityAnalyzer
                 }
             }
 
+            // DNS leak prevention rules must target the External zone.
+            // If we have an External zone ID, validate the destination zone matches.
+            // Rules targeting other zones (e.g., LAN) don't prevent DNS leaks to the internet.
+            // Rules without a destination zone are assumed to target all zones (including external).
+            var targetsExternalZone = string.IsNullOrEmpty(externalZoneId) ||
+                                      string.IsNullOrEmpty(destZoneId) ||
+                                      string.Equals(destZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
+
             var isBlockAction = FirewallActionExtensions.Parse(action).IsBlockAction();
 
             // If match_opposite_ports is true, the rule blocks everything EXCEPT the specified ports
@@ -471,14 +482,15 @@ public class DnsSecurityAnalyzer
             var blocksUdp = FirewallGroupHelper.AllowsProtocol(protocol, matchOppositeProtocol, "udp");
             var blocksTcp = FirewallGroupHelper.AllowsProtocol(protocol, matchOppositeProtocol, "tcp");
 
-            // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP)
-            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "53"))
+            // Check for DNS port 53 blocking - must include UDP (DNS is primarily UDP) and target External zone
+            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "53"))
             {
                 if (blocksUdp)
                 {
                     result.HasDns53BlockRule = true;
                     result.Dns53RuleName = name;
-                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
+                    _logger.LogDebug("Found DNS53 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
 
                     // Track network coverage for this rule
                     if (networks != null)
@@ -491,17 +503,23 @@ public class DnsSecurityAnalyzer
                     _logger.LogDebug("Skipping DNS53 rule {Name}: protocol {Protocol} (opposite={Opposite}) doesn't block UDP", name, protocol, matchOppositeProtocol);
                 }
             }
+            else if (isBlockAction && !targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "53"))
+            {
+                _logger.LogDebug("Skipping DNS53 rule {Name}: destination zone {Zone} is not the External zone {ExternalZone}",
+                    name, destZoneId, externalZoneId);
+            }
 
-            // Check for DNS over TLS (port 853) blocking - TCP only
-            // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250)
-            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "853"))
+            // Check for DNS over TLS (port 853) blocking - TCP only, must target External zone
+            // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250), must target External zone
+            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "853"))
             {
                 // DoT = TCP 853
                 if (blocksTcp)
                 {
                     result.HasDotBlockRule = true;
                     result.DotRuleName = name;
-                    _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
+                    _logger.LogDebug("Found DoT block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
                 }
 
                 // DoQ = UDP 853 (RFC 9250 standard port)
@@ -509,13 +527,14 @@ public class DnsSecurityAnalyzer
                 {
                     result.HasDoqBlockRule = true;
                     result.DoqRuleName = name;
-                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite})", name, protocol, matchOppositeProtocol);
+                    _logger.LogDebug("Found DoQ block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone})",
+                        name, protocol, matchOppositeProtocol, destZoneId ?? "any");
                 }
             }
 
-            // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers)
+            // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers), must target External zone
             // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
-            if (isBlockAction && FirewallGroupHelper.IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
+            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
@@ -534,8 +553,8 @@ public class DnsSecurityAnalyzer
                                 result.DohBlockedDomains.Add(domain);
                         }
                         result.DohRuleName = name;
-                        _logger.LogDebug("Found DoH block rule: {Name} (protocol={Protocol}, opposite={Opposite}) with {Count} DNS domains",
-                            name, protocol, matchOppositeProtocol, dnsProviderDomains.Count);
+                        _logger.LogDebug("Found DoH block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone}) with {Count} DNS domains",
+                            name, protocol, matchOppositeProtocol, destZoneId ?? "any", dnsProviderDomains.Count);
                     }
 
                     // DoH3 blocking (UDP 443 / HTTP/3 over QUIC)
@@ -543,8 +562,8 @@ public class DnsSecurityAnalyzer
                     {
                         result.HasDoh3BlockRule = true;
                         result.Doh3RuleName = name;
-                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}, opposite={Opposite}) with {Count} DNS domains",
-                            name, protocol, matchOppositeProtocol, dnsProviderDomains.Count);
+                        _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone}) with {Count} DNS domains",
+                            name, protocol, matchOppositeProtocol, destZoneId ?? "any", dnsProviderDomains.Count);
                     }
                 }
             }

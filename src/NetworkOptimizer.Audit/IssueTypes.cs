@@ -20,6 +20,7 @@ public static class IssueTypes
     public const string MgmtMissingAfcAccess = "MGMT_MISSING_AFC_ACCESS";
     public const string MgmtMissingNtpAccess = "MGMT_MISSING_NTP_ACCESS";
     public const string MgmtMissing5gAccess = "MGMT_MISSING_5G_ACCESS";
+    public const string ExternalZoneNotDetected = "EXTERNAL_ZONE_NOT_DETECTED";
 
     // VLAN Security
     public const string IotVlan = "IOT-VLAN-001";
