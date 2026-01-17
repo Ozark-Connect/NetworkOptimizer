@@ -796,6 +796,61 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectShadowedRules_ExceptionWithDestinationIp_LooksUpNetworkPurpose()
+    {
+        // Allow rule using destination IPs (not network IDs) - should still determine purpose from IP subnet
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow NAS HA - Camera",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.1.100" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.30.50" }, // IP in Security network
+                DestinationPort = "443"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "[CRITICAL] Block Access to Isolated VLANs",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "iot-net", "security-net", "mgmt-net" }
+            }
+        };
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", vlanId: 20),
+            new NetworkInfo
+            {
+                Id = "security-net",
+                Name = "Security Cameras",
+                Purpose = NetworkPurpose.Security,
+                VlanId = 30,
+                Subnet = "192.168.30.0/24",
+                Gateway = "192.168.30.1"
+            },
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", vlanId: 99)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        // Should determine Security purpose from destination IP falling within Security network subnet
+        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
+    }
+
+    [Fact]
     public void DetectShadowedRules_ExceptionToGenericBlock_SetsFirewallExceptionDescription()
     {
         // Allow rule before deny rule with non-network, non-external pattern
