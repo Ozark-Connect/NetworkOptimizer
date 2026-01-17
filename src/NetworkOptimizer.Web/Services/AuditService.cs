@@ -1162,7 +1162,7 @@ public class AuditService
                 Severity = issue.Severity,
                 Category = category,
                 Title = GetIssueTitle(issue.Type, issue.Message, issue.Severity),
-                Description = issue.Message,
+                Description = issue.Description ?? issue.Message,
                 Recommendation = issue.RecommendedAction ?? GetDefaultRecommendation(issue.Type),
                 // Context fields
                 DeviceName = issue.DeviceName,
