@@ -99,6 +99,10 @@ public class FirewallRuleAnalyzer
                             // Determine traffic pattern description for grouping
                             var description = GetExceptionPatternDescription(laterRule, externalZoneId);
 
+                            _logger.LogDebug(
+                                "Exception pattern: '{AllowRule}' -> '{DenyRule}', destZone={DestZone}, externalZone={ExtZone}, description={Desc}",
+                                earlierRule.Name, laterRule.Name, laterRule.DestinationZoneId, externalZoneId, description);
+
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
                             {
@@ -949,10 +953,10 @@ public class FirewallRuleAnalyzer
         var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
 
         // Check for external/internet blocking rules - must target the external zone specifically
-        // Only categorize as "External Access Exception" if we can confirm the destination is the external zone
+        // If the destination zone is external, it's an external access exception regardless of
+        // whether the destination is ANY, specific IPs, or domains
         if (!string.IsNullOrEmpty(externalZoneId) &&
-            string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase) &&
-            destTarget == "ANY")
+            string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
         {
             return "External Access Exception";
         }
