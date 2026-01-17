@@ -985,23 +985,47 @@ public class FirewallRuleAnalyzer
         if (networks == null || networks.Count == 0)
             return "";
 
-        var destNetworkIds = rule.DestinationNetworkIds;
-        if (destNetworkIds == null || destNetworkIds.Count == 0)
-            return "";
-
-        // Find purposes of all destination networks
         var purposes = new HashSet<NetworkPurpose>();
-        foreach (var networkId in destNetworkIds)
+
+        // First try: Check DestinationNetworkIds
+        var destNetworkIds = rule.DestinationNetworkIds;
+        if (destNetworkIds != null && destNetworkIds.Count > 0)
         {
-            var network = networks.FirstOrDefault(n =>
-                string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
-            if (network != null)
+            foreach (var networkId in destNetworkIds)
             {
-                purposes.Add(network.Purpose);
+                var network = networks.FirstOrDefault(n =>
+                    string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+                if (network != null)
+                {
+                    purposes.Add(network.Purpose);
+                }
+            }
+        }
+        // Second try: Check DestinationIps - find which network's subnet they belong to
+        else if (rule.DestinationIps != null && rule.DestinationIps.Count > 0)
+        {
+            foreach (var destIp in rule.DestinationIps)
+            {
+                // Skip IP ranges for now, just check single IPs
+                var ip = destIp.Contains('-') ? destIp.Split('-')[0] : destIp;
+                // Skip CIDR notation, just check single IPs
+                if (ip.Contains('/'))
+                    ip = ip.Split('/')[0];
+
+                // Find which network this IP belongs to
+                foreach (var network in networks)
+                {
+                    if (!string.IsNullOrEmpty(network.Subnet) &&
+                        FirewallRuleOverlapDetector.IpMatchesCidr(ip, network.Subnet))
+                    {
+                        purposes.Add(network.Purpose);
+                        break; // Found the network for this IP
+                    }
+                }
             }
         }
 
-        // If all destination networks have the same purpose, include it in the description
+        // If all destinations have the same purpose, include it in the description
         if (purposes.Count == 1)
         {
             var purpose = purposes.First();
