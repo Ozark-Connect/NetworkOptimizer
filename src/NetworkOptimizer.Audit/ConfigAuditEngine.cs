@@ -743,7 +743,7 @@ public class ConfigAuditEngine
         firewallRules.AddRange(policyRules);
 
         var firewallIssues = firewallRules.Any()
-            ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, ctx.Networks)
+            ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, ctx.Networks, ctx.NetworkConfigs)
             : new List<AuditIssue>();
 
         // Check if there's a 5G/LTE device on the network

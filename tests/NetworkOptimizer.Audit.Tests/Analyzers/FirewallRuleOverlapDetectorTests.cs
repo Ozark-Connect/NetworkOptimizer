@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Analyzers;
@@ -690,6 +691,277 @@ public class FirewallRuleOverlapDetectorTests
     {
         // Second argument is not a CIDR
         FirewallRuleOverlapDetector.IpMatchesCidr("192.168.1.50", "192.168.1.1").Should().BeFalse();
+    }
+
+    #endregion
+
+    #region IpOverlapsWithNetworks Tests
+
+    [Fact]
+    public void IpOverlapsWithNetworks_IpInNetworkCidr_ReturnsTrue()
+    {
+        var ips = new List<string> { "192.168.1.100" };
+        var networkIds = new List<string> { "net-main" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_IpNotInNetworkCidr_ReturnsFalse()
+    {
+        // NAS is on 192.168.1.x, Management network is 192.168.50.x
+        var ips = new List<string> { "192.168.1.220" };
+        var networkIds = new List<string> { "net-mgmt" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_NoNetworkConfigs_ReturnsTrueConservatively()
+    {
+        var ips = new List<string> { "192.168.1.100" };
+        var networkIds = new List<string> { "net-unknown" };
+
+        // Without network configs, we can't determine overlap, so return true conservatively
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_NetworkIdNotFound_ReturnsTrueConservatively()
+    {
+        var ips = new List<string> { "192.168.1.100" };
+        var networkIds = new List<string> { "net-unknown" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-other", IpSubnet = "10.0.0.0/8" }
+        };
+
+        // Network ID not found in configs, return true conservatively
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_MultipleNetworks_IpInOneOfThem_ReturnsTrue()
+    {
+        var ips = new List<string> { "192.168.50.10" };
+        var networkIds = new List<string> { "net-main", "net-mgmt" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" },
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_MultipleNetworks_IpNotInAny_ReturnsFalse()
+    {
+        var ips = new List<string> { "10.0.0.100" };
+        var networkIds = new List<string> { "net-main", "net-mgmt" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" },
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_EmptyIps_ReturnsFalse()
+    {
+        var ips = new List<string>();
+        var networkIds = new List<string> { "net-main" };
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpOverlapsWithNetworks_EmptyNetworkIds_ReturnsFalse()
+    {
+        var ips = new List<string> { "192.168.1.100" };
+        var networkIds = new List<string>();
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.IpOverlapsWithNetworks(ips, networkIds, networkConfigs).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region SourcesOverlap with NetworkConfigs Tests
+
+    [Fact]
+    public void SourcesOverlap_NetworkVsIp_WithNetworkConfigs_IpInCidr_ReturnsTrue()
+    {
+        var networkRule = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net-main" });
+        var ipRule = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.100" });
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.SourcesOverlap(networkRule, ipRule, networkConfigs).Should().BeTrue();
+    }
+
+    [Fact]
+    public void SourcesOverlap_NetworkVsIp_WithNetworkConfigs_IpNotInCidr_ReturnsFalse()
+    {
+        // NAS IP (192.168.1.220) is NOT in Management network (192.168.50.0/24)
+        var networkRule = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net-mgmt" });
+        var ipRule = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220" });
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.SourcesOverlap(networkRule, ipRule, networkConfigs).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SourcesOverlap_IpVsNetwork_WithNetworkConfigs_IpNotInCidr_ReturnsFalse()
+    {
+        // Same as above but reversed order
+        var ipRule = CreateRule(
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220" });
+        var networkRule = CreateRule(
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net-mgmt" });
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.SourcesOverlap(ipRule, networkRule, networkConfigs).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region DestinationsOverlap with NetworkConfigs Tests
+
+    [Fact]
+    public void DestinationsOverlap_NetworkVsIp_WithNetworkConfigs_IpInCidr_ReturnsTrue()
+    {
+        var networkRule = CreateRule(
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net-iot" });
+        var ipRule = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "192.168.64.100" });
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-iot", IpSubnet = "192.168.64.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(networkRule, ipRule, networkConfigs).Should().BeTrue();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_NetworkVsIp_WithNetworkConfigs_IpNotInCidr_ReturnsFalse()
+    {
+        var networkRule = CreateRule(
+            destMatchingTarget: "NETWORK",
+            destNetworkIds: new List<string> { "net-iot" });
+        var ipRule = CreateRule(
+            destMatchingTarget: "IP",
+            destIps: new List<string> { "10.0.0.100" });
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-iot", IpSubnet = "192.168.64.0/24" }
+        };
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(networkRule, ipRule, networkConfigs).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region RulesOverlap with NetworkConfigs Integration Tests
+
+    [Fact]
+    public void RulesOverlap_AllowNasDoH_VsBlockMgmtInternet_WithNetworkConfigs_ReturnsFalse()
+    {
+        // Real-world scenario: NAS (192.168.1.220) is on Main network, not Management
+        // Allow rule for NAS should NOT overlap with Block rule for Management network
+        var allowNasDoH = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.1.220" },
+            sourceZoneId: "zone-lan",
+            destMatchingTarget: "WEB",
+            webDomains: new List<string> { "dns.nextdns.io" },
+            destPort: "443",
+            destZoneId: "zone-wan");
+
+        var blockMgmtInternet = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net-mgmt" },
+            sourceZoneId: "zone-lan",
+            destMatchingTarget: "ANY",
+            destZoneId: "zone-wan");
+
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" },
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        // NAS IP (192.168.1.220) is NOT in Management network (192.168.50.0/24)
+        FirewallRuleOverlapDetector.RulesOverlap(allowNasDoH, blockMgmtInternet, networkConfigs).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_AllowDeviceOnMgmt_VsBlockMgmtInternet_WithNetworkConfigs_ReturnsTrue()
+    {
+        // Device IP (192.168.50.10) IS on Management network
+        var allowDevice = CreateRule(
+            protocol: "tcp",
+            sourceMatchingTarget: "IP",
+            sourceIps: new List<string> { "192.168.50.10" },
+            sourceZoneId: "zone-lan",
+            destMatchingTarget: "ANY",
+            destZoneId: "zone-wan");
+
+        var blockMgmtInternet = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "net-mgmt" },
+            sourceZoneId: "zone-lan",
+            destMatchingTarget: "ANY",
+            destZoneId: "zone-wan");
+
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-main", IpSubnet = "192.168.1.0/24" },
+            new() { Id = "net-mgmt", IpSubnet = "192.168.50.0/24" }
+        };
+
+        // Device IP (192.168.50.10) IS in Management network (192.168.50.0/24)
+        FirewallRuleOverlapDetector.RulesOverlap(allowDevice, blockMgmtInternet, networkConfigs).Should().BeTrue();
     }
 
     #endregion

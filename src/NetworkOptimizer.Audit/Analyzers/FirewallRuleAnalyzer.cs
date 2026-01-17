@@ -44,7 +44,7 @@ public class FirewallRuleAnalyzer
     /// - Info: DENY before ALLOW makes the ALLOW ineffective
     /// - Warning: ALLOW before DENY subverts a security rule
     /// </summary>
-    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules)
+    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -76,7 +76,7 @@ public class FirewallRuleAnalyzer
                         continue;
 
                     // Check if rules could overlap (same source/dest/protocol patterns)
-                    if (!FirewallRuleOverlapDetector.RulesOverlap(earlierRule, laterRule))
+                    if (!FirewallRuleOverlapDetector.RulesOverlap(earlierRule, laterRule, networkConfigs))
                         continue;
 
                     if (earlierIsAllow && !laterIsAllow)
@@ -582,13 +582,13 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Run all firewall analyses
     /// </summary>
-    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks)
+    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null)
     {
         var issues = new List<AuditIssue>();
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
-        issues.AddRange(DetectShadowedRules(rules));
+        issues.AddRange(DetectShadowedRules(rules, networkConfigs));
         issues.AddRange(DetectPermissiveRules(rules));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks));
