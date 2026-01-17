@@ -87,12 +87,16 @@ public class FirewallRuleAnalyzer
 
                         if (isNarrowException)
                         {
+                            // Determine traffic pattern description for grouping
+                            var description = GetExceptionPatternDescription(laterRule);
+
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.AllowExceptionPattern,
                                 Severity = AuditSeverity.Informational,
                                 Message = $"Allow rule '{earlierRule.Name}' creates an intentional exception to deny rule '{laterRule.Name}'",
+                                Description = description,
                                 Metadata = new Dictionary<string, object>
                                 {
                                     { "allow_rule", earlierRule.Name ?? earlierRule.Id },
@@ -924,5 +928,33 @@ public class FirewallRuleAnalyzer
 
         // Check if the rule's destination zone matches the external zone
         return string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Determines a description for firewall exception patterns based on the deny rule being excepted.
+    /// Used for grouping similar exceptions in the UI.
+    /// </summary>
+    private static string GetExceptionPatternDescription(FirewallRule denyRule)
+    {
+        var destTarget = denyRule.DestinationMatchingTarget?.ToUpperInvariant();
+        var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
+
+        // Check for external/internet blocking rules (dest zone is external or dest is ANY with external zone)
+        // These are typically "block internet" rules
+        if (!string.IsNullOrEmpty(denyRule.DestinationZoneId) &&
+            denyRule.DestinationZoneId != denyRule.SourceZoneId &&
+            destTarget == "ANY")
+        {
+            return "External Access Exception";
+        }
+
+        // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
+        if (destTarget == "NETWORK" || srcTarget == "NETWORK")
+        {
+            return "Cross-VLAN Access Exception";
+        }
+
+        // Default for other patterns
+        return "Firewall Exception";
     }
 }
