@@ -97,14 +97,8 @@ public class FirewallRuleAnalyzer
                             }
 
                             // Determine traffic pattern description for grouping
-                            var description = GetExceptionPatternDescription(laterRule, externalZoneId, networks);
-
-                            _logger.LogDebug(
-                                "Exception pattern: '{AllowRule}' -> '{DenyRule}', destZone={DestZone}, externalZone={ExtZone}, " +
-                                "destNetworkIds={DestNetIds}, networksCount={NetCount}, description={Desc}",
-                                earlierRule.Name, laterRule.Name, laterRule.DestinationZoneId, externalZoneId,
-                                laterRule.DestinationNetworkIds != null ? string.Join(",", laterRule.DestinationNetworkIds) : "null",
-                                networks?.Count ?? 0, description);
+                            // Use the allow rule for destination purpose since it's more specific
+                            var description = GetExceptionPatternDescription(laterRule, earlierRule, externalZoneId, networks);
 
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
@@ -948,9 +942,9 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Determines a description for firewall exception patterns based on the deny rule being excepted.
-    /// Used for grouping similar exceptions in the UI.
+    /// Uses the allow rule's destination for purpose lookup since it's more specific.
     /// </summary>
-    private static string GetExceptionPatternDescription(FirewallRule denyRule, string? externalZoneId, List<NetworkInfo>? networks)
+    private static string GetExceptionPatternDescription(FirewallRule denyRule, FirewallRule allowRule, string? externalZoneId, List<NetworkInfo>? networks)
     {
         var destTarget = denyRule.DestinationMatchingTarget?.ToUpperInvariant();
         var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
@@ -965,10 +959,16 @@ public class FirewallRuleAnalyzer
         }
 
         // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
-        // Group by destination network purpose for more granular categorization
+        // Group by the ALLOW rule's destination network purpose (more specific than deny rule)
         if (destTarget == "NETWORK" || srcTarget == "NETWORK")
         {
-            var purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
+            // Try to get purpose from the allow rule's destination first (more specific)
+            var purposeSuffix = GetDestinationNetworkPurposeSuffix(allowRule, networks);
+            // Fall back to deny rule if allow rule doesn't have network destinations
+            if (string.IsNullOrEmpty(purposeSuffix))
+            {
+                purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
+            }
             return $"Cross-VLAN Access Exception{purposeSuffix}";
         }
 
