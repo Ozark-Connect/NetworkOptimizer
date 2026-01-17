@@ -697,7 +697,102 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
+        // Without networks info, no purpose suffix
         issue!.Description.Should().Be("Cross-VLAN Access Exception");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ExceptionToIoTNetworkBlock_IncludesPurposeInDescription()
+    {
+        // Allow rule before deny rule that blocks traffic to IoT network
+        var iotNetworkId = "iot-network-1";
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow Printer Access",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "home-network-1" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.20.100" },
+                DestinationPort = "631"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block Home to IoT",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "home-network-1" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { iotNetworkId }
+            }
+        };
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId),
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-network-1")
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        // Should include IoT purpose suffix
+        issue!.Description.Should().Be("Cross-VLAN Access Exception (IoT)");
+    }
+
+    [Fact]
+    public void DetectShadowedRules_ExceptionToSecurityNetworkBlock_IncludesPurposeInDescription()
+    {
+        // Allow rule before deny rule that blocks traffic to Security network
+        var securityNetworkId = "security-network-1";
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-rule",
+                Name = "Allow Camera View",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.168.30.0/24" },
+                DestinationPort = "443"
+            },
+            new FirewallRule
+            {
+                Id = "deny-rule",
+                Name = "Block All to Security",
+                Action = "drop",
+                Enabled = true,
+                Index = 2,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { securityNetworkId }
+            }
+        };
+
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: securityNetworkId)
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
+
+        var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
+        issue.Should().NotBeNull();
+        // Should include Security purpose suffix
+        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
     }
 
     [Fact]

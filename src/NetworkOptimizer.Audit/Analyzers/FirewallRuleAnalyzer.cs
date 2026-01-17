@@ -44,7 +44,7 @@ public class FirewallRuleAnalyzer
     /// - Info: DENY before ALLOW makes the ALLOW ineffective
     /// - Warning: ALLOW before DENY subverts a security rule
     /// </summary>
-    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
+    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null, List<NetworkInfo>? networks = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -97,7 +97,7 @@ public class FirewallRuleAnalyzer
                             }
 
                             // Determine traffic pattern description for grouping
-                            var description = GetExceptionPatternDescription(laterRule, externalZoneId);
+                            var description = GetExceptionPatternDescription(laterRule, externalZoneId, networks);
 
                             _logger.LogDebug(
                                 "Exception pattern: '{AllowRule}' -> '{DenyRule}', destZone={DestZone}, externalZone={ExtZone}, description={Desc}",
@@ -607,7 +607,7 @@ public class FirewallRuleAnalyzer
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
-        issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId));
+        issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId, networks));
         issues.AddRange(DetectPermissiveRules(rules));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks));
@@ -947,7 +947,7 @@ public class FirewallRuleAnalyzer
     /// Determines a description for firewall exception patterns based on the deny rule being excepted.
     /// Used for grouping similar exceptions in the UI.
     /// </summary>
-    private static string GetExceptionPatternDescription(FirewallRule denyRule, string? externalZoneId)
+    private static string GetExceptionPatternDescription(FirewallRule denyRule, string? externalZoneId, List<NetworkInfo>? networks)
     {
         var destTarget = denyRule.DestinationMatchingTarget?.ToUpperInvariant();
         var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
@@ -962,13 +962,60 @@ public class FirewallRuleAnalyzer
         }
 
         // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
+        // Group by destination network purpose for more granular categorization
         if (destTarget == "NETWORK" || srcTarget == "NETWORK")
         {
-            return "Cross-VLAN Access Exception";
+            var purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
+            return $"Cross-VLAN Access Exception{purposeSuffix}";
         }
 
         // Default for other patterns (including Gateway zone blocks)
         return "Firewall Exception";
+    }
+
+    /// <summary>
+    /// Gets a suffix describing the destination network purpose for grouping.
+    /// Returns empty string if purpose can't be determined or there are multiple different purposes.
+    /// </summary>
+    private static string GetDestinationNetworkPurposeSuffix(FirewallRule rule, List<NetworkInfo>? networks)
+    {
+        if (networks == null || networks.Count == 0)
+            return "";
+
+        var destNetworkIds = rule.DestinationNetworkIds;
+        if (destNetworkIds == null || destNetworkIds.Count == 0)
+            return "";
+
+        // Find purposes of all destination networks
+        var purposes = new HashSet<NetworkPurpose>();
+        foreach (var networkId in destNetworkIds)
+        {
+            var network = networks.FirstOrDefault(n =>
+                string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+            if (network != null)
+            {
+                purposes.Add(network.Purpose);
+            }
+        }
+
+        // If all destination networks have the same purpose, include it in the description
+        if (purposes.Count == 1)
+        {
+            var purpose = purposes.First();
+            return purpose switch
+            {
+                NetworkPurpose.IoT => " (IoT)",
+                NetworkPurpose.Security => " (Security)",
+                NetworkPurpose.Management => " (Management)",
+                NetworkPurpose.Guest => " (Guest)",
+                NetworkPurpose.Corporate => " (Corporate)",
+                NetworkPurpose.Home => " (Home)",
+                _ => ""
+            };
+        }
+
+        // Multiple different purposes or unknown - no suffix
+        return "";
     }
 
     /// <summary>
