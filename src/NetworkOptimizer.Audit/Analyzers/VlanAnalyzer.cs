@@ -121,6 +121,9 @@ public class VlanAnalyzer
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
         var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
         var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
+        var firewallZoneId = network.GetStringOrNull("firewall_zone_id");
+        // Network group: "LAN" for internal networks, "WAN"/"WAN2" for external
+        var networkGroup = network.GetStringFromAny("networkgroup", "wan_networkgroup");
 
         // Check if this is an official UniFi Guest network (has implicit isolation at switch/AP level)
         var isUniFiGuestNetwork = purposeStr?.Equals("guest", StringComparison.OrdinalIgnoreCase) == true
@@ -166,7 +169,9 @@ public class VlanAnalyzer
             DhcpEnabled = dhcpEnabled,
             NetworkIsolationEnabled = networkIsolationEnabled,
             InternetAccessEnabled = internetAccessEnabled,
-            IsUniFiGuestNetwork = isUniFiGuestNetwork
+            IsUniFiGuestNetwork = isUniFiGuestNetwork,
+            FirewallZoneId = firewallZoneId,
+            NetworkGroup = networkGroup
         };
     }
 
@@ -693,9 +698,26 @@ public class VlanAnalyzer
     /// Analyze internet access configuration.
     /// Security/Camera and Management networks should not have internet access enabled.
     /// </summary>
-    public List<AuditIssue> AnalyzeInternetAccess(List<NetworkInfo> networks, string gatewayName = "Gateway")
+    /// <param name="networks">List of networks to analyze</param>
+    /// <param name="gatewayName">Name of the gateway device</param>
+    /// <param name="firewallRules">Optional firewall rules to check for internet-blocking rules</param>
+    public List<AuditIssue> AnalyzeInternetAccess(
+        List<NetworkInfo> networks,
+        string gatewayName = "Gateway",
+        List<FirewallRule>? firewallRules = null)
     {
         var issues = new List<AuditIssue>();
+
+        // Find WAN zone ID by looking for networks with NetworkGroup starting with "WAN"
+        var wanZoneId = networks
+            .Where(n => n.NetworkGroup?.StartsWith("WAN", StringComparison.OrdinalIgnoreCase) == true)
+            .Select(n => n.FirewallZoneId)
+            .FirstOrDefault(id => !string.IsNullOrEmpty(id));
+
+        if (wanZoneId != null)
+        {
+            _logger.LogDebug("Detected WAN zone ID: {WanZoneId}", wanZoneId);
+        }
 
         foreach (var network in networks)
         {
@@ -703,8 +725,11 @@ public class VlanAnalyzer
             if (network.IsNative)
                 continue;
 
+            // Check if internet is effectively enabled (not disabled via setting OR firewall rule)
+            var hasEffectiveInternetAccess = HasEffectiveInternetAccess(network, firewallRules, wanZoneId);
+
             // Check Security/Camera networks - should NOT have internet access
-            if (network.Purpose == NetworkPurpose.Security && network.InternetAccessEnabled)
+            if (network.Purpose == NetworkPurpose.Security && hasEffectiveInternetAccess)
             {
                 issues.Add(new AuditIssue
                 {
@@ -727,7 +752,7 @@ public class VlanAnalyzer
             }
 
             // Check Management networks - should NOT have internet access (with exceptions for UniFi cloud)
-            if (network.Purpose == NetworkPurpose.Management && network.InternetAccessEnabled)
+            if (network.Purpose == NetworkPurpose.Management && hasEffectiveInternetAccess)
             {
                 issues.Add(new AuditIssue
                 {
@@ -751,6 +776,95 @@ public class VlanAnalyzer
         }
 
         return issues;
+    }
+
+    /// <summary>
+    /// Determine if a network has effective internet access.
+    /// Internet is considered blocked if EITHER:
+    /// 1. internet_access_enabled is false in network config, OR
+    /// 2. A firewall rule blocks all traffic from this network to the WAN zone
+    /// </summary>
+    private bool HasEffectiveInternetAccess(
+        NetworkInfo network,
+        List<FirewallRule>? firewallRules,
+        string? wanZoneId)
+    {
+        // If internet access is disabled in network config, it's blocked
+        if (!network.InternetAccessEnabled)
+        {
+            _logger.LogDebug("Network '{Name}' has internet_access_enabled=false", network.Name);
+            return false;
+        }
+
+        // If no firewall rules provided or no WAN zone detected, use the config setting
+        if (firewallRules == null || firewallRules.Count == 0 || string.IsNullOrEmpty(wanZoneId))
+        {
+            return network.InternetAccessEnabled;
+        }
+
+        // Check if there's a firewall rule that blocks internet access for this network
+        var isBlockedByFirewall = IsInternetBlockedViaFirewall(network, firewallRules, wanZoneId);
+        if (isBlockedByFirewall)
+        {
+            _logger.LogDebug("Network '{Name}' has internet blocked via firewall rule", network.Name);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Check if a network has internet access blocked via a firewall rule.
+    /// A rule blocks internet if ALL conditions are met:
+    /// - Rule is enabled
+    /// - Action is block/drop/reject/deny
+    /// - Source matching target is "NETWORK" and network_ids contains this network's ID
+    /// - Destination zone ID matches the WAN zone
+    /// - Destination matching target is "ANY" (all destinations in the zone)
+    /// - Protocol is "all" (blocks all traffic, not just specific ports)
+    /// </summary>
+    private bool IsInternetBlockedViaFirewall(
+        NetworkInfo network,
+        List<FirewallRule> firewallRules,
+        string wanZoneId)
+    {
+        foreach (var rule in firewallRules)
+        {
+            // Rule must be enabled
+            if (!rule.Enabled)
+                continue;
+
+            // Action must be a block action
+            if (!rule.ActionType.IsBlockAction())
+                continue;
+
+            // Source must be NETWORK type with this network's ID in the list
+            if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(network.Id))
+                continue;
+
+            // Destination zone must be the WAN zone
+            if (!string.Equals(rule.DestinationZoneId, wanZoneId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Destination must target ANY (all destinations in the zone)
+            if (!string.Equals(rule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Protocol must be "all" to block ALL traffic (not just specific ports/protocols)
+            if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            _logger.LogDebug(
+                "Found firewall rule '{RuleName}' that blocks internet for network '{NetworkName}'",
+                rule.Name, network.Name);
+
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
