@@ -42,11 +42,6 @@ public class Iperf3ServerService : BackgroundService
             return;
         }
 
-        // Kill any orphaned iperf3 server processes from previous runs
-        // This is especially important for native deployments where launchd/systemd
-        // may not kill child processes when stopping the app
-        await KillOrphanedIperf3ProcessesAsync();
-
         _logger.LogInformation("Starting iperf3 server on port {Port}", Iperf3Port);
 
         var consecutiveImmediateExits = 0;
@@ -65,6 +60,12 @@ public class Iperf3ServerService : BackgroundService
                 else
                 {
                     consecutiveImmediateExits++;
+
+                    // On first failure, try killing orphaned processes (port may be held by old instance)
+                    if (consecutiveImmediateExits == 1)
+                    {
+                        await KillOrphanedIperf3ProcessesAsync();
+                    }
 
                     if (consecutiveImmediateExits >= maxImmediateExitRetries)
                     {
