@@ -1100,6 +1100,77 @@ public class ConfigAuditEngineTests
         issue.Message.Should().Contain("security VLAN");
     }
 
+    [Fact]
+    public async Task RunAudit_OfflineCloudSecuritySystemOnCorporate_RecommendsIoTVlan()
+    {
+        // Cloud security systems (SimpliSafe) need internet access, should recommend IoT VLAN
+        var deviceJson = CreateDeviceJsonWithNetworks();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-corp",
+                DisplayName = "SimpliSafe Basestation", // Cloud security system
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Should create cloud camera/security issue, NOT regular camera issue
+        result.Issues.Should().Contain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+
+        var issue = result.Issues.First(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        issue.DeviceName.Should().Contain("(offline)");
+        issue.RecommendedNetwork.Should().Be("IoT"); // Should recommend IoT, NOT Security
+        issue.Message.Should().Contain("should be isolated");
+        issue.Message.Should().NotContain("security VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_OfflineCloudSecuritySystemOnIoTVlan_NoIssue()
+    {
+        var deviceJson = CreateDeviceJsonWithNetworks();
+        var clientHistory = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Id = "client-1",
+                Mac = "00:11:22:33:44:55",
+                IsWired = false,
+                LastConnectionNetworkId = "net-iot", // Already on IoT VLAN
+                DisplayName = "SimpliSafe Base Station", // Cloud security system
+                LastSeen = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: clientHistory,
+            fingerprintDb: null,
+            settingsData: null,
+            firewallPoliciesData: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Cloud security system already on IoT VLAN - no issue
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
+        result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+    }
+
     #endregion
 
     #region Helper Methods
