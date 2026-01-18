@@ -497,6 +497,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
+    /// Delete a single speed test result by ID
+    /// </summary>
+    public async Task<bool> DeleteResultAsync(int id)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.DeleteIperf3ResultAsync(id);
+    }
+
+    /// <summary>
     /// Clear all speed test history
     /// </summary>
     public async Task<int> ClearHistoryAsync()

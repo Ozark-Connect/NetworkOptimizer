@@ -729,7 +729,7 @@
                                                         // Use stored path analysis if available, otherwise use result's analysis
                                                         var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
                                                     }
-                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" />
 
                                                     @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                     {
@@ -1350,6 +1350,22 @@
         {
             clearingHistory = false;
             confirmingClearHistory = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleDeleteResult(int resultId)
+    {
+        var deleted = await SpeedTestService.DeleteResultAsync(resultId);
+        if (deleted)
+        {
+            testHistory.RemoveAll(r => r.Id == resultId);
+            historyPathAnalysis.Remove(resultId);
+            if (currentResult?.Id == resultId)
+            {
+                currentResult = testHistory.FirstOrDefault();
+            }
+            expandedHistoryId = null;
             StateHasChanged();
         }
     }
