@@ -768,14 +768,16 @@ public class DnsSecurityAnalyzer
         var hasDnsControlSolution = result.DohConfigured || result.HasThirdPartyDns;
         var dnatIsValidAlternative = result.DnatProvidesFullCoverage
             && hasDnsControlSolution
-            && result.DnatRedirectTargetIsValid;
+            && result.DnatRedirectTargetIsValid
+            && result.DnatDestinationFilterIsValid;
 
         // Partial DNAT coverage is better than nothing - don't double-penalize
         // The partial coverage issue (6 pts) is more actionable than the generic no-block issue (12 pts)
         var hasPartialDnatCoverage = result.HasDnatDnsRules
             && !result.DnatProvidesFullCoverage
             && hasDnsControlSolution
-            && result.DnatRedirectTargetIsValid;
+            && result.DnatRedirectTargetIsValid
+            && result.DnatDestinationFilterIsValid;
 
         if (!result.HasDns53BlockRule && !dnatIsValidAlternative && !hasPartialDnatCoverage)
         {
@@ -905,7 +907,7 @@ public class DnsSecurityAnalyzer
             });
         }
 
-        // Issue: DNAT redirects to wrong destination
+        // Issue: DNAT redirects to wrong translated IP
         if (result.HasDnatDnsRules && !result.DnatRedirectTargetIsValid && result.InvalidDnatRules.Any())
         {
             var expectedDest = result.HasThirdPartyDns
@@ -917,10 +919,10 @@ public class DnsSecurityAnalyzer
                 Type = IssueTypes.DnsDnatWrongDestination,
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
-                Message = $"DNAT DNS rules redirect to incorrect destination. {string.Join("; ", result.InvalidDnatRules)}. Expected destination: {expectedDest}.",
+                Message = $"DNAT DNS rules have incorrect translated IP address. {string.Join("; ", result.InvalidDnatRules)}. Expected translated IP: {expectedDest}.",
                 RecommendedAction = result.HasThirdPartyDns
-                    ? "Update DNAT rules to redirect DNS traffic to your Pi-hole/DNS server IP"
-                    : "Update DNAT rules to redirect DNS traffic to a gateway IP",
+                    ? "Update the translated IP address in DNAT rules to your Pi-hole/DNS server IP"
+                    : "Update the translated IP address in DNAT rules to a gateway IP",
                 RuleId = "DNS-DNAT-003",
                 ScoreImpact = 10,
                 Metadata = new Dictionary<string, object>
@@ -928,6 +930,25 @@ public class DnsSecurityAnalyzer
                     { "invalid_rules", result.InvalidDnatRules.ToList() },
                     { "expected_destinations", result.ExpectedDnatDestinations.ToList() },
                     { "has_third_party_dns", result.HasThirdPartyDns }
+                }
+            });
+        }
+
+        // Issue: DNAT has restricted destination filter (only catches some bypass attempts)
+        if (result.HasDnatDnsRules && !result.DnatDestinationFilterIsValid && result.RestrictedDestinationRules.Any())
+        {
+            result.Issues.Add(new AuditIssue
+            {
+                Type = IssueTypes.DnsDnatRestrictedDestination,
+                Severity = AuditSeverity.Recommended,
+                DeviceName = result.GatewayName,
+                Message = $"DNAT DNS rules have restricted destination filters that only catch some bypass attempts. {string.Join("; ", result.RestrictedDestinationRules)}.",
+                RecommendedAction = "Set destination to 'Any' or use 'invert address' to match traffic NOT going to your DNS server",
+                RuleId = "DNS-DNAT-004",
+                ScoreImpact = 5,
+                Metadata = new Dictionary<string, object>
+                {
+                    { "restricted_rules", result.RestrictedDestinationRules.ToList() }
                 }
             });
         }
@@ -1669,6 +1690,9 @@ public class DnsSecurityAnalyzer
 
         // Validate redirect destinations
         ValidateDnatRedirectTargets(coverageResult, result, networks);
+
+        // Validate destination filters (should be Any or inverted)
+        ValidateDnatDestinationFilters(coverageResult, result);
     }
 
     /// <summary>
@@ -1687,9 +1711,24 @@ public class DnsSecurityAnalyzer
         if (result.HasThirdPartyDns)
         {
             // Third-party DNS: DNAT must point to the third-party server(s)
+            // Also accept gateway IPs that are configured as DNS servers (common dual-DNS setup)
             var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var thirdParty in result.ThirdPartyDnsServers)
                 validDestinations.Add(thirdParty.DnsServerIp);
+
+            // Also include any gateway IPs that are configured as DHCP DNS servers
+            // This handles the common case where DHCP DNS 1 = gateway and DNS 2 = Pi-hole
+            foreach (var network in networks)
+            {
+                if (network.DnsServers == null) continue;
+                foreach (var dnsServer in network.DnsServers)
+                {
+                    if (!string.IsNullOrEmpty(dnsServer) && dnsServer == network.Gateway)
+                    {
+                        validDestinations.Add(dnsServer);
+                    }
+                }
+            }
 
             result.ExpectedDnatDestinations.AddRange(validDestinations);
 
@@ -1698,7 +1737,7 @@ public class DnsSecurityAnalyzer
                 if (string.IsNullOrEmpty(rule.RedirectIp))
                     continue;
 
-                if (!validDestinations.Contains(rule.RedirectIp))
+                if (!IsValidRedirectTarget(rule.RedirectIp, validDestinations))
                 {
                     result.DnatRedirectTargetIsValid = false;
                     result.InvalidDnatRules.Add(
@@ -1743,7 +1782,7 @@ public class DnsSecurityAnalyzer
                     allValidDestinations.Add(ruleNetworkGateway);
                 }
 
-                if (!ruleValidDestinations.Contains(rule.RedirectIp))
+                if (!IsValidRedirectTarget(rule.RedirectIp, ruleValidDestinations))
                 {
                     result.DnatRedirectTargetIsValid = false;
                     var expectedGateways = string.Join(" or ", ruleValidDestinations);
@@ -1770,6 +1809,39 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
+    /// Validate that DNAT destination filters are not restricted to specific IPs.
+    /// Valid configurations:
+    /// - No destination address (Any)
+    /// - Destination address with invert_address=true (matches traffic NOT going to DNS server)
+    /// Invalid:
+    /// - Specific destination address without invert (only catches some bypass attempts)
+    /// </summary>
+    private void ValidateDnatDestinationFilters(
+        DnatCoverageResult coverageResult,
+        DnsSecurityResult result)
+    {
+        if (!coverageResult.HasDnatDnsRules)
+            return;
+
+        foreach (var rule in coverageResult.Rules)
+        {
+            if (rule.HasRestrictedDestination)
+            {
+                result.DnatDestinationFilterIsValid = false;
+                result.RestrictedDestinationRules.Add(
+                    $"Rule '{rule.Description ?? rule.Id}' only matches traffic to {rule.DestinationAddress}");
+            }
+        }
+
+        if (!result.DnatDestinationFilterIsValid)
+        {
+            _logger.LogWarning(
+                "DNAT DNS rules have restricted destination filters: {Rules}",
+                string.Join("; ", result.RestrictedDestinationRules));
+        }
+    }
+
+    /// <summary>
     /// Get a summary of DNS security status
     /// </summary>
     public DnsSecuritySummary GetSummary(DnsSecurityResult result)
@@ -1787,13 +1859,13 @@ public class DnsSecurityAnalyzer
         {
             DohEnabled = result.DohConfigured,
             DohProviders = providerNames,
-            DnsLeakProtection = result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid),
+            DnsLeakProtection = result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid),
             HasDns53BlockRule = result.HasDns53BlockRule,
-            DnatProvidesFullCoverage = result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid,
+            DnatProvidesFullCoverage = result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid,
             DotBlocked = result.HasDotBlockRule,
             DohBypassBlocked = result.HasDohBlockRule,
             DoqBypassBlocked = result.HasDoqBlockRule,
-            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid)) && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
+            FullyProtected = result.DohConfigured && (result.HasDns53BlockRule || (result.DnatProvidesFullCoverage && result.DnatRedirectTargetIsValid && result.DnatDestinationFilterIsValid)) && result.HasDotBlockRule && result.HasDohBlockRule && result.HasDoqBlockRule && result.WanDnsMatchesDoH && result.DeviceDnsPointsToGateway,
             IssueCount = result.Issues.Count,
             CriticalIssueCount = result.Issues.Count(i => i.Severity == AuditSeverity.Critical),
             WanDnsServers = result.WanDnsServers.ToList(),
@@ -1805,6 +1877,87 @@ public class DnsSecurityAnalyzer
             DevicesWithCorrectDns = result.DevicesWithCorrectDns,
             DhcpDeviceCount = result.DhcpDeviceCount
         };
+    }
+
+    /// <summary>
+    /// Parse an IP address or IP range into a list of individual IPs.
+    /// Supports formats: "192.168.1.1" (single) or "192.168.1.1-192.168.1.5" (range).
+    /// For ranges, all IPs must be in the same /24 subnet and the range must be reasonable (max 256 IPs).
+    /// </summary>
+    public static List<string> ParseIpOrRange(string? ipOrRange)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(ipOrRange))
+            return result;
+
+        // Check if it's a range (contains hyphen but not in valid single IP format)
+        var hyphenIndex = ipOrRange.IndexOf('-');
+        if (hyphenIndex > 0 && hyphenIndex < ipOrRange.Length - 1)
+        {
+            var startIp = ipOrRange[..hyphenIndex];
+            var endIp = ipOrRange[(hyphenIndex + 1)..];
+
+            // Parse both IPs
+            if (!System.Net.IPAddress.TryParse(startIp, out var startAddr) ||
+                !System.Net.IPAddress.TryParse(endIp, out var endAddr))
+            {
+                // Invalid range format, treat as single value
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            var startBytes = startAddr.GetAddressBytes();
+            var endBytes = endAddr.GetAddressBytes();
+
+            // Only support IPv4 ranges in the same /24 subnet
+            if (startBytes.Length != 4 || endBytes.Length != 4 ||
+                startBytes[0] != endBytes[0] || startBytes[1] != endBytes[1] || startBytes[2] != endBytes[2])
+            {
+                // Cross-subnet range, treat as single value
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            var startOctet = startBytes[3];
+            var endOctet = endBytes[3];
+
+            // Ensure start <= end and range is reasonable
+            if (startOctet > endOctet || endOctet - startOctet > 255)
+            {
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            // Generate all IPs in the range
+            for (var i = startOctet; i <= endOctet; i++)
+            {
+                result.Add($"{startBytes[0]}.{startBytes[1]}.{startBytes[2]}.{i}");
+            }
+        }
+        else
+        {
+            // Single IP
+            result.Add(ipOrRange);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Check if a redirect IP (which may be a range) is valid against the set of expected destinations.
+    /// For ranges, ALL IPs in the range must be valid destinations.
+    /// </summary>
+    public static bool IsValidRedirectTarget(string? redirectIp, HashSet<string> validDestinations)
+    {
+        if (string.IsNullOrEmpty(redirectIp))
+            return true; // No redirect IP to validate
+
+        var ips = ParseIpOrRange(redirectIp);
+        if (ips.Count == 0)
+            return true;
+
+        // All IPs in the range must be valid destinations
+        return ips.All(ip => validDestinations.Contains(ip));
     }
 }
 
@@ -1889,6 +2042,10 @@ public class DnsSecurityResult
     public bool DnatRedirectTargetIsValid { get; set; } = true;
     public List<string> InvalidDnatRules { get; } = new();
     public List<string> ExpectedDnatDestinations { get; } = new();
+
+    // DNAT Destination Filter Validation
+    public bool DnatDestinationFilterIsValid { get; set; } = true;
+    public List<string> RestrictedDestinationRules { get; } = new();
 
     // Audit Issues
     public List<AuditIssue> Issues { get; } = new();

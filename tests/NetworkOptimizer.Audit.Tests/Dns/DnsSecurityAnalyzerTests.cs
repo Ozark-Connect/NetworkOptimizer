@@ -4468,5 +4468,856 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsNo53Block); // Firewall handles part of it
     }
 
+    [Fact]
+    public async Task Analyze_DnatWithIpRange_MatchesMultipleThirdPartyDnsServers()
+    {
+        // Arrange - Two third-party DNS servers (Pi-hole style redundancy)
+        // DNAT rule uses IP range format that should match both
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.253", "192.168.1.254" } // Two DNS servers
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT rule with IP range that matches both DNS servers
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.253-192.168.1.254",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - IP range should match both DNS servers, no invalid destination issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatProvidesFullCoverage.Should().BeTrue();
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIpRange_OrderIndependent_DhcpOrderDiffersFromRange()
+    {
+        // Arrange - DHCP DNS order (254, 253) differs from DNAT range (253-254)
+        // DNAT ranges must be start-end where start <= end, so order can't match DHCP
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.254", "192.168.1.253" } // Reversed from DNAT range
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT range is always low-high, can't match DHCP order of high-low
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.253-192.168.1.254",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - Order doesn't matter, only that the same IPs are present
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsServers.Should().HaveCount(2); // Both DNS servers detected
+        result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Should().Contain("192.168.1.254");
+        result.ThirdPartyDnsServers.Select(t => t.DnsServerIp).Should().Contain("192.168.1.253");
+        result.ExpectedDnatDestinations.Should().HaveCount(2); // Both in expected destinations
+        result.ExpectedDnatDestinations.Should().Contain("192.168.1.254");
+        result.ExpectedDnatDestinations.Should().Contain("192.168.1.253");
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIpRange_GatewayAndThirdPartyDns_BothValid()
+    {
+        // Arrange - DHCP DNS 1 = gateway, DNS 2 = third-party (Pi-hole)
+        // DNAT redirects to range that includes both - should be valid
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Guest",
+                VlanId = 210,
+                Subnet = "192.168.210.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.210.1",
+                DnsServers = new List<string> { "192.168.210.1", "192.168.210.2" } // DNS 1 = gateway, DNS 2 = Pi-hole
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT redirects to range including both gateway and Pi-hole
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS DNAT VLAN 210",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.210.1-192.168.210.2",
+                "destination_filter": {
+                    "address": "192.168.210.1-192.168.210.2",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": true,
+                    "port": "53"
+                },
+                "in_interface": "net1",
+                "source_filter": { "filter_type": "NONE" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - Both gateway (DNS 1) and third-party (DNS 2) should be valid destinations
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsServers.Should().ContainSingle(); // Only DNS 2 is "third-party"
+        result.ThirdPartyDnsServers[0].DnsServerIp.Should().Be("192.168.210.2");
+        result.ExpectedDnatDestinations.Should().HaveCount(2); // Both are valid destinations
+        result.ExpectedDnatDestinations.Should().Contain("192.168.210.1"); // Gateway as DNS
+        result.ExpectedDnatDestinations.Should().Contain("192.168.210.2"); // Third-party
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIpRange_ThirdPartyFirstGatewaySecond_BothValid()
+    {
+        // Arrange - DHCP DNS 1 = third-party (Pi-hole), DNS 2 = gateway (reverse order)
+        // DNAT redirects to range that includes both - should be valid
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Guest",
+                VlanId = 210,
+                Subnet = "192.168.210.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.210.1",
+                DnsServers = new List<string> { "192.168.210.2", "192.168.210.1" } // DNS 1 = Pi-hole, DNS 2 = gateway
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT redirects to range including both gateway and Pi-hole
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS DNAT VLAN 210",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.210.1-192.168.210.2",
+                "destination_filter": {
+                    "address": "192.168.210.1-192.168.210.2",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": true,
+                    "port": "53"
+                },
+                "in_interface": "net1",
+                "source_filter": { "filter_type": "NONE" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - Both gateway (DNS 2) and third-party (DNS 1) should be valid destinations
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsServers.Should().ContainSingle(); // Only 192.168.210.2 is "third-party"
+        result.ThirdPartyDnsServers[0].DnsServerIp.Should().Be("192.168.210.2");
+        result.ExpectedDnatDestinations.Should().HaveCount(2); // Both are valid destinations
+        result.ExpectedDnatDestinations.Should().Contain("192.168.210.1"); // Gateway as DNS
+        result.ExpectedDnatDestinations.Should().Contain("192.168.210.2"); // Third-party
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIpRange_PartialMatch_GeneratesInvalidDestinationIssue()
+    {
+        // Arrange - One third-party DNS server but DNAT range includes extra IPs
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.253" } // Only one DNS server
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT rule with range that includes an IP not in the DNS servers list
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS Redirect",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.253-192.168.1.254",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - Range includes 192.168.1.254 which is not a valid DNS server
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.HasDnatDnsRules.Should().BeTrue();
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    #endregion
+
+    #region IP Range Parsing Tests
+
+    [Fact]
+    public void ParseIpOrRange_SingleIp_ReturnsSingleIp()
+    {
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("192.168.1.1");
+
+        // Assert
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.1");
+    }
+
+    [Fact]
+    public void ParseIpOrRange_NullOrEmpty_ReturnsEmptyList()
+    {
+        // Act & Assert
+        DnsSecurityAnalyzer.ParseIpOrRange(null).Should().BeEmpty();
+        DnsSecurityAnalyzer.ParseIpOrRange("").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseIpOrRange_ValidRange_ReturnsAllIps()
+    {
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("172.16.1.253-172.16.1.254");
+
+        // Assert
+        result.Should().HaveCount(2);
+        result.Should().Contain("172.16.1.253");
+        result.Should().Contain("172.16.1.254");
+    }
+
+    [Fact]
+    public void ParseIpOrRange_ThreeIpRange_ReturnsAllIps()
+    {
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("192.168.1.10-192.168.1.12");
+
+        // Assert
+        result.Should().HaveCount(3);
+        result.Should().ContainInOrder("192.168.1.10", "192.168.1.11", "192.168.1.12");
+    }
+
+    [Fact]
+    public void ParseIpOrRange_CrossSubnetRange_ReturnsSingleValue()
+    {
+        // Ranges spanning subnets are not supported, treated as single value
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("192.168.1.1-192.168.2.1");
+
+        // Assert - treated as a single non-parseable value
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.1-192.168.2.1");
+    }
+
+    [Fact]
+    public void ParseIpOrRange_InvalidIpFormat_ReturnsSingleValue()
+    {
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("not-an-ip");
+
+        // Assert - treated as a single value
+        result.Should().ContainSingle().Which.Should().Be("not-an-ip");
+    }
+
+    [Fact]
+    public void ParseIpOrRange_ReversedRange_ReturnsSingleValue()
+    {
+        // Start > End is invalid
+        // Act
+        var result = DnsSecurityAnalyzer.ParseIpOrRange("192.168.1.10-192.168.1.5");
+
+        // Assert - treated as a single value
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.10-192.168.1.5");
+    }
+
+    [Theory]
+    [InlineData("192.168.1.1", true)]  // Single IP in set
+    [InlineData("192.168.1.2", true)]  // Single IP in set
+    [InlineData("192.168.1.3", false)] // Single IP not in set
+    [InlineData("192.168.1.1-192.168.1.2", true)]  // Range, all in set
+    [InlineData("192.168.1.1-192.168.1.3", false)] // Range, some not in set
+    public void IsValidRedirectTarget_VariousInputs_ReturnsExpected(string redirectIp, bool expected)
+    {
+        // Arrange
+        var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "192.168.1.1",
+            "192.168.1.2"
+        };
+
+        // Act
+        var result = DnsSecurityAnalyzer.IsValidRedirectTarget(redirectIp, validDestinations);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsValidRedirectTarget_NullOrEmpty_ReturnsTrue()
+    {
+        // Arrange
+        var validDestinations = new HashSet<string> { "192.168.1.1" };
+
+        // Act & Assert
+        DnsSecurityAnalyzer.IsValidRedirectTarget(null, validDestinations).Should().BeTrue();
+        DnsSecurityAnalyzer.IsValidRedirectTarget("", validDestinations).Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsValidRedirectTarget_CaseInsensitive_ReturnsTrue()
+    {
+        // Arrange - IP addresses aren't typically case-sensitive but the comparison should handle it
+        var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "192.168.1.1" };
+
+        // Act & Assert
+        DnsSecurityAnalyzer.IsValidRedirectTarget("192.168.1.1", validDestinations).Should().BeTrue();
+    }
+
+    #endregion
+
+    #region DNAT Destination Filter Validation Tests
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_NoAddress_ReturnsFalse()
+    {
+        // Arrange - No destination address = Any
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = null,
+            InvertDestinationAddress = false
+        };
+
+        // Assert
+        rule.HasRestrictedDestination.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_EmptyAddress_ReturnsFalse()
+    {
+        // Arrange
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = "",
+            InvertDestinationAddress = false
+        };
+
+        // Assert
+        rule.HasRestrictedDestination.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_AddressWithInvert_ReturnsFalse()
+    {
+        // Arrange - Address with invert = matches traffic NOT going to that address
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = "192.168.1.1",
+            InvertDestinationAddress = true
+        };
+
+        // Assert - This is valid for DNS redirection
+        rule.HasRestrictedDestination.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_AddressRangeWithInvert_ReturnsFalse()
+    {
+        // Arrange
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = "192.168.1.1-192.168.1.2",
+            InvertDestinationAddress = true
+        };
+
+        // Assert
+        rule.HasRestrictedDestination.Should().BeFalse();
+    }
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_AddressWithoutInvert_ReturnsTrue()
+    {
+        // Arrange - Specific address without invert = only catches traffic to that IP
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = "8.8.8.8",
+            InvertDestinationAddress = false
+        };
+
+        // Assert - This is restricted
+        rule.HasRestrictedDestination.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DnatRuleInfo_HasRestrictedDestination_AddressRangeWithoutInvert_ReturnsTrue()
+    {
+        // Arrange
+        var rule = new DnatRuleInfo
+        {
+            Id = "test",
+            CoverageType = "network",
+            DestinationAddress = "8.8.8.8-8.8.4.4",
+            InvertDestinationAddress = false
+        };
+
+        // Assert
+        rule.HasRestrictedDestination.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithNoDestinationAddress_NoRestrictedDestinationIssue()
+    {
+        // Arrange - No destination address = Any (valid)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.5",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert
+        result.DnatDestinationFilterIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithInvertedDestination_NoRestrictedDestinationIssue()
+    {
+        // Arrange - Destination with invert_address: true (valid)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.210.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.210.1",
+                DnsServers = new List<string> { "192.168.210.1" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // This matches the user's example - invert_address: true
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS DNAT VLAN 210",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.210.1",
+                "destination_filter": {
+                    "address": "192.168.210.1",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": true,
+                    "port": "53"
+                },
+                "in_interface": "net1",
+                "source_filter": { "filter_type": "NONE" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert
+        result.DnatDestinationFilterIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithInvertedDestinationRange_NoRestrictedDestinationIssue()
+    {
+        // Arrange - Destination range with invert_address: true (valid)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.210.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.210.1",
+                DnsServers = new List<string> { "192.168.210.1", "192.168.210.2" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS DNAT VLAN 210",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.210.1-192.168.210.2",
+                "destination_filter": {
+                    "address": "192.168.210.1-192.168.210.2",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": true,
+                    "port": "53"
+                },
+                "in_interface": "net1",
+                "source_filter": { "filter_type": "NONE" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert
+        result.DnatDestinationFilterIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithSpecificDestination_GeneratesRestrictedDestinationIssue()
+    {
+        // Arrange - Specific destination without invert (invalid - only catches traffic to 8.8.8.8)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS Redirect Google",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.5",
+                "destination_filter": {
+                    "address": "8.8.8.8",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": false,
+                    "port": "53"
+                },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert
+        result.DnatDestinationFilterIsValid.Should().BeFalse();
+        result.RestrictedDestinationRules.Should().Contain(r => r.Contains("8.8.8.8"));
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithSpecificDestinationNoInvertField_GeneratesRestrictedDestinationIssue()
+    {
+        // Arrange - Destination address without invert_address field (defaults to false)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS Redirect",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.5",
+                "destination_filter": {
+                    "address": "1.1.1.1",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "port": "53"
+                },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - invert_address defaults to false, so this is restricted
+        result.DnatDestinationFilterIsValid.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithSpecificDestinationRange_GeneratesRestrictedDestinationIssue()
+    {
+        // Arrange - Destination range without invert (invalid)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "LAN",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "description": "DNS Redirect Range",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.5",
+                "destination_filter": {
+                    "address": "8.8.8.8-8.8.4.4",
+                    "filter_type": "ADDRESS_AND_PORT",
+                    "invert_address": false,
+                    "port": "53"
+                },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "net1" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert
+        result.DnatDestinationFilterIsValid.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatRestrictedDestination);
+    }
+
     #endregion
 }
