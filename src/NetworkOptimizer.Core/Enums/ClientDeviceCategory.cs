@@ -226,6 +226,14 @@ public static class ClientDeviceCategoryExtensions
         category == ClientDeviceCategory.CloudCamera;
 
     /// <summary>
+    /// Check if the category is a cloud-based surveillance device (camera or security system).
+    /// These devices require internet access and should be on IoT VLAN, not Security VLAN.
+    /// </summary>
+    public static bool IsCloudSurveillance(this ClientDeviceCategory category) =>
+        category == ClientDeviceCategory.CloudCamera ||
+        category == ClientDeviceCategory.CloudSecuritySystem;
+
+    /// <summary>
     /// Check if the category is a low-risk IoT device.
     /// Low-risk devices are entertainment or convenience devices that don't control home security/access.
     /// Users often keep these on their main VLAN for easier access.

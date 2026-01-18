@@ -1686,6 +1686,30 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
     }
 
+    [Theory]
+    [InlineData("Basestation")]
+    [InlineData("Base Station")]
+    [InlineData("[Security] Basestation")]
+    public void DetectDeviceType_SimpliSafeOuiWithBasestationName_ReturnsCloudSecuritySystem(string deviceName)
+    {
+        // Arrange - SimpliSafe OUI with "Basestation" in name but NOT "SimpliSafe"
+        // This tests OUI-based vendor detection with device name disambiguation
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = "SimpliSafe Inc"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudSecuritySystem based on OUI + basestation keyword
+        result.Category.Should().Be(ClientDeviceCategory.CloudSecuritySystem);
+        result.VendorName.Should().Contain("SimpliSafe");  // OUI returns "SimpliSafe Inc"
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
     #endregion
 
     #region Camera Name with Cloud Vendor Tests
@@ -1782,6 +1806,18 @@ public class DeviceTypeDetectionServiceTests
     {
         // Act & Assert - CloudSecuritySystem is high-risk
         ClientDeviceCategory.CloudSecuritySystem.IsHighRiskIoT().Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(ClientDeviceCategory.CloudCamera, true)]
+    [InlineData(ClientDeviceCategory.CloudSecuritySystem, true)]
+    [InlineData(ClientDeviceCategory.Camera, false)]
+    [InlineData(ClientDeviceCategory.SecuritySystem, false)]
+    [InlineData(ClientDeviceCategory.SmartTV, false)]
+    public void IsCloudSurveillance_ReturnsCorrectValue(ClientDeviceCategory category, bool expected)
+    {
+        // Act & Assert - Only cloud-based surveillance devices return true
+        category.IsCloudSurveillance().Should().Be(expected);
     }
 
     #endregion

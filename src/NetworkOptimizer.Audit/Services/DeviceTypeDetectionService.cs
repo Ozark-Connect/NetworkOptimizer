@@ -372,7 +372,14 @@ public class DeviceTypeDetectionService
         if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
         if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiHighConfidence);
         if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
-        if (name.Contains("simplisafe")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+
+        // SimpliSafe: check device name for basestation vs camera
+        if (name.Contains("simplisafe"))
+        {
+            if (deviceNameLower.Contains("basestation") || deviceNameLower.Contains("base station"))
+                return CreateOuiResult(ClientDeviceCategory.CloudSecuritySystem, ouiName, OuiMediumConfidence);
+            return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+        }
 
         // Self-hosted cameras (local storage/NVR)
         if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiHighConfidence);
