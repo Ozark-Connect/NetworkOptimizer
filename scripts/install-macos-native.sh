@@ -44,6 +44,36 @@ if [ ! -f "$REPO_ROOT/src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj" ]; t
     exit 1
 fi
 
+# Backup existing installation if present
+if [ -d "$DATA_DIR" ] || [ -d "$INSTALL_DIR" ]; then
+    BACKUP_DIR="$HOME/network-optimizer-backup-$(date +%Y%m%d-%H%M%S)"
+    echo "Backing up existing installation to $BACKUP_DIR..."
+    mkdir -p "$BACKUP_DIR"
+
+    # Backup data directory contents (DB, keys, etc.)
+    if [ -f "$DATA_DIR/network_optimizer.db" ]; then
+        cp "$DATA_DIR/network_optimizer.db" "$BACKUP_DIR/"
+        echo "  ✓ Database backed up"
+    fi
+    if [ -f "$DATA_DIR/.credential_key" ]; then
+        cp "$DATA_DIR/.credential_key" "$BACKUP_DIR/"
+        echo "  ✓ Credential key backed up"
+    fi
+    if [ -d "$DATA_DIR/keys" ]; then
+        cp -r "$DATA_DIR/keys" "$BACKUP_DIR/"
+        echo "  ✓ Encryption keys backed up"
+    fi
+
+    # Backup start.sh (has custom env config)
+    if [ -f "$INSTALL_DIR/start.sh" ]; then
+        cp "$INSTALL_DIR/start.sh" "$BACKUP_DIR/"
+        echo "  ✓ Startup script backed up"
+    fi
+
+    echo "Backup complete: $BACKUP_DIR"
+    echo ""
+fi
+
 # Step 1: Install prerequisites
 echo "[1/8] Installing prerequisites..."
 if ! command -v brew &> /dev/null; then
