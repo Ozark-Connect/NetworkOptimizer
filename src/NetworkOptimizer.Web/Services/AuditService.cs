@@ -1512,7 +1512,8 @@ public class AuditService
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
             Audit.IssueTypes.DnsDnatPartialCoverage => "DNS: Partial DNAT Coverage",
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
-            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Target",
+            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Translated IP",
+            Audit.IssueTypes.DnsDnatRestrictedDestination => "DNS: Restricted DNAT Destination",
 
             // UPnP security
             Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",
