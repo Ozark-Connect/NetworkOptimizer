@@ -16,7 +16,6 @@ INSTALL_DIR="$HOME/network-optimizer"
 DATA_DIR="$HOME/Library/Application Support/NetworkOptimizer"
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
 LAUNCH_AGENT_FILE="com.networkoptimizer.app.plist"
-SPEEDTEST_LAUNCH_AGENT_FILE="com.networkoptimizer.speedtest.plist"
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -272,52 +271,14 @@ cat > "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" << EOF
 </plist>
 EOF
 
-# Create launchd plist for SpeedTest (nginx)
-if [ "$SPEEDTEST_AVAILABLE" = true ]; then
-    cat > "$LAUNCH_AGENT_DIR/$SPEEDTEST_LAUNCH_AGENT_FILE" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.networkoptimizer.speedtest</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$BREW_PREFIX/bin/nginx</string>
-        <string>-c</string>
-        <string>$SPEEDTEST_DIR/conf/nginx.conf</string>
-        <string>-p</string>
-        <string>$SPEEDTEST_DIR</string>
-        <string>-g</string>
-        <string>daemon off;</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>$SPEEDTEST_DIR</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>$SPEEDTEST_DIR/logs/stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>$SPEEDTEST_DIR/logs/stderr.log</string>
-</dict>
-</plist>
-EOF
-fi
-
 # Step 8: Start services
+# Note: The app manages nginx and iperf3 internally - no separate launchd services needed
 echo ""
 echo "[8/8] Starting services..."
 
 # Unload if already loaded (ignore errors)
 launchctl unload "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE"
-
-if [ "$SPEEDTEST_AVAILABLE" = true ]; then
-    launchctl unload "$LAUNCH_AGENT_DIR/$SPEEDTEST_LAUNCH_AGENT_FILE" 2>/dev/null || true
-    launchctl load "$LAUNCH_AGENT_DIR/$SPEEDTEST_LAUNCH_AGENT_FILE"
-fi
 
 # Wait for startup
 echo ""
@@ -334,15 +295,6 @@ if launchctl list | grep -q "com.networkoptimizer.app"; then
 else
     echo "✗ Network Optimizer service failed to start"
     echo "  Check logs: tail -f $INSTALL_DIR/logs/stderr.log"
-fi
-
-if [ "$SPEEDTEST_AVAILABLE" = true ]; then
-    if launchctl list | grep -q "com.networkoptimizer.speedtest"; then
-        echo "✓ SpeedTest (nginx) service is running"
-    else
-        echo "✗ SpeedTest service failed to start"
-        echo "  Check logs: tail -f $SPEEDTEST_DIR/logs/stderr.log"
-    fi
 fi
 
 # Test health endpoint
