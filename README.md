@@ -2,6 +2,25 @@
 
 > **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.
 
+## New: macOS Native Installation
+
+Install natively on macOS for maximum speed test performance (Docker Desktop limits network throughput to ~1.8 Gbps).
+
+```bash
+git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
+cd NetworkOptimizer
+./scripts/install-macos-native.sh
+```
+
+The script installs prerequisites via Homebrew, builds from source, sets up OpenSpeedTest with nginx, and creates a launchd service for auto-start.
+
+After installation, edit `~/network-optimizer/start.sh` to configure environment variables:
+- `HOST_IP` - Your Mac's IP address (auto-detected, but verify it's correct)
+- `TZ` - Timezone (default: America/Chicago)
+- `APP_PASSWORD` - Optional admin password (auto-generated on first run if not set)
+
+Access the web UI at `http://localhost:8042` or `http://<your-mac-ip>:8042`.
+
 ## New: Windows Installer
 
 Download the MSI installer from [GitHub Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) for one-click installation on Windows. Includes automatic service setup, bundled iperf3, OpenSpeedTest for browser-based speed tests, and runs at system startup.
