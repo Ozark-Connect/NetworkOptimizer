@@ -1,17 +1,13 @@
 namespace NetworkOptimizer.Audit.Models;
 
 /// <summary>
-/// Network classification types based on purpose
+/// Network classification types based on purpose.
+/// Note: Corporate is the default (value 0), matching UniFi's API behavior.
 /// </summary>
 public enum NetworkPurpose
 {
     /// <summary>
-    /// Unknown or unclassified network (default)
-    /// </summary>
-    Unknown,
-
-    /// <summary>
-    /// Corporate/business network for general use
+    /// Corporate/business network for general use (default)
     /// </summary>
     Corporate,
 
@@ -43,7 +39,12 @@ public enum NetworkPurpose
     /// <summary>
     /// Printer/scanner network
     /// </summary>
-    Printer
+    Printer,
+
+    /// <summary>
+    /// Unknown or unclassified network
+    /// </summary>
+    Unknown
 }
 
 /// <summary>

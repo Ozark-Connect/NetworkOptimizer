@@ -1597,6 +1597,19 @@ public class DnsSecurityAnalyzer
             .Distinct()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // Check if third-party DNS is configured on at least one non-Corporate network.
+        // If it's ONLY on Corporate networks, that's a specialized setup (internal DNS), not network-wide DNS filtering.
+        var nonCorporateNetworksWithThirdPartyDns = dhcpNetworks
+            .Where(n => networksWithThirdPartyDns.Contains(n.Name))
+            .Where(n => n.Purpose != NetworkPurpose.Corporate)
+            .ToList();
+
+        if (nonCorporateNetworksWithThirdPartyDns.Count == 0)
+        {
+            _logger.LogDebug("Third-party DNS only configured on Corporate networks, skipping DNS consistency check");
+            return;
+        }
+
         // Get DHCP networks that are NOT using the third-party DNS
         // Exempt Corporate networks - they may legitimately use internal corporate DNS servers
         var networksWithoutThirdPartyDns = dhcpNetworks

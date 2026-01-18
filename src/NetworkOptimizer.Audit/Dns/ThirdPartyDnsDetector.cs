@@ -217,7 +217,7 @@ public class ThirdPartyDnsDetector
 
             _logger.LogDebug("Probing Pi-hole at {Url}", url);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
             var response = await _httpClient.GetAsync(url, cts.Token);
 
             if (!response.IsSuccessStatusCode)
@@ -304,7 +304,7 @@ public class ThirdPartyDnsDetector
 
             _logger.LogDebug("Probing AdGuard Home at {Url}", loginUrl);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
             var response = await _httpClient.GetAsync(loginUrl, cts.Token);
 
             if (!response.IsSuccessStatusCode)

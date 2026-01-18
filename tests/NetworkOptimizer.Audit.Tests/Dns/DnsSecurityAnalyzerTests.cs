@@ -2756,14 +2756,17 @@ public class DnsSecurityAnalyzerTests : IDisposable
     [Fact]
     public async Task Analyze_ThirdPartyDnsOnSomeNetworksNotAll_GeneratesRecommendedIssue()
     {
-        // Arrange - Third-party DNS on one network but not all DHCP networks
+        // Arrange - Third-party DNS on one non-Corporate network but not all DHCP networks
+        // The network WITH third-party DNS must be non-Corporate to trigger consistency check
+        // (If only Corporate networks have third-party DNS, it's considered specialized setup)
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
             {
                 Id = "net1",
-                Name = "Corporate",
+                Name = "Home",
                 VlanId = 10,
+                Purpose = NetworkPurpose.Home, // Non-Corporate - will trigger consistency check
                 DhcpEnabled = true,
                 Gateway = "192.168.1.1",
                 DnsServers = new List<string> { "192.168.1.5" } // Third-party DNS
@@ -2773,6 +2776,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net2",
                 Name = "IoT",
                 VlanId = 20,
+                Purpose = NetworkPurpose.IoT, // Non-Corporate - should be flagged for not using third-party DNS
                 DhcpEnabled = true,
                 Gateway = "192.168.2.1",
                 DnsServers = new List<string> { "192.168.2.1" } // Gateway DNS (no third-party)
@@ -2843,13 +2847,15 @@ public class DnsSecurityAnalyzerTests : IDisposable
     public async Task Analyze_ThirdPartyDnsInconsistent_IssueHasModerateScoreImpact()
     {
         // Arrange
+        // The network WITH third-party DNS must be non-Corporate to trigger consistency check
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
             {
                 Id = "net1",
-                Name = "Main",
+                Name = "Home",
                 VlanId = 1,
+                Purpose = NetworkPurpose.Home, // Non-Corporate - will trigger consistency check
                 DhcpEnabled = true,
                 Gateway = "192.168.1.1",
                 DnsServers = new List<string> { "192.168.1.5" }
@@ -2859,6 +2865,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net2",
                 Name = "Guest",
                 VlanId = 50,
+                Purpose = NetworkPurpose.Guest, // Non-Corporate - should be flagged for not using third-party DNS
                 DhcpEnabled = true,
                 Gateway = "192.168.50.1",
                 DnsServers = new List<string> { "192.168.50.1" } // Missing third-party DNS
@@ -3013,6 +3020,61 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
         inconsistentIssue.Should().NotBeNull();
         inconsistentIssue!.Message.Should().Contain("Home");
+    }
+
+    [Fact]
+    public async Task Analyze_ThirdPartyDnsOnlyCorporateNetworks_NoInconsistentIssue()
+    {
+        // Arrange - Third-party DNS ONLY on Corporate networks
+        // This is considered a specialized setup (internal corporate DNS), not network-wide DNS filtering
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                Purpose = NetworkPurpose.Corporate, // Corporate with third-party DNS
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.10.5" } // Internal corporate DNS
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Home",
+                VlanId = 20,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.20.1" } // Uses gateway DNS
+            },
+            new NetworkInfo
+            {
+                Id = "net3",
+                Name = "IoT",
+                VlanId = 30,
+                Purpose = NetworkPurpose.IoT,
+                DhcpEnabled = true,
+                Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.30.1" } // Uses gateway DNS
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - No consistency issue because third-party DNS is only on Corporate
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
     }
 
     #endregion
