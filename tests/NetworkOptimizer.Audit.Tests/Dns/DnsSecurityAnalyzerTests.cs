@@ -5552,4 +5552,611 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region DoH Custom Servers (SDNS Stamp) Tests
+
+    [Fact]
+    public async Task Analyze_WithCustomSdnsStamp_ParsesProviderInfo()
+    {
+        // Arrange - Custom DoH with SDNS stamp
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "doh",
+                "state": "custom",
+                "custom_servers": [
+                    {
+                        "server_name": "CustomDNS",
+                        "sdns_stamp": "sdns://AgcAAAAAAAAACjE5Mi4wLjIuMQAQL2Rucy1xdWVyeQ",
+                        "enabled": true
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.DohConfigured.Should().BeTrue();
+        result.DohState.Should().Be("custom");
+    }
+
+    [Fact]
+    public async Task Analyze_WithDisabledCustomServer_NotConfigured()
+    {
+        // Arrange - Custom DoH with disabled server only
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "doh",
+                "state": "custom",
+                "custom_servers": [
+                    {
+                        "server_name": "DisabledDNS",
+                        "sdns_stamp": "sdns://AgcAAAAAAAAACjE5Mi4wLjIuMQAQL2Rucy1xdWVyeQ",
+                        "enabled": false
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert - No enabled servers means DoH not effectively configured
+        result.DohConfigured.Should().BeFalse();
+        result.DohState.Should().Be("custom");
+    }
+
+    [Fact]
+    public async Task Analyze_WithMultipleCustomServers_ParsesAll()
+    {
+        // Arrange - Multiple custom DoH servers
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "doh",
+                "state": "custom",
+                "custom_servers": [
+                    {
+                        "server_name": "Primary",
+                        "sdns_stamp": "sdns://AgcAAAAAAAAACjE5Mi4wLjIuMQAQL2Rucy1xdWVyeQ",
+                        "enabled": true
+                    },
+                    {
+                        "server_name": "Secondary",
+                        "sdns_stamp": "sdns://AgcAAAAAAAAADDkuOS45LjkAEC9kbnMtcXVlcnk",
+                        "enabled": true
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.DohConfigured.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region WAN DNS Mode Tests
+
+    [Fact]
+    public async Task Analyze_WithWanDnsAutoMode_DetectsIspDns()
+    {
+        // Arrange - WAN DNS in auto mode (uses ISP DNS)
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "dns",
+                "mode": "auto"
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.UsingIspDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithWanDnsDhcpMode_DetectsIspDns()
+    {
+        // Arrange - WAN DNS in DHCP mode (uses ISP DNS)
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "dns",
+                "mode": "dhcp"
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.UsingIspDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithWanDnsStaticMode_NotIspDns()
+    {
+        // Arrange - WAN DNS in static mode
+        var settings = JsonDocument.Parse("""
+        [
+            {
+                "key": "dns",
+                "mode": "static",
+                "dns_servers": ["1.1.1.1", "8.8.8.8"]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        // Assert
+        result.UsingIspDns.Should().BeFalse();
+        result.WanDnsServers.Should().Contain("1.1.1.1");
+        result.WanDnsServers.Should().Contain("8.8.8.8");
+    }
+
+    #endregion
+
+    #region WAN DNS Extraction from Device Port Table Tests
+
+    [Fact]
+    public async Task Analyze_WithDevicePortTable_ExtractsWanDns()
+    {
+        // Arrange - Gateway device with WAN port DNS configuration
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "media": "GE",
+                        "up": true,
+                        "ip": "203.0.113.50",
+                        "dns": ["1.1.1.1", "8.8.8.8"]
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
+
+        // Assert
+        result.WanDnsServers.Should().Contain("1.1.1.1");
+        result.WanDnsServers.Should().Contain("8.8.8.8");
+        result.WanInterfaces.Should().HaveCount(1);
+        result.WanInterfaces[0].InterfaceName.Should().Be("wan");
+        result.WanInterfaces[0].IsUp.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMultipleWanInterfaces_ExtractsAllDns()
+    {
+        // Arrange - Gateway with dual WAN
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "up": true,
+                        "dns": ["1.1.1.1"]
+                    },
+                    {
+                        "name": "WAN2",
+                        "network_name": "wan2",
+                        "up": true,
+                        "dns": ["8.8.8.8"]
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
+
+        // Assert
+        result.WanDnsServers.Should().Contain("1.1.1.1");
+        result.WanDnsServers.Should().Contain("8.8.8.8");
+        result.WanInterfaces.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Analyze_WithWanInterfaceNoDns_SetsIspDns()
+    {
+        // Arrange - WAN interface without static DNS (uses DHCP/ISP)
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "UDM Pro",
+                "port_table": [
+                    {
+                        "name": "WAN",
+                        "network_name": "wan",
+                        "up": true,
+                        "ip": "203.0.113.50"
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
+
+        // Assert
+        result.UsingIspDns.Should().BeTrue();
+        result.WanInterfaces.Should().HaveCount(1);
+        result.WanInterfaces[0].DnsServers.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Analyze_WithNonGatewayDevice_IgnoresPortTable()
+    {
+        // Arrange - Switch device (not gateway) - should not extract WAN DNS
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "usw",
+                "name": "Switch",
+                "port_table": [
+                    {
+                        "name": "Port 1",
+                        "network_name": "wan",
+                        "dns": ["1.1.1.1"]
+                    }
+                ]
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, null, deviceData);
+
+        // Assert
+        result.WanDnsServers.Should().BeEmpty();
+        result.WanInterfaces.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Device DNS Configuration Tests
+
+    [Fact]
+    public async Task Analyze_WithDeviceStaticDnsPointingToGateway_NoIssue()
+    {
+        // Arrange - Device with static DNS pointing to gateway
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true, IpAddress = "192.168.1.1" },
+            new SwitchInfo
+            {
+                Name = "Switch1",
+                IsGateway = false,
+                IpAddress = "192.168.1.10",
+                ConfiguredDns1 = "192.168.1.1",
+                NetworkConfigType = "static"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
+
+        // Assert
+        result.DeviceDnsPointsToGateway.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDeviceStaticDnsNotPointingToGateway_RaisesIssue()
+    {
+        // Arrange - Device with static DNS pointing elsewhere
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true, IpAddress = "192.168.1.1" },
+            new SwitchInfo
+            {
+                Name = "MisconfiguredSwitch",
+                IsGateway = false,
+                IpAddress = "192.168.1.10",
+                ConfiguredDns1 = "8.8.8.8",
+                NetworkConfigType = "static"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
+
+        // Assert
+        result.DeviceDnsPointsToGateway.Should().BeFalse();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    [Fact]
+    public async Task Analyze_WithDeviceUsingDhcp_AssumesCorrect()
+    {
+        // Arrange - Device using DHCP (no static DNS)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true, IpAddress = "192.168.1.1" },
+            new SwitchInfo
+            {
+                Name = "DhcpSwitch",
+                IsGateway = false,
+                IpAddress = "192.168.1.10",
+                ConfiguredDns1 = null,
+                NetworkConfigType = "dhcp"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
+
+        // Assert
+        result.DhcpDeviceCount.Should().Be(1);
+        result.DeviceDnsDetails.Should().Contain(d => d.UsesDhcp && d.DeviceName == "DhcpSwitch");
+    }
+
+    [Fact]
+    public async Task Analyze_WithNoGatewayIp_SkipsDeviceDnsValidation()
+    {
+        // Arrange - Networks without gateway IP
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = null }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true },
+            new SwitchInfo { Name = "Switch1", IsGateway = false, ConfiguredDns1 = "8.8.8.8" }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, switches, networks);
+
+        // Assert - Should skip validation, not raise issue
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    #endregion
+
+    #region Third-Party DNS Provider Detection Tests
+
+    [Fact]
+    public async Task Analyze_WithAdGuardHomeOnlyNetwork_DetectsProvider()
+    {
+        // Arrange - AdGuard Home detected (mock HTTP response)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "Home", VlanId = 1,
+                DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" },
+                Purpose = NetworkPurpose.Home
+            }
+        };
+
+        // Create analyzer with AdGuard Home mock response
+        var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+        var adGuardMockClient = CreateAdGuardHomeMockClient();
+        var adGuardDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, adGuardMockClient);
+        var analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, adGuardDetector);
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(null, null, null, networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsProviderName.Should().Be("AdGuard Home");
+    }
+
+    [Fact]
+    public async Task Analyze_WithUnknownThirdPartyDns_UsesGenericName()
+    {
+        // Arrange - Third-party DNS that's neither Pi-hole nor AdGuard Home
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "Home", VlanId = 1,
+                DhcpEnabled = true, Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" },
+                Purpose = NetworkPurpose.Home
+            }
+        };
+
+        // Default mock returns 404 - no Pi-hole/AdGuard detected
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        // Assert
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.ThirdPartyDnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
+    private static HttpClient CreateAdGuardHomeMockClient()
+    {
+        var handlerMock = new Mock<HttpMessageHandler>();
+
+        // Mock login.html with JS reference
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.Contains("login.html")),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent("<html><script src=\"login.abc123.js\"></script></html>")
+            });
+
+        // Mock JS bundle with AdGuard
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.RequestUri!.AbsolutePath.Contains(".js")),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(new HttpResponseMessage
+            {
+                StatusCode = HttpStatusCode.OK,
+                Content = new StringContent("/* AdGuard Home bundle */")
+            });
+
+        return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(1) };
+    }
+
+    #endregion
+
+    #region DNS Consistency Edge Cases
+
+    [Fact]
+    public async Task Analyze_WithNoDhcpNetworks_SkipsConsistencyCheck()
+    {
+        // Arrange - Networks with DHCP disabled (manual IP assignment)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "Static Network", VlanId = 1,
+                DhcpEnabled = false, // No DHCP
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" },
+                Purpose = NetworkPurpose.Home
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        // Assert - Should not flag DNS inconsistency for non-DHCP networks
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+    }
+
+    [Fact]
+    public async Task Analyze_WithEmptyNetworksList_HandlesGracefully()
+    {
+        // Arrange - Empty networks list
+        var networks = new List<NetworkInfo>();
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.HasThirdPartyDns.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Raw Device Data DNS Analysis Tests
+
+    [Fact]
+    public async Task Analyze_WithRawDeviceData_AnalyzesApDns()
+    {
+        // Arrange - AP with static DNS configuration
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "192.168.1.1"
+            },
+            {
+                "type": "uap",
+                "name": "AccessPoint1",
+                "ip": "192.168.1.20",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "192.168.1.1"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert
+        result.DeviceDnsDetails.Should().Contain(d => d.DeviceName == "AccessPoint1");
+    }
+
+    [Fact]
+    public async Task Analyze_WithApDnsNotPointingToGateway_RaisesIssue()
+    {
+        // Arrange - AP with DNS pointing to external server
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo { Id = "net1", Name = "LAN", VlanId = 1, DhcpEnabled = true, Gateway = "192.168.1.1" }
+        };
+        var deviceData = JsonDocument.Parse("""
+        [
+            {
+                "type": "ugw",
+                "name": "Gateway",
+                "ip": "192.168.1.1"
+            },
+            {
+                "type": "uap",
+                "name": "MisconfiguredAP",
+                "ip": "192.168.1.20",
+                "config_network": {
+                    "type": "static",
+                    "dns1": "8.8.8.8"
+                }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, deviceData);
+
+        // Assert
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDeviceMisconfigured);
+    }
+
+    #endregion
 }
