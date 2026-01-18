@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -17,9 +18,8 @@ public class UniFiSshService : IUniFiSshService
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly SshClientService _sshClient;
 
-    // Cache the settings to avoid repeated DB queries
-    private UniFiSshSettings? _cachedSettings;
-    private DateTime _cacheTime = DateTime.MinValue;
+    // Site-specific cache for settings to avoid repeated DB queries
+    private readonly ConcurrentDictionary<int, (UniFiSshSettings settings, DateTime cacheTime)> _cachedSettings = new();
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
     public UniFiSshService(
@@ -37,18 +37,18 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Get the shared SSH settings (creates default if none exist)
     /// </summary>
-    public async Task<UniFiSshSettings> GetSettingsAsync()
+    public async Task<UniFiSshSettings> GetSettingsAsync(int siteId)
     {
         // Check cache first
-        if (_cachedSettings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
+        if (_cachedSettings.TryGetValue(siteId, out var cached) && DateTime.UtcNow - cached.cacheTime < _cacheExpiry)
         {
-            return _cachedSettings;
+            return cached.settings;
         }
 
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-        var settings = await repository.GetUniFiSshSettingsAsync();
+        var settings = await repository.GetUniFiSshSettingsAsync(siteId);
 
         if (settings == null)
         {
@@ -61,11 +61,10 @@ public class UniFiSshService : IUniFiSshService
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            await repository.SaveUniFiSshSettingsAsync(settings);
+            await repository.SaveUniFiSshSettingsAsync(siteId, settings);
         }
 
-        _cachedSettings = settings;
-        _cacheTime = DateTime.UtcNow;
+        _cachedSettings[siteId] = (settings, DateTime.UtcNow);
 
         return settings;
     }
@@ -73,7 +72,7 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Save SSH settings
     /// </summary>
-    public async Task<UniFiSshSettings> SaveSettingsAsync(UniFiSshSettings settings)
+    public async Task<UniFiSshSettings> SaveSettingsAsync(int siteId, UniFiSshSettings settings)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
@@ -86,10 +85,10 @@ public class UniFiSshService : IUniFiSshService
             settings.Password = _credentialProtection.Encrypt(settings.Password);
         }
 
-        await repository.SaveUniFiSshSettingsAsync(settings);
+        await repository.SaveUniFiSshSettingsAsync(siteId, settings);
 
-        // Invalidate cache
-        _cachedSettings = null;
+        // Invalidate cache for this site
+        _cachedSettings.TryRemove(siteId, out _);
 
         return settings;
     }
@@ -97,9 +96,9 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Test SSH connection to a specific host using shared credentials
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync(string host)
+    public async Task<(bool success, string message)> TestConnectionAsync(int siteId, string host)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
 
         if (!settings.HasCredentials)
         {
@@ -109,13 +108,13 @@ public class UniFiSshService : IUniFiSshService
         try
         {
             // Use echo without quotes for cross-platform compatibility (Windows/Linux)
-            var result = await RunCommandAsync(host, "echo Connection_OK", settings.Port);
+            var result = await RunCommandAsync(siteId, host, "echo Connection_OK", settings.Port);
             if (result.success && result.output.Contains("Connection_OK"))
             {
                 // Update last tested
                 settings.LastTestedAt = DateTime.UtcNow;
                 settings.LastTestResult = "Success";
-                await SaveSettingsAsync(settings);
+                await SaveSettingsAsync(siteId, settings);
 
                 return (true, "SSH connection successful");
             }
@@ -131,9 +130,9 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Run an SSH command on a device using shared credentials
     /// </summary>
-    public async Task<(bool success, string output)> RunCommandAsync(string host, string command, int? portOverride = null, CancellationToken cancellationToken = default)
+    public async Task<(bool success, string output)> RunCommandAsync(int siteId, string host, string command, int? portOverride = null, CancellationToken cancellationToken = default)
     {
-        return await RunCommandAsync(host, command, portOverride, null, null, null, cancellationToken);
+        return await RunCommandAsync(siteId, host, command, portOverride, null, null, null, cancellationToken);
     }
 
     /// <summary>
@@ -141,6 +140,7 @@ public class UniFiSshService : IUniFiSshService
     /// If override values are null/empty, falls back to global settings.
     /// </summary>
     public async Task<(bool success, string output)> RunCommandAsync(
+        int siteId,
         string host,
         string command,
         int? portOverride,
@@ -149,7 +149,7 @@ public class UniFiSshService : IUniFiSshService
         string? privateKeyPathOverride,
         CancellationToken cancellationToken = default)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
 
         // Determine effective credentials (per-device overrides take precedence)
         var effectiveUsername = !string.IsNullOrEmpty(usernameOverride) ? usernameOverride : settings.Username;
@@ -193,9 +193,10 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Run an SSH command using device-specific credentials if configured, falling back to global settings.
     /// </summary>
-    public async Task<(bool success, string output)> RunCommandWithDeviceAsync(DeviceSshConfiguration device, string command, CancellationToken cancellationToken = default)
+    public async Task<(bool success, string output)> RunCommandWithDeviceAsync(int siteId, DeviceSshConfiguration device, string command, CancellationToken cancellationToken = default)
     {
         return await RunCommandAsync(
+            siteId,
             device.Host,
             command,
             null,
@@ -208,11 +209,11 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Test SSH connection to a device using device-specific credentials if configured
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync(DeviceSshConfiguration device)
+    public async Task<(bool success, string message)> TestConnectionAsync(int siteId, DeviceSshConfiguration device)
     {
         try
         {
-            var result = await RunCommandWithDeviceAsync(device, "echo Connection_OK");
+            var result = await RunCommandWithDeviceAsync(siteId, device, "echo Connection_OK");
             if (result.success && result.output.Contains("Connection_OK"))
             {
                 return (true, "SSH connection successful");
@@ -229,12 +230,12 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Check if a tool (like iperf3) is available on a device (using global credentials)
     /// </summary>
-    public async Task<(bool available, string version)> CheckToolAvailableAsync(string host, string toolName)
+    public async Task<(bool available, string version)> CheckToolAvailableAsync(int siteId, string host, string toolName)
     {
         try
         {
             // Run without piping (head -1 is Linux-only) - works on both Windows and Linux
-            var result = await RunCommandAsync(host, $"{toolName} --version");
+            var result = await RunCommandAsync(siteId, host, $"{toolName} --version");
             _logger.LogDebug("CheckToolAvailable({Host}, {Tool}): success={Success}, output={Output}",
                 host, toolName, result.success, result.output);
             // Check for tool name without version number (iperf3 outputs "iperf 3.x" not "iperf3")
@@ -257,11 +258,11 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Check if a tool (like iperf3) is available on a device (using device-specific credentials if configured)
     /// </summary>
-    public async Task<(bool available, string version)> CheckToolAvailableAsync(DeviceSshConfiguration device, string toolName)
+    public async Task<(bool available, string version)> CheckToolAvailableAsync(int siteId, DeviceSshConfiguration device, string toolName)
     {
         try
         {
-            var result = await RunCommandWithDeviceAsync(device, $"{toolName} --version");
+            var result = await RunCommandWithDeviceAsync(siteId, device, $"{toolName} --version");
             _logger.LogDebug("CheckToolAvailable({Host}, {Tool}) with device creds: success={Success}, output={Output}",
                 device.Host, toolName, result.success, result.output);
             // Extract just the filename if a path was provided (e.g., /usr/local/bin/iperf3 -> iperf3)
@@ -286,17 +287,17 @@ public class UniFiSshService : IUniFiSshService
     /// <summary>
     /// Get all configured devices
     /// </summary>
-    public async Task<List<DeviceSshConfiguration>> GetDevicesAsync()
+    public async Task<List<DeviceSshConfiguration>> GetDevicesAsync(int siteId)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-        return await repository.GetDeviceSshConfigurationsAsync();
+        return await repository.GetDeviceSshConfigurationsAsync(siteId);
     }
 
     /// <summary>
     /// Save a device configuration
     /// </summary>
-    public async Task<DeviceSshConfiguration> SaveDeviceAsync(DeviceSshConfiguration device)
+    public async Task<DeviceSshConfiguration> SaveDeviceAsync(int siteId, DeviceSshConfiguration device)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
@@ -307,18 +308,18 @@ public class UniFiSshService : IUniFiSshService
             device.SshPassword = _credentialProtection.Encrypt(device.SshPassword);
         }
 
-        await repository.SaveDeviceSshConfigurationAsync(device);
+        await repository.SaveDeviceSshConfigurationAsync(siteId, device);
         return device;
     }
 
     /// <summary>
     /// Delete a device configuration
     /// </summary>
-    public async Task DeleteDeviceAsync(int id)
+    public async Task DeleteDeviceAsync(int siteId, int id)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-        await repository.DeleteDeviceSshConfigurationAsync(id);
+        await repository.DeleteDeviceSshConfigurationAsync(siteId, id);
     }
 
     #endregion

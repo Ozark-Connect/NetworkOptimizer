@@ -8,16 +8,16 @@ namespace NetworkOptimizer.Storage.Interfaces;
 public interface IAuditRepository
 {
     // Audit Results
-    Task<int> SaveAuditResultAsync(AuditResult audit, CancellationToken cancellationToken = default);
-    Task<AuditResult?> GetAuditResultAsync(int auditId, CancellationToken cancellationToken = default);
-    Task<AuditResult?> GetLatestAuditResultAsync(CancellationToken cancellationToken = default);
-    Task<List<AuditResult>> GetAuditHistoryAsync(string? deviceId = null, int limit = 100, CancellationToken cancellationToken = default);
-    Task DeleteOldAuditsAsync(DateTime olderThan, CancellationToken cancellationToken = default);
-    Task ClearAllAuditsAsync(CancellationToken cancellationToken = default);
+    Task<int> SaveAuditResultAsync(int siteId, AuditResult audit, CancellationToken cancellationToken = default);
+    Task<AuditResult?> GetAuditResultAsync(int siteId, int auditId, CancellationToken cancellationToken = default);
+    Task<AuditResult?> GetLatestAuditResultAsync(int siteId, CancellationToken cancellationToken = default);
+    Task<List<AuditResult>> GetAuditHistoryAsync(int siteId, string? deviceId = null, int limit = 100, CancellationToken cancellationToken = default);
+    Task DeleteOldAuditsAsync(int siteId, DateTime olderThan, CancellationToken cancellationToken = default);
+    Task ClearAllAuditsAsync(int siteId, CancellationToken cancellationToken = default);
 
     // Dismissed Issues
-    Task<List<DismissedIssue>> GetDismissedIssuesAsync(CancellationToken cancellationToken = default);
-    Task SaveDismissedIssueAsync(DismissedIssue issue, CancellationToken cancellationToken = default);
-    Task DeleteDismissedIssueAsync(string issueKey, CancellationToken cancellationToken = default);
-    Task ClearAllDismissedIssuesAsync(CancellationToken cancellationToken = default);
+    Task<List<DismissedIssue>> GetDismissedIssuesAsync(int siteId, CancellationToken cancellationToken = default);
+    Task SaveDismissedIssueAsync(int siteId, DismissedIssue issue, CancellationToken cancellationToken = default);
+    Task DeleteDismissedIssueAsync(int siteId, string issueKey, CancellationToken cancellationToken = default);
+    Task ClearAllDismissedIssuesAsync(int siteId, CancellationToken cancellationToken = default);
 }

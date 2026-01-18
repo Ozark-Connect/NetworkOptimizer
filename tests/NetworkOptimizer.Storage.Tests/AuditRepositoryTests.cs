@@ -36,6 +36,7 @@ public class AuditRepositoryTests : IDisposable
     {
         var audit = new AuditResult
         {
+            SiteId = 1,
             DeviceId = "device-1",
             DeviceName = "Test Switch",
             AuditDate = DateTime.UtcNow,
@@ -45,7 +46,7 @@ public class AuditRepositoryTests : IDisposable
             ComplianceScore = 80.0
         };
 
-        var id = await _repository.SaveAuditResultAsync(audit);
+        var id = await _repository.SaveAuditResultAsync(1, audit);
 
         id.Should().BeGreaterThan(0);
         var saved = await _context.AuditResults.FindAsync(id);
@@ -59,11 +60,12 @@ public class AuditRepositoryTests : IDisposable
         var beforeSave = DateTime.UtcNow;
         var audit = new AuditResult
         {
+            SiteId = 1,
             DeviceId = "device-1",
             DeviceName = "Test Switch"
         };
 
-        var id = await _repository.SaveAuditResultAsync(audit);
+        var id = await _repository.SaveAuditResultAsync(1, audit);
 
         var saved = await _context.AuditResults.FindAsync(id);
         saved!.CreatedAt.Should().BeOnOrAfter(beforeSave);
@@ -74,6 +76,7 @@ public class AuditRepositoryTests : IDisposable
     {
         var audit = new AuditResult
         {
+            SiteId = 1,
             DeviceId = "device-1",
             DeviceName = "Test Switch",
             ComplianceScore = 95.0
@@ -81,7 +84,7 @@ public class AuditRepositoryTests : IDisposable
         _context.AuditResults.Add(audit);
         await _context.SaveChangesAsync();
 
-        var result = await _repository.GetAuditResultAsync(audit.Id);
+        var result = await _repository.GetAuditResultAsync(1, audit.Id);
 
         result.Should().NotBeNull();
         result!.DeviceId.Should().Be("device-1");
@@ -91,7 +94,7 @@ public class AuditRepositoryTests : IDisposable
     [Fact]
     public async Task GetAuditResultAsync_ReturnsNullForNonExistent()
     {
-        var result = await _repository.GetAuditResultAsync(999);
+        var result = await _repository.GetAuditResultAsync(1, 999);
         result.Should().BeNull();
     }
 
@@ -99,12 +102,12 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetAuditHistoryAsync_ReturnsAllResults()
     {
         _context.AuditResults.AddRange(
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) },
-            new AuditResult { DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow }
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) },
+            new AuditResult { SiteId = 1, DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow }
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAuditHistoryAsync();
+        var results = await _repository.GetAuditHistoryAsync(1);
 
         results.Should().HaveCount(2);
     }
@@ -113,13 +116,13 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetAuditHistoryAsync_FiltersByDevice()
     {
         _context.AuditResults.AddRange(
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow },
-            new AuditResult { DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow },
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) }
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow },
+            new AuditResult { SiteId = 1, DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow },
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) }
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAuditHistoryAsync(deviceId: "device-1");
+        var results = await _repository.GetAuditHistoryAsync(1, deviceId: "device-1");
 
         results.Should().HaveCount(2);
         results.Should().AllSatisfy(r => r.DeviceId.Should().Be("device-1"));
@@ -129,13 +132,13 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetAuditHistoryAsync_OrdersByDateDescending()
     {
         _context.AuditResults.AddRange(
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-2) },
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow },
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) }
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-2) },
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow },
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-1) }
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAuditHistoryAsync();
+        var results = await _repository.GetAuditHistoryAsync(1);
 
         results.Should().BeInDescendingOrder(r => r.AuditDate);
     }
@@ -147,6 +150,7 @@ public class AuditRepositoryTests : IDisposable
         {
             _context.AuditResults.Add(new AuditResult
             {
+                SiteId = 1,
                 DeviceId = $"device-{i}",
                 DeviceName = $"Switch {i}",
                 AuditDate = DateTime.UtcNow.AddDays(-i)
@@ -154,7 +158,7 @@ public class AuditRepositoryTests : IDisposable
         }
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAuditHistoryAsync(limit: 5);
+        var results = await _repository.GetAuditHistoryAsync(1, limit: 5);
 
         results.Should().HaveCount(5);
     }
@@ -163,13 +167,13 @@ public class AuditRepositoryTests : IDisposable
     public async Task DeleteOldAuditsAsync_DeletesOldRecords()
     {
         _context.AuditResults.AddRange(
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-30) },
-            new AuditResult { DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow.AddDays(-10) },
-            new AuditResult { DeviceId = "device-3", DeviceName = "Switch 3", AuditDate = DateTime.UtcNow }
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-30) },
+            new AuditResult { SiteId = 1, DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow.AddDays(-10) },
+            new AuditResult { SiteId = 1, DeviceId = "device-3", DeviceName = "Switch 3", AuditDate = DateTime.UtcNow }
         );
         await _context.SaveChangesAsync();
 
-        await _repository.DeleteOldAuditsAsync(DateTime.UtcNow.AddDays(-15));
+        await _repository.DeleteOldAuditsAsync(1, DateTime.UtcNow.AddDays(-15));
 
         var remaining = await _context.AuditResults.ToListAsync();
         remaining.Should().HaveCount(2);
@@ -180,13 +184,13 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetLatestAuditResultAsync_ReturnsNewestResult()
     {
         _context.AuditResults.AddRange(
-            new AuditResult { DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-2) },
-            new AuditResult { DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow },
-            new AuditResult { DeviceId = "device-3", DeviceName = "Switch 3", AuditDate = DateTime.UtcNow.AddDays(-1) }
+            new AuditResult { SiteId = 1, DeviceId = "device-1", DeviceName = "Switch 1", AuditDate = DateTime.UtcNow.AddDays(-2) },
+            new AuditResult { SiteId = 1, DeviceId = "device-2", DeviceName = "Switch 2", AuditDate = DateTime.UtcNow },
+            new AuditResult { SiteId = 1, DeviceId = "device-3", DeviceName = "Switch 3", AuditDate = DateTime.UtcNow.AddDays(-1) }
         );
         await _context.SaveChangesAsync();
 
-        var result = await _repository.GetLatestAuditResultAsync();
+        var result = await _repository.GetLatestAuditResultAsync(1);
 
         result.Should().NotBeNull();
         result!.DeviceId.Should().Be("device-2");
@@ -195,7 +199,7 @@ public class AuditRepositoryTests : IDisposable
     [Fact]
     public async Task GetLatestAuditResultAsync_ReturnsNullWhenEmpty()
     {
-        var result = await _repository.GetLatestAuditResultAsync();
+        var result = await _repository.GetLatestAuditResultAsync(1);
         result.Should().BeNull();
     }
 
@@ -207,12 +211,12 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetDismissedIssuesAsync_ReturnsAllDismissed()
     {
         _context.DismissedIssues.AddRange(
-            new DismissedIssue { IssueKey = "issue-1", DismissedAt = DateTime.UtcNow },
-            new DismissedIssue { IssueKey = "issue-2", DismissedAt = DateTime.UtcNow.AddMinutes(-5) }
+            new DismissedIssue { SiteId = 1, IssueKey = "issue-1", DismissedAt = DateTime.UtcNow },
+            new DismissedIssue { SiteId = 1, IssueKey = "issue-2", DismissedAt = DateTime.UtcNow.AddMinutes(-5) }
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetDismissedIssuesAsync();
+        var results = await _repository.GetDismissedIssuesAsync(1);
 
         results.Should().HaveCount(2);
     }
@@ -221,12 +225,12 @@ public class AuditRepositoryTests : IDisposable
     public async Task GetDismissedIssuesAsync_OrdersByDismissedAtDescending()
     {
         _context.DismissedIssues.AddRange(
-            new DismissedIssue { IssueKey = "old-issue", DismissedAt = DateTime.UtcNow.AddDays(-1) },
-            new DismissedIssue { IssueKey = "new-issue", DismissedAt = DateTime.UtcNow }
+            new DismissedIssue { SiteId = 1, IssueKey = "old-issue", DismissedAt = DateTime.UtcNow.AddDays(-1) },
+            new DismissedIssue { SiteId = 1, IssueKey = "new-issue", DismissedAt = DateTime.UtcNow }
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetDismissedIssuesAsync();
+        var results = await _repository.GetDismissedIssuesAsync(1);
 
         results[0].IssueKey.Should().Be("new-issue");
     }
@@ -234,9 +238,9 @@ public class AuditRepositoryTests : IDisposable
     [Fact]
     public async Task SaveDismissedIssueAsync_AddsIssue()
     {
-        var issue = new DismissedIssue { IssueKey = "test-issue" };
+        var issue = new DismissedIssue { SiteId = 1, IssueKey = "test-issue" };
 
-        await _repository.SaveDismissedIssueAsync(issue);
+        await _repository.SaveDismissedIssueAsync(1, issue);
 
         var saved = await _context.DismissedIssues.FirstOrDefaultAsync(d => d.IssueKey == "test-issue");
         saved.Should().NotBeNull();
@@ -246,10 +250,10 @@ public class AuditRepositoryTests : IDisposable
     [Fact]
     public async Task DeleteDismissedIssueAsync_RemovesIssue()
     {
-        _context.DismissedIssues.Add(new DismissedIssue { IssueKey = "to-delete", DismissedAt = DateTime.UtcNow });
+        _context.DismissedIssues.Add(new DismissedIssue { SiteId = 1, IssueKey = "to-delete", DismissedAt = DateTime.UtcNow });
         await _context.SaveChangesAsync();
 
-        await _repository.DeleteDismissedIssueAsync("to-delete");
+        await _repository.DeleteDismissedIssueAsync(1, "to-delete");
 
         var deleted = await _context.DismissedIssues.FirstOrDefaultAsync(d => d.IssueKey == "to-delete");
         deleted.Should().BeNull();
@@ -259,12 +263,12 @@ public class AuditRepositoryTests : IDisposable
     public async Task ClearAllDismissedIssuesAsync_RemovesAllIssues()
     {
         _context.DismissedIssues.AddRange(
-            new DismissedIssue { IssueKey = "issue-1", DismissedAt = DateTime.UtcNow },
-            new DismissedIssue { IssueKey = "issue-2", DismissedAt = DateTime.UtcNow }
+            new DismissedIssue { SiteId = 1, IssueKey = "issue-1", DismissedAt = DateTime.UtcNow },
+            new DismissedIssue { SiteId = 1, IssueKey = "issue-2", DismissedAt = DateTime.UtcNow }
         );
         await _context.SaveChangesAsync();
 
-        await _repository.ClearAllDismissedIssuesAsync();
+        await _repository.ClearAllDismissedIssuesAsync(1);
 
         var remaining = await _context.DismissedIssues.CountAsync();
         remaining.Should().Be(0);

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using NetworkOptimizer.Storage.Interfaces;
@@ -20,9 +21,9 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly SystemSettingsService _systemSettings;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
 
-    // Track running tests
-    private bool _isTestRunning = false;
-    private GatewaySpeedTestResult? _lastResult;
+    // Track running tests per site
+    private readonly ConcurrentDictionary<int, bool> _isTestRunning = new();
+    private readonly ConcurrentDictionary<int, GatewaySpeedTestResult> _lastResult = new();
 
     public GatewaySpeedTestService(
         ILogger<GatewaySpeedTestService> logger,
@@ -41,43 +42,43 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     #region Settings Management (delegated to IGatewaySshService)
 
     /// <summary>
-    /// Get the gateway SSH settings (creates default if none exist)
+    /// Get the gateway SSH settings for a site (creates default if none exist)
     /// </summary>
-    public Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
-        => _gatewaySsh.GetSettingsAsync(forceRefresh);
+    public Task<GatewaySshSettings> GetSettingsAsync(int siteId, bool forceRefresh = false)
+        => _gatewaySsh.GetSettingsAsync(siteId, forceRefresh);
 
     /// <summary>
-    /// Save gateway SSH settings
+    /// Save gateway SSH settings for a site
     /// </summary>
-    public Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
-        => _gatewaySsh.SaveSettingsAsync(settings);
+    public Task<GatewaySshSettings> SaveSettingsAsync(int siteId, GatewaySshSettings settings)
+        => _gatewaySsh.SaveSettingsAsync(siteId, settings);
 
     #endregion
 
     #region SSH Operations (delegated to IGatewaySshService)
 
     /// <summary>
-    /// Test SSH connection to the gateway
+    /// Test SSH connection to the gateway for a site
     /// </summary>
-    public Task<(bool success, string message)> TestConnectionAsync()
-        => _gatewaySsh.TestConnectionAsync();
+    public Task<(bool success, string message)> TestConnectionAsync(int siteId)
+        => _gatewaySsh.TestConnectionAsync(siteId);
 
     /// <summary>
-    /// Run an SSH command on the gateway
+    /// Run an SSH command on the gateway for a site
     /// </summary>
-    public Task<(bool success, string output)> RunSshCommandAsync(string command)
-        => _gatewaySsh.RunCommandAsync(command);
+    public Task<(bool success, string output)> RunSshCommandAsync(int siteId, string command)
+        => _gatewaySsh.RunCommandAsync(siteId, command);
 
     #endregion
 
     #region iperf3 Operations
 
     /// <summary>
-    /// Check if iperf3 is running on the gateway and get its port
+    /// Check if iperf3 is running on the gateway for a site and get its port
     /// </summary>
-    public async Task<Iperf3Status> CheckIperf3StatusAsync()
+    public async Task<Iperf3Status> CheckIperf3StatusAsync(int siteId)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
         var status = new Iperf3Status();
 
         if (string.IsNullOrEmpty(settings.Host) || !settings.HasCredentials)
@@ -89,7 +90,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         try
         {
             // First verify SSH connection works
-            var connectTest = await RunSshCommandAsync("echo SSH_OK");
+            var connectTest = await RunSshCommandAsync(siteId, "echo SSH_OK");
             if (!connectTest.success || !connectTest.output.Contains("SSH_OK"))
             {
                 status.Error = $"SSH connection failed: {connectTest.output}";
@@ -97,7 +98,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             }
 
             // Check if iperf3 is running
-            var result = await RunSshCommandAsync("pgrep -a iperf3 2>/dev/null || true");
+            var result = await RunSshCommandAsync(siteId, "pgrep -a iperf3 2>/dev/null || true");
             if (result.success && !string.IsNullOrWhiteSpace(result.output))
             {
                 status.IsRunning = true;
@@ -115,7 +116,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
                 }
 
                 // Also try to get the port from netstat/ss
-                var netstatResult = await RunSshCommandAsync("ss -tlnp 2>/dev/null | grep iperf3 || true");
+                var netstatResult = await RunSshCommandAsync(siteId, "ss -tlnp 2>/dev/null | grep iperf3 || true");
                 if (netstatResult.success && !string.IsNullOrWhiteSpace(netstatResult.output))
                 {
                     // Parse something like "*:5201" or "0.0.0.0:5201"
@@ -128,7 +129,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             }
 
             // Check if iperf3 is installed
-            var versionResult = await RunSshCommandAsync("iperf3 --version 2>&1 | head -1");
+            var versionResult = await RunSshCommandAsync(siteId, "iperf3 --version 2>&1 | head -1");
             if (versionResult.success && versionResult.output.ToLower().Contains("iperf"))
             {
                 status.IsInstalled = true;
@@ -136,7 +137,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             }
 
             // Try to find the service name
-            var serviceResult = await RunSshCommandAsync("systemctl list-units --type=service --all 2>/dev/null | grep -i iperf || true");
+            var serviceResult = await RunSshCommandAsync(siteId, "systemctl list-units --type=service --all 2>/dev/null | grep -i iperf || true");
             if (serviceResult.success && !string.IsNullOrWhiteSpace(serviceResult.output))
             {
                 // Extract service name from output like "iperf3.service loaded active running"
@@ -157,15 +158,15 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     }
 
     /// <summary>
-    /// Start iperf3 server on the gateway
+    /// Start iperf3 server on the gateway for a site
     /// </summary>
-    public async Task<(bool success, string message)> StartIperf3ServerAsync(int? port = null)
+    public async Task<(bool success, string message)> StartIperf3ServerAsync(int siteId, int? port = null)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
         var targetPort = port ?? settings.Iperf3Port;
 
         // First check current status
-        var status = await CheckIperf3StatusAsync();
+        var status = await CheckIperf3StatusAsync(siteId);
 
         // Check for SSH connection errors first
         if (!string.IsNullOrEmpty(status.Error))
@@ -186,11 +187,11 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         // Try to start via systemctl first if service exists
         if (!string.IsNullOrEmpty(status.ServiceName))
         {
-            var serviceResult = await RunSshCommandAsync($"systemctl start {status.ServiceName} 2>&1");
+            var serviceResult = await RunSshCommandAsync(siteId, $"systemctl start {status.ServiceName} 2>&1");
             if (serviceResult.success)
             {
                 await Task.Delay(500); // Wait for service to start
-                var newStatus = await CheckIperf3StatusAsync();
+                var newStatus = await CheckIperf3StatusAsync(siteId);
                 if (newStatus.IsRunning)
                 {
                     return (true, $"Started {status.ServiceName} on port {newStatus.Port}");
@@ -199,11 +200,11 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
         }
 
         // Try to start iperf3 directly in server daemon mode
-        var startResult = await RunSshCommandAsync($"nohup iperf3 -s -p {targetPort} -D 2>&1");
+        var startResult = await RunSshCommandAsync(siteId, $"nohup iperf3 -s -p {targetPort} -D 2>&1");
         if (startResult.success)
         {
             await Task.Delay(500);
-            var newStatus = await CheckIperf3StatusAsync();
+            var newStatus = await CheckIperf3StatusAsync(siteId);
             if (newStatus.IsRunning)
             {
                 return (true, $"Started iperf3 server on port {targetPort}");
@@ -214,29 +215,29 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     }
 
     /// <summary>
-    /// Run a speed test from the Docker container to the gateway using system settings
+    /// Run a speed test from the Docker container to the gateway using system settings for a site
     /// </summary>
-    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync()
+    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync(int siteId)
     {
         var iperf3Settings = await _systemSettings.GetIperf3SettingsAsync();
-        return await RunSpeedTestAsync(iperf3Settings.DurationSeconds, iperf3Settings.GatewayParallelStreams);
+        return await RunSpeedTestAsync(siteId, iperf3Settings.DurationSeconds, iperf3Settings.GatewayParallelStreams);
     }
 
     /// <summary>
-    /// Run a speed test from the Docker container to the gateway with specific parameters
+    /// Run a speed test from the Docker container to the gateway with specific parameters for a site
     /// </summary>
-    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync(int durationSeconds, int parallelStreams)
+    public async Task<GatewaySpeedTestResult> RunSpeedTestAsync(int siteId, int durationSeconds, int parallelStreams)
     {
-        if (_isTestRunning)
+        if (_isTestRunning.TryGetValue(siteId, out var isRunning) && isRunning)
         {
             return new GatewaySpeedTestResult
             {
                 Success = false,
-                Error = "A speed test is already running"
+                Error = "A speed test is already running for this site"
             };
         }
 
-        _isTestRunning = true;
+        _isTestRunning[siteId] = true;
         var result = new GatewaySpeedTestResult
         {
             TestTime = DateTime.UtcNow,
@@ -246,7 +247,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
 
         try
         {
-            var settings = await GetSettingsAsync();
+            var settings = await GetSettingsAsync(siteId);
 
             if (string.IsNullOrEmpty(settings.Host))
             {
@@ -255,17 +256,17 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             }
 
             // Ensure iperf3 server is running
-            var status = await CheckIperf3StatusAsync();
+            var status = await CheckIperf3StatusAsync(siteId);
             if (!status.IsRunning)
             {
-                var startResult = await StartIperf3ServerAsync();
+                var startResult = await StartIperf3ServerAsync(siteId);
                 if (!startResult.success)
                 {
                     result.Error = startResult.message;
                     return result;
                 }
                 // Refresh status
-                status = await CheckIperf3StatusAsync();
+                status = await CheckIperf3StatusAsync(siteId);
             }
 
             var port = status.Port ?? settings.Iperf3Port;
@@ -273,7 +274,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             result.Port = port;
 
             // Run download test (from gateway to container)
-            _logger.LogInformation("Running download test to {Host}:{Port}", settings.Host, port);
+            _logger.LogInformation("Running download test to {Host}:{Port} for site {SiteId}", settings.Host, port, siteId);
             var downloadResult = await RunIperf3ClientAsync(settings.Host, port, durationSeconds, parallelStreams, reverse: true);
             if (downloadResult.success)
             {
@@ -289,7 +290,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             await Task.Delay(1000);
 
             // Run upload test (from container to gateway)
-            _logger.LogInformation("Running upload test to {Host}:{Port}", settings.Host, port);
+            _logger.LogInformation("Running upload test to {Host}:{Port} for site {SiteId}", settings.Host, port, siteId);
             var uploadResult = await RunIperf3ClientAsync(settings.Host, port, durationSeconds, parallelStreams, reverse: false);
             if (uploadResult.success)
             {
@@ -302,7 +303,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
             }
 
             result.Success = true;
-            _lastResult = result;
+            _lastResult[siteId] = result;
 
             // Analyze network path before saving (use LocalIp parsed from iperf3 output)
             var pathAnalysis = await AnalyzePathAsync(
@@ -316,22 +317,22 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
                 result.LocalIp);
 
             // Save to history database
-            await SaveResultToHistoryAsync(result, pathAnalysis);
+            await SaveResultToHistoryAsync(siteId, result, pathAnalysis);
 
-            _logger.LogInformation("Speed test completed: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
-                result.DownloadMbps, result.UploadMbps);
+            _logger.LogInformation("Speed test completed for site {SiteId}: {FromDevice:F1} Mbps from / {ToDevice:F1} Mbps to device",
+                siteId, result.DownloadMbps, result.UploadMbps);
 
             return result;
         }
         catch (Exception ex)
         {
             result.Error = ex.Message;
-            _logger.LogError(ex, "Error running speed test");
+            _logger.LogError(ex, "Error running speed test for site {SiteId}", siteId);
             return result;
         }
         finally
         {
-            _isTestRunning = false;
+            _isTestRunning[siteId] = false;
         }
     }
 
@@ -490,9 +491,9 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     }
 
     /// <summary>
-    /// Save the gateway speed test result to the shared history database
+    /// Save the gateway speed test result to the shared history database for a site
     /// </summary>
-    private async Task SaveResultToHistoryAsync(GatewaySpeedTestResult result, PathAnalysisResult? pathAnalysis)
+    private async Task SaveResultToHistoryAsync(int siteId, GatewaySpeedTestResult result, PathAnalysisResult? pathAnalysis)
     {
         try
         {
@@ -520,25 +521,27 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
                 PathAnalysis = pathAnalysis
             };
 
-            await repository.SaveIperf3ResultAsync(historyResult);
+            await repository.SaveIperf3ResultAsync(siteId, historyResult);
 
-            _logger.LogDebug("Saved gateway speed test result to history");
+            _logger.LogDebug("Saved gateway speed test result to history for site {SiteId}", siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save gateway speed test result to history");
+            _logger.LogWarning(ex, "Failed to save gateway speed test result to history for site {SiteId}", siteId);
         }
     }
 
     /// <summary>
-    /// Get the last speed test result
+    /// Get the last speed test result for a site
     /// </summary>
-    public GatewaySpeedTestResult? GetLastResult() => _lastResult;
+    public GatewaySpeedTestResult? GetLastResult(int siteId)
+        => _lastResult.TryGetValue(siteId, out var result) ? result : null;
 
     /// <summary>
-    /// Check if a test is currently running
+    /// Check if a test is currently running for a site
     /// </summary>
-    public bool IsTestRunning => _isTestRunning;
+    public bool IsTestRunning(int siteId)
+        => _isTestRunning.TryGetValue(siteId, out var isRunning) && isRunning;
 
     #endregion
 }

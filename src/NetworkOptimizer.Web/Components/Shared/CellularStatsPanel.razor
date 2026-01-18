@@ -42,7 +42,7 @@
                         }
                     </button>
                 }
-                <a href="/settings#cellular-modem" class="btn btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
+                <a href="/sites/@SiteId/settings#cellular-modem" class="btn btn-primary">@(hasConfiguredModems ? "Modem Settings" : "Configure Modem")</a>
             </div>
         </div>
     }
@@ -183,7 +183,7 @@
                     <span>Refresh</span>
                 }
             </button>
-            <a href="/settings#cellular-modem" class="btn btn-primary">Modem Settings</a>
+            <a href="/sites/@SiteId/settings#cellular-modem" class="btn btn-primary">Modem Settings</a>
         </div>
     }
 </div>
@@ -406,6 +406,9 @@
 </style>
 
 @code {
+    [Parameter]
+    public int SiteId { get; set; }
+
     private CellularModemStats? modemStats;
     private bool isLoading = true;
     private bool isRefreshing = false;
@@ -423,7 +426,7 @@
                 if (!isRefreshing && !isLoading)
                 {
                     // Just fetch cached stats - don't force a poll
-                    var newStats = ModemService.GetLastStats();
+                    var newStats = ModemService.GetLastStats(SiteId);
                     if (newStats != null)
                     {
                         modemStats = newStats;
@@ -441,20 +444,20 @@
         isLoading = true;
         try
         {
-            modemStats = ModemService.GetLastStats();
+            modemStats = ModemService.GetLastStats(SiteId);
 
             // If no cached stats, try to poll any configured modem (prefer enabled)
             if (modemStats == null)
             {
-                var modems = await ModemService.GetModemsAsync();
+                var modems = await ModemService.GetModemsAsync(SiteId);
                 hasConfiguredModems = modems.Any();
                 var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
                 if (modem != null)
                 {
-                    var (success, _) = await ModemService.PollModemAsync(modem);
+                    var (success, _) = await ModemService.PollModemAsync(SiteId, modem);
                     if (success)
                     {
-                        modemStats = ModemService.GetLastStats();
+                        modemStats = ModemService.GetLastStats(SiteId);
                     }
                 }
             }
@@ -476,15 +479,15 @@
 
         try
         {
-            var modems = await ModemService.GetModemsAsync();
+            var modems = await ModemService.GetModemsAsync(SiteId);
             // Allow manual refresh of any configured modem, prefer enabled but use any if none enabled
             var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
             if (modem != null)
             {
-                var (success, _) = await ModemService.PollModemAsync(modem);
+                var (success, _) = await ModemService.PollModemAsync(SiteId, modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetLastStats();
+                    modemStats = ModemService.GetLastStats(SiteId);
                 }
             }
         }

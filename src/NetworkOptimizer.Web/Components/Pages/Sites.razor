@@ -1,0 +1,297 @@
+@page "/sites"
+@rendermode InteractiveServer
+@using NetworkOptimizer.Storage.Interfaces
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject ISiteRepository SiteRepository
+@inject UniFiConnectionService ConnectionService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Sites - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Sites</h1>
+    <p class="page-description">Manage your network sites</p>
+</div>
+
+<div class="sites-grid">
+    @foreach (var site in _sites)
+    {
+        <div class="site-card">
+            <div class="site-card-header">
+                <div class="site-card-title">
+                    @if (ConnectionService.IsConnected(site.Id))
+                    {
+                        <span class="status-dot connected" title="Connected"></span>
+                    }
+                    else
+                    {
+                        <span class="status-dot" title="Disconnected"></span>
+                    }
+                    <span class="site-card-name" title="@site.Name">@site.Name</span>
+                </div>
+                <div class="site-card-actions">
+                    <button @onclick="() => EditSite(site)" title="Edit">Edit</button>
+                    @if (_sites.Count > 1)
+                    {
+                        <button @onclick="() => ConfirmDeleteSite(site)" title="Delete">Delete</button>
+                    }
+                </div>
+            </div>
+            <div class="site-card-info">
+                @if (!string.IsNullOrEmpty(site.DisplayName))
+                {
+                    <div class="info-row">@site.DisplayName</div>
+                }
+                @if (!string.IsNullOrEmpty(site.Notes))
+                {
+                    <div class="info-row" style="color: var(--text-muted); font-size: 0.85rem;">@site.Notes</div>
+                }
+                <div class="info-row">
+                    <span style="color: var(--text-muted);">Created:</span>
+                    @site.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")
+                </div>
+            </div>
+            <div class="site-card-footer">
+                <a href="/sites/@site.Id" class="btn btn-primary btn-sm">Open Dashboard</a>
+            </div>
+        </div>
+    }
+
+    <div class="add-site-card" @onclick="ShowAddSiteModal">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        <span>Add Site</span>
+    </div>
+</div>
+
+@if (_showModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>@(_editingSite == null ? "Add Site" : "Edit Site")</h3>
+                <button class="modal-close" @onclick="CloseModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Site Name *</label>
+                    <input type="text" class="form-control" @bind="_siteName" placeholder="e.g., Main Office, Home Network" />
+                    <small class="form-help">A short name to identify this site</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Display Name</label>
+                    <input type="text" class="form-control" @bind="_siteDisplayName" placeholder="Optional longer name" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" @bind="_siteNotes" rows="3" placeholder="Optional notes about this site"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_siteEnabled" />
+                        <span>Enabled</span>
+                    </label>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_errorMessage))
+                {
+                    <div class="alert alert-danger">@_errorMessage</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveSite" disabled="@_saving">
+                    @if (_saving)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    @(_editingSite == null ? "Create Site" : "Save Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_showDeleteConfirm)
+{
+    <div class="modal-backdrop" @onclick="CloseDeleteConfirm">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Delete Site</h3>
+                <button class="modal-close" @onclick="CloseDeleteConfirm">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete <strong>@_deletingSite?.Name</strong>?</p>
+                <p style="color: var(--danger);">This will permanently delete all data associated with this site including audits, speed tests, and settings.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseDeleteConfirm">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteSite" disabled="@_deleting">
+                    @if (_deleting)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    Delete Site
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Site> _sites = new();
+    private bool _showModal = false;
+    private bool _showDeleteConfirm = false;
+    private bool _saving = false;
+    private bool _deleting = false;
+    private string _errorMessage = "";
+
+    // Form fields
+    private Site? _editingSite;
+    private string _siteName = "";
+    private string _siteDisplayName = "";
+    private string _siteNotes = "";
+    private bool _siteEnabled = true;
+
+    // Delete confirmation
+    private Site? _deletingSite;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSites();
+    }
+
+    private async Task LoadSites()
+    {
+        _sites = await SiteRepository.GetAllSitesAsync();
+    }
+
+    private void ShowAddSiteModal()
+    {
+        _editingSite = null;
+        _siteName = "";
+        _siteDisplayName = "";
+        _siteNotes = "";
+        _siteEnabled = true;
+        _errorMessage = "";
+        _showModal = true;
+    }
+
+    private void EditSite(Site site)
+    {
+        _editingSite = site;
+        _siteName = site.Name;
+        _siteDisplayName = site.DisplayName ?? "";
+        _siteNotes = site.Notes ?? "";
+        _siteEnabled = site.Enabled;
+        _errorMessage = "";
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _editingSite = null;
+    }
+
+    private async Task SaveSite()
+    {
+        if (string.IsNullOrWhiteSpace(_siteName))
+        {
+            _errorMessage = "Site name is required.";
+            return;
+        }
+
+        _saving = true;
+        _errorMessage = "";
+
+        try
+        {
+            if (_editingSite == null)
+            {
+                // Create new site
+                var site = new Site
+                {
+                    Name = _siteName.Trim(),
+                    DisplayName = string.IsNullOrWhiteSpace(_siteDisplayName) ? null : _siteDisplayName.Trim(),
+                    Notes = string.IsNullOrWhiteSpace(_siteNotes) ? null : _siteNotes.Trim(),
+                    Enabled = _siteEnabled,
+                    SortOrder = _sites.Count,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                var newId = await SiteRepository.CreateSiteAsync(site);
+                CloseModal();
+                await LoadSites();
+
+                // Navigate to the new site's settings to configure the controller
+                NavigationManager.NavigateTo($"/sites/{newId}/settings");
+            }
+            else
+            {
+                // Update existing site
+                _editingSite.Name = _siteName.Trim();
+                _editingSite.DisplayName = string.IsNullOrWhiteSpace(_siteDisplayName) ? null : _siteDisplayName.Trim();
+                _editingSite.Notes = string.IsNullOrWhiteSpace(_siteNotes) ? null : _siteNotes.Trim();
+                _editingSite.Enabled = _siteEnabled;
+                _editingSite.UpdatedAt = DateTime.UtcNow;
+
+                await SiteRepository.UpdateSiteAsync(_editingSite);
+                CloseModal();
+
+                // Force page reload to refresh SiteSelector in layout
+                NavigationManager.NavigateTo("/sites", forceLoad: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error saving site: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void ConfirmDeleteSite(Site site)
+    {
+        _deletingSite = site;
+        _showDeleteConfirm = true;
+    }
+
+    private void CloseDeleteConfirm()
+    {
+        _showDeleteConfirm = false;
+        _deletingSite = null;
+    }
+
+    private async Task DeleteSite()
+    {
+        if (_deletingSite == null) return;
+
+        _deleting = true;
+
+        try
+        {
+            await SiteRepository.DeleteSiteAsync(_deletingSite.Id);
+            CloseDeleteConfirm();
+
+            // Force page reload to refresh SiteSelector in layout
+            NavigationManager.NavigateTo("/sites", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error deleting site: {ex.Message}";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+}

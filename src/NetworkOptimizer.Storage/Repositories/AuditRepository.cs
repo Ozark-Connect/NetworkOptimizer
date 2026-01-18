@@ -24,25 +24,28 @@ public class AuditRepository : IAuditRepository
     /// <summary>
     /// Saves a new audit result.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="audit">The audit result to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The ID of the saved audit.</returns>
-    public async Task<int> SaveAuditResultAsync(AuditResult audit, CancellationToken cancellationToken = default)
+    public async Task<int> SaveAuditResultAsync(int siteId, AuditResult audit, CancellationToken cancellationToken = default)
     {
         try
         {
+            audit.SiteId = siteId;
             audit.CreatedAt = DateTime.UtcNow;
             _context.AuditResults.Add(audit);
             await _context.SaveChangesAsync(cancellationToken);
             _logger.LogInformation(
-                "Saved audit result {AuditId} for device {DeviceId}",
+                "Saved audit result {AuditId} for device {DeviceId} in site {SiteId}",
                 audit.Id,
-                audit.DeviceId);
+                audit.DeviceId,
+                siteId);
             return audit.Id;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save audit result for device {DeviceId}", audit.DeviceId);
+            _logger.LogError(ex, "Failed to save audit result for device {DeviceId} in site {SiteId}", audit.DeviceId, siteId);
             throw;
         }
     }
@@ -50,60 +53,67 @@ public class AuditRepository : IAuditRepository
     /// <summary>
     /// Retrieves an audit result by ID.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="auditId">The audit ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The audit result, or null if not found.</returns>
-    public async Task<AuditResult?> GetAuditResultAsync(int auditId, CancellationToken cancellationToken = default)
+    public async Task<AuditResult?> GetAuditResultAsync(int siteId, int auditId, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.AuditResults
                 .AsNoTracking()
-                .FirstOrDefaultAsync(a => a.Id == auditId, cancellationToken);
+                .FirstOrDefaultAsync(a => a.SiteId == siteId && a.Id == auditId, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get audit result {AuditId}", auditId);
+            _logger.LogError(ex, "Failed to get audit result {AuditId} in site {SiteId}", auditId, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves the most recent audit result.
+    /// Retrieves the most recent audit result for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The latest audit result, or null if none exist.</returns>
-    public async Task<AuditResult?> GetLatestAuditResultAsync(CancellationToken cancellationToken = default)
+    public async Task<AuditResult?> GetLatestAuditResultAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.AuditResults
                 .AsNoTracking()
+                .Where(a => a.SiteId == siteId)
                 .OrderByDescending(a => a.AuditDate)
                 .FirstOrDefaultAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get latest audit result");
+            _logger.LogError(ex, "Failed to get latest audit result for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves audit history, optionally filtered by device.
+    /// Retrieves audit history for a site, optionally filtered by device.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="deviceId">Optional device ID to filter by.</param>
     /// <param name="limit">Maximum number of results to return.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of audit results ordered by date descending.</returns>
     public async Task<List<AuditResult>> GetAuditHistoryAsync(
+        int siteId,
         string? deviceId = null,
         int limit = 100,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var query = _context.AuditResults.AsNoTracking();
+            var query = _context.AuditResults
+                .AsNoTracking()
+                .Where(a => a.SiteId == siteId);
 
             if (!string.IsNullOrEmpty(deviceId))
             {
@@ -117,57 +127,61 @@ public class AuditRepository : IAuditRepository
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get audit history");
+            _logger.LogError(ex, "Failed to get audit history for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Deletes audit results older than the specified date.
+    /// Deletes audit results older than the specified date for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="olderThan">Delete audits before this date.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task DeleteOldAuditsAsync(DateTime olderThan, CancellationToken cancellationToken = default)
+    public async Task DeleteOldAuditsAsync(int siteId, DateTime olderThan, CancellationToken cancellationToken = default)
     {
         try
         {
             var oldAudits = await _context.AuditResults
-                .Where(a => a.AuditDate < olderThan)
+                .Where(a => a.SiteId == siteId && a.AuditDate < olderThan)
                 .ToListAsync(cancellationToken);
 
             if (oldAudits.Count > 0)
             {
                 _context.AuditResults.RemoveRange(oldAudits);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Deleted {Count} old audit results", oldAudits.Count);
+                _logger.LogInformation("Deleted {Count} old audit results for site {SiteId}", oldAudits.Count, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete old audits");
+            _logger.LogError(ex, "Failed to delete old audits for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Clears all audit results from the database.
+    /// Clears all audit results for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ClearAllAuditsAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAllAuditsAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var allAudits = await _context.AuditResults.ToListAsync(cancellationToken);
+            var allAudits = await _context.AuditResults
+                .Where(a => a.SiteId == siteId)
+                .ToListAsync(cancellationToken);
             if (allAudits.Count > 0)
             {
                 _context.AuditResults.RemoveRange(allAudits);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Count} audit results", allAudits.Count);
+                _logger.LogInformation("Cleared {Count} audit results for site {SiteId}", allAudits.Count, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to clear all audits");
+            _logger.LogError(ex, "Failed to clear all audits for site {SiteId}", siteId);
             throw;
         }
     }
@@ -177,91 +191,99 @@ public class AuditRepository : IAuditRepository
     #region Dismissed Issues
 
     /// <summary>
-    /// Retrieves all dismissed audit issues.
+    /// Retrieves all dismissed audit issues for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of dismissed issues ordered by dismissal date descending.</returns>
-    public async Task<List<DismissedIssue>> GetDismissedIssuesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<DismissedIssue>> GetDismissedIssuesAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.DismissedIssues
                 .AsNoTracking()
+                .Where(d => d.SiteId == siteId)
                 .OrderByDescending(d => d.DismissedAt)
                 .ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get dismissed issues");
+            _logger.LogError(ex, "Failed to get dismissed issues for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Saves a dismissed issue record.
+    /// Saves a dismissed issue record for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="issue">The dismissed issue to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task SaveDismissedIssueAsync(DismissedIssue issue, CancellationToken cancellationToken = default)
+    public async Task SaveDismissedIssueAsync(int siteId, DismissedIssue issue, CancellationToken cancellationToken = default)
     {
         try
         {
+            issue.SiteId = siteId;
             issue.DismissedAt = DateTime.UtcNow;
             _context.DismissedIssues.Add(issue);
             await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Dismissed issue {IssueKey}", issue.IssueKey);
+            _logger.LogInformation("Dismissed issue {IssueKey} for site {SiteId}", issue.IssueKey, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save dismissed issue {IssueKey}", issue.IssueKey);
+            _logger.LogError(ex, "Failed to save dismissed issue {IssueKey} for site {SiteId}", issue.IssueKey, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Deletes a dismissed issue, restoring it to the active issues list.
+    /// Deletes a dismissed issue for a site, restoring it to the active issues list.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="issueKey">The unique issue key to restore.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task DeleteDismissedIssueAsync(string issueKey, CancellationToken cancellationToken = default)
+    public async Task DeleteDismissedIssueAsync(int siteId, string issueKey, CancellationToken cancellationToken = default)
     {
         try
         {
             var issue = await _context.DismissedIssues
-                .FirstOrDefaultAsync(d => d.IssueKey == issueKey, cancellationToken);
+                .FirstOrDefaultAsync(d => d.SiteId == siteId && d.IssueKey == issueKey, cancellationToken);
             if (issue != null)
             {
                 _context.DismissedIssues.Remove(issue);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Restored dismissed issue {IssueKey}", issueKey);
+                _logger.LogInformation("Restored dismissed issue {IssueKey} for site {SiteId}", issueKey, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete dismissed issue {IssueKey}", issueKey);
+            _logger.LogError(ex, "Failed to delete dismissed issue {IssueKey} for site {SiteId}", issueKey, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Clears all dismissed issues, restoring them to active status.
+    /// Clears all dismissed issues for a site, restoring them to active status.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ClearAllDismissedIssuesAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAllDismissedIssuesAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var allIssues = await _context.DismissedIssues.ToListAsync(cancellationToken);
+            var allIssues = await _context.DismissedIssues
+                .Where(d => d.SiteId == siteId)
+                .ToListAsync(cancellationToken);
             if (allIssues.Count > 0)
             {
                 _context.DismissedIssues.RemoveRange(allIssues);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Count} dismissed issues", allIssues.Count);
+                _logger.LogInformation("Cleared {Count} dismissed issues for site {SiteId}", allIssues.Count, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to clear dismissed issues");
+            _logger.LogError(ex, "Failed to clear dismissed issues for site {SiteId}", siteId);
             throw;
         }
     }

@@ -1,0 +1,459 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Models
+@inject CellularModemService ModemService
+@inject UniFiConnectionService ConnectionService
+
+<div class="card" id="cellular-modem">
+    <div class="card-header">
+        <h2 class="card-title">Cellular Modem (5G/LTE)</h2>
+        <span class="status-badge status-@_modemStatus.ToLower()">@_modemStatus</span>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Monitor cellular modems (U5G-Max, etc.) for signal strength and cell info.
+            Stats are polled every 5 minutes. Requires SSH credentials configured above.
+        </p>
+
+        @if (!HasSshCredentials)
+        {
+            <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                <strong>SSH credentials required:</strong> Configure Device SSH credentials above before adding modems.
+                <a href="#device-ssh" style="margin-left: 0.5rem;">Go to Device SSH Settings</a>
+            </div>
+        }
+
+        <!-- Discovered Modems from UniFi Console -->
+        <h4>Auto-Discovered Modems</h4>
+        <div class="action-buttons" style="margin-bottom: 1rem;">
+            <button class="btn btn-secondary" @onclick="LoadDiscoveredModems" disabled="@(!ConnectionService.IsConnected(SiteId) || _loadingDiscoveredModems)">
+                @if (_loadingDiscoveredModems)
+                {
+                    <span class="spinner"></span>
+                    <span>Scanning...</span>
+                }
+                else
+                {
+                    <span>Scan for Modems</span>
+                }
+            </button>
+        </div>
+
+        @if (!ConnectionService.IsConnected(SiteId))
+        {
+            <p class="form-help">Connect to UniFi Console above to discover modems automatically.</p>
+        }
+        else if (_discoveredModems.Count > 0)
+        {
+            <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Model</th>
+                        <th>Host</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var discovered in _discoveredModems)
+                    {
+                        var isConfigured = _modemConfigs.Any(m => m.Host == discovered.Host);
+                        <tr>
+                            <td>@discovered.Name</td>
+                            <td><code>@discovered.Model</code></td>
+                            <td><code>@discovered.Host</code></td>
+                            <td>
+                                @if (discovered.IsOnline)
+                                {
+                                    <span class="status-badge status-connected">Online</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge status-disconnected">Offline</span>
+                                }
+                            </td>
+                            <td>
+                                @if (isConfigured)
+                                {
+                                    <span class="status-badge status-connected">Configured</span>
+                                }
+                                else if (!HasSshCredentials)
+                                {
+                                    <span class="status-badge status-warning" title="Configure SSH credentials first">SSH Required</span>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-success btn-sm" @onclick="() => AddDiscoveredModem(discovered)" disabled="@_savingModem">
+                                        Add
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+        else if (ConnectionService.IsConnected(SiteId) && !_loadingDiscoveredModems)
+        {
+            <p class="form-help">No cellular modems (U5G-Max, U-LTE) found. Click "Scan for Modems" to search.</p>
+        }
+
+        <!-- Configured Modems -->
+        <h4 style="margin-top: 1.5rem;">Configured Modems</h4>
+        @if (_modemConfigs.Count > 0)
+        {
+            <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Host</th>
+                        <th>Status</th>
+                        <th>Last Polled</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var modem in _modemConfigs)
+                    {
+                        <tr>
+                            <td>@modem.Name</td>
+                            <td><code>@modem.Host</code></td>
+                            <td>
+                                @if (modem.Enabled)
+                                {
+                                    <span class="status-badge status-connected">Enabled</span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge status-disconnected">Disabled</span>
+                                }
+                            </td>
+                            <td>@(modem.LastPolled?.ToLocalTime().ToString("g") ?? "Never")</td>
+                            <td>
+                                <button class="btn btn-secondary btn-sm" @onclick="() => EditModem(modem)">Edit</button>
+                                <button class="btn btn-secondary btn-sm" @onclick="() => TestModemConnection(modem)">Refresh</button>
+                                <button class="btn btn-danger btn-sm" @onclick="() => DeleteModem(modem)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+        else
+        {
+            <p class="empty-state">No modems configured. Scan for modems above or add one manually.</p>
+        }
+
+        <!-- Manual Add Form (collapsed by default, expands when editing) -->
+        <details style="margin-top: 1.5rem;" open="@_modemFormExpanded">
+            <summary style="cursor: pointer; font-weight: 500;" @onclick="() => _modemFormExpanded = !_modemFormExpanded">@(_editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
+            <div style="padding-top: 1rem;">
+                <p class="form-help">
+                    Only use manual entry if auto-discovery doesn't find your modem.
+                </p>
+
+                @if (_editingModem != null)
+                {
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Name</label>
+                            <input type="text" class="form-control" @bind="_editingModem.Name" placeholder="U5G-Max Primary" />
+                        </div>
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Host / IP</label>
+                            <input type="text" class="form-control" @bind="_editingModem.Host" placeholder="192.168.1.100" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">QMI Device Path</label>
+                            <input type="text" class="form-control" @bind="_editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Polling Interval (sec)</label>
+                            <input type="number" class="form-control" @bind="_editingModem.PollingIntervalSeconds" min="60" max="3600" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-check">
+                            <input type="checkbox" @bind="_editingModem.Enabled" />
+                            <span>Enable polling</span>
+                        </label>
+                    </div>
+                }
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" @onclick="SaveModem" disabled="@_savingModem">
+                        @if (_savingModem)
+                        {
+                            <span class="spinner"></span>
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>@(_editingModem?.Id > 0 ? "Update Modem" : "Add Modem")</span>
+                        }
+                    </button>
+                    @if (_editingModem?.Id > 0)
+                    {
+                        <button class="btn btn-secondary" @onclick="CancelEditModem">Cancel</button>
+                    }
+                </div>
+            </div>
+        </details>
+
+        @if (!string.IsNullOrEmpty(_modemMessage))
+        {
+            <div class="alert alert-@_modemMessageClass" style="margin-top: 1rem;">
+                @_modemMessage
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    [Parameter]
+    public bool HasSshCredentials { get; set; }
+
+    private List<ModemConfiguration> _modemConfigs = new();
+    private ModemConfiguration _editingModem = new() { Port = 22, Username = "root", QmiDevice = "/dev/wwan0qmi0", PollingIntervalSeconds = 300, Enabled = true };
+    private string _modemStatus = "Unknown";
+    private bool _savingModem = false;
+    private string _modemMessage = "";
+    private string _modemMessageClass = "";
+    private List<DiscoveredModem> _discoveredModems = new();
+    private bool _loadingDiscoveredModems = false;
+    private bool _modemFormExpanded = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadModemConfigs();
+        await LoadDiscoveredModems();
+    }
+
+    private async Task LoadModemConfigs()
+    {
+        try
+        {
+            _modemConfigs = await ModemService.GetModemsAsync(SiteId);
+            _modemStatus = _modemConfigs.Any(m => m.Enabled) ? "Active" : "Inactive";
+        }
+        catch (Exception ex)
+        {
+            _modemStatus = "Error";
+            _modemMessage = $"Error loading modem configs: {ex.Message}";
+            _modemMessageClass = "danger";
+        }
+    }
+
+    private async Task LoadDiscoveredModems()
+    {
+        if (!ConnectionService.IsConnected(SiteId))
+        {
+            return;
+        }
+
+        _loadingDiscoveredModems = true;
+        StateHasChanged();
+
+        try
+        {
+            _discoveredModems = await ModemService.DiscoverModemsAsync(SiteId);
+        }
+        catch (Exception ex)
+        {
+            _modemMessage = $"Error discovering modems: {ex.Message}";
+            _modemMessageClass = "warning";
+        }
+        finally
+        {
+            _loadingDiscoveredModems = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddDiscoveredModem(DiscoveredModem discovered)
+    {
+        if (!HasSshCredentials)
+        {
+            _modemMessage = "SSH credentials must be configured before adding modems. Please configure them in the Device SSH section above.";
+            _modemMessageClass = "warning";
+            StateHasChanged();
+            return;
+        }
+
+        if (_modemConfigs.Any(m => m.Host == discovered.Host))
+        {
+            _modemMessage = $"{discovered.Name} is already configured";
+            _modemMessageClass = "warning";
+            StateHasChanged();
+            return;
+        }
+
+        _savingModem = true;
+        _modemMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = new ModemConfiguration
+            {
+                Name = discovered.Name,
+                Host = discovered.Host,
+                Port = 22,
+                Username = "root",
+                ModemType = discovered.Model,
+                QmiDevice = "/dev/wwan0qmi0",
+                PollingIntervalSeconds = 300,
+                Enabled = true
+            };
+
+            await ModemService.SaveModemAsync(SiteId, config);
+            _modemMessage = $"Added {discovered.Name} to monitored modems";
+            _modemMessageClass = "success";
+            await LoadModemConfigs();
+        }
+        catch (Exception ex)
+        {
+            _modemMessage = $"Error adding modem: {ex.Message}";
+            _modemMessageClass = "danger";
+        }
+        finally
+        {
+            _savingModem = false;
+            StateHasChanged();
+        }
+    }
+
+    private void EditModem(ModemConfiguration modem)
+    {
+        _editingModem = new ModemConfiguration
+        {
+            Id = modem.Id,
+            Name = modem.Name,
+            Host = modem.Host,
+            Port = modem.Port,
+            Username = modem.Username,
+            Password = modem.Password,
+            PrivateKeyPath = modem.PrivateKeyPath,
+            ModemType = modem.ModemType,
+            QmiDevice = modem.QmiDevice,
+            Enabled = modem.Enabled,
+            PollingIntervalSeconds = modem.PollingIntervalSeconds
+        };
+        _modemMessage = "";
+        _modemFormExpanded = true;
+        StateHasChanged();
+    }
+
+    private void CancelEditModem()
+    {
+        _editingModem = new ModemConfiguration
+        {
+            Port = 22,
+            Username = "root",
+            QmiDevice = "/dev/wwan0qmi0",
+            PollingIntervalSeconds = 300,
+            Enabled = true
+        };
+        _modemFormExpanded = false;
+        _modemMessage = "";
+        StateHasChanged();
+    }
+
+    private async Task SaveModem()
+    {
+        if (_editingModem.Id == 0 && !HasSshCredentials)
+        {
+            _modemMessage = "SSH credentials must be configured before adding modems. Please configure them in the Device SSH section above.";
+            _modemMessageClass = "warning";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_editingModem.Name) || string.IsNullOrWhiteSpace(_editingModem.Host))
+        {
+            _modemMessage = "Name and Host are required";
+            _modemMessageClass = "danger";
+            return;
+        }
+
+        _savingModem = true;
+        _modemMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await ModemService.SaveModemAsync(SiteId, _editingModem);
+            _modemMessage = _editingModem.Id > 0 ? "Modem updated successfully" : "Modem added successfully";
+            _modemMessageClass = "success";
+
+            await LoadModemConfigs();
+            CancelEditModem();
+        }
+        catch (Exception ex)
+        {
+            _modemMessage = $"Error saving modem: {ex.Message}";
+            _modemMessageClass = "danger";
+        }
+        finally
+        {
+            _savingModem = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteModem(ModemConfiguration modem)
+    {
+        try
+        {
+            await ModemService.DeleteModemAsync(SiteId, modem.Id);
+            _modemMessage = $"Deleted modem: {modem.Name}";
+            _modemMessageClass = "success";
+            await LoadModemConfigs();
+        }
+        catch (Exception ex)
+        {
+            _modemMessage = $"Error deleting modem: {ex.Message}";
+            _modemMessageClass = "danger";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestModemConnection(ModemConfiguration modem)
+    {
+        _modemMessage = $"Polling {modem.Name}...";
+        _modemMessageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await ModemService.PollModemAsync(SiteId, modem);
+            if (success)
+            {
+                _modemMessage = message;
+                _modemMessageClass = "success";
+                _modemConfigs = await ModemService.GetModemsAsync(SiteId);
+            }
+            else
+            {
+                _modemMessage = message;
+                _modemMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _modemMessage = $"Error: {ex.Message}";
+            _modemMessageClass = "danger";
+        }
+        StateHasChanged();
+    }
+}

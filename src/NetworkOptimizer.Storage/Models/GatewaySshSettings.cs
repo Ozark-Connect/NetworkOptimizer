@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
-/// SSH settings for the UniFi Gateway/UDM device.
+/// SSH settings for the UniFi Gateway/UDM device at a site.
 /// Gateway typically has different SSH credentials than other UniFi devices.
 /// Used for iperf3 speed tests and other gateway-specific operations.
 /// </summary>
@@ -11,6 +11,12 @@ public class GatewaySshSettings
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Site these gateway settings belong to (1:1 relationship)</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
 
     /// <summary>Gateway hostname or IP address</summary>
     [MaxLength(255)]

@@ -11,19 +11,12 @@
             <span>Loading alerts...</span>
         </div>
     }
-    else if (ConnectionService.IsInitialized && !ConnectionService.IsConnected)
+    else if (!ConnectionService.IsConnected(SiteId))
     {
         <div class="no-alerts">
             <div class="no-alerts-icon">!</div>
             <p>Connect to a UniFi Console to view alerts.</p>
-            <a href="/settings" class="btn btn-sm btn-primary">Go to Settings</a>
-        </div>
-    }
-    else if (!ConnectionService.IsInitialized)
-    {
-        <div class="loading-state">
-            <span class="spinner"></span>
-            <span>Connecting...</span>
+            <a href="/sites/@SiteId/settings" class="btn btn-sm btn-primary">Go to Settings</a>
         </div>
     }
     else if (!alerts.Any())
@@ -70,6 +63,9 @@
 
 @code {
     [Parameter]
+    public int SiteId { get; set; }
+
+    [Parameter]
     public int? MaxItems { get; set; }
 
     [Parameter]
@@ -80,15 +76,14 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Wait for connection with longer timeout on cold start
-        if (await ConnectionService.WaitForConnectionAsync(TimeSpan.FromSeconds(10)))
+        // Load alerts if connected
+        if (ConnectionService.IsConnected(SiteId))
         {
-            // Only delay if no audit data exists yet (cold start)
-            if (!AuditService.LastAuditTime.HasValue)
-            {
-                await Task.Delay(200);
-            }
             await LoadAlerts();
+        }
+        else
+        {
+            isLoading = false;
         }
     }
 
@@ -99,14 +94,14 @@
         {
             alerts.Clear();
 
-            if (!ConnectionService.IsConnected)
+            if (!ConnectionService.IsConnected(SiteId))
             {
                 return;
             }
 
             // Use active (non-dismissed) issues - only actionable ones (Critical/Recommended)
             // TODO: Once we have clients with many alerts, move filtering and Take() to backend/query side
-            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            var activeIssues = await AuditService.GetActiveIssuesAsync(SiteId);
             var actionableIssues = activeIssues
                 .Where(i => i.Severity == AuditSeverity.Critical || i.Severity == AuditSeverity.Recommended)
                 .OrderBy(i => i.Severity == AuditSeverity.Critical ? 0 : 1) // Critical first
@@ -116,8 +111,9 @@
             if (actionableIssues.Any())
             {
                 var id = 1;
-                var timeAgo = AuditService.LastAuditTime.HasValue
-                    ? FormatTimeAgo(AuditService.LastAuditTime.Value)
+                var summary = await AuditService.GetAuditSummaryAsync(SiteId);
+                var timeAgo = summary.LastAuditTime.HasValue
+                    ? FormatTimeAgo(summary.LastAuditTime.Value)
                     : "Recently";
 
                 foreach (var issue in actionableIssues.Take(10))
@@ -130,7 +126,7 @@
                         Message = issue.Description,
                         Source = issue.Category,
                         Time = timeAgo,
-                        ActionUrl = "/audit",
+                        ActionUrl = $"/sites/{SiteId}/audit",
                         IssueKey = AuditService.GetIssueKey(issue)
                     });
                 }
@@ -175,11 +171,11 @@
         if (alert != null)
         {
             // Find the original issue and dismiss it in the service
-            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            var activeIssues = await AuditService.GetActiveIssuesAsync(SiteId);
             var issue = activeIssues.FirstOrDefault(i => AuditService.GetIssueKey(i) == alert.IssueKey);
             if (issue != null)
             {
-                await AuditService.DismissIssueAsync(issue);
+                await AuditService.DismissIssueAsync(SiteId, issue);
             }
             alerts.Remove(alert);
 

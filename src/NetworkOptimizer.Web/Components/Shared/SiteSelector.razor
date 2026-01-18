@@ -1,0 +1,224 @@
+@using NetworkOptimizer.Storage.Interfaces
+@using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Web.Services
+@inject ISiteRepository SiteRepository
+@inject UniFiConnectionService ConnectionService
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+<div class="site-selector @(_sites.Count > 1 ? "multi-site" : "")">
+    @if (_loading)
+    {
+        <span class="site-name">Loading...</span>
+    }
+    else if (_sites.Count == 0)
+    {
+        <a href="/sites" class="site-name site-link">No Sites</a>
+    }
+    else if (_sites.Count == 1)
+    {
+        <span class="site-name" title="@_currentSite?.Name">
+            @if (ConnectionService.IsConnected(_currentSite?.Id ?? 0))
+            {
+                <span class="status-dot connected"></span>
+            }
+            else
+            {
+                <span class="status-dot"></span>
+            }
+            @TruncateName(_currentSite?.Name ?? "Site")
+        </span>
+    }
+    else
+    {
+        <button class="site-trigger" @onclick="ToggleDropdown" @onclick:stopPropagation="true">
+            @if (_currentSite != null && ConnectionService.IsConnected(_currentSite.Id))
+            {
+                <span class="status-dot connected"></span>
+            }
+            else
+            {
+                <span class="status-dot"></span>
+            }
+            <span class="site-name-text">@TruncateName(_currentSite?.Name ?? "Select Site")</span>
+            <svg class="chevron @(_showDropdown ? "open" : "")" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+            </svg>
+        </button>
+
+        @if (_showDropdown)
+        {
+            <div class="site-dropdown" @onclick:stopPropagation="true">
+                @if (_sites.Count > 5)
+                {
+                    <input type="text" class="site-search" placeholder="Search sites..."
+                           @bind="_searchText" @bind:event="oninput" />
+                }
+                <div class="site-list">
+                    @foreach (var site in FilteredSites)
+                    {
+                        <button type="button" class="site-item @(site.Id == CurrentSiteId ? "active" : "")"
+                           @onclick="() => SelectSite(site)">
+                            @if (ConnectionService.IsConnected(site.Id))
+                            {
+                                <span class="status-dot connected"></span>
+                            }
+                            else
+                            {
+                                <span class="status-dot"></span>
+                            }
+                            <span class="site-item-name">@site.Name</span>
+                        </button>
+                    }
+                </div>
+                <a href="/sites" class="site-manage-link" @onclick="CloseDropdown">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                    </svg>
+                    Manage Sites
+                </a>
+            </div>
+        }
+    }
+</div>
+
+@if (_showDropdown)
+{
+    <div class="site-dropdown-backdrop" @onclick="CloseDropdown"></div>
+}
+
+@code {
+    private List<Site> _sites = new();
+    private Site? _currentSite;
+    private bool _loading = true;
+    private bool _showDropdown = false;
+    private string _searchText = "";
+
+    private int? CurrentSiteId
+    {
+        get
+        {
+            // Extract siteId from current URL: /sites/{siteId}/...
+            var uri = new Uri(NavigationManager.Uri);
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length >= 2 && segments[0] == "sites" && int.TryParse(segments[1], out var siteId))
+            {
+                return siteId;
+            }
+            return null;
+        }
+    }
+
+    private IEnumerable<Site> FilteredSites => string.IsNullOrWhiteSpace(_searchText)
+        ? _sites
+        : _sites.Where(s => s.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSites();
+        NavigationManager.LocationChanged += OnLocationChanged;
+
+        // Auto-connect to the current site if it has saved credentials
+        await TryAutoConnectCurrentSite();
+    }
+
+    private async Task TryAutoConnectCurrentSite()
+    {
+        if (_currentSite == null) return;
+
+        // Skip if already connected
+        if (ConnectionService.IsConnected(_currentSite.Id)) return;
+
+        try
+        {
+            // Check if site has saved credentials
+            var settings = await ConnectionService.GetSettingsAsync(_currentSite.Id);
+            if (!settings.IsConfigured || !settings.HasCredentials) return;
+
+            // Attempt auto-connect
+            await ConnectionService.ConnectWithSavedCredentialsAsync(_currentSite.Id);
+            StateHasChanged();
+        }
+        catch
+        {
+            // Silent failure for auto-connect - user can manually connect if needed
+        }
+    }
+
+    private async Task LoadSites()
+    {
+        _loading = true;
+        try
+        {
+            _sites = await SiteRepository.GetAllSitesAsync();
+            UpdateCurrentSite();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void UpdateCurrentSite()
+    {
+        var siteId = CurrentSiteId;
+        _currentSite = siteId.HasValue
+            ? _sites.FirstOrDefault(s => s.Id == siteId.Value)
+            : _sites.FirstOrDefault();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateCurrentSite();
+        CloseDropdown();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleDropdown()
+    {
+        _showDropdown = !_showDropdown;
+        _searchText = "";
+    }
+
+    private void CloseDropdown()
+    {
+        _showDropdown = false;
+        _searchText = "";
+    }
+
+    private void SelectSite(Site site)
+    {
+        CloseDropdown();
+        // Force full page reload to refresh all data for the new site
+        NavigationManager.NavigateTo(GetSiteUrl(site.Id), forceLoad: true);
+    }
+
+    private string GetSiteUrl(int siteId)
+    {
+        // Preserve current page when switching sites
+        var uri = new Uri(NavigationManager.Uri);
+        var path = uri.AbsolutePath;
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length >= 2 && segments[0] == "sites")
+        {
+            // Replace the site ID in the current path
+            segments[1] = siteId.ToString();
+            return "/" + string.Join("/", segments);
+        }
+
+        // Default to dashboard
+        return $"/sites/{siteId}";
+    }
+
+    private static string TruncateName(string name, int maxLength = 20)
+    {
+        if (string.IsNullOrEmpty(name)) return name;
+        return name.Length <= maxLength ? name : name[..(maxLength - 1)] + "...";
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+    }
+}

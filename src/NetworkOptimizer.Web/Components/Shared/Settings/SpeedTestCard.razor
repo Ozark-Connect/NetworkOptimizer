@@ -1,0 +1,123 @@
+@using NetworkOptimizer.Web.Services
+@inject SystemSettingsService SystemSettings
+
+<div class="card" id="speed-test-settings">
+    <div class="card-header">
+        <h2 class="card-title">Speed Test Settings</h2>
+    </div>
+    <div class="card-body">
+        <p class="section-description">Configure iperf3 speed test parameters. Parallel streams can be configured per device type.</p>
+
+        <h4 style="margin-top: 0; margin-bottom: 0.75rem; color: var(--text-secondary);">Parallel Streams by Device Type</h4>
+        <div class="form-row" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Gateway</label>
+                <input type="number" class="form-control" @bind="_iperf3GatewayParallelStreams" min="1" max="16" style="width: 80px;" />
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">UniFi Devices</label>
+                <input type="number" class="form-control" @bind="_iperf3UniFiParallelStreams" min="1" max="16" style="width: 80px;" />
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Other Devices</label>
+                <input type="number" class="form-control" @bind="_iperf3OtherParallelStreams" min="1" max="16" style="width: 80px;" />
+            </div>
+        </div>
+        <small class="form-help" style="display: block; margin-bottom: 1rem;">Number of parallel TCP streams (1-16). Higher values may achieve better throughput on high-bandwidth connections.</small>
+
+        <div class="form-group">
+            <label class="form-label">Test Duration (seconds)</label>
+            <input type="number" class="form-control" @bind="_iperf3Duration" min="3" max="60" style="width: 100px;" />
+            <small class="form-help">Duration of each test direction (3-60 seconds)</small>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-success" @onclick="SaveIperf3Settings" disabled="@_savingIperf3Settings">
+                @if (_savingIperf3Settings)
+                {
+                    <span class="spinner"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span>Save Settings</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_iperf3Message))
+        {
+            <div class="alert alert-@_iperf3MessageClass">
+                @_iperf3Message
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private int _iperf3GatewayParallelStreams = 3;
+    private int _iperf3UniFiParallelStreams = 3;
+    private int _iperf3OtherParallelStreams = 10;
+    private int _iperf3Duration = 10;
+    private bool _savingIperf3Settings = false;
+    private string _iperf3Message = "";
+    private string _iperf3MessageClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadIperf3Settings();
+    }
+
+    private async Task LoadIperf3Settings()
+    {
+        try
+        {
+            var settings = await SystemSettings.GetIperf3SettingsAsync();
+            _iperf3GatewayParallelStreams = settings.GatewayParallelStreams;
+            _iperf3UniFiParallelStreams = settings.UniFiParallelStreams;
+            _iperf3OtherParallelStreams = settings.OtherParallelStreams;
+            _iperf3Duration = settings.DurationSeconds;
+        }
+        catch (Exception ex)
+        {
+            _iperf3Message = $"Error loading speed test settings: {ex.Message}";
+            _iperf3MessageClass = "danger";
+        }
+    }
+
+    private async Task SaveIperf3Settings()
+    {
+        _savingIperf3Settings = true;
+        _iperf3Message = "";
+        StateHasChanged();
+
+        try
+        {
+            _iperf3GatewayParallelStreams = Math.Clamp(_iperf3GatewayParallelStreams, 1, 16);
+            _iperf3UniFiParallelStreams = Math.Clamp(_iperf3UniFiParallelStreams, 1, 16);
+            _iperf3OtherParallelStreams = Math.Clamp(_iperf3OtherParallelStreams, 1, 16);
+            _iperf3Duration = Math.Clamp(_iperf3Duration, 3, 60);
+
+            await SystemSettings.SaveIperf3SettingsAsync(new Iperf3Settings
+            {
+                GatewayParallelStreams = _iperf3GatewayParallelStreams,
+                UniFiParallelStreams = _iperf3UniFiParallelStreams,
+                OtherParallelStreams = _iperf3OtherParallelStreams,
+                DurationSeconds = _iperf3Duration
+            });
+
+            _iperf3Message = "Speed test settings saved successfully";
+            _iperf3MessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _iperf3Message = $"Error saving speed test settings: {ex.Message}";
+            _iperf3MessageClass = "danger";
+        }
+        finally
+        {
+            _savingIperf3Settings = false;
+            StateHasChanged();
+        }
+    }
+}

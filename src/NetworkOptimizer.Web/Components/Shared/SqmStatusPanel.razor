@@ -26,11 +26,11 @@
             <div class="sqm-actions">
                 @if (needsGatewayConfig)
                 {
-                    <a href="/settings" class="btn btn-primary">Configure Gateway</a>
+                    <a href="/sites/@SiteId/settings" class="btn btn-primary">Configure Gateway</a>
                 }
                 else
                 {
-                    <a href="/sqm" class="btn btn-primary">Deploy Adaptive SQM</a>
+                    <a href="/sites/@SiteId/sqm" class="btn btn-primary">Deploy Adaptive SQM</a>
                 }
             </div>
         </div>
@@ -86,12 +86,15 @@
                     <span>Refresh</span>
                 }
             </button>
-            <a href="/sqm" class="btn btn-primary">Manage SQM</a>
+            <a href="/sites/@SiteId/sqm" class="btn btn-primary">Manage SQM</a>
         </div>
     }
 </div>
 
 @code {
+    [Parameter]
+    public int SiteId { get; set; }
+
     private TcMonitorResponse? tcMonitorData;
     private List<TcInterfaceStats>? tcInterfaces;
     private bool isLoading = true;
@@ -143,30 +146,30 @@
 
         try
         {
-            // Get gateway host from settings (fast - just DB lookup)
-            var gatewaySettings = await GatewayService.GetSettingsAsync();
+            // Check if we have saved WAN configs with SQM enabled FIRST (fast DB lookup)
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(SiteId, 1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(SiteId, 2);
+            await Task.WhenAll(wan1Task, wan2Task);
+            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
 
-            if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
+            // If no SQM config exists, show as not deployed - no need to check gateway SSH
+            if (!hasSavedEnabledConfig)
             {
-                statusLabel = "Not Configured";
-                statusClass = "not-configured";
-                errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
-                needsGatewayConfig = true;
+                SetNotDeployedStatus();
                 _shouldPoll = false;
                 isLoading = false;
                 return;
             }
 
-            // Check if we have saved WAN configs with SQM enabled BEFORE polling TC monitor
-            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
-            await Task.WhenAll(wan1Task, wan2Task);
-            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
+            // SQM is configured - now we need gateway host to poll TC Monitor
+            var gatewaySettings = await GatewayService.GetSettingsAsync(SiteId);
 
-            // Skip TC monitor poll if no SQM config exists - avoids connection failures
-            if (!hasSavedEnabledConfig)
+            if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
             {
-                SetNotDeployedStatus();
+                statusLabel = "Not Configured";
+                statusClass = "not-configured";
+                errorMessage = "Gateway SSH not configured. Configure your gateway connection to monitor SQM status.";
+                needsGatewayConfig = true;
                 _shouldPoll = false;
                 isLoading = false;
                 return;

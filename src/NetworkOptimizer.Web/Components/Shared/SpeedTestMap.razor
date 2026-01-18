@@ -60,6 +60,9 @@
 
 @code {
     [Parameter]
+    public int SiteId { get; set; }
+
+    [Parameter]
     public IEnumerable<Iperf3Result> Results { get; set; } = Enumerable.Empty<Iperf3Result>();
 
     [Parameter]
@@ -213,7 +216,7 @@
     protected override async Task OnInitializedAsync()
     {
         // Load networks for VPN detection
-        _networks = await ConnectionService.GetNetworksAsync();
+        _networks = await ConnectionService.GetNetworksAsync(SiteId);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -311,7 +314,7 @@
                     window._speedTestMaps = window._speedTestMaps || {{}};
                     if (window._speedTestMaps['{mapId}']) return;
 
-                    const map = L.map('{mapId}', {{ maxZoom: 22 }}).setView([36.17, -92.68], 10);
+                    const map = L.map('{mapId}', {{ maxZoom: 22 }}).setView([39.8, -98.6], 4);
                     const isDemoMode = {IsDemoMode.ToString().ToLower()};
                     // Demo mode: use Voyager no-labels (better rendering than light_nolabels)
                     // CartoDB tiles only go to zoom 18, OSM goes to 19

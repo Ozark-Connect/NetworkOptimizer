@@ -1,4 +1,4 @@
-@page "/"
+@page "/sites/{SiteId:int}"
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
 @inject DashboardService DashboardService
@@ -25,12 +25,12 @@
                 <strong style="color: #664d03;">Using Auto-Generated Password</strong>
                 <span style="color: #664d03;">Set a permanent admin password in Settings to secure your installation.</span>
             </div>
-            <a href="/settings#admin-password" class="btn btn-warning">Set Password</a>
+            <a href="/sites/@SiteId/settings#admin-password" class="btn btn-warning">Set Password</a>
         </div>
     </div>
 }
 
-@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+@if (!ConnectionService.IsConnected(SiteId))
 {
     <div class="connection-banner">
         <div class="banner-content">
@@ -39,18 +39,18 @@
                 <strong>Not Connected</strong>
                 <span>Connect to your UniFi Console (Controller) to view network data.</span>
             </div>
-            <a href="/settings" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings" class="btn btn-primary">Connect Now</a>
         </div>
     </div>
 }
 
 <NetworkOptimizer.Web.Components.Shared.UpdateChecker />
-<NetworkOptimizer.Web.Components.Shared.SponsorshipBanner />
+<NetworkOptimizer.Web.Components.Shared.SponsorshipBanner SiteId="SiteId" />
 
 <div class="dashboard-grid">
     <!-- Quick Stats -->
     <div class="stats-row">
-        <a href="#device-status" class="stat-card stat-card-link">
+        <a href="@($"/sites/{SiteId}#device-status")" class="stat-card stat-card-link">
             <div class="stat-icon">
                 <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
                     <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.7"></path>
@@ -74,7 +74,7 @@
             </div>
         </a>
 
-        <a href="/audit" class="stat-card stat-card-link">
+        <a href="/sites/@SiteId/audit" class="stat-card stat-card-link">
             <img src="/icons/shield-v2.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -91,7 +91,7 @@
             </div>
         </a>
 
-        <a href="/sqm" class="stat-card stat-card-link stat-success">
+        <a href="/sites/@SiteId/sqm" class="stat-card stat-card-link stat-success">
             <img src="/icons/sqm-v3.png" alt="" class="stat-icon-img" />
             <div class="stat-content">
                 <div class="stat-value stat-value-text">
@@ -116,7 +116,7 @@
             </div>
         </a>
 
-        <a href="#recent-alerts" class="stat-card stat-card-link stat-warning">
+        <a href="@($"/sites/{SiteId}#recent-alerts")" class="stat-card stat-card-link stat-warning">
             <img src="/icons/warning-v2.png" alt="" class="stat-icon-img stat-icon-sm" />
             <div class="stat-content">
                 <div class="stat-value">
@@ -137,9 +137,9 @@
     <!-- Main Content Grid -->
     <div class="content-grid">
         <!-- Security Score Gauge -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/audit"))">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo($"/sites/{SiteId}/audit"))">
             <div class="card-header">
-                <a href="/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Security Posture</h2></a>
+                <a href="/sites/@SiteId/audit" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">Security Posture</h2></a>
             </div>
             <div class="card-body">
                 @if (_loading)
@@ -200,10 +200,10 @@
         <!-- SQM Status Panel -->
         <div class="card">
             <div class="card-header">
-                <a href="/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
+                <a href="/sites/@SiteId/sqm" class="card-title-link"><h2 class="card-title">Adaptive SQM</h2></a>
             </div>
             <div class="card-body">
-                <SqmStatusPanel @key="_sqmPanelKey" />
+                <SqmStatusPanel @key="_sqmPanelKey" SiteId="SiteId" />
             </div>
         </div>
 
@@ -213,15 +213,15 @@
                 <h2 class="card-title">Cellular (5G/LTE)</h2>
             </div>
             <div class="card-body">
-                <CellularStatsPanel />
+                <CellularStatsPanel SiteId="SiteId" />
             </div>
         </div>
 
         <!-- LAN Speed Test Stats -->
-        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo("/speedtest"))">
+        <div class="card clickable-card" @onclick="@(() => NavigationManager.NavigateTo($"/sites/{SiteId}/speedtest"))">
             <div class="card-header">
-                <a href="/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
-                <a href="/speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
+                <a href="/sites/@SiteId/speedtest" class="card-title-link" @onclick:stopPropagation><h2 class="card-title">LAN Speed Test</h2></a>
+                <a href="/sites/@SiteId/speedtest" class="card-action" @onclick:stopPropagation>View All →</a>
             </div>
             <div class="card-body">
                 @if (_speedTestLoading)
@@ -259,11 +259,11 @@
         <!-- Recent Alerts -->
         <div class="card card-span-2" id="recent-alerts">
             <div class="card-header">
-                <a href="/audit" class="card-title-link"><h2 class="card-title">Recent Alerts</h2></a>
-                <a href="/audit" class="card-action">View All</a>
+                <a href="/sites/@SiteId/audit" class="card-title-link"><h2 class="card-title">Recent Alerts</h2></a>
+                <a href="/sites/@SiteId/audit" class="card-action">View All</a>
             </div>
             <div class="card-body">
-                <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" />
+                <AlertsList @key="_alertsListKey" MaxItems="5" OnAlertDismissed="OnAlertDismissed" SiteId="SiteId" />
             </div>
         </div>
 
@@ -302,6 +302,8 @@
 </div>
 
 @code {
+    [Parameter] public int SiteId { get; set; }
+
     private bool _loading = true;
     private bool _speedTestLoading = true;
     private int deviceCount = 0;
@@ -326,8 +328,11 @@
         _ = LoadAllDataAsync();
     }
 
-    private async void OnConnectionChanged()
+    private async void OnConnectionChanged(int siteId)
     {
+        // Only refresh if this is our site
+        if (siteId != SiteId) return;
+
         // Connection changed (new site, reconnect, etc.) - refresh all data
         _sqmPanelKey++; // Force SqmStatusPanel to recreate
         _alertsListKey++; // Force AlertsList to recreate
@@ -351,7 +356,7 @@
         }
 
         // Brief wait for controller connection
-        await ConnectionService.WaitForConnectionAsync();
+        await ConnectionService.WaitForConnectionAsync(SiteId);
 
         // Load in parallel
         await Task.WhenAll(
@@ -364,8 +369,8 @@
 
     private async void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        // If navigating to dashboard, reload data
-        if (e.Location.EndsWith("/") || e.Location.EndsWith("/dashboard", StringComparison.OrdinalIgnoreCase))
+        // If navigating to this site's dashboard, reload data
+        if (e.Location.Contains($"/sites/{SiteId}") && !e.Location.Contains("/sites/{SiteId}/"))
         {
             _sqmPanelKey++; // Force SqmStatusPanel to recreate
             _alertsListKey++; // Force AlertsList to recreate
@@ -388,7 +393,7 @@
         _speedTestLoading = true;
         try
         {
-            var results = await SpeedTestService.GetRecentResultsAsync(10);
+            var results = await SpeedTestService.GetRecentResultsAsync(SiteId, 10);
             _recentSpeedTests = results.Where(r => r.Success).Take(5).ToList();
         }
         catch
@@ -406,7 +411,7 @@
         _loading = true;
         try
         {
-            var data = await DashboardService.GetDashboardDataAsync();
+            var data = await DashboardService.GetDashboardDataAsync(SiteId);
             deviceCount = data.DeviceCount;
             securityScore = data.SecurityScore;
             sqmStatus = data.SqmStatus;

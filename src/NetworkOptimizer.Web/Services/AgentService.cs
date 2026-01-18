@@ -69,7 +69,7 @@ public class AgentService : IAgentService
     {
         _logger.LogInformation("Deploying agent: {@Config}", config);
 
-        if (!_connectionService.IsConnected)
+        if (!_connectionService.IsAnyConnected())
         {
             _logger.LogWarning("Cannot deploy agent: controller not connected");
             return false;

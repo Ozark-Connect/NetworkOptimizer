@@ -1,4 +1,4 @@
-@page "/client-speedtest"
+@page "/sites/{SiteId:int}/client-speedtest"
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -17,7 +17,7 @@
 
 <PageTitle>Client Speed Test - Network Optimizer</PageTitle>
 
-<a href="/speedtest" class="back-link" title="Back to LAN Speed Test">
+<a href="/sites/@SiteId/speedtest" class="back-link" title="Back to LAN Speed Test">
     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M19 12H5M12 19l-7-7 7-7"/>
     </svg>
@@ -53,13 +53,13 @@
                     @if (openSpeedTestAvailable)
                     {
                         <div class="test-option-actions">
-                            <a href="@(openSpeedTestUrl)?Run" target="_blank" class="btn btn-primary">
+                            <a href="@GetSpeedTestRunUrl()" target="_blank" class="btn btn-primary">
                                 Run Speed Test
                             </a>
                             <span class="form-help">Opens in a new tab and auto-starts</span>
                         </div>
                         <div class="url-copy-row">
-                            <code class="url-display">@openSpeedTestUrl</code>
+                            <code class="url-display">@GetSpeedTestCopyUrl()</code>
                             <button class="btn-icon" title="Copy URL" @onclick="CopySpeedTestUrl">
                                 @if (urlCopied)
                                 {
@@ -104,7 +104,13 @@
                     </div>
                     <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
 
-                    @if (iperf3ServerEnabled)
+                    @if (SiteId != 1001)
+                    {
+                        <div class="alert alert-info" style="border-color: var(--text-muted); background: var(--bg-secondary);">
+                            <strong>Not Available:</strong> iperf3 server results are currently only recorded for the default site.
+                        </div>
+                    }
+                    else if (iperf3ServerEnabled)
                     {
                         <div class="code-block">
                             <code>
@@ -606,6 +612,8 @@
 </style>
 
 @code {
+    [Parameter] public int SiteId { get; set; }
+
     private List<Iperf3Result> testHistory = new();
     private bool loading = false;
     private System.Threading.Timer? _pollTimer;
@@ -638,7 +646,7 @@
     protected override async Task OnInitializedAsync()
     {
         // Load networks for VPN detection
-        _networks = await ConnectionService.GetNetworksAsync();
+        _networks = await ConnectionService.GetNetworksAsync(SiteId);
 
         // Load configuration
         iperf3ServerEnabled = Configuration.GetValue("Iperf3Server:Enabled", false);
@@ -717,8 +725,8 @@
 
         try
         {
-            // Load all results (map handles its own time filtering)
-            testHistory = await ClientSpeedTestService.GetResultsAsync(count: 0);
+            // Load all results for this site (map handles its own time filtering)
+            testHistory = await ClientSpeedTestService.GetResultsAsync(SiteId, count: 0);
             if (resetPage)
             {
                 historyPage = 1;
@@ -898,11 +906,18 @@
         ");
     }
 
+    // Only include siteId in URL for non-default sites (reduces friction for home users)
+    private string GetSpeedTestCopyUrl() =>
+        SiteId == 1001 ? openSpeedTestUrl! : $"{openSpeedTestUrl}?siteId={SiteId}";
+
+    private string GetSpeedTestRunUrl() =>
+        SiteId == 1001 ? $"{openSpeedTestUrl}?Run" : $"{openSpeedTestUrl}?siteId={SiteId}&Run";
+
     private async Task CopySpeedTestUrl()
     {
         if (!string.IsNullOrEmpty(openSpeedTestUrl))
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", openSpeedTestUrl);
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", GetSpeedTestCopyUrl());
             urlCopied = true;
             StateHasChanged();
 

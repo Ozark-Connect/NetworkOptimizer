@@ -1,4 +1,4 @@
-@page "/sqm"
+@page "/sites/{SiteId:int}/sqm"
 @implements IDisposable
 @inject SqmService SqmService
 @inject SqmDeploymentService DeploymentService
@@ -87,7 +87,7 @@
                     {
                         <div class="alert alert-warning" style="margin-top: 1rem;">
                             <strong>Gateway SSH not configured.</strong>
-                            Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Adaptive SQM.
+                            Go to <a href="/sites/@SiteId/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before using Adaptive SQM.
                         </div>
                     }
                     else if (!string.IsNullOrEmpty(deploymentStatus?.Error))
@@ -1133,9 +1133,13 @@
 </style>
 
 @code {
+    [Parameter]
+    public int SiteId { get; set; }
+
     // Cache settings
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static DateTime _lastStatusCheck = DateTime.MinValue;
+    private static int _cachedSiteId = 0;  // Track which site the cache belongs to
     private static SqmDeploymentStatus? _cachedDeploymentStatus;
     private static List<TcInterfaceStats>? _cachedTcInterfaces;
     private static List<WanInterfaceInfo>? _cachedWanInterfaces;
@@ -1225,7 +1229,7 @@
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
 
         // Check cache synchronously BEFORE first render to avoid loading flash
-        if (IsCacheValid())
+        if (IsCacheValid(SiteId))
         {
             gatewayConnected = _cachedGatewayConnected;
             gatewayConfigured = _cachedGatewayConfigured;
@@ -1236,8 +1240,10 @@
         }
     }
 
-    private async void OnConnectionChanged()
+    private async void OnConnectionChanged(int siteId)
     {
+        if (siteId != SiteId) return;
+
         // Connection changed (reconnect after server restart, etc.) - refresh all data
         await LoadSavedConfigsAsync();
         await RefreshStatus(forceRefresh: true);
@@ -1325,7 +1331,7 @@
     {
         try
         {
-            var savedConfigs = await SpeedTestRepository.GetAllSqmWanConfigsAsync();
+            var savedConfigs = await SpeedTestRepository.GetAllSqmWanConfigsAsync(SiteId);
             if (savedConfigs.Count > 0)
             {
                 // Get available interfaces (if wanInterfaces is populated from cache)
@@ -1408,7 +1414,7 @@
                     SpeedtestEveningHour = wan1Config.EveningHour,
                     SpeedtestEveningMinute = wan1Config.EveningMinute
                 };
-                await SpeedTestRepository.SaveSqmWanConfigAsync(wan1Saved);
+                await SpeedTestRepository.SaveSqmWanConfigAsync(SiteId, wan1Saved);
                 wan1HasSavedConfig = true;
             }
 
@@ -1431,7 +1437,7 @@
                     SpeedtestEveningHour = wan2Config.EveningHour,
                     SpeedtestEveningMinute = wan2Config.EveningMinute
                 };
-                await SpeedTestRepository.SaveSqmWanConfigAsync(wan2Saved);
+                await SpeedTestRepository.SaveSqmWanConfigAsync(SiteId, wan2Saved);
                 wan2HasSavedConfig = true;
             }
         }
@@ -1441,9 +1447,10 @@
         }
     }
 
-    private static bool IsCacheValid()
+    private static bool IsCacheValid(int siteId)
     {
-        return _cachedDeploymentStatus != null &&
+        return _cachedSiteId == siteId &&
+               _cachedDeploymentStatus != null &&
                DateTime.UtcNow - _lastStatusCheck < CacheDuration;
     }
 
@@ -1657,13 +1664,14 @@
         try
         {
             // Check if gateway SSH is configured first
-            var settings = await GatewaySshService.GetSettingsAsync();
+            var settings = await GatewaySshService.GetSettingsAsync(SiteId);
             gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
 
             if (!gatewayConfigured)
             {
                 // Not configured - don't try to connect
                 gatewayConnected = false;
+                _cachedSiteId = SiteId;
                 _cachedGatewayConfigured = false;
                 _cachedGatewayConnected = false;
                 deploymentStatus = null;
@@ -1675,14 +1683,14 @@
             }
 
             // Test gateway connection
-            var connectionResult = await DeploymentService.TestConnectionAsync();
+            var connectionResult = await DeploymentService.TestConnectionAsync(SiteId);
             gatewayConnected = connectionResult.success;
 
             if (gatewayConnected)
             {
                 // Start deployment status and WAN interface detection in parallel
-                var deploymentTask = DeploymentService.CheckDeploymentStatusAsync();
-                var wanInterfacesTask = SqmService.GetWanInterfacesFromControllerAsync();
+                var deploymentTask = DeploymentService.CheckDeploymentStatusAsync(SiteId);
+                var wanInterfacesTask = SqmService.GetWanInterfacesFromControllerAsync(SiteId);
 
                 // Wait for deployment status first (needed to decide if we poll TC Monitor)
                 deploymentStatus = await deploymentTask;
@@ -1719,6 +1727,7 @@
                 }
 
                 // Update cache - always update when gateway connected
+                _cachedSiteId = SiteId;
                 _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = gatewayConnected;
                 _cachedDeploymentStatus = deploymentStatus;
@@ -1729,6 +1738,7 @@
             else
             {
                 // Gateway not connected - clear stale data and update cache
+                _cachedSiteId = SiteId;
                 _cachedGatewayConfigured = gatewayConfigured;
                 _cachedGatewayConnected = false;
                 deploymentStatus = new SqmDeploymentStatus { Error = connectionResult.message };
@@ -1744,6 +1754,7 @@
         catch (Exception ex)
         {
             // Error occurred - clear stale data and update cache
+            _cachedSiteId = SiteId;
             _cachedGatewayConfigured = gatewayConfigured;
             _cachedGatewayConnected = false;
             deploymentStatus = new SqmDeploymentStatus { Error = ex.Message };
@@ -1771,7 +1782,7 @@
 
         try
         {
-            var result = await DeploymentService.InstallUdmBootAsync();
+            var result = await DeploymentService.InstallUdmBootAsync(SiteId);
 
             if (result.success)
             {
@@ -1901,7 +1912,7 @@
             // Clean ALL existing SQM scripts and cron entries first (handles renamed connections)
             deploymentSteps.Add("Cleaning existing SQM scripts and cron entries...");
             await ScrollDeploymentLog();
-            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync();
+            var cleanResult = await DeploymentService.CleanAllSqmScriptsAsync(SiteId);
             if (!cleanResult.success)
             {
                 throw new Exception($"Failed to clean existing scripts: {cleanResult.message}");
@@ -1936,7 +1947,7 @@
                 await ScrollDeploymentLog();
 
                 var config = CreateSqmConfiguration(wan1Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 5);
+                var result = await DeploymentService.DeployAsync(SiteId, config, initialDelaySeconds: 5);
 
                 // Always add steps (includes output on failure)
                 deploymentSteps.AddRange(result.Steps);
@@ -1962,7 +1973,7 @@
                 await ScrollDeploymentLog();
 
                 var config = CreateSqmConfiguration(wan2Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 50);
+                var result = await DeploymentService.DeployAsync(SiteId, config, initialDelaySeconds: 50);
 
                 // Always add steps (includes output on failure)
                 deploymentSteps.AddRange(result.Steps);
@@ -1996,7 +2007,7 @@
                 var w2Interface = (wan1Config.Enabled && wan2Config.Enabled) ? $"ifb{wan2Config.Interface}" : "";
                 var w2Name = (wan1Config.Enabled && wan2Config.Enabled) ? wan2Config.Name : "";
 
-                var (monitorSuccess, monitorError) = await DeploymentService.DeploySqmMonitorAsync(w1Interface, w1Name, w2Interface, w2Name);
+                var (monitorSuccess, monitorError) = await DeploymentService.DeploySqmMonitorAsync(SiteId, w1Interface, w1Name, w2Interface, w2Name);
 
                 if (!monitorSuccess)
                 {
@@ -2051,6 +2062,7 @@
             await ScrollDeploymentLog();
 
             var (success, errorMessage) = await DeploymentService.DeploySqmMonitorAsync(
+                SiteId,
                 $"ifb{wan1Config.Interface}", wan1Config.Name,
                 $"ifb{wan2Config.Interface}", wan2Config.Name);
 
@@ -2093,14 +2105,14 @@
 
         try
         {
-            var (success, steps) = await DeploymentService.RemoveAsync(includeTcMonitor: true);
+            var (success, steps) = await DeploymentService.RemoveAsync(SiteId, includeTcMonitor: true);
             deploymentSteps.AddRange(steps);
             await ScrollDeploymentLog();
 
             if (success)
             {
                 // Clear saved configurations from database
-                await SpeedTestRepository.ClearAllSqmWanConfigsAsync();
+                await SpeedTestRepository.ClearAllSqmWanConfigsAsync(SiteId);
                 deploymentSteps.Add("Cleared saved configurations");
                 await ScrollDeploymentLog();
 
@@ -2142,7 +2154,7 @@
 
         try
         {
-            var (success, message) = await DeploymentService.TriggerSqmAdjustmentAsync(wanName);
+            var (success, message) = await DeploymentService.TriggerSqmAdjustmentAsync(SiteId, wanName);
             adjustmentSuccess = success;
             adjustmentMessage = message;
 
@@ -2209,7 +2221,7 @@
     {
         try
         {
-            var settings = await SpeedTestRepository.GetGatewaySshSettingsAsync();
+            var settings = await SpeedTestRepository.GetGatewaySshSettingsAsync(SiteId);
             return settings?.Host;
         }
         catch

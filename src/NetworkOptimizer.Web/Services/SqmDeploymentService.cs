@@ -34,29 +34,29 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// <summary>
     /// Get gateway SSH settings
     /// </summary>
-    private Task<GatewaySshSettings> GetGatewaySettingsAsync()
-        => _gatewaySsh.GetSettingsAsync();
+    private Task<GatewaySshSettings> GetGatewaySettingsAsync(int siteId)
+        => _gatewaySsh.GetSettingsAsync(siteId);
 
     /// <summary>
     /// Run SSH command on gateway (shorthand)
     /// </summary>
-    private Task<(bool success, string output)> RunCommandAsync(string command)
-        => _gatewaySsh.RunCommandAsync(command);
+    private Task<(bool success, string output)> RunCommandAsync(int siteId, string command)
+        => _gatewaySsh.RunCommandAsync(siteId, command);
 
     /// <summary>
     /// Test SSH connection to the gateway
     /// </summary>
-    public Task<(bool success, string message)> TestConnectionAsync()
-        => _gatewaySsh.TestConnectionAsync();
+    public Task<(bool success, string message)> TestConnectionAsync(int siteId)
+        => _gatewaySsh.TestConnectionAsync(siteId);
 
     /// <summary>
     /// Install udm-boot package on the gateway.
     /// This enables scripts in /data/on_boot.d/ to run automatically on boot
     /// and persist across firmware updates.
     /// </summary>
-    public async Task<(bool success, string message)> InstallUdmBootAsync()
+    public async Task<(bool success, string message)> InstallUdmBootAsync(int siteId)
     {
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
 
         try
         {
@@ -93,7 +93,7 @@ WantedBy=multi-user.target
                 "systemctl enable udm-boot && " +
                 "systemctl start --no-block udm-boot && " +
                 "echo udm-boot_installed_successfully";
-            var result = await RunCommandAsync(installCmd);
+            var result = await RunCommandAsync(siteId, installCmd);
 
             if (result.success && result.output.Contains("udm-boot_installed_successfully"))
             {
@@ -116,7 +116,7 @@ WantedBy=multi-user.target
     /// <summary>
     /// Check if SQM scripts are already deployed
     /// </summary>
-    public async Task<SqmDeploymentStatus> CheckDeploymentStatusAsync()
+    public async Task<SqmDeploymentStatus> CheckDeploymentStatusAsync(int siteId)
     {
         var status = new SqmDeploymentStatus();
 
@@ -124,33 +124,33 @@ WantedBy=multi-user.target
         {
             // Launch SSH checks in batches of 4 to avoid overwhelming SSH server
             // Batch 1: udm-boot and script existence checks
-            var udmBootCheckTask = RunCommandAsync(
+            var udmBootCheckTask = RunCommandAsync(siteId,
                 "test -f /etc/systemd/system/udm-boot.service && echo 'installed' || echo 'missing'");
-            var udmBootEnabledTask = RunCommandAsync(
+            var udmBootEnabledTask = RunCommandAsync(siteId,
                 "systemctl is-enabled udm-boot 2>/dev/null || echo 'disabled'");
-            var sqmBootCheckTask = RunCommandAsync(
+            var sqmBootCheckTask = RunCommandAsync(siteId,
                 $"ls {OnBootDir}/20-sqm-*.sh 2>/dev/null | grep -v 'sqm-monitor' | wc -l");
-            var sqmScriptsCheckTask = RunCommandAsync(
+            var sqmScriptsCheckTask = RunCommandAsync(siteId,
                 $"ls {SqmDir}/*-speedtest.sh 2>/dev/null | wc -l");
 
             await Task.WhenAll(udmBootCheckTask, udmBootEnabledTask, sqmBootCheckTask, sqmScriptsCheckTask);
 
             // Batch 2: monitor and service status checks
-            var sqmMonitorCheckTask = RunCommandAsync(
+            var sqmMonitorCheckTask = RunCommandAsync(siteId,
                 $"test -f {OnBootDir}/20-sqm-monitor.sh && echo 'exists' || echo 'missing'");
-            var sqmMonitorRunningTask = RunCommandAsync(
+            var sqmMonitorRunningTask = RunCommandAsync(siteId,
                 "systemctl is-active sqm-monitor 2>/dev/null || echo 'inactive'");
-            var watchdogRunningTask = RunCommandAsync(
+            var watchdogRunningTask = RunCommandAsync(siteId,
                 "systemctl is-active sqm-monitor-watchdog.timer 2>/dev/null || echo 'inactive'");
-            var cronCheckTask = RunCommandAsync(
+            var cronCheckTask = RunCommandAsync(siteId,
                 "crontab -l 2>/dev/null | grep -c sqm || echo '0'");
 
             await Task.WhenAll(sqmMonitorCheckTask, sqmMonitorRunningTask, watchdogRunningTask, cronCheckTask);
 
             // Batch 3: dependency checks
-            var speedtestCliCheckTask = RunCommandAsync(
+            var speedtestCliCheckTask = RunCommandAsync(siteId,
                 "which speedtest >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
-            var bcCheckTask = RunCommandAsync(
+            var bcCheckTask = RunCommandAsync(siteId,
                 "which bc >/dev/null 2>&1 && echo 'installed' || echo 'missing'");
 
             await Task.WhenAll(speedtestCliCheckTask, bcCheckTask);
@@ -211,22 +211,22 @@ WantedBy=multi-user.target
     /// Clean ALL SQM scripts and cron entries from the gateway.
     /// Call this ONCE before deploying any WANs to handle renamed connections.
     /// </summary>
-    public async Task<(bool success, string message)> CleanAllSqmScriptsAsync()
+    public async Task<(bool success, string message)> CleanAllSqmScriptsAsync(int siteId)
     {
         try
         {
             _logger.LogInformation("Cleaning all SQM scripts and cron entries");
 
             // Remove all SQM boot scripts
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"rm -f {OnBootDir}/20-sqm-*.sh {OnBootDir}/21-sqm-*.sh");
 
             // Remove all SQM data directories
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"rm -rf {SqmDir}/*");
 
             // Remove ALL SQM-related cron entries (catches renamed connections)
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
             _logger.LogInformation("Successfully cleaned all SQM scripts and cron entries");
@@ -243,7 +243,7 @@ WantedBy=multi-user.target
     /// Lightweight cleanup after a failed deployment.
     /// Removes only the specific WAN's scripts and cron entries, not the full SQM removal.
     /// </summary>
-    private async Task CleanupFailedDeploymentAsync(string? connectionName, string interfaceName)
+    private async Task CleanupFailedDeploymentAsync(int siteId, string? connectionName, string interfaceName)
     {
         try
         {
@@ -251,13 +251,13 @@ WantedBy=multi-user.target
             _logger.LogInformation("Cleaning up failed deployment for {Name} ({Interface})", connectionName, interfaceName);
 
             // Remove the boot script for this specific WAN
-            await RunCommandAsync($"rm -f {OnBootDir}/20-sqm-{safeName}.sh");
+            await RunCommandAsync(siteId, $"rm -f {OnBootDir}/20-sqm-{safeName}.sh");
 
             // Remove SQM data directory for this WAN
-            await RunCommandAsync($"rm -rf {SqmDir}/{safeName}-*.sh {SqmDir}/{safeName}-*.txt");
+            await RunCommandAsync(siteId, $"rm -rf {SqmDir}/{safeName}-*.sh {SqmDir}/{safeName}-*.txt");
 
             // Remove cron entries for this specific WAN (match on connection name)
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"crontab -l 2>/dev/null | grep -v '{safeName}' | crontab -");
 
             _logger.LogInformation("Cleanup completed for {Name}", connectionName);
@@ -272,26 +272,26 @@ WantedBy=multi-user.target
     /// <summary>
     /// Lightweight cleanup after a failed SQM Monitor deployment.
     /// </summary>
-    private async Task CleanupFailedSqmMonitorAsync()
+    private async Task CleanupFailedSqmMonitorAsync(int siteId)
     {
         try
         {
             _logger.LogInformation("Cleaning up failed SQM Monitor deployment");
 
             // Remove the boot script
-            await RunCommandAsync($"rm -f {OnBootDir}/20-sqm-monitor.sh");
+            await RunCommandAsync(siteId, $"rm -f {OnBootDir}/20-sqm-monitor.sh");
 
             // Stop and disable any partially-created services
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
                 "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
 
             // Remove service files and monitor directory
-            await RunCommandAsync("rm -rf /data/sqm-monitor");
-            await RunCommandAsync(
+            await RunCommandAsync(siteId, "rm -rf /data/sqm-monitor");
+            await RunCommandAsync(siteId,
                 "rm -f /etc/systemd/system/sqm-monitor.service " +
                 "/etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service");
-            await RunCommandAsync("systemctl daemon-reload");
+            await RunCommandAsync(siteId, "systemctl daemon-reload");
 
             _logger.LogInformation("SQM Monitor cleanup completed");
         }
@@ -305,15 +305,16 @@ WantedBy=multi-user.target
     /// <summary>
     /// Deploy SQM scripts to the gateway
     /// </summary>
+    /// <param name="siteId">The site identifier</param>
     /// <param name="config">SQM configuration for this WAN</param>
     /// <param name="baseline">Optional hourly baseline data</param>
     /// <param name="initialDelaySeconds">Delay before first speedtest (default 60s, use higher values for additional WANs to stagger)</param>
-    public async Task<SqmDeploymentResult> DeployAsync(SqmConfig config, Dictionary<string, string>? baseline = null, int initialDelaySeconds = 60)
+    public async Task<SqmDeploymentResult> DeployAsync(int siteId, SqmConfig config, Dictionary<string, string>? baseline = null, int initialDelaySeconds = 60)
     {
         var result = new SqmDeploymentResult();
         var steps = new List<string>();
 
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             result.Success = false;
@@ -350,7 +351,7 @@ WantedBy=multi-user.target
 
             // Step 1: Create directories
             steps.Add("Creating directories...");
-            var mkdirResult = await RunCommandAsync(
+            var mkdirResult = await RunCommandAsync(siteId,
                 $"mkdir -p {OnBootDir} {SqmDir}");
             if (!mkdirResult.success)
             {
@@ -368,7 +369,7 @@ WantedBy=multi-user.target
             foreach (var (filename, content) in scripts)
             {
                 steps.Add($"Deploying {filename}...");
-                var success = await DeployScriptAsync(filename, content);
+                var success = await DeployScriptAsync(siteId, filename, content);
                 if (!success)
                 {
                     throw new Exception($"Failed to deploy {filename}");
@@ -377,7 +378,7 @@ WantedBy=multi-user.target
 
             // Step 4: Run the boot script to set up everything
             steps.Add("Running boot script (installs deps, creates scripts, configures cron)...");
-            var setupResult = await RunCommandAsync(
+            var setupResult = await RunCommandAsync(siteId,
                 $"chmod +x {OnBootDir}/{bootScriptName} && {OnBootDir}/{bootScriptName}");
 
             if (!setupResult.success)
@@ -409,7 +410,7 @@ WantedBy=multi-user.target
 
                 // Clean up the failed deployment
                 steps.Add("Boot script failed, cleaning up...");
-                await CleanupFailedDeploymentAsync(config.ConnectionName, config.Interface);
+                await CleanupFailedDeploymentAsync(siteId, config.ConnectionName, config.Interface);
                 steps.Add("Cleanup complete");
 
                 var logFile = $"/var/log/sqm-{config.ConnectionName?.ToLowerInvariant() ?? config.Interface}.log";
@@ -426,7 +427,7 @@ WantedBy=multi-user.target
                 config.ConnectionName, config.Interface);
 
             // Invalidate SQM status cache so the new status gets fetched
-            SqmService.InvalidateStatusCache();
+            SqmService.InvalidateStatusCache(siteId);
         }
         catch (Exception ex)
         {
@@ -442,7 +443,7 @@ WantedBy=multi-user.target
     /// <summary>
     /// Deploy a single script to the gateway
     /// </summary>
-    private async Task<bool> DeployScriptAsync(string filename, string content)
+    private async Task<bool> DeployScriptAsync(int siteId, string filename, string content)
     {
         // All SQM scripts now go to on_boot.d (self-contained boot scripts)
         var targetPath = $"{OnBootDir}/{filename}";
@@ -453,7 +454,7 @@ WantedBy=multi-user.target
         // Use base64 encoding to safely transfer script content (avoids shell quoting issues)
         var base64Content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(unixContent));
         var writeCmd = $"echo '{base64Content}' | base64 -d > '{targetPath}'";
-        var writeResult = await RunCommandAsync(writeCmd);
+        var writeResult = await RunCommandAsync(siteId, writeCmd);
 
         if (!writeResult.success)
         {
@@ -462,7 +463,7 @@ WantedBy=multi-user.target
         }
 
         // Make executable
-        var chmodResult = await RunCommandAsync($"chmod +x '{targetPath}'");
+        var chmodResult = await RunCommandAsync(siteId, $"chmod +x '{targetPath}'");
         if (!chmodResult.success)
         {
             _logger.LogWarning("Failed to chmod {File}: {Error}", filename, chmodResult.output);
@@ -476,9 +477,9 @@ WantedBy=multi-user.target
     /// Deploy SQM Monitor script. Uses TcMonitorPort from gateway settings.
     /// Exposes all SQM data (TC rates, speedtest results, ping data) via HTTP.
     /// </summary>
-    public async Task<(bool success, string? warning)> DeploySqmMonitorAsync(string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
+    public async Task<(bool success, string? warning)> DeploySqmMonitorAsync(int siteId, string wan1Interface, string wan1Name, string wan2Interface, string wan2Name)
     {
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             _logger.LogError("Gateway SSH not configured");
@@ -499,14 +500,14 @@ WantedBy=multi-user.target
             var sqmMonitorScript = GenerateSqmMonitorScript(wan1Interface, wan1Name, wan2Interface, wan2Name, settings.TcMonitorPort);
 
             // Deploy to on_boot.d
-            var success = await DeployScriptAsync("20-sqm-monitor.sh", sqmMonitorScript);
+            var success = await DeployScriptAsync(siteId, "20-sqm-monitor.sh", sqmMonitorScript);
             if (!success)
             {
                 return (false, null);
             }
 
             // Run the script to set up SQM monitor
-            var runResult = await RunCommandAsync(
+            var runResult = await RunCommandAsync(siteId,
                 $"{OnBootDir}/20-sqm-monitor.sh");
 
             if (!runResult.success)
@@ -528,7 +529,7 @@ WantedBy=multi-user.target
                 }
 
                 // Clean up the failed deployment
-                await CleanupFailedSqmMonitorAsync();
+                await CleanupFailedSqmMonitorAsync(siteId);
 
                 return (false, errorMessage);
             }
@@ -545,10 +546,10 @@ WantedBy=multi-user.target
     /// <summary>
     /// Remove SQM scripts from the gateway
     /// </summary>
-    public async Task<(bool success, List<string> steps)> RemoveAsync(bool includeTcMonitor = true)
+    public async Task<(bool success, List<string> steps)> RemoveAsync(int siteId, bool includeTcMonitor = true)
     {
         var steps = new List<string>();
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             return (false, new List<string> { "Gateway SSH not configured" });
@@ -566,41 +567,41 @@ WantedBy=multi-user.target
         {
             // Remove ALL SQM-related cron jobs (catches renamed connections too)
             steps.Add("Removing SQM cron jobs...");
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 "crontab -l 2>/dev/null | grep -v -E 'sqm|SQM' | crontab -");
 
             // Remove boot scripts (new format: 20-sqm-{name}.sh)
             steps.Add("Removing SQM boot scripts...");
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"rm -f {OnBootDir}/20-sqm-*.sh");
 
             // Remove legacy boot scripts (old format)
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"rm -f {OnBootDir}/21-sqm-*.sh");
 
             // Remove SQM directory with all scripts and data
             steps.Add("Removing SQM data directory...");
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 $"rm -rf {SqmDir}");
 
             // Remove legacy data files
-            await RunCommandAsync(
+            await RunCommandAsync(siteId,
                 "rm -f /data/sqm-*.sh /data/sqm-*.txt /data/sqm-scripts");
 
             // Remove SQM Monitor if requested
             if (includeTcMonitor)
             {
                 steps.Add("Stopping SQM Monitor service...");
-                await RunCommandAsync(
+                await RunCommandAsync(siteId,
                     "systemctl stop sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null; " +
                     "systemctl disable sqm-monitor-watchdog.timer sqm-monitor 2>/dev/null");
 
                 steps.Add("Removing SQM Monitor...");
-                await RunCommandAsync(
+                await RunCommandAsync(siteId,
                     $"rm -f {OnBootDir}/20-sqm-monitor.sh");
-                await RunCommandAsync(
+                await RunCommandAsync(siteId,
                     "rm -rf /data/sqm-monitor");
-                await RunCommandAsync(
+                await RunCommandAsync(siteId,
                     "rm -f /etc/systemd/system/sqm-monitor.service " +
                     "/etc/systemd/system/sqm-monitor-watchdog.timer /etc/systemd/system/sqm-monitor-watchdog.service && " +
                     "systemctl daemon-reload");
@@ -610,7 +611,7 @@ WantedBy=multi-user.target
             _logger.LogInformation("SQM scripts removed (SQM Monitor: {SqmMonitor})", includeTcMonitor);
 
             // Invalidate SQM status cache so the "Offline" status gets cached
-            SqmService.InvalidateStatusCache();
+            SqmService.InvalidateStatusCache(siteId);
 
             return (true, steps);
         }
@@ -626,9 +627,9 @@ WantedBy=multi-user.target
     /// Trigger the SQM adjustment speedtest script on the gateway
     /// This runs the deployed script which does baseline blending and TC adjustment
     /// </summary>
-    public async Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName)
+    public async Task<(bool success, string message)> TriggerSqmAdjustmentAsync(int siteId, string wanName)
     {
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             return (false, "Gateway SSH not configured");
@@ -651,14 +652,14 @@ WantedBy=multi-user.target
             _logger.LogInformation("Triggering SQM adjustment script: {Script}", scriptPath);
 
             // Check if script exists
-            var checkResult = await RunCommandAsync($"test -f {scriptPath} && echo 'exists'");
+            var checkResult = await RunCommandAsync(siteId, $"test -f {scriptPath} && echo 'exists'");
             if (!checkResult.success || !checkResult.output.Contains("exists"))
             {
                 return (false, $"SQM script not found: {scriptPath}");
             }
 
             // Run the script (speedtest can take up to 60 seconds)
-            var result = await RunCommandAsync(scriptPath);
+            var result = await RunCommandAsync(siteId, scriptPath);
 
             if (result.success)
             {
@@ -681,9 +682,9 @@ WantedBy=multi-user.target
     /// <summary>
     /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment)
     /// </summary>
-    public async Task<SpeedtestResult?> RunSpeedtestAsync(SqmConfig config)
+    public async Task<SpeedtestResult?> RunSpeedtestAsync(int siteId, SqmConfig config)
     {
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             return null;
@@ -705,7 +706,7 @@ WantedBy=multi-user.target
                 cmd += $" --server-id={config.PreferredSpeedtestServerId}";
             }
 
-            var result = await RunCommandAsync(cmd);
+            var result = await RunCommandAsync(siteId, cmd);
             if (!result.success)
             {
                 _logger.LogError("Speedtest failed: {Error}", result.output);
@@ -755,11 +756,11 @@ WantedBy=multi-user.target
     /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs
     /// </summary>
-    public async Task<List<SqmWanStatus>> GetSqmWanStatusAsync()
+    public async Task<List<SqmWanStatus>> GetSqmWanStatusAsync(int siteId)
     {
         var result = new List<SqmWanStatus>();
 
-        var settings = await GetGatewaySettingsAsync();
+        var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
             return result;
@@ -776,7 +777,7 @@ WantedBy=multi-user.target
         try
         {
             // Find all SQM log files
-            var logListResult = await RunCommandAsync(
+            var logListResult = await RunCommandAsync(siteId,
                 "ls /var/log/sqm-*.log 2>/dev/null | xargs -I {} basename {} .log | sed 's/sqm-//'");
 
             if (!logListResult.success || string.IsNullOrWhiteSpace(logListResult.output))
@@ -791,7 +792,7 @@ WantedBy=multi-user.target
                 var status = new SqmWanStatus { Name = wanName };
 
                 // Get last 50 lines of the log file
-                var logResult = await RunCommandAsync(
+                var logResult = await RunCommandAsync(siteId,
                     $"tail -50 /var/log/sqm-{wanName}.log 2>/dev/null");
 
                 if (logResult.success && !string.IsNullOrWhiteSpace(logResult.output))
@@ -800,7 +801,7 @@ WantedBy=multi-user.target
                 }
 
                 // Get current rate from result file
-                var resultFileResult = await RunCommandAsync(
+                var resultFileResult = await RunCommandAsync(siteId,
                     $"cat /data/sqm/{wanName}-result.txt 2>/dev/null");
 
                 if (resultFileResult.success && !string.IsNullOrWhiteSpace(resultFileResult.output))

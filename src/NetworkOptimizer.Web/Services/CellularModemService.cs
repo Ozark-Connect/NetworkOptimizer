@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetworkOptimizer.Monitoring;
 using NetworkOptimizer.Monitoring.Models;
 using NetworkOptimizer.Storage.Interfaces;
@@ -18,8 +19,7 @@ public class CellularModemService : ICellularModemService
     private readonly UniFiSshService _sshService;
     private readonly UniFiConnectionService _connectionService;
     private readonly Timer? _pollingTimer;
-    private readonly object _lock = new();
-    private CellularModemStats? _lastStats;
+    private readonly ConcurrentDictionary<int, CellularModemStats> _lastStatsBySite = new();
     private bool _isPolling;
 
     // Default QMI device path for U5G-Max
@@ -42,24 +42,22 @@ public class CellularModemService : ICellularModemService
     }
 
     /// <summary>
-    /// Get the most recent stats for all modems
+    /// Get the most recent stats for all modems at a site
     /// </summary>
-    public CellularModemStats? GetLastStats()
+    public CellularModemStats? GetLastStats(int siteId)
     {
-        lock (_lock)
-        {
-            return _lastStats;
-        }
+        _lastStatsBySite.TryGetValue(siteId, out var stats);
+        return stats;
     }
 
     /// <summary>
     /// Auto-discover U5G-Max modems from UniFi device list
     /// </summary>
-    public async Task<List<DiscoveredModem>> DiscoverModemsAsync()
+    public async Task<List<DiscoveredModem>> DiscoverModemsAsync(int siteId)
     {
         var discovered = new List<DiscoveredModem>();
 
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        if (!_connectionService.IsConnected(siteId) || _connectionService.GetClient(siteId) == null)
         {
             _logger.LogWarning("Cannot discover modems: UniFi controller not connected");
             return discovered;
@@ -67,7 +65,7 @@ public class CellularModemService : ICellularModemService
 
         try
         {
-            var devices = await _connectionService.Client.GetDevicesAsync();
+            var devices = await _connectionService.GetClient(siteId)!.GetDevicesAsync();
 
             foreach (var device in devices)
             {
@@ -102,9 +100,9 @@ public class CellularModemService : ICellularModemService
     /// Runs signal, serving system, cell location, and band info queries in a single SSH session
     /// (to avoid rate limiting), then delegates parsing to QmicliParser for each section.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(string host, string name, string qmiDevice)
+    private async Task<CellularModemStats?> ExecutePollAsync(int siteId, string host, string name, string qmiDevice)
     {
-        _logger.LogInformation("Polling modem {Name} at {Host}", name, host);
+        _logger.LogInformation("Polling modem {Name} at {Host} for site {SiteId}", name, host, siteId);
 
         try
         {
@@ -120,7 +118,7 @@ public class CellularModemService : ICellularModemService
                                   $"echo '===CELL===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-cell-location-info; " +
                                   $"echo '===BAND===' && qmicli -d {qmiDevice} --device-open-proxy --nas-get-rf-band-info";
 
-            var (success, output) = await _sshService.RunCommandAsync(host, combinedCommand);
+            var (success, output) = await _sshService.RunCommandAsync(siteId, host, combinedCommand);
 
             if (!success)
             {
@@ -159,10 +157,7 @@ public class CellularModemService : ICellularModemService
                 stats.ActiveBand = QmicliParser.ParseRfBandInfo(bandOutput);
             }
 
-            lock (_lock)
-            {
-                _lastStats = stats;
-            }
+            _lastStatsBySite[siteId] = stats;
 
             _logger.LogInformation("Successfully polled modem {Name}: {Carrier}, Signal Quality: {Quality}%",
                 name, stats.Carrier, stats.SignalQuality);
@@ -179,78 +174,75 @@ public class CellularModemService : ICellularModemService
     /// <summary>
     /// Test SSH connection to a modem using shared credentials
     /// </summary>
-    public async Task<(bool success, string message)> TestConnectionAsync(string host)
+    public async Task<(bool success, string message)> TestConnectionAsync(int siteId, string host)
     {
-        return await _sshService.TestConnectionAsync(host);
+        return await _sshService.TestConnectionAsync(siteId, host);
     }
 
     /// <summary>
     /// Poll a modem - fetches stats via SSH and updates LastPolled timestamp
     /// </summary>
-    public async Task<(bool success, string message)> PollModemAsync(ModemConfiguration modem)
+    public async Task<(bool success, string message)> PollModemAsync(int siteId, ModemConfiguration modem)
     {
         try
         {
-            var stats = await ExecutePollAsync(modem.Host, modem.Name, modem.QmiDevice);
+            var stats = await ExecutePollAsync(siteId, modem.Host, modem.Name, modem.QmiDevice);
 
             if (stats != null)
             {
                 // Update LastPolled in database
-                await UpdateModemConfigAsync(modem.Id, null);
+                await UpdateModemConfigAsync(siteId, modem.Id, null);
 
-                lock (_lock)
-                {
-                    _lastStats = stats;
-                }
+                _lastStatsBySite[siteId] = stats;
 
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
             }
             else
             {
-                await UpdateModemConfigAsync(modem.Id, "Poll returned no data");
+                await UpdateModemConfigAsync(siteId, modem.Id, "Poll returned no data");
                 return (false, "Failed to poll modem - no data returned");
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing modem {Name}", modem.Name);
-            await UpdateModemConfigAsync(modem.Id, ex.Message);
+            await UpdateModemConfigAsync(siteId, modem.Id, ex.Message);
             return (false, $"Error: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Get all configured modems (legacy)
+    /// Get all configured modems for a site
     /// </summary>
-    public async Task<List<ModemConfiguration>> GetModemsAsync()
+    public async Task<List<ModemConfiguration>> GetModemsAsync(int siteId)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
-        return await repository.GetModemConfigurationsAsync();
+        return await repository.GetModemConfigurationsAsync(siteId);
     }
 
     /// <summary>
     /// Add or update a modem configuration (simplified - no SSH creds needed)
     /// </summary>
-    public async Task<ModemConfiguration> SaveModemAsync(ModemConfiguration config)
+    public async Task<ModemConfiguration> SaveModemAsync(int siteId, ModemConfiguration config)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
-        await repository.SaveModemConfigurationAsync(config);
+        await repository.SaveModemConfigurationAsync(siteId, config);
         return config;
     }
 
     /// <summary>
     /// Delete a modem configuration
     /// </summary>
-    public async Task DeleteModemAsync(int id)
+    public async Task DeleteModemAsync(int siteId, int id)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
-        await repository.DeleteModemConfigurationAsync(id);
+        await repository.DeleteModemConfigurationAsync(siteId, id);
 
-        // Clear cached stats since the modem may have been the one producing them
-        _lastStats = null;
+        // Clear cached stats for this site since the modem may have been the one producing them
+        _lastStatsBySite.TryRemove(siteId, out _);
     }
 
     private async Task PollAllModemsAsync()
@@ -261,31 +253,38 @@ public class CellularModemService : ICellularModemService
         {
             _isPolling = true;
 
-            // Check if SSH is configured
-            var sshSettings = await _sshService.GetSettingsAsync();
-            if (!sshSettings.Enabled || !sshSettings.HasCredentials)
-            {
-                return; // SSH not configured, skip polling
-            }
-
             // Only poll configured and enabled modems (not auto-discovered ones)
             // Auto-discovered modems must be added to config before they're polled
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
+            var siteRepository = scope.ServiceProvider.GetRequiredService<ISiteRepository>();
 
-            var modems = await repository.GetEnabledModemConfigurationsAsync();
+            // Get all sites and poll modems for each
+            var sites = await siteRepository.GetAllSitesAsync();
 
-            foreach (var modem in modems)
+            foreach (var site in sites)
             {
-                // Check if it's time to poll this modem
-                if (modem.LastPolled.HasValue)
+                // Check if SSH is configured for this site
+                var sshSettings = await _sshService.GetSettingsAsync(site.Id);
+                if (!sshSettings.Enabled || !sshSettings.HasCredentials)
                 {
-                    var elapsed = DateTime.UtcNow - modem.LastPolled.Value;
-                    if (elapsed.TotalSeconds < modem.PollingIntervalSeconds)
-                        continue;
+                    continue; // SSH not configured for this site, skip polling
                 }
 
-                await PollModemAsync(modem);
+                var modems = await repository.GetEnabledModemConfigurationsAsync(site.Id);
+
+                foreach (var modem in modems)
+                {
+                    // Check if it's time to poll this modem
+                    if (modem.LastPolled.HasValue)
+                    {
+                        var elapsed = DateTime.UtcNow - modem.LastPolled.Value;
+                        if (elapsed.TotalSeconds < modem.PollingIntervalSeconds)
+                            continue;
+                    }
+
+                    await PollModemAsync(site.Id, modem);
+                }
             }
         }
         catch (Exception ex)
@@ -298,20 +297,20 @@ public class CellularModemService : ICellularModemService
         }
     }
 
-    private async Task UpdateModemConfigAsync(int modemId, string? error)
+    private async Task UpdateModemConfigAsync(int siteId, int modemId, string? error)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IModemRepository>();
 
-            var config = await repository.GetModemConfigurationAsync(modemId);
+            var config = await repository.GetModemConfigurationAsync(siteId, modemId);
             if (config != null)
             {
                 config.LastPolled = DateTime.UtcNow;
                 config.LastError = error;
                 config.UpdatedAt = DateTime.UtcNow;
-                await repository.SaveModemConfigurationAsync(config);
+                await repository.SaveModemConfigurationAsync(siteId, config);
             }
         }
         catch (Exception ex)

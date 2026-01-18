@@ -1,0 +1,46 @@
+@page "/settings"
+@page "/speedtest"
+@page "/audit"
+@page "/sqm"
+@page "/client-speedtest"
+@page "/upnp-inspector"
+@using NetworkOptimizer.Storage.Interfaces
+@inject ISiteRepository SiteRepository
+@inject NavigationManager NavigationManager
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var sites = await SiteRepository.GetAllSitesAsync();
+        var defaultSite = sites.FirstOrDefault();
+        var siteId = defaultSite?.Id ?? 1001;
+
+        // Get the current path and redirect to the site-prefixed version
+        var uri = new Uri(NavigationManager.Uri);
+        var path = uri.AbsolutePath.TrimStart('/');
+
+        // Map old paths to new paths
+        var newPath = path switch
+        {
+            "settings" => $"/sites/{siteId}/settings",
+            "speedtest" => $"/sites/{siteId}/speedtest",
+            "audit" => $"/sites/{siteId}/audit",
+            "sqm" => $"/sites/{siteId}/sqm",
+            "client-speedtest" => $"/sites/{siteId}/client-speedtest",
+            "upnp-inspector" => $"/sites/{siteId}/upnp-inspector",
+            _ => $"/sites/{siteId}"
+        };
+
+        // Preserve query string
+        if (!string.IsNullOrEmpty(uri.Query))
+        {
+            newPath += uri.Query;
+        }
+
+        NavigationManager.NavigateTo(newPath, replace: true);
+    }
+}

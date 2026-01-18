@@ -1,0 +1,199 @@
+@using NetworkOptimizer.Web.Services
+@inject SystemSettingsService SystemSettings
+
+<div class="card" id="security-audit">
+    <div class="card-header">
+        <h2 class="card-title">Security Audit</h2>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Configure how the security audit evaluates device placement on your network.
+        </p>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowAppleStreamingOnMainNetwork" />
+                <span>Allow Apple streaming devices on main network</span>
+            </label>
+            <small class="form-help">Apple TV and HomePod devices on main/corporate VLANs will show as Info instead of Warning</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowAllStreamingOnMainNetwork" />
+                <span>Allow all streaming devices on main network</span>
+            </label>
+            <small class="form-help">Apple TV, Roku, Fire TV, Chromecast on main/corporate VLANs will show as Info instead of Warning</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowMediaPlayersOnMainNetwork" />
+                <span>Allow all media players on main network</span>
+            </label>
+            <small class="form-help">AV receivers, soundbars, and media center devices on main/corporate VLANs will show as Info instead of Warning</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowNameBrandTVsOnMainNetwork" />
+                <span>Allow name-brand Smart TVs on main network</span>
+            </label>
+            <small class="form-help">LG, Samsung, Sony TVs on main/corporate VLANs will show as Info instead of Warning</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowAllTVsOnMainNetwork" />
+                <span>Allow all Smart TVs on main network</span>
+            </label>
+            <small class="form-help">All Smart TVs on main/corporate VLANs will show as Info instead of Warning</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_allowPrintersOnMainNetwork" />
+                <span>Allow printers on main network</span>
+            </label>
+            <small class="form-help">When unchecked, printers on main/corporate VLANs will trigger recommendations to move them to a Printer or IoT VLAN</small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label class="form-label">Unused port grace period (days)</label>
+            <input type="number" class="form-control" @bind="_unusedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+            <small class="form-help">Days to wait after a device disconnects before flagging an unnamed port for disabling. Default: 15 days.</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Named port grace period (days)</label>
+            <input type="number" class="form-control" @bind="_namedPortInactivityDays" min="1" max="365" style="width: 120px;" />
+            <small class="form-help">Days to wait for ports with custom names (like "Printer" or "Camera"). Longer grace period since these devices may be intentionally offline. Default: 45 days.</small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label class="form-label">DNAT DNS Coverage: Excluded VLANs (optional)</label>
+            <input type="text" class="form-control" @bind="_dnatExcludedVlans" placeholder="e.g., 100, 200" style="width: 240px;" />
+            <small class="form-help">Comma-separated VLAN IDs to exclude from DNAT DNS coverage checks. Use this for networks that intentionally bypass DNS redirection (e.g., management VLANs).</small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label class="form-label">Third-Party DNS Management Port (optional)</label>
+            <input type="number" class="form-control" @bind="_piholeManagementPort" min="0" max="65535" placeholder="Leave empty for auto-detect" style="width: 240px;" />
+            <small class="form-help">Custom HTTP port for Pi-hole or AdGuard Home admin interface. Leave empty to auto-probe ports 80, 443, 3000, 8080.</small>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-success" @onclick="SaveAuditSettings" disabled="@_savingAuditSettings">
+                @if (_savingAuditSettings)
+                {
+                    <span class="spinner"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span>Save Audit Settings</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_auditSettingsMessage))
+        {
+            <div class="alert alert-@_auditSettingsMessageClass" style="margin-top: 1rem;">
+                @_auditSettingsMessage
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    private bool _allowAppleStreamingOnMainNetwork = false;
+    private bool _allowAllStreamingOnMainNetwork = false;
+    private bool _allowNameBrandTVsOnMainNetwork = false;
+    private bool _allowAllTVsOnMainNetwork = false;
+    private bool _allowMediaPlayersOnMainNetwork = false;
+    private bool _allowPrintersOnMainNetwork = true;
+    private string _dnatExcludedVlans = "";
+    private int? _piholeManagementPort = null;
+    private int _unusedPortInactivityDays = 15;
+    private int _namedPortInactivityDays = 45;
+    private bool _savingAuditSettings = false;
+    private string _auditSettingsMessage = "";
+    private string _auditSettingsMessageClass = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAuditSettings();
+    }
+
+    private string SiteKey(string key) => $"site:{SiteId}:audit:{key}";
+
+    private async Task LoadAuditSettings()
+    {
+        try
+        {
+            var appleStreaming = await SystemSettings.GetAsync(SiteKey("allowAppleStreamingOnMainNetwork"));
+            var allStreaming = await SystemSettings.GetAsync(SiteKey("allowAllStreamingOnMainNetwork"));
+            var nameBrandTVs = await SystemSettings.GetAsync(SiteKey("allowNameBrandTVsOnMainNetwork"));
+            var allTVs = await SystemSettings.GetAsync(SiteKey("allowAllTVsOnMainNetwork"));
+            var mediaPlayers = await SystemSettings.GetAsync(SiteKey("allowMediaPlayersOnMainNetwork"));
+            var printers = await SystemSettings.GetAsync(SiteKey("allowPrintersOnMainNetwork"));
+            var excludedVlans = await SystemSettings.GetAsync(SiteKey("dnatExcludedVlans"));
+            var piholePort = await SystemSettings.GetAsync(SiteKey("piholeManagementPort"));
+            var unusedPortDays = await SystemSettings.GetAsync(SiteKey("unusedPortInactivityDays"));
+            var namedPortDays = await SystemSettings.GetAsync(SiteKey("namedPortInactivityDays"));
+
+            _allowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
+            _allowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
+            _allowNameBrandTVsOnMainNetwork = nameBrandTVs?.ToLower() == "true";
+            _allowAllTVsOnMainNetwork = allTVs?.ToLower() == "true";
+            _allowMediaPlayersOnMainNetwork = mediaPlayers?.ToLower() == "true";
+            _allowPrintersOnMainNetwork = printers == null || printers.ToLower() == "true";
+            _dnatExcludedVlans = excludedVlans ?? "";
+            _piholeManagementPort = int.TryParse(piholePort, out var port) && port > 0 ? port : null;
+            _unusedPortInactivityDays = int.TryParse(unusedPortDays, out var unusedDays) && unusedDays > 0 ? unusedDays : 15;
+            _namedPortInactivityDays = int.TryParse(namedPortDays, out var namedDays) && namedDays > 0 ? namedDays : 45;
+        }
+        catch (Exception ex)
+        {
+            _auditSettingsMessage = $"Error loading audit settings: {ex.Message}";
+            _auditSettingsMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveAuditSettings()
+    {
+        _savingAuditSettings = true;
+        _auditSettingsMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            await SystemSettings.SetAsync(SiteKey("allowAppleStreamingOnMainNetwork"), _allowAppleStreamingOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("allowAllStreamingOnMainNetwork"), _allowAllStreamingOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("allowNameBrandTVsOnMainNetwork"), _allowNameBrandTVsOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("allowAllTVsOnMainNetwork"), _allowAllTVsOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("allowMediaPlayersOnMainNetwork"), _allowMediaPlayersOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("allowPrintersOnMainNetwork"), _allowPrintersOnMainNetwork.ToString().ToLower());
+            await SystemSettings.SetAsync(SiteKey("dnatExcludedVlans"), _dnatExcludedVlans ?? "");
+            await SystemSettings.SetAsync(SiteKey("piholeManagementPort"), _piholeManagementPort?.ToString() ?? "");
+            await SystemSettings.SetAsync(SiteKey("unusedPortInactivityDays"), _unusedPortInactivityDays.ToString());
+            await SystemSettings.SetAsync(SiteKey("namedPortInactivityDays"), _namedPortInactivityDays.ToString());
+
+            _auditSettingsMessage = "Audit settings saved successfully";
+            _auditSettingsMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _auditSettingsMessage = $"Error saving audit settings: {ex.Message}";
+            _auditSettingsMessageClass = "danger";
+        }
+        finally
+        {
+            _savingAuditSettings = false;
+            StateHasChanged();
+        }
+    }
+}

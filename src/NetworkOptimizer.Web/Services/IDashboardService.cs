@@ -7,8 +7,9 @@ namespace NetworkOptimizer.Web.Services;
 public interface IDashboardService
 {
     /// <summary>
-    /// Retrieves comprehensive dashboard data from the UniFi controller.
+    /// Retrieves comprehensive dashboard data from the UniFi controller for a site.
     /// </summary>
+    /// <param name="siteId">The site ID to retrieve dashboard data for.</param>
     /// <remarks>
     /// This method aggregates data from multiple sources:
     /// <list type="bullet">
@@ -19,5 +20,5 @@ public interface IDashboardService
     /// </list>
     /// </remarks>
     /// <returns>A <see cref="DashboardData"/> object containing all dashboard metrics.</returns>
-    Task<DashboardData> GetDashboardDataAsync();
+    Task<DashboardData> GetDashboardDataAsync(int siteId);
 }

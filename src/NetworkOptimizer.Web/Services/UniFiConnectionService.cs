@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using NetworkOptimizer.Core.Interfaces;
 using NetworkOptimizer.Storage.Interfaces;
@@ -8,170 +9,183 @@ using NetworkOptimizer.UniFi;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
-/// Manages the UniFi controller connection and configuration persistence.
-/// This is a singleton service that maintains the API client across the application.
-/// Configuration is stored in the database with encrypted credentials.
+/// Manages UniFi controller connections for multiple sites.
+/// This is a singleton service that maintains a connection pool across the application.
+/// Each site has its own connection state, cached devices, and networks.
 /// </summary>
-public class UniFiConnectionService : IUniFiClientProvider, IDisposable
+public class UniFiConnectionService : IDisposable
 {
     private readonly ILogger<UniFiConnectionService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServiceProvider _serviceProvider;
     private readonly ICredentialProtectionService _credentialProtection;
 
-    private UniFiApiClient? _client;
-    private UniFiConnectionSettings? _settings;
-    private bool _isConnected;
-    private string? _lastError;
-    private DateTime? _lastConnectedAt;
+    // Connection pool: siteId -> connection state
+    private readonly ConcurrentDictionary<int, SiteConnection> _connections = new();
 
-    // Cache to avoid repeated DB queries
-    private DateTime _cacheTime = DateTime.MinValue;
-    private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
-
-    // Device discovery cache (30 second TTL for dashboard responsiveness)
-    private List<DiscoveredDevice>? _cachedDevices;
-    private DateTime _deviceCacheTime = DateTime.MinValue;
+    // Cache expiry settings
     private static readonly TimeSpan DeviceCacheDuration = TimeSpan.FromSeconds(30);
-
-    // Network cache (5 minute TTL - networks change rarely)
-    private List<NetworkInfo>? _cachedNetworks;
-    private DateTime _networkCacheTime = DateTime.MinValue;
     private static readonly TimeSpan NetworkCacheDuration = TimeSpan.FromMinutes(5);
-
-    // Lazy initialization for async config loading
-    private Task? _initializationTask;
-    private readonly object _initLock = new();
+    private static readonly TimeSpan SettingsCacheExpiry = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Event fired when the connection state changes (connect, disconnect, or site change).
-    /// Subscribers should refresh any cached data from the controller.
+    /// Event fired when a site's connection state changes (connect, disconnect, or error).
+    /// Subscribers should refresh any cached data for that site.
     /// </summary>
-    public event Action? OnConnectionChanged;
+    public event Action<int>? OnConnectionChanged;
 
-    public UniFiConnectionService(ILogger<UniFiConnectionService> logger, ILoggerFactory loggerFactory, IServiceProvider serviceProvider, ICredentialProtectionService credentialProtection)
+    public UniFiConnectionService(
+        ILogger<UniFiConnectionService> logger,
+        ILoggerFactory loggerFactory,
+        IServiceProvider serviceProvider,
+        ICredentialProtectionService credentialProtection)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _serviceProvider = serviceProvider;
         _credentialProtection = credentialProtection;
+    }
 
-        // Start initialization in background (non-blocking)
-        StartInitializationAsync();
+    #region Connection State
+
+    /// <summary>
+    /// Gets or creates a connection state for a site.
+    /// </summary>
+    private SiteConnection GetOrCreateConnection(int siteId)
+    {
+        return _connections.GetOrAdd(siteId, id => new SiteConnection(id));
     }
 
     /// <summary>
-    /// Starts the async initialization without blocking the constructor.
-    /// Uses double-checked locking to ensure initialization runs only once.
+    /// Check if a site is connected to its UniFi controller.
     /// </summary>
-    private void StartInitializationAsync()
+    public bool IsConnected(int siteId)
     {
-        lock (_initLock)
+        return _connections.TryGetValue(siteId, out var conn) && conn.IsConnected && conn.Client != null;
+    }
+
+    /// <summary>
+    /// Get the last error message for a site.
+    /// </summary>
+    public string? GetLastError(int siteId)
+    {
+        return _connections.TryGetValue(siteId, out var conn) ? conn.LastError : null;
+    }
+
+    /// <summary>
+    /// Get the last connected timestamp for a site.
+    /// </summary>
+    public DateTime? GetLastConnectedAt(int siteId)
+    {
+        return _connections.TryGetValue(siteId, out var conn) ? conn.LastConnectedAt : null;
+    }
+
+    /// <summary>
+    /// Check if a site's connection is UniFi OS based.
+    /// </summary>
+    public bool IsUniFiOs(int siteId)
+    {
+        return _connections.TryGetValue(siteId, out var conn) && conn.Client?.IsUniFiOs == true;
+    }
+
+    /// <summary>
+    /// Gets the active UniFi API client for a site, or null if not connected.
+    /// </summary>
+    public UniFiApiClient? GetClient(int siteId)
+    {
+        return _connections.TryGetValue(siteId, out var conn) && conn.IsConnected ? conn.Client : null;
+    }
+
+    /// <summary>
+    /// Wait for auto-connect to complete for a site (if credentials are saved).
+    /// This is useful for UI pages that want to show a spinner while connecting.
+    /// </summary>
+    public async Task WaitForConnectionAsync(int siteId, int maxWaitMs = 5000)
+    {
+        var conn = GetOrCreateConnection(siteId);
+
+        // If already connected, return immediately
+        if (conn.IsConnected)
+            return;
+
+        // Wait briefly for any in-progress connection
+        var waited = 0;
+        const int checkInterval = 100;
+        while (conn.IsConnecting && waited < maxWaitMs)
         {
-            if (_initializationTask == null)
+            await Task.Delay(checkInterval);
+            waited += checkInterval;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current connection config for a site (for UI display).
+    /// </summary>
+    public UniFiConnectionConfig? GetCurrentConfig(int siteId)
+    {
+        if (!_connections.TryGetValue(siteId, out var conn) || conn.Settings == null)
+            return null;
+
+        return new UniFiConnectionConfig
+        {
+            ControllerUrl = conn.Settings.ControllerUrl ?? "",
+            Username = conn.Settings.Username ?? "",
+            Password = "", // Never expose password
+            UniFiSiteId = conn.Settings.UniFiSiteId,
+            RememberCredentials = conn.Settings.RememberCredentials,
+            IgnoreControllerSSLErrors = conn.Settings.IgnoreControllerSSLErrors
+        };
+    }
+
+    #endregion
+
+    #region Settings
+
+    /// <summary>
+    /// Get the connection settings for a site from database.
+    /// </summary>
+    public async Task<UniFiConnectionSettings> GetSettingsAsync(int siteId)
+    {
+        var conn = GetOrCreateConnection(siteId);
+
+        // Check cache first
+        if (conn.Settings != null && DateTime.UtcNow - conn.SettingsCacheTime < SettingsCacheExpiry)
+        {
+            return conn.Settings;
+        }
+
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
+
+        var settings = await repository.GetUniFiConnectionSettingsAsync(siteId);
+
+        if (settings == null)
+        {
+            // Create default settings for this site
+            settings = new UniFiConnectionSettings
             {
-                _initializationTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await LoadConfigAndConnectAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error during UniFi connection service initialization");
-                    }
-                });
-            }
-        }
-    }
-
-    /// <summary>
-    /// Loads configuration from database and optionally auto-connects.
-    /// </summary>
-    private async Task LoadConfigAndConnectAsync()
-    {
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-
-            var settings = await repository.GetUniFiConnectionSettingsAsync();
-
-            if (settings != null && settings.IsConfigured && !string.IsNullOrEmpty(settings.ControllerUrl))
-            {
-                _settings = settings;
-                _cacheTime = DateTime.UtcNow;
-
-                _logger.LogInformation("Loaded saved UniFi configuration for {Url}", settings.ControllerUrl);
-
-                // Auto-connect if we have credentials and RememberCredentials is true
-                if (settings.RememberCredentials && settings.HasCredentials)
-                {
-                    await Task.Delay(2000); // Wait for app startup
-                    await ConnectWithSettingsAsync(settings);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error loading UniFi configuration from database");
-        }
-        finally
-        {
-            IsInitialized = true;
-        }
-    }
-
-    /// <summary>
-    /// Ensures initialization has completed. Call this before accessing settings
-    /// if you need to guarantee config is loaded.
-    /// </summary>
-    public async Task EnsureInitializedAsync()
-    {
-        var task = _initializationTask;
-        if (task != null)
-        {
-            await task;
-        }
-    }
-
-    public bool IsConnected => _isConnected && _client != null;
-    public bool IsInitialized { get; private set; }
-    public string? LastError => _lastError;
-    public DateTime? LastConnectedAt => _lastConnectedAt;
-    public bool IsUniFiOs => _client?.IsUniFiOs ?? false;
-
-    /// <summary>
-    /// Gets the current connection config (for UI display)
-    /// </summary>
-    public UniFiConnectionConfig? CurrentConfig
-    {
-        get
-        {
-            if (_settings == null) return null;
-            return new UniFiConnectionConfig
-            {
-                ControllerUrl = _settings.ControllerUrl ?? "",
-                Username = _settings.Username ?? "",
-                Password = "", // Never expose password
-                Site = _settings.Site,
-                RememberCredentials = _settings.RememberCredentials,
-                IgnoreControllerSSLErrors = _settings.IgnoreControllerSSLErrors
+                SiteId = siteId,
+                UniFiSiteId = "default",
+                RememberCredentials = true,
+                IsConfigured = false,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
             };
+            await repository.SaveUniFiConnectionSettingsAsync(siteId, settings);
         }
+
+        conn.Settings = settings;
+        conn.SettingsCacheTime = DateTime.UtcNow;
+
+        return settings;
     }
 
     /// <summary>
-    /// Gets the active UniFi API client, or null if not connected
+    /// Get the stored (decrypted) password for a site.
     /// </summary>
-    public UniFiApiClient? Client => _isConnected ? _client : null;
-
-    /// <summary>
-    /// Get the stored (decrypted) password for testing connection
-    /// </summary>
-    public async Task<string?> GetStoredPasswordAsync()
+    public async Task<string?> GetStoredPasswordAsync(int siteId)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
         if (!string.IsNullOrEmpty(settings.Password))
         {
             try
@@ -186,119 +200,100 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         return null;
     }
 
-    /// <summary>
-    /// Get the connection settings from database
-    /// </summary>
-    public async Task<UniFiConnectionSettings> GetSettingsAsync()
-    {
-        // Check cache first
-        if (_settings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
-        {
-            return _settings;
-        }
+    #endregion
 
-        using var scope = _serviceProvider.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-
-        var settings = await repository.GetUniFiConnectionSettingsAsync();
-
-        if (settings == null)
-        {
-            // Create default settings
-            settings = new UniFiConnectionSettings
-            {
-                Site = "default",
-                RememberCredentials = true,
-                IsConfigured = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-            await repository.SaveUniFiConnectionSettingsAsync(settings);
-        }
-
-        _settings = settings;
-        _cacheTime = DateTime.UtcNow;
-
-        return settings;
-    }
+    #region Connect/Disconnect
 
     /// <summary>
-    /// Configure and connect to a UniFi controller
+    /// Configure and connect a site to its UniFi controller.
     /// </summary>
-    public async Task<bool> ConnectAsync(UniFiConnectionConfig config)
+    public async Task<bool> ConnectAsync(int siteId, UniFiConnectionConfig config)
     {
-        _logger.LogInformation("Connecting to UniFi controller at {Url}", config.ControllerUrl);
+        _logger.LogInformation("Connecting site {SiteId} to UniFi controller at {Url}", siteId, config.ControllerUrl);
+
+        var conn = GetOrCreateConnection(siteId);
 
         try
         {
+            conn.IsConnecting = true;
+
             // Dispose existing client
-            _client?.Dispose();
-            _client = null;
-            _isConnected = false;
-            _lastError = null;
+            conn.Client?.Dispose();
+            conn.Client = null;
+            conn.IsConnected = false;
+            conn.LastError = null;
 
             // Create new client
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
-            _client = new UniFiApiClient(
+            conn.Client = new UniFiApiClient(
                 clientLogger,
                 config.ControllerUrl,
                 config.Username,
                 config.Password,
-                config.Site,
+                config.UniFiSiteId,
                 config.IgnoreControllerSSLErrors
             );
 
             // Attempt to authenticate
-            var success = await _client.LoginAsync();
+            var success = await conn.Client.LoginAsync();
 
             if (success)
             {
-                _isConnected = true;
-                _lastConnectedAt = DateTime.UtcNow;
+                conn.IsConnected = true;
+                conn.LastConnectedAt = DateTime.UtcNow;
 
                 // Save configuration to database
-                await SaveSettingsAsync(config);
+                await SaveSettingsAsync(siteId, config);
 
-                // Clear cached data from previous connection/site
-                ClearCaches();
+                // Clear cached data
+                conn.ClearCaches();
 
-                _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
+                _logger.LogInformation("Site {SiteId} successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})",
+                    siteId, conn.Client.IsUniFiOs);
 
-                // Notify subscribers to refresh their data
-                OnConnectionChanged?.Invoke();
+                // Notify subscribers
+                OnConnectionChanged?.Invoke(siteId);
 
                 return true;
             }
             else
             {
-                // Use detailed error from API client if available
-                _lastError = _client.LastLoginError ?? "Authentication failed. Check username and password.";
-                _logger.LogWarning("Failed to authenticate with UniFi controller");
-                _client.Dispose();
-                _client = null;
+                conn.LastError = conn.Client.LastLoginError ?? "Authentication failed. Check username and password.";
+                _logger.LogWarning("Site {SiteId} failed to authenticate with UniFi controller", siteId);
+                conn.Client.Dispose();
+                conn.Client = null;
                 return false;
             }
         }
         catch (Exception ex)
         {
-            _lastError = ParseConnectionException(ex);
-            _logger.LogError(ex, "Error connecting to UniFi controller");
-            _client?.Dispose();
-            _client = null;
+            conn.LastError = ParseConnectionException(ex);
+            _logger.LogError(ex, "Error connecting site {SiteId} to UniFi controller", siteId);
+            conn.Client?.Dispose();
+            conn.Client = null;
             return false;
+        }
+        finally
+        {
+            conn.IsConnecting = false;
         }
     }
 
     /// <summary>
-    /// Connect using existing settings from database
+    /// Connect a site using saved credentials from database.
     /// </summary>
-    private async Task<bool> ConnectWithSettingsAsync(UniFiConnectionSettings settings)
+    public async Task<bool> ConnectWithSavedCredentialsAsync(int siteId)
     {
-        if (!settings.HasCredentials) return false;
+        var settings = await GetSettingsAsync(siteId);
+
+        if (!settings.IsConfigured || !settings.HasCredentials)
+        {
+            _logger.LogDebug("Site {SiteId} has no saved credentials", siteId);
+            return false;
+        }
 
         try
         {
-            // Decrypt password
             var decryptedPassword = _credentialProtection.Decrypt(settings.Password!);
 
             var config = new UniFiConnectionConfig
@@ -306,87 +301,128 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 ControllerUrl = settings.ControllerUrl!,
                 Username = settings.Username!,
                 Password = decryptedPassword,
-                Site = settings.Site,
+                UniFiSiteId = settings.UniFiSiteId,
                 RememberCredentials = settings.RememberCredentials,
                 IgnoreControllerSSLErrors = settings.IgnoreControllerSSLErrors
             };
 
+            var conn = GetOrCreateConnection(siteId);
+
             // Dispose existing client
-            _client?.Dispose();
-            _client = null;
-            _isConnected = false;
-            _lastError = null;
+            conn.Client?.Dispose();
+            conn.Client = null;
+            conn.IsConnected = false;
+            conn.LastError = null;
 
             // Create new client
             var clientLogger = _loggerFactory.CreateLogger<UniFiApiClient>();
-            _client = new UniFiApiClient(
+            conn.Client = new UniFiApiClient(
                 clientLogger,
                 config.ControllerUrl,
                 config.Username,
                 config.Password,
-                config.Site,
+                config.UniFiSiteId,
                 config.IgnoreControllerSSLErrors
             );
 
-            var success = await _client.LoginAsync();
+            var success = await conn.Client.LoginAsync();
 
             if (success)
             {
-                _isConnected = true;
-                _lastConnectedAt = DateTime.UtcNow;
+                conn.IsConnected = true;
+                conn.LastConnectedAt = DateTime.UtcNow;
 
                 // Update last connected timestamp in DB
                 using var scope = _serviceProvider.CreateScope();
                 var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-                var dbSettings = await repository.GetUniFiConnectionSettingsAsync();
+                var dbSettings = await repository.GetUniFiConnectionSettingsAsync(siteId);
                 if (dbSettings != null)
                 {
                     dbSettings.LastConnectedAt = DateTime.UtcNow;
                     dbSettings.LastError = null;
                     dbSettings.UpdatedAt = DateTime.UtcNow;
-                    await repository.SaveUniFiConnectionSettingsAsync(dbSettings);
+                    await repository.SaveUniFiConnectionSettingsAsync(siteId, dbSettings);
                 }
 
-                _logger.LogInformation("Successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})", _client.IsUniFiOs);
+                _logger.LogInformation("Site {SiteId} successfully connected to UniFi controller (UniFi OS: {IsUniFiOs})",
+                    siteId, conn.Client.IsUniFiOs);
                 return true;
             }
             else
             {
-                // Use detailed error from API client if available
-                _lastError = _client.LastLoginError ?? "Authentication failed. Check username and password.";
-                _client.Dispose();
-                _client = null;
+                conn.LastError = conn.Client.LastLoginError ?? "Authentication failed. Check username and password.";
+                conn.Client.Dispose();
+                conn.Client = null;
                 return false;
             }
         }
         catch (Exception ex)
         {
-            _lastError = ParseConnectionException(ex);
-            _logger.LogError(ex, "Error connecting to UniFi controller");
-            _client?.Dispose();
-            _client = null;
+            var conn = GetOrCreateConnection(siteId);
+            conn.LastError = ParseConnectionException(ex);
+            _logger.LogError(ex, "Error connecting site {SiteId} to UniFi controller", siteId);
+            conn.Client?.Dispose();
+            conn.Client = null;
             return false;
         }
     }
 
     /// <summary>
-    /// Save connection settings to database
+    /// Disconnect a site from its UniFi controller.
     /// </summary>
-    private async Task SaveSettingsAsync(UniFiConnectionConfig config)
+    public async Task DisconnectAsync(int siteId)
+    {
+        if (!_connections.TryGetValue(siteId, out var conn))
+            return;
+
+        if (conn.Client != null)
+        {
+            try
+            {
+                await conn.Client.LogoutAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error during logout for site {SiteId}", siteId);
+            }
+
+            conn.Client.Dispose();
+            conn.Client = null;
+        }
+
+        conn.IsConnected = false;
+        conn.ClearCaches();
+        _logger.LogInformation("Site {SiteId} disconnected from UniFi controller", siteId);
+        OnConnectionChanged?.Invoke(siteId);
+    }
+
+    /// <summary>
+    /// Attempt to reconnect a site using saved configuration.
+    /// </summary>
+    public async Task<bool> ReconnectAsync(int siteId)
+    {
+        return await ConnectWithSavedCredentialsAsync(siteId);
+    }
+
+    /// <summary>
+    /// Save connection settings to database.
+    /// </summary>
+    private async Task SaveSettingsAsync(int siteId, UniFiConnectionConfig config)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-            var settings = await repository.GetUniFiConnectionSettingsAsync() ?? new UniFiConnectionSettings
+            var settings = await repository.GetUniFiConnectionSettingsAsync(siteId) ?? new UniFiConnectionSettings
             {
+                SiteId = siteId,
                 CreatedAt = DateTime.UtcNow
             };
 
             settings.ControllerUrl = config.ControllerUrl;
             settings.Username = config.Username;
-            settings.Site = config.Site;
+            settings.UniFiSiteId = config.UniFiSiteId;
             settings.RememberCredentials = config.RememberCredentials;
             settings.IgnoreControllerSSLErrors = config.IgnoreControllerSSLErrors;
             settings.IsConfigured = true;
@@ -400,61 +436,53 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 settings.Password = _credentialProtection.Encrypt(config.Password);
             }
 
-            await repository.SaveUniFiConnectionSettingsAsync(settings);
+            await repository.SaveUniFiConnectionSettingsAsync(siteId, settings);
 
             // Update cache
-            _settings = settings;
-            _cacheTime = DateTime.UtcNow;
+            var conn = GetOrCreateConnection(siteId);
+            conn.Settings = settings;
+            conn.SettingsCacheTime = DateTime.UtcNow;
 
-            _logger.LogInformation("Saved UniFi configuration to database");
+            _logger.LogInformation("Saved UniFi configuration for site {SiteId}", siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error saving UniFi configuration to database");
+            _logger.LogWarning(ex, "Error saving UniFi configuration for site {SiteId}", siteId);
         }
     }
 
     /// <summary>
-    /// Clears all cached data (devices, networks, etc.).
-    /// Called automatically on connection changes.
+    /// Clear saved credentials for a site.
     /// </summary>
-    public void ClearCaches()
+    public async Task ClearCredentialsAsync(int siteId)
     {
-        _cachedDevices = null;
-        _deviceCacheTime = DateTime.MinValue;
-        _cachedNetworks = null;
-        _networkCacheTime = DateTime.MinValue;
-        _logger.LogDebug("Cleared device and network caches");
-    }
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
 
-    /// <summary>
-    /// Disconnect from the controller
-    /// </summary>
-    public async Task DisconnectAsync()
-    {
-        if (_client != null)
+        var settings = await repository.GetUniFiConnectionSettingsAsync(siteId);
+        if (settings != null)
         {
-            try
-            {
-                await _client.LogoutAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error during logout");
-            }
-
-            _client.Dispose();
-            _client = null;
+            settings.Username = null;
+            settings.Password = null;
+            settings.IsConfigured = false;
+            settings.UpdatedAt = DateTime.UtcNow;
+            await repository.SaveUniFiConnectionSettingsAsync(siteId, settings);
         }
 
-        _isConnected = false;
-        ClearCaches();
-        _logger.LogInformation("Disconnected from UniFi controller");
-        OnConnectionChanged?.Invoke();
+        // Invalidate cache
+        if (_connections.TryGetValue(siteId, out var conn))
+        {
+            conn.Settings = null;
+            conn.SettingsCacheTime = DateTime.MinValue;
+        }
     }
 
+    #endregion
+
+    #region Test Connection
+
     /// <summary>
-    /// Test connection without saving
+    /// Test connection without saving.
     /// </summary>
     public async Task<(bool Success, string? Error, string? ControllerInfo)> TestConnectionAsync(UniFiConnectionConfig config)
     {
@@ -469,7 +497,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.ControllerUrl,
                 config.Username,
                 config.Password,
-                config.Site,
+                config.UniFiSiteId,
                 config.IgnoreControllerSSLErrors
             );
 
@@ -477,7 +505,6 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
             if (success)
             {
-                // Get system info for display
                 var sysInfo = await testClient.GetSystemInfoAsync();
                 var info = sysInfo != null
                     ? $"{sysInfo.Name} v{sysInfo.Version} ({(testClient.IsUniFiOs ? "UniFi OS" : "Standalone")})"
@@ -487,14 +514,12 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
             }
             else
             {
-                // Use detailed error from API client if available
                 var error = testClient.LastLoginError ?? "Authentication failed. Check username and password.";
                 return (false, error, null);
             }
         }
         catch (Exception ex)
         {
-            // Parse common connection errors for user-friendly messages
             var error = ParseConnectionException(ex);
             return (false, error, null);
         }
@@ -506,11 +531,10 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     /// <summary>
     /// Get list of available sites from the controller using provided credentials.
-    /// Creates a temporary connection to fetch sites without affecting current connection state.
     /// </summary>
-    public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetSitesAsync(UniFiConnectionConfig config)
+    public async Task<(bool Success, string? Error, List<UniFiSite> Sites)> GetUniFiSitesAsync(UniFiConnectionConfig config)
     {
-        _logger.LogInformation("Fetching sites from UniFi controller at {Url}", config.ControllerUrl);
+        _logger.LogInformation("Fetching UniFi sites from controller at {Url}", config.ControllerUrl);
 
         UniFiApiClient? testClient = null;
         try
@@ -521,7 +545,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 config.ControllerUrl,
                 config.Username,
                 config.Password,
-                config.Site,
+                config.UniFiSiteId,
                 config.IgnoreControllerSSLErrors
             );
 
@@ -555,7 +579,7 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                 }
             }
 
-            _logger.LogInformation("Found {Count} sites", sites.Count);
+            _logger.LogInformation("Found {Count} UniFi sites", sites.Count);
             return (true, null, sites);
         }
         catch (Exception ex)
@@ -569,164 +593,109 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
         }
     }
 
-    /// <summary>
-    /// Attempt to reconnect using saved configuration
-    /// </summary>
-    public async Task<bool> ReconnectAsync()
-    {
-        var settings = await GetSettingsAsync();
+    #endregion
 
-        if (!settings.IsConfigured || !settings.HasCredentials)
-        {
-            _lastError = "No saved configuration";
-            return false;
-        }
-
-        return await ConnectWithSettingsAsync(settings);
-    }
+    #region Device and Network Discovery
 
     /// <summary>
-    /// Wait for the connection to be established (for use during app startup).
-    /// Polls until connected or timeout is reached.
+    /// Get all discovered devices for a site with proper DeviceType enum values.
     /// </summary>
-    /// <param name="timeout">Maximum time to wait</param>
-    /// <param name="pollInterval">How often to check connection status</param>
-    /// <returns>True if connected, false if timeout or no saved credentials</returns>
-    public async Task<bool> WaitForConnectionAsync(TimeSpan? timeout = null, TimeSpan? pollInterval = null)
+    public async Task<List<DiscoveredDevice>> GetDiscoveredDevicesAsync(int siteId, CancellationToken cancellationToken = default)
     {
-        timeout ??= TimeSpan.FromSeconds(3);
-        pollInterval ??= TimeSpan.FromMilliseconds(250);
-
-        // If already connected, return immediately
-        if (IsConnected) return true;
-
-        // Check if we have saved credentials to connect with
-        var settings = await GetSettingsAsync();
-        if (!settings.IsConfigured || !settings.HasCredentials || !settings.RememberCredentials)
+        if (!_connections.TryGetValue(siteId, out var conn) || conn.Client == null || !conn.IsConnected)
         {
-            // No auto-connect will happen, don't wait
-            return false;
-        }
-
-        var startTime = DateTime.UtcNow;
-        while (DateTime.UtcNow - startTime < timeout)
-        {
-            if (IsConnected) return true;
-            await Task.Delay(pollInterval.Value);
-        }
-
-        _logger.LogWarning("Timed out waiting for UniFi controller connection");
-        return false;
-    }
-
-    /// <summary>
-    /// Clear saved credentials from database
-    /// </summary>
-    public async Task ClearCredentialsAsync()
-    {
-        using var scope = _serviceProvider.CreateScope();
-        var repository = scope.ServiceProvider.GetRequiredService<IUniFiRepository>();
-
-        var settings = await repository.GetUniFiConnectionSettingsAsync();
-        if (settings != null)
-        {
-            settings.Username = null;
-            settings.Password = null;
-            settings.IsConfigured = false;
-            settings.UpdatedAt = DateTime.UtcNow;
-            await repository.SaveUniFiConnectionSettingsAsync(settings);
-        }
-
-        // Invalidate cache
-        _settings = null;
-        _cacheTime = DateTime.MinValue;
-    }
-
-    /// <summary>
-    /// Get all discovered devices with proper DeviceType enum values.
-    /// This is the preferred way to get devices - use this instead of Client.GetDevicesAsync().
-    /// </summary>
-    public async Task<List<DiscoveredDevice>> GetDiscoveredDevicesAsync(CancellationToken cancellationToken = default)
-    {
-        if (_client == null || !_isConnected)
-        {
-            _logger.LogWarning("Cannot get devices - not connected to controller");
+            _logger.LogWarning("Cannot get devices for site {SiteId} - not connected", siteId);
             return new List<DiscoveredDevice>();
         }
 
         // Return cached devices if still fresh
-        if (_cachedDevices != null && DateTime.UtcNow - _deviceCacheTime < DeviceCacheDuration)
+        if (conn.CachedDevices != null && DateTime.UtcNow - conn.DeviceCacheTime < DeviceCacheDuration)
         {
-            _logger.LogDebug("Returning cached device list ({Count} devices)", _cachedDevices.Count);
-            return _cachedDevices;
+            _logger.LogDebug("Returning cached device list for site {SiteId} ({Count} devices)", siteId, conn.CachedDevices.Count);
+            return conn.CachedDevices;
         }
 
         var discoveryLogger = _loggerFactory.CreateLogger<UniFiDiscovery>();
-        var discovery = new UniFiDiscovery(_client, discoveryLogger);
+        var discovery = new UniFiDiscovery(conn.Client, discoveryLogger);
         var devices = await discovery.DiscoverDevicesAsync(cancellationToken);
 
         // Cache the result
-        _cachedDevices = devices;
-        _deviceCacheTime = DateTime.UtcNow;
+        conn.CachedDevices = devices;
+        conn.DeviceCacheTime = DateTime.UtcNow;
 
         return devices;
     }
 
     /// <summary>
-    /// Invalidates the device cache, forcing a fresh fetch on next request.
+    /// Invalidates the device cache for a site, forcing a fresh fetch on next request.
     /// </summary>
-    public void InvalidateDeviceCache()
+    public void InvalidateDeviceCache(int siteId)
     {
-        _cachedDevices = null;
-        _deviceCacheTime = DateTime.MinValue;
+        if (_connections.TryGetValue(siteId, out var conn))
+        {
+            conn.CachedDevices = null;
+            conn.DeviceCacheTime = DateTime.MinValue;
+        }
     }
 
     /// <summary>
-    /// Gets the list of configured networks from the UniFi controller.
-    /// Results are cached for 5 minutes.
+    /// Gets the list of configured networks for a site from the UniFi controller.
     /// </summary>
-    public async Task<List<NetworkInfo>> GetNetworksAsync(CancellationToken cancellationToken = default)
+    public async Task<List<NetworkInfo>> GetNetworksAsync(int siteId, CancellationToken cancellationToken = default)
     {
-        if (_client == null || !_isConnected)
+        if (!_connections.TryGetValue(siteId, out var conn) || conn.Client == null || !conn.IsConnected)
         {
-            _logger.LogWarning("Cannot get networks - not connected to controller");
+            _logger.LogWarning("Cannot get networks for site {SiteId} - not connected", siteId);
             return new List<NetworkInfo>();
         }
 
         // Return cached networks if still fresh
-        if (_cachedNetworks != null && DateTime.UtcNow - _networkCacheTime < NetworkCacheDuration)
+        if (conn.CachedNetworks != null && DateTime.UtcNow - conn.NetworkCacheTime < NetworkCacheDuration)
         {
-            return _cachedNetworks;
+            return conn.CachedNetworks;
         }
 
         var discoveryLogger = _loggerFactory.CreateLogger<UniFiDiscovery>();
-        var discovery = new UniFiDiscovery(_client, discoveryLogger);
+        var discovery = new UniFiDiscovery(conn.Client, discoveryLogger);
         var topology = await discovery.DiscoverTopologyAsync(cancellationToken);
 
         // Cache the result
-        _cachedNetworks = topology.Networks;
-        _networkCacheTime = DateTime.UtcNow;
+        conn.CachedNetworks = topology.Networks;
+        conn.NetworkCacheTime = DateTime.UtcNow;
 
-        return _cachedNetworks;
+        return conn.CachedNetworks;
     }
+
+    /// <summary>
+    /// Clears all cached data for a site.
+    /// </summary>
+    public void ClearCaches(int siteId)
+    {
+        if (_connections.TryGetValue(siteId, out var conn))
+        {
+            conn.ClearCaches();
+            _logger.LogDebug("Cleared caches for site {SiteId}", siteId);
+        }
+    }
+
+    #endregion
+
+    #region Speed Test Enrichment
 
     /// <summary>
     /// Enrich a speed test result with client info from UniFi (MAC, name, Wi-Fi signal).
     /// </summary>
-    /// <param name="result">The speed test result to enrich</param>
-    /// <param name="setDeviceName">Whether to set DeviceName from UniFi (false for SSH tests that already have a name)</param>
-    /// <param name="overwriteMac">Whether to overwrite existing MAC (false for SSH tests that may have MAC from config)</param>
-    public async Task EnrichSpeedTestWithClientInfoAsync(Iperf3Result result, bool setDeviceName = true, bool overwriteMac = true)
+    public async Task EnrichSpeedTestWithClientInfoAsync(int siteId, Iperf3Result result, bool setDeviceName = true, bool overwriteMac = true)
     {
-        if (!IsConnected || _client == null)
+        if (!_connections.TryGetValue(siteId, out var conn) || conn.Client == null || !conn.IsConnected)
             return;
 
         try
         {
-            var clients = await _client.GetClientsAsync();
+            var clients = await conn.Client.GetClientsAsync();
             var client = clients?.FirstOrDefault(c => c.Ip == result.DeviceHost);
 
-            // If IP match failed, try matching by MAC (for hostname-based tests where MAC was set by path analysis)
+            // If IP match failed, try matching by MAC
             if (client == null && !string.IsNullOrEmpty(result.ClientMac))
             {
                 client = clients?.FirstOrDefault(c =>
@@ -770,25 +739,60 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
                         rxRate = m.RxRate
                     }).ToList();
                     result.WifiMloLinksJson = JsonSerializer.Serialize(mloLinks);
-                    _logger.LogDebug("Captured MLO data for {Ip}: {LinkCount} links",
-                        result.DeviceHost, client.MloDetails.Count);
                 }
 
-                _logger.LogDebug("Enriched Wi-Fi info for {Ip}: Signal={Signal}dBm, Channel={Channel}, Radio={Radio}, Proto={Proto}, MLO={IsMlo}",
-                    result.DeviceHost, result.WifiSignalDbm, result.WifiChannel, result.WifiRadio, result.WifiRadioProto, result.WifiIsMlo);
+                _logger.LogDebug("Enriched Wi-Fi info for site {SiteId}, {Ip}: Signal={Signal}dBm",
+                    siteId, result.DeviceHost, result.WifiSignalDbm);
             }
-
-            _logger.LogDebug("Enriched client info for {Ip}: MAC={Mac}, Name={Name}",
-                result.DeviceHost, result.ClientMac, result.DeviceName);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to enrich client info for {Ip}", result.DeviceHost);
+            _logger.LogWarning(ex, "Failed to enrich client info for site {SiteId}, {Ip}", siteId, result.DeviceHost);
         }
     }
 
     /// <summary>
-    /// Parses connection exceptions for user-friendly error messages
+    /// Enrich a speed test result with client info from UniFi, searching across all connected sites.
+    /// Used for client-initiated tests where the site is unknown.
+    /// </summary>
+    public async Task EnrichSpeedTestWithClientInfoAsync(Iperf3Result result, bool setDeviceName = true, bool overwriteMac = true)
+    {
+        // Try each connected site until we find the client
+        foreach (var siteId in _connections.Keys)
+        {
+            if (IsConnected(siteId))
+            {
+                await EnrichSpeedTestWithClientInfoAsync(siteId, result, setDeviceName, overwriteMac);
+                // If we found client info (MAC was set), stop searching
+                if (!string.IsNullOrEmpty(result.ClientMac))
+                    return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Check if any site is connected. Used by services that don't have site context.
+    /// </summary>
+    public bool IsAnyConnected()
+    {
+        return _connections.Values.Any(c => c.IsConnected && c.Client != null);
+    }
+
+    /// <summary>
+    /// Get any connected client. Used by services that need a client but don't have site context
+    /// (e.g., fetching the fingerprint database which is global to UniFi).
+    /// </summary>
+    public UniFiApiClient? GetAnyConnectedClient()
+    {
+        return _connections.Values.FirstOrDefault(c => c.IsConnected && c.Client != null)?.Client;
+    }
+
+    #endregion
+
+    #region Helpers
+
+    /// <summary>
+    /// Parses connection exceptions for user-friendly error messages.
     /// </summary>
     private string ParseConnectionException(Exception ex)
     {
@@ -836,16 +840,64 @@ public class UniFiConnectionService : IUniFiClientProvider, IDisposable
 
     public void Dispose()
     {
-        _client?.Dispose();
+        foreach (var conn in _connections.Values)
+        {
+            conn.Client?.Dispose();
+        }
+        _connections.Clear();
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// Connection state for a single site.
+/// </summary>
+internal class SiteConnection
+{
+    public int SiteId { get; }
+    public UniFiApiClient? Client { get; set; }
+    public bool IsConnected { get; set; }
+    public bool IsConnecting { get; set; }
+    public string? LastError { get; set; }
+    public DateTime? LastConnectedAt { get; set; }
+
+    // Settings cache
+    public UniFiConnectionSettings? Settings { get; set; }
+    public DateTime SettingsCacheTime { get; set; } = DateTime.MinValue;
+
+    // Device cache
+    public List<DiscoveredDevice>? CachedDevices { get; set; }
+    public DateTime DeviceCacheTime { get; set; } = DateTime.MinValue;
+
+    // Network cache
+    public List<NetworkInfo>? CachedNetworks { get; set; }
+    public DateTime NetworkCacheTime { get; set; } = DateTime.MinValue;
+
+    public SiteConnection(int siteId)
+    {
+        SiteId = siteId;
+    }
+
+    public void ClearCaches()
+    {
+        CachedDevices = null;
+        DeviceCacheTime = DateTime.MinValue;
+        CachedNetworks = null;
+        NetworkCacheTime = DateTime.MinValue;
     }
 }
 
+/// <summary>
+/// Configuration for connecting to a UniFi controller.
+/// </summary>
 public class UniFiConnectionConfig
 {
     public string ControllerUrl { get; set; } = "";
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
-    public string Site { get; set; } = "default";
+    /// <summary>UniFi site ID within the controller, used in API paths (default: "default")</summary>
+    public string UniFiSiteId { get; set; } = "default";
     public bool RememberCredentials { get; set; } = true;
     /// <summary>
     /// Whether to ignore SSL certificate errors when connecting to the controller.

@@ -16,12 +16,12 @@ namespace NetworkOptimizer.Web.Services;
 
 public class AuditService
 {
-    // Cache keys for IMemoryCache
-    private const string CacheKeyLastAuditResult = "AuditService_LastAuditResult";
-    private const string CacheKeyLastAuditTime = "AuditService_LastAuditTime";
-    private const string CacheKeyLastAuditId = "AuditService_LastAuditId";
-    private const string CacheKeyDismissedIssues = "AuditService_DismissedIssues";
-    private const string CacheKeyDismissedIssuesLoaded = "AuditService_DismissedIssuesLoaded";
+    // Cache key prefixes for site-specific caching
+    private const string CacheKeyLastAuditResultPrefix = "AuditService_LastAuditResult_";
+    private const string CacheKeyLastAuditTimePrefix = "AuditService_LastAuditTime_";
+    private const string CacheKeyLastAuditIdPrefix = "AuditService_LastAuditId_";
+    private const string CacheKeyDismissedIssuesPrefix = "AuditService_DismissedIssues_";
+    private const string CacheKeyDismissedIssuesLoadedPrefix = "AuditService_DismissedIssuesLoaded_";
 
     private readonly ILogger<AuditService> _logger;
     private readonly UniFiConnectionService _connectionService;
@@ -52,113 +52,112 @@ public class AuditService
         _cache = cache;
     }
 
-    // Cache accessors using IMemoryCache
-    private AuditResult? LastAuditResultCached
+    // Site-specific cache key builders
+    private static string GetCacheKeyLastAuditResult(int siteId) => $"{CacheKeyLastAuditResultPrefix}{siteId}";
+    private static string GetCacheKeyLastAuditTime(int siteId) => $"{CacheKeyLastAuditTimePrefix}{siteId}";
+    private static string GetCacheKeyLastAuditId(int siteId) => $"{CacheKeyLastAuditIdPrefix}{siteId}";
+    private static string GetCacheKeyDismissedIssues(int siteId) => $"{CacheKeyDismissedIssuesPrefix}{siteId}";
+    private static string GetCacheKeyDismissedIssuesLoaded(int siteId) => $"{CacheKeyDismissedIssuesLoadedPrefix}{siteId}";
+
+    // Site-specific cache accessors
+    private AuditResult? GetLastAuditResultCached(int siteId) => _cache.Get<AuditResult>(GetCacheKeyLastAuditResult(siteId));
+
+    private void SetLastAuditResultCached(int siteId, AuditResult? value)
     {
-        get => _cache.Get<AuditResult>(CacheKeyLastAuditResult);
-        set
-        {
-            if (value != null)
-                _cache.Set(CacheKeyLastAuditResult, value);
-            else
-                _cache.Remove(CacheKeyLastAuditResult);
-        }
+        if (value != null)
+            _cache.Set(GetCacheKeyLastAuditResult(siteId), value);
+        else
+            _cache.Remove(GetCacheKeyLastAuditResult(siteId));
     }
 
-    private DateTime? LastAuditTimeCached
+    private DateTime? GetLastAuditTimeCached(int siteId) => _cache.Get<DateTime?>(GetCacheKeyLastAuditTime(siteId));
+
+    private void SetLastAuditTimeCached(int siteId, DateTime? value)
     {
-        get => _cache.Get<DateTime?>(CacheKeyLastAuditTime);
-        set
-        {
-            if (value != null)
-                _cache.Set(CacheKeyLastAuditTime, value);
-            else
-                _cache.Remove(CacheKeyLastAuditTime);
-        }
+        if (value != null)
+            _cache.Set(GetCacheKeyLastAuditTime(siteId), value);
+        else
+            _cache.Remove(GetCacheKeyLastAuditTime(siteId));
     }
 
     /// <summary>
-    /// The database ID of the last audit result, used for PDF retrieval.
+    /// Gets the database ID of the last audit result for a site, used for PDF retrieval.
     /// </summary>
-    public int? LastAuditId
+    public int? GetLastAuditId(int siteId) => _cache.Get<int?>(GetCacheKeyLastAuditId(siteId));
+
+    private void SetLastAuditId(int siteId, int? value)
     {
-        get => _cache.Get<int?>(CacheKeyLastAuditId);
-        private set
-        {
-            if (value != null)
-                _cache.Set(CacheKeyLastAuditId, value);
-            else
-                _cache.Remove(CacheKeyLastAuditId);
-        }
+        if (value != null)
+            _cache.Set(GetCacheKeyLastAuditId(siteId), value);
+        else
+            _cache.Remove(GetCacheKeyLastAuditId(siteId));
     }
 
-    private ConcurrentDictionary<string, byte> DismissedIssuesCache
-    {
-        get => _cache.GetOrCreate(CacheKeyDismissedIssues, _ => new ConcurrentDictionary<string, byte>())!;
-    }
+    private ConcurrentDictionary<string, byte> GetDismissedIssuesCache(int siteId) =>
+        _cache.GetOrCreate(GetCacheKeyDismissedIssues(siteId), _ => new ConcurrentDictionary<string, byte>())!;
 
-    private bool DismissedIssuesLoaded
-    {
-        get => _cache.Get<bool>(CacheKeyDismissedIssuesLoaded);
-        set => _cache.Set(CacheKeyDismissedIssuesLoaded, value);
-    }
+    private bool GetDismissedIssuesLoaded(int siteId) => _cache.Get<bool>(GetCacheKeyDismissedIssuesLoaded(siteId));
+
+    private void SetDismissedIssuesLoaded(int siteId, bool value) => _cache.Set(GetCacheKeyDismissedIssuesLoaded(siteId), value);
 
     /// <summary>
-    /// Clears all in-memory cached audit data.
+    /// Clears all in-memory cached audit data for a site.
     /// Call this after clearing audit data from the database.
     /// </summary>
-    public void ClearCache()
+    public void ClearCache(int siteId)
     {
-        _cache.Remove(CacheKeyLastAuditResult);
-        _cache.Remove(CacheKeyLastAuditTime);
-        _cache.Remove(CacheKeyLastAuditId);
-        _cache.Remove(CacheKeyDismissedIssues);
-        _cache.Remove(CacheKeyDismissedIssuesLoaded);
-        _logger.LogInformation("Audit cache cleared");
+        _cache.Remove(GetCacheKeyLastAuditResult(siteId));
+        _cache.Remove(GetCacheKeyLastAuditTime(siteId));
+        _cache.Remove(GetCacheKeyLastAuditId(siteId));
+        _cache.Remove(GetCacheKeyDismissedIssues(siteId));
+        _cache.Remove(GetCacheKeyDismissedIssuesLoaded(siteId));
+        _logger.LogInformation("Audit cache cleared for site {SiteId}", siteId);
     }
 
     /// <summary>
-    /// Ensure dismissed issues are loaded from database
+    /// Ensure dismissed issues are loaded from database for a site
     /// </summary>
-    private async Task EnsureDismissedIssuesLoadedAsync()
+    private async Task EnsureDismissedIssuesLoadedAsync(int siteId)
     {
-        if (DismissedIssuesLoaded) return;
+        if (GetDismissedIssuesLoaded(siteId)) return;
 
         try
         {
-            var dismissed = await _auditRepository.GetDismissedIssuesAsync();
-            var cache = DismissedIssuesCache;
+            var dismissed = await _auditRepository.GetDismissedIssuesAsync(siteId);
+            var cache = GetDismissedIssuesCache(siteId);
             foreach (var issue in dismissed)
             {
                 cache.TryAdd(issue.IssueKey, 0);
             }
-            DismissedIssuesLoaded = true;
-            _logger.LogInformation("Loaded {Count} dismissed issues from database", dismissed.Count);
+            SetDismissedIssuesLoaded(siteId, true);
+            _logger.LogInformation("Loaded {Count} dismissed issues from database for site {SiteId}", dismissed.Count, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load dismissed issues from database");
-            DismissedIssuesLoaded = true; // Don't retry on every call
+            _logger.LogError(ex, "Failed to load dismissed issues from database for site {SiteId}", siteId);
+            SetDismissedIssuesLoaded(siteId, true); // Don't retry on every call
         }
     }
 
     /// <summary>
     /// Load audit settings from database into options
     /// </summary>
-    private async Task LoadAuditSettingsAsync(AuditOptions options)
+    private async Task LoadAuditSettingsAsync(int siteId, AuditOptions options)
     {
+        string SiteKey(string key) => $"site:{siteId}:audit:{key}";
+
         try
         {
-            var appleStreaming = await _settingsService.GetAsync("audit:allowAppleStreamingOnMainNetwork");
-            var allStreaming = await _settingsService.GetAsync("audit:allowAllStreamingOnMainNetwork");
-            var nameBrandTVs = await _settingsService.GetAsync("audit:allowNameBrandTVsOnMainNetwork");
-            var allTVs = await _settingsService.GetAsync("audit:allowAllTVsOnMainNetwork");
-            var mediaPlayers = await _settingsService.GetAsync("audit:allowMediaPlayersOnMainNetwork");
-            var printers = await _settingsService.GetAsync("audit:allowPrintersOnMainNetwork");
-            var dnatExcludedVlans = await _settingsService.GetAsync("audit:dnatExcludedVlans");
-            var piholePort = await _settingsService.GetAsync("audit:piholeManagementPort");
-            var unusedPortDays = await _settingsService.GetAsync("audit:unusedPortInactivityDays");
-            var namedPortDays = await _settingsService.GetAsync("audit:namedPortInactivityDays");
+            var appleStreaming = await _settingsService.GetAsync(SiteKey("allowAppleStreamingOnMainNetwork"));
+            var allStreaming = await _settingsService.GetAsync(SiteKey("allowAllStreamingOnMainNetwork"));
+            var nameBrandTVs = await _settingsService.GetAsync(SiteKey("allowNameBrandTVsOnMainNetwork"));
+            var allTVs = await _settingsService.GetAsync(SiteKey("allowAllTVsOnMainNetwork"));
+            var mediaPlayers = await _settingsService.GetAsync(SiteKey("allowMediaPlayersOnMainNetwork"));
+            var printers = await _settingsService.GetAsync(SiteKey("allowPrintersOnMainNetwork"));
+            var dnatExcludedVlans = await _settingsService.GetAsync(SiteKey("dnatExcludedVlans"));
+            var piholePort = await _settingsService.GetAsync(SiteKey("piholeManagementPort"));
+            var unusedPortDays = await _settingsService.GetAsync(SiteKey("unusedPortInactivityDays"));
+            var namedPortDays = await _settingsService.GetAsync(SiteKey("namedPortInactivityDays"));
 
             options.AllowAppleStreamingOnMainNetwork = appleStreaming?.ToLower() == "true";
             options.AllowAllStreamingOnMainNetwork = allStreaming?.ToLower() == "true";
@@ -185,8 +184,15 @@ public class AuditService
         }
     }
 
-    public AuditResult? LastAuditResult => LastAuditResultCached;
-    public DateTime? LastAuditTime => LastAuditTimeCached;
+    /// <summary>
+    /// Get the last audit result for a site.
+    /// </summary>
+    public AuditResult? GetLastAuditResult(int siteId) => GetLastAuditResultCached(siteId);
+
+    /// <summary>
+    /// Get the last audit time for a site.
+    /// </summary>
+    public DateTime? GetLastAuditTime(int siteId) => GetLastAuditTimeCached(siteId);
 
     /// <summary>
     /// Get a unique key for an issue (for tracking dismissals)
@@ -197,119 +203,120 @@ public class AuditService
     /// <summary>
     /// Dismiss an issue (excludes it from counts, persisted to database)
     /// </summary>
-    public async Task DismissIssueAsync(AuditIssue issue)
+    public async Task DismissIssueAsync(int siteId, AuditIssue issue)
     {
         var key = GetIssueKey(issue);
-        if (DismissedIssuesCache.TryAdd(key, 0))
+        if (GetDismissedIssuesCache(siteId).TryAdd(key, 0))
         {
             try
             {
-                await _auditRepository.SaveDismissedIssueAsync(new DismissedIssue
+                await _auditRepository.SaveDismissedIssueAsync(siteId, new DismissedIssue
                 {
+                    SiteId = siteId,
                     IssueKey = key,
                     DismissedAt = DateTime.UtcNow
                 });
-                _logger.LogInformation("Dismissed and persisted issue: {Key}", key);
+                _logger.LogInformation("Dismissed and persisted issue for site {SiteId}: {Key}", siteId, key);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to persist dismissed issue: {Key}", key);
+                _logger.LogError(ex, "Failed to persist dismissed issue for site {SiteId}: {Key}", siteId, key);
             }
         }
     }
 
     /// <summary>
-    /// Check if an issue has been dismissed
+    /// Check if an issue has been dismissed for a site
     /// </summary>
-    public bool IsIssueDismissed(AuditIssue issue) =>
-        DismissedIssuesCache.ContainsKey(GetIssueKey(issue));
+    public bool IsIssueDismissed(int siteId, AuditIssue issue) =>
+        GetDismissedIssuesCache(siteId).ContainsKey(GetIssueKey(issue));
 
     /// <summary>
-    /// Get active (non-dismissed) issues (synchronous - may not include dismissed filter if not yet loaded)
+    /// Get active (non-dismissed) issues for a site (synchronous - may not include dismissed filter if not yet loaded)
     /// Prefer using GetActiveIssuesAsync() for reliable results.
     /// </summary>
-    public List<AuditIssue> GetActiveIssues()
+    public List<AuditIssue> GetActiveIssues(int siteId)
     {
         // Return cached data only - don't block on loading dismissed issues
         // If dismissed issues haven't loaded yet, returns all issues
-        return LastAuditResultCached?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+        return GetLastAuditResultCached(siteId)?.Issues.Where(i => !IsIssueDismissed(siteId, i)).ToList() ?? new();
     }
 
     /// <summary>
-    /// Get active (non-dismissed) issues (async version)
+    /// Get active (non-dismissed) issues for a site (async version)
     /// </summary>
-    public async Task<List<AuditIssue>> GetActiveIssuesAsync()
+    public async Task<List<AuditIssue>> GetActiveIssuesAsync(int siteId)
     {
-        await EnsureDismissedIssuesLoadedAsync();
-        return LastAuditResultCached?.Issues.Where(i => !IsIssueDismissed(i)).ToList() ?? new();
+        await EnsureDismissedIssuesLoadedAsync(siteId);
+        return GetLastAuditResultCached(siteId)?.Issues.Where(i => !IsIssueDismissed(siteId, i)).ToList() ?? new();
     }
 
     /// <summary>
-    /// Get dismissed issues from the current audit result
+    /// Get dismissed issues from the current audit result for a site
     /// </summary>
-    public async Task<List<AuditIssue>> GetDismissedIssuesAsync()
+    public async Task<List<AuditIssue>> GetDismissedIssuesAsync(int siteId)
     {
-        await EnsureDismissedIssuesLoadedAsync();
-        return LastAuditResultCached?.Issues.Where(i => IsIssueDismissed(i)).ToList() ?? new();
+        await EnsureDismissedIssuesLoadedAsync(siteId);
+        return GetLastAuditResultCached(siteId)?.Issues.Where(i => IsIssueDismissed(siteId, i)).ToList() ?? new();
     }
 
     /// <summary>
-    /// Restore a dismissed issue (removes from dismissed list)
+    /// Restore a dismissed issue for a site (removes from dismissed list)
     /// </summary>
-    public async Task RestoreIssueAsync(AuditIssue issue)
+    public async Task RestoreIssueAsync(int siteId, AuditIssue issue)
     {
         var key = GetIssueKey(issue);
-        if (DismissedIssuesCache.TryRemove(key, out _))
+        if (GetDismissedIssuesCache(siteId).TryRemove(key, out _))
         {
             try
             {
-                await _auditRepository.DeleteDismissedIssueAsync(key);
-                _logger.LogInformation("Restored issue: {Key}", key);
+                await _auditRepository.DeleteDismissedIssueAsync(siteId, key);
+                _logger.LogInformation("Restored issue for site {SiteId}: {Key}", siteId, key);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to remove dismissed issue from database: {Key}", key);
+                _logger.LogError(ex, "Failed to remove dismissed issue from database for site {SiteId}: {Key}", siteId, key);
             }
         }
     }
 
     /// <summary>
-    /// Get count of active critical issues
+    /// Get count of active critical issues for a site
     /// </summary>
-    public int ActiveCriticalCount =>
-        GetActiveIssues().Count(i => i.Severity == AuditModels.AuditSeverity.Critical);
+    public int GetActiveCriticalCount(int siteId) =>
+        GetActiveIssues(siteId).Count(i => i.Severity == AuditModels.AuditSeverity.Critical);
 
     /// <summary>
-    /// Get count of active recommended issues
+    /// Get count of active recommended issues for a site
     /// </summary>
-    public int ActiveRecommendedCount =>
-        GetActiveIssues().Count(i => i.Severity == AuditModels.AuditSeverity.Recommended);
+    public int GetActiveRecommendedCount(int siteId) =>
+        GetActiveIssues(siteId).Count(i => i.Severity == AuditModels.AuditSeverity.Recommended);
 
     /// <summary>
-    /// Clear all dismissed issues (removes from database too)
+    /// Clear all dismissed issues for a site (removes from database too)
     /// </summary>
-    public async Task ClearDismissedIssuesAsync()
+    public async Task ClearDismissedIssuesAsync(int siteId)
     {
-        DismissedIssuesCache.Clear();
+        GetDismissedIssuesCache(siteId).Clear();
         try
         {
-            await _auditRepository.ClearAllDismissedIssuesAsync();
-            _logger.LogInformation("Cleared all dismissed issues from database");
+            await _auditRepository.ClearAllDismissedIssuesAsync(siteId);
+            _logger.LogInformation("Cleared all dismissed issues from database for site {SiteId}", siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to clear dismissed issues from database");
+            _logger.LogError(ex, "Failed to clear dismissed issues from database for site {SiteId}", siteId);
         }
     }
 
     /// <summary>
-    /// Load the most recent audit result from the database
+    /// Load the most recent audit result from the database for a site
     /// </summary>
-    public async Task<AuditResult?> LoadLastAuditFromDatabaseAsync()
+    public async Task<AuditResult?> LoadLastAuditFromDatabaseAsync(int siteId)
     {
         try
         {
-            var latestAudit = await _auditRepository.GetLatestAuditResultAsync();
+            var latestAudit = await _auditRepository.GetLatestAuditResultAsync(siteId);
 
             if (latestAudit == null)
                 return null;
@@ -324,7 +331,7 @@ public class AuditService
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogWarning(ex, "Failed to parse audit findings JSON");
+                    _logger.LogWarning(ex, "Failed to parse audit findings JSON for site {SiteId}", siteId);
                 }
             }
 
@@ -377,39 +384,39 @@ public class AuditService
                     {
                         result.DnsSecurity = JsonSerializer.Deserialize<DnsSecurityReference>(dnsEl.GetRawText(), options);
                     }
-                    _logger.LogInformation("Restored report data: {Networks} networks, {Switches} switches, {Wireless} wireless clients, DNS={HasDns}",
-                        result.Networks.Count, result.Switches.Count, result.WirelessClients.Count, result.DnsSecurity != null);
+                    _logger.LogInformation("Restored report data for site {SiteId}: {Networks} networks, {Switches} switches, {Wireless} wireless clients, DNS={HasDns}",
+                        siteId, result.Networks.Count, result.Switches.Count, result.WirelessClients.Count, result.DnsSecurity != null);
                 }
                 catch (JsonException ex)
                 {
-                    _logger.LogWarning(ex, "Failed to parse audit report data JSON");
+                    _logger.LogWarning(ex, "Failed to parse audit report data JSON for site {SiteId}", siteId);
                 }
             }
 
             // Cache it
-            LastAuditResultCached = result;
-            LastAuditTimeCached = latestAudit.AuditDate;
+            SetLastAuditResultCached(siteId, result);
+            SetLastAuditTimeCached(siteId, latestAudit.AuditDate);
 
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading last audit from database");
+            _logger.LogError(ex, "Error loading last audit from database for site {SiteId}", siteId);
             return null;
         }
     }
 
     /// <summary>
-    /// Get audit summary for dashboard display
+    /// Get audit summary for dashboard display for a site
     /// </summary>
-    public async Task<AuditSummary> GetAuditSummaryAsync()
+    public async Task<AuditSummary> GetAuditSummaryAsync(int siteId)
     {
         // Try memory cache first (use active counts to exclude dismissed issues)
-        var cachedResult = LastAuditResultCached;
-        var cachedTime = LastAuditTimeCached;
+        var cachedResult = GetLastAuditResultCached(siteId);
+        var cachedTime = GetLastAuditTimeCached(siteId);
         if (cachedResult != null && cachedTime != null)
         {
-            var activeIssues = GetActiveIssues();
+            var activeIssues = GetActiveIssues(siteId);
             return new AuditSummary
             {
                 Score = cachedResult.Score,
@@ -421,8 +428,8 @@ public class AuditService
         }
 
         // Try to load from database
-        var dbResult = await LoadLastAuditFromDatabaseAsync();
-        var lastAuditTime = LastAuditTimeCached;
+        var dbResult = await LoadLastAuditFromDatabaseAsync(siteId);
+        var lastAuditTime = GetLastAuditTimeCached(siteId);
         if (dbResult != null && lastAuditTime != null)
         {
             return new AuditSummary
@@ -446,7 +453,7 @@ public class AuditService
         };
     }
 
-    private async Task PersistAuditResultAsync(AuditResult result)
+    private async Task PersistAuditResultAsync(int siteId, AuditResult result)
     {
         try
         {
@@ -465,6 +472,7 @@ public class AuditService
 
             var storageResult = new StorageAuditResult
             {
+                SiteId = siteId,
                 DeviceId = "network-audit",
                 DeviceName = "Network Security Audit",
                 AuditDate = result.CompletedAt,
@@ -479,11 +487,11 @@ public class AuditService
                 CreatedAt = DateTime.UtcNow
             };
 
-            var auditId = await _auditRepository.SaveAuditResultAsync(storageResult);
-            LastAuditId = auditId;
+            var auditId = await _auditRepository.SaveAuditResultAsync(siteId, storageResult);
+            SetLastAuditId(siteId, auditId);
 
-            _logger.LogInformation("Persisted audit result to database with ID {AuditId}, {IssueCount} issues, {ReportSize} bytes report data",
-                auditId, result.Issues.Count, reportDataJson.Length);
+            _logger.LogInformation("Persisted audit result to database for site {SiteId} with ID {AuditId}, {IssueCount} issues, {ReportSize} bytes report data",
+                siteId, auditId, result.Issues.Count, reportDataJson.Length);
 
             // Generate and save PDF for direct download (avoids JS interop issues on mobile)
             try
@@ -493,13 +501,13 @@ public class AuditService
             }
             catch (Exception pdfEx)
             {
-                _logger.LogError(pdfEx, "Failed to generate PDF for audit {AuditId}", auditId);
+                _logger.LogError(pdfEx, "Failed to generate PDF for audit {AuditId} site {SiteId}", auditId, siteId);
                 // Don't fail the whole persist operation if PDF generation fails
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to persist audit result to database");
+            _logger.LogError(ex, "Failed to persist audit result to database for site {SiteId}", siteId);
         }
     }
 
@@ -716,30 +724,30 @@ public class AuditService
     }
 
     /// <summary>
-    /// Gets the PDF bytes for a specific audit by ID.
+    /// Gets the PDF bytes for a specific audit by ID for a site.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int auditId)
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetAuditPdfAsync(int siteId, int auditId)
     {
-        var audit = await _auditRepository.GetAuditResultAsync(auditId);
+        var audit = await _auditRepository.GetAuditResultAsync(siteId, auditId);
         if (audit == null)
         {
-            _logger.LogWarning("Audit {AuditId} not found", auditId);
+            _logger.LogWarning("Audit {AuditId} not found for site {SiteId}", auditId, siteId);
             return (null, null);
         }
         return await GetPdfForAuditAsync(audit);
     }
 
     /// <summary>
-    /// Gets the PDF bytes for the most recent audit.
+    /// Gets the PDF bytes for the most recent audit for a site.
     /// If PDF doesn't exist but audit data does, regenerates the PDF on-demand.
     /// </summary>
-    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync()
+    public async Task<(byte[]? PdfBytes, string? FileName)> GetLatestAuditPdfAsync(int siteId)
     {
-        var audit = await _auditRepository.GetLatestAuditResultAsync();
+        var audit = await _auditRepository.GetLatestAuditResultAsync(siteId);
         if (audit == null)
         {
-            _logger.LogWarning("No audit results found");
+            _logger.LogWarning("No audit results found for site {SiteId}", siteId);
             return (null, null);
         }
         return await GetPdfForAuditAsync(audit);
@@ -874,16 +882,17 @@ public class AuditService
         _ => "poor"
     };
 
-    public async Task<AuditResult> RunAuditAsync(AuditOptions options)
+    public async Task<AuditResult> RunAuditAsync(int siteId, AuditOptions options)
     {
-        _logger.LogInformation("Running security audit with options: {@Options}", options);
+        _logger.LogInformation("Running security audit for site {SiteId} with options: {@Options}", siteId, options);
 
         // Invalidate device cache to ensure fresh data for audit
-        _connectionService.InvalidateDeviceCache();
+        _connectionService.InvalidateDeviceCache(siteId);
 
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        var client = _connectionService.GetClient(siteId);
+        if (!_connectionService.IsConnected(siteId) || client == null)
         {
-            _logger.LogWarning("Cannot run audit: UniFi controller not connected");
+            _logger.LogWarning("Cannot run audit for site {SiteId}: UniFi controller not connected", siteId);
             return new AuditResult
             {
                 Score = 0,
@@ -907,10 +916,10 @@ public class AuditService
         try
         {
             // Load streaming device settings from database
-            await LoadAuditSettingsAsync(options);
+            await LoadAuditSettingsAsync(siteId, options);
 
             // Get raw device data from UniFi API
-            var deviceDataJson = await _connectionService.Client.GetDevicesRawJsonAsync();
+            var deviceDataJson = await client.GetDevicesRawJsonAsync();
 
             if (string.IsNullOrEmpty(deviceDataJson))
             {
@@ -918,19 +927,19 @@ public class AuditService
             }
 
             // Fetch connected clients for enhanced device detection (fingerprint, MAC OUI)
-            var clients = await _connectionService.Client.GetClientsAsync();
-            _logger.LogInformation("Fetched {ClientCount} connected clients for device detection", clients?.Count ?? 0);
+            var clients = await client.GetClientsAsync();
+            _logger.LogInformation("Fetched {ClientCount} connected clients for device detection for site {SiteId}", clients?.Count ?? 0, siteId);
 
             // Fetch client history for offline device detection (30 days)
             List<NetworkOptimizer.UniFi.Models.UniFiClientHistoryResponse>? clientHistory = null;
             try
             {
-                clientHistory = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);
-                _logger.LogInformation("Fetched {HistoryCount} historical clients for offline device detection", clientHistory?.Count ?? 0);
+                clientHistory = await client.GetClientHistoryAsync(withinHours: 720);
+                _logger.LogInformation("Fetched {HistoryCount} historical clients for offline device detection for site {SiteId}", clientHistory?.Count ?? 0, siteId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch client history for offline device detection");
+                _logger.LogWarning(ex, "Failed to fetch client history for offline device detection for site {SiteId}", siteId);
             }
 
             // Get fingerprint database for device name lookups
@@ -940,95 +949,95 @@ public class AuditService
             System.Text.Json.JsonElement? settingsData = null;
             try
             {
-                var settingsDoc = await _connectionService.Client.GetSettingsRawAsync();
+                var settingsDoc = await client.GetSettingsRawAsync();
                 if (settingsDoc != null)
                 {
                     settingsData = settingsDoc.RootElement;
-                    _logger.LogInformation("Fetched site settings for DNS security analysis");
+                    _logger.LogInformation("Fetched site settings for DNS security analysis for site {SiteId}", siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch site settings for DNS analysis");
+                _logger.LogWarning(ex, "Failed to fetch site settings for DNS analysis for site {SiteId}", siteId);
             }
 
             // Fetch firewall policies for DNS leak prevention analysis
             System.Text.Json.JsonElement? firewallPoliciesData = null;
             try
             {
-                var policiesDoc = await _connectionService.Client.GetFirewallPoliciesRawAsync();
+                var policiesDoc = await client.GetFirewallPoliciesRawAsync();
                 if (policiesDoc != null)
                 {
                     firewallPoliciesData = policiesDoc.RootElement;
-                    _logger.LogInformation("Fetched firewall policies for DNS security analysis");
+                    _logger.LogInformation("Fetched firewall policies for DNS security analysis for site {SiteId}", siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch firewall policies for DNS analysis");
+                _logger.LogWarning(ex, "Failed to fetch firewall policies for DNS analysis for site {SiteId}", siteId);
             }
 
             // Fetch firewall groups (port lists and IP lists) for flattening group references in rules
             List<NetworkOptimizer.UniFi.Models.UniFiFirewallGroup>? firewallGroups = null;
             try
             {
-                firewallGroups = await _connectionService.Client.GetFirewallGroupsAsync();
+                firewallGroups = await client.GetFirewallGroupsAsync();
                 if (firewallGroups.Count > 0)
                 {
-                    _logger.LogInformation("Fetched {Count} firewall groups for rule flattening", firewallGroups.Count);
+                    _logger.LogInformation("Fetched {Count} firewall groups for rule flattening for site {SiteId}", firewallGroups.Count, siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch firewall groups");
+                _logger.LogWarning(ex, "Failed to fetch firewall groups for site {SiteId}", siteId);
             }
 
             // Fetch NAT rules for DNAT DNS detection
             System.Text.Json.JsonElement? natRulesData = null;
             try
             {
-                var natDoc = await _connectionService.Client.GetNatRulesRawAsync();
+                var natDoc = await client.GetNatRulesRawAsync();
                 if (natDoc != null)
                 {
                     natRulesData = natDoc.RootElement;
-                    _logger.LogInformation("Fetched NAT rules for DNAT DNS analysis");
+                    _logger.LogInformation("Fetched NAT rules for DNAT DNS analysis for site {SiteId}", siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch NAT rules for DNAT DNS analysis");
+                _logger.LogWarning(ex, "Failed to fetch NAT rules for DNAT DNS analysis for site {SiteId}", siteId);
             }
 
-            _logger.LogInformation("Running audit engine on device data ({Length} bytes)", deviceDataJson.Length);
+            _logger.LogInformation("Running audit engine on device data ({Length} bytes) for site {SiteId}", deviceDataJson.Length, siteId);
 
             // Fetch UniFi Protect cameras for 100% confidence detection
             ProtectCameraCollection? protectCameras = null;
             try
             {
-                protectCameras = await _connectionService.Client.GetProtectCamerasAsync();
+                protectCameras = await client.GetProtectCamerasAsync();
                 if (protectCameras.Count > 0)
                 {
-                    _logger.LogInformation("Fetched {Count} UniFi Protect cameras for priority detection", protectCameras.Count);
+                    _logger.LogInformation("Fetched {Count} UniFi Protect cameras for priority detection for site {SiteId}", protectCameras.Count, siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch UniFi Protect cameras (v2 API may not be available)");
+                _logger.LogWarning(ex, "Failed to fetch UniFi Protect cameras for site {SiteId} (v2 API may not be available)", siteId);
             }
 
             // Fetch port profiles for resolving port configuration from profiles
             List<NetworkOptimizer.UniFi.Models.UniFiPortProfile>? portProfiles = null;
             try
             {
-                portProfiles = await _connectionService.Client.GetPortProfilesAsync();
+                portProfiles = await client.GetPortProfilesAsync();
                 if (portProfiles.Count > 0)
                 {
-                    _logger.LogInformation("Fetched {Count} port profiles for port configuration resolution", portProfiles.Count);
+                    _logger.LogInformation("Fetched {Count} port profiles for port configuration resolution for site {SiteId}", portProfiles.Count, siteId);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch port profiles");
+                _logger.LogWarning(ex, "Failed to fetch port profiles for site {SiteId}", siteId);
             }
 
             // Fetch UPnP status and port forwarding rules for UPnP security analysis
@@ -1036,22 +1045,22 @@ public class AuditService
             List<NetworkOptimizer.UniFi.Models.UniFiPortForwardRule>? portForwardRules = null;
             try
             {
-                upnpEnabled = await _connectionService.Client.GetUpnpEnabledAsync();
-                portForwardRules = await _connectionService.Client.GetPortForwardRulesAsync();
+                upnpEnabled = await client.GetUpnpEnabledAsync();
+                portForwardRules = await client.GetPortForwardRulesAsync();
                 var upnpRuleCount = portForwardRules?.Count(r => r.IsUpnp == 1) ?? 0;
-                _logger.LogInformation("Fetched UPnP status (Enabled={Enabled}) and {Count} port forwarding rules ({UpnpCount} UPnP)",
-                    upnpEnabled, portForwardRules?.Count ?? 0, upnpRuleCount);
+                _logger.LogInformation("Fetched UPnP status (Enabled={Enabled}) and {Count} port forwarding rules ({UpnpCount} UPnP) for site {SiteId}",
+                    upnpEnabled, portForwardRules?.Count ?? 0, upnpRuleCount, siteId);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules");
+                _logger.LogWarning(ex, "Failed to fetch UPnP status or port forwarding rules for site {SiteId}", siteId);
             }
 
             // Fetch network configs for External zone ID detection (used for firewall rule analysis)
             List<NetworkOptimizer.UniFi.Models.UniFiNetworkConfig>? networkConfigs = null;
             try
             {
-                networkConfigs = await _connectionService.Client.GetNetworkConfigsAsync();
+                networkConfigs = await client.GetNetworkConfigsAsync();
                 if (networkConfigs.Count > 0)
                 {
                     var wanCount = networkConfigs.Count(n => string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
@@ -1103,20 +1112,20 @@ public class AuditService
             var webResult = ConvertAuditResult(auditResult, options);
 
             // Cache the result
-            LastAuditResultCached = webResult;
-            LastAuditTimeCached = DateTime.UtcNow;
+            SetLastAuditResultCached(siteId, webResult);
+            SetLastAuditTimeCached(siteId, DateTime.UtcNow);
 
             // Persist to database
-            await PersistAuditResultAsync(webResult);
+            await PersistAuditResultAsync(siteId, webResult);
 
-            _logger.LogInformation("Audit complete: Score={Score}, Critical={Critical}, Recommended={Recommended}",
-                webResult.Score, webResult.CriticalCount, webResult.WarningCount);
+            _logger.LogInformation("Audit complete for site {SiteId}: Score={Score}, Critical={Critical}, Recommended={Recommended}",
+                siteId, webResult.Score, webResult.CriticalCount, webResult.WarningCount);
 
             return webResult;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error running security audit");
+            _logger.LogError(ex, "Error running security audit for site {SiteId}", siteId);
 
             return new AuditResult
             {
@@ -1512,7 +1521,8 @@ public class AuditService
             Audit.IssueTypes.DnsUnknownConfig => "DNS: Unknown Configuration",
             Audit.IssueTypes.DnsDnatPartialCoverage => "DNS: Partial DNAT Coverage",
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
-            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Target",
+            Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Translated IP",
+            Audit.IssueTypes.DnsDnatRestrictedDestination => "DNS: Restricted DNAT Destination",
 
             // UPnP security
             Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",

@@ -1,0 +1,439 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Services.Ssh
+@using NetworkOptimizer.Web.Components.Shared
+@inject IGatewaySshService GatewaySshService
+@inject GatewaySpeedTestService GatewayService
+@inject SqmService SqmService
+
+<div class="card" id="gateway-ssh">
+    <div class="card-header">
+        <h2 class="card-title">Gateway SSH</h2>
+        <span class="status-badge status-@(_gatewaySettings?.Enabled == true ? "connected" : "disconnected")">
+            @(_gatewaySettings?.Enabled == true ? "Configured" : "Not Configured")
+        </span>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            Configure SSH credentials for your UniFi Gateway or UniFi OS Device. Used for
+            iperf3 speed tests against the gateway and Adaptive SQM. Not required for
+            Security Audit or LAN Speed Tests to other devices.
+        </p>
+
+        <div class="form-row">
+            <div class="form-group" style="flex: 2;">
+                <label class="form-label">Gateway Host / IP</label>
+                <input type="text" class="form-control" @bind="_gatewayHost" placeholder="192.168.1.1" />
+                <small class="form-help">IP address of your UniFi Gateway/UDM</small>
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">SSH Port</label>
+                <input type="number" class="form-control" @bind="_gatewayPort" />
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" class="form-control" @bind="_gatewayUsername" placeholder="root" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" @bind="_gatewayPassword" placeholder="@(!string.IsNullOrWhiteSpace(_gatewayPrivateKeyPath) ? "(using SSH key)" : _hasGatewayPassword ? "Saved – enter new to update" : "Enter password")" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Private Key Path (alternative to password)</label>
+            <input type="text" class="form-control" @bind="_gatewayPrivateKeyPath" placeholder="/app/ssh-keys/gateway_key" />
+            <small class="form-help">Leave blank to use password authentication</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-check">
+                <input type="checkbox" @bind="_gatewayEnabled" />
+                <span>Enable gateway SSH access</span>
+            </label>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-primary" @onclick="SaveGatewaySettings" disabled="@_savingGatewaySettings">
+                @if (_savingGatewaySettings)
+                {
+                    <span class="spinner"></span>
+                    <span>Saving...</span>
+                }
+                else
+                {
+                    <span>Save Gateway Settings</span>
+                }
+            </button>
+            <button class="btn btn-secondary" @onclick="TestGatewayConnection" disabled="@_testingGatewayConnection">
+                @if (_testingGatewayConnection)
+                {
+                    <span class="spinner"></span>
+                    <span>Testing...</span>
+                }
+                else
+                {
+                    <span>Test SSH Connection</span>
+                }
+            </button>
+            <button class="btn btn-secondary" @onclick="CheckIperf3Status" disabled="@_checkingIperf3">
+                @if (_checkingIperf3)
+                {
+                    <span class="spinner"></span>
+                    <span>Checking...</span>
+                }
+                else
+                {
+                    <span>Check iperf3 Status</span>
+                }
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_gatewayMessage))
+        {
+            <div class="alert alert-@_gatewayMessageClass alert-with-tooltip">
+                <span class="alert-text">@_gatewayMessage</span>
+                @if (_gatewayMessageClass == "danger")
+                {
+                    <SshTroubleshootingTooltip Context="gateway" HideSettingsLink="true" />
+                }
+            </div>
+        }
+
+        @if (_iperf3Status != null)
+        {
+            <div class="iperf3-status" style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px;">
+                <h4 style="margin: 0 0 0.5rem 0;">iperf3 Status</h4>
+                <div class="info-row">
+                    <span class="info-label">Installed:</span>
+                    <span class="info-value">@(_iperf3Status.IsInstalled ? "Yes" : "No")</span>
+                </div>
+                @if (_iperf3Status.IsInstalled && !string.IsNullOrEmpty(_iperf3Status.Version))
+                {
+                    <div class="info-row">
+                        <span class="info-label">Version:</span>
+                        <span class="info-value">@_iperf3Status.Version</span>
+                    </div>
+                }
+                <div class="info-row">
+                    <span class="info-label">Running:</span>
+                    <span class="info-value">@(_iperf3Status.IsRunning ? $"Yes (port {_iperf3Status.Port})" : "No")</span>
+                </div>
+                @if (!string.IsNullOrEmpty(_iperf3Status.ServiceName))
+                {
+                    <div class="info-row">
+                        <span class="info-label">Service:</span>
+                        <span class="info-value">@_iperf3Status.ServiceName</span>
+                    </div>
+                }
+                @if (!_iperf3Status.IsRunning && _iperf3Status.IsInstalled)
+                {
+                    <button class="btn btn-success btn-sm" style="margin-top: 0.5rem;" @onclick="StartIperf3Server" disabled="@_startingIperf3">
+                        @if (_startingIperf3)
+                        {
+                            <span class="spinner-sm"></span>
+                            <span>Starting...</span>
+                        }
+                        else
+                        {
+                            <span>Start iperf3 Server</span>
+                        }
+                    </button>
+                }
+            </div>
+        }
+
+        @if (_gatewaySettings?.LastTestedAt != null)
+        {
+            <div class="form-help" style="margin-top: 1rem;">
+                Last tested: @_gatewaySettings.LastTestedAt?.ToLocalTime().ToString("g") - @_gatewaySettings.LastTestResult
+            </div>
+        }
+
+        <details class="setup-guide" open="@(_gatewaySettings?.Enabled != true)">
+            <summary>How to Enable Gateway SSH</summary>
+            <div class="setup-guide-content">
+                <p><strong>For Cloud Gateways (UCG, UDM, UDM Pro, etc.):</strong></p>
+                <ol>
+                    <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
+                    <li>Sign in to your Console</li>
+                    <li>Click <strong>Settings</strong> on the bottom portion of the side menu</li>
+                    <li>Navigate to <strong>Control Plane</strong> → <strong>Console</strong></li>
+                    <li>Enable <strong>SSH</strong> and set a secure password</li>
+                </ol>
+                <p>Use <code>root</code> as the username and the SSH password you set above.</p>
+                <p><strong>For UXG (non-Cloud Gateway):</strong> Enable SSH using the Device SSH steps below, but enter those credentials here in Gateway SSH.</p>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    [Parameter]
+    public int TcMonitorPort { get; set; } = 8088;
+
+    private NetworkOptimizer.Storage.Models.GatewaySshSettings? _gatewaySettings;
+    private string _gatewayHost = "";
+    private string _gatewayUsername = "root";
+    private string _gatewayPassword = "";
+    private string _gatewayPrivateKeyPath = "";
+    private int _gatewayPort = 22;
+    private bool _gatewayEnabled = true;
+    private bool _savingGatewaySettings = false;
+    private bool _testingGatewayConnection = false;
+    private bool _checkingIperf3 = false;
+    private bool _startingIperf3 = false;
+    private string _gatewayMessage = "";
+    private string _gatewayMessageClass = "";
+    private Iperf3Status? _iperf3Status;
+    private bool _hasGatewayPassword = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadGatewaySettings();
+    }
+
+    private async Task LoadGatewaySettings()
+    {
+        try
+        {
+            _gatewaySettings = await GatewaySshService.GetSettingsAsync(SiteId);
+            _gatewayHost = _gatewaySettings.Host ?? "";
+            _gatewayUsername = _gatewaySettings.Username;
+            _gatewayPort = _gatewaySettings.Port;
+            _gatewayPrivateKeyPath = _gatewaySettings.PrivateKeyPath ?? "";
+            _gatewayEnabled = _gatewaySettings.Enabled;
+            _hasGatewayPassword = !string.IsNullOrEmpty(_gatewaySettings.Password);
+        }
+        catch (Exception ex)
+        {
+            _gatewayMessage = $"Error loading gateway settings: {ex.Message}";
+            _gatewayMessageClass = "danger";
+        }
+    }
+
+    private async Task SaveGatewaySettings()
+    {
+        if (string.IsNullOrWhiteSpace(_gatewayHost))
+        {
+            _gatewayMessage = "Gateway Host / IP is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_gatewayUsername))
+        {
+            _gatewayMessage = "Username is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        var hasPassword = !string.IsNullOrEmpty(_gatewayPassword) || _hasGatewayPassword;
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(_gatewayPrivateKeyPath);
+        if (!hasPassword && !hasPrivateKey)
+        {
+            _gatewayMessage = "Either a password or private key path is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        _savingGatewaySettings = true;
+        _gatewayMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var settings = _gatewaySettings ?? new NetworkOptimizer.Storage.Models.GatewaySshSettings();
+            settings.Host = _gatewayHost;
+            settings.Username = _gatewayUsername;
+            settings.Port = _gatewayPort;
+            settings.PrivateKeyPath = string.IsNullOrWhiteSpace(_gatewayPrivateKeyPath) ? null : _gatewayPrivateKeyPath;
+            settings.Enabled = _gatewayEnabled;
+            settings.TcMonitorPort = TcMonitorPort;
+
+            if (!string.IsNullOrWhiteSpace(_gatewayPrivateKeyPath))
+            {
+                settings.Password = null;
+            }
+            else if (!string.IsNullOrEmpty(_gatewayPassword))
+            {
+                settings.Password = _gatewayPassword;
+            }
+
+            _gatewaySettings = await GatewaySshService.SaveSettingsAsync(SiteId, settings);
+            _gatewayPassword = "";
+            _hasGatewayPassword = !string.IsNullOrEmpty(_gatewaySettings.Password);
+            _gatewayMessage = "Gateway settings saved successfully";
+            _gatewayMessageClass = "success";
+        }
+        catch (Exception ex)
+        {
+            _gatewayMessage = $"Error saving gateway settings: {ex.Message}";
+            _gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            _savingGatewaySettings = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestGatewayConnection()
+    {
+        if (string.IsNullOrWhiteSpace(_gatewayHost))
+        {
+            _gatewayMessage = "Gateway Host / IP is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_gatewayUsername))
+        {
+            _gatewayMessage = "Username is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        var hasPassword = !string.IsNullOrEmpty(_gatewayPassword) || _hasGatewayPassword;
+        var hasPrivateKey = !string.IsNullOrWhiteSpace(_gatewayPrivateKeyPath);
+        if (!hasPassword && !hasPrivateKey)
+        {
+            _gatewayMessage = "Either a password or private key path is required";
+            _gatewayMessageClass = "danger";
+            StateHasChanged();
+            return;
+        }
+
+        _testingGatewayConnection = true;
+        _gatewayMessage = $"Testing SSH connection to {_gatewayHost}...";
+        _gatewayMessageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            (bool success, string message) result;
+
+            if (!string.IsNullOrEmpty(_gatewayPassword) || !string.IsNullOrEmpty(_gatewayPrivateKeyPath))
+            {
+                result = await GatewaySshService.TestConnectionAsync(
+                    SiteId,
+                    _gatewayHost,
+                    _gatewayPort,
+                    _gatewayUsername,
+                    _gatewayPassword,
+                    _gatewayPrivateKeyPath);
+            }
+            else if (_hasGatewayPassword)
+            {
+                result = await GatewaySshService.TestConnectionAsync(SiteId);
+            }
+            else
+            {
+                result = (false, "No credentials configured");
+            }
+
+            if (result.success)
+            {
+                _gatewayMessage = "SSH connection successful!";
+                _gatewayMessageClass = "success";
+
+                if (_gatewaySettings != null)
+                {
+                    _gatewaySettings.LastTestedAt = DateTime.UtcNow;
+                    _gatewaySettings.LastTestResult = "Success";
+                    await GatewaySshService.SaveSettingsAsync(SiteId, _gatewaySettings);
+                }
+            }
+            else
+            {
+                _gatewayMessage = $"SSH connection failed: {result.message}";
+                _gatewayMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _gatewayMessage = $"Error: {ex.Message}";
+            _gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            _testingGatewayConnection = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckIperf3Status()
+    {
+        _checkingIperf3 = true;
+        _gatewayMessage = "Checking iperf3 status...";
+        _gatewayMessageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            _iperf3Status = await GatewayService.CheckIperf3StatusAsync(SiteId);
+            if (!string.IsNullOrEmpty(_iperf3Status.Error))
+            {
+                _gatewayMessage = _iperf3Status.Error;
+                _gatewayMessageClass = "warning";
+            }
+            else
+            {
+                _gatewayMessage = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            _gatewayMessage = $"Error checking iperf3: {ex.Message}";
+            _gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            _checkingIperf3 = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task StartIperf3Server()
+    {
+        _startingIperf3 = true;
+        _gatewayMessage = "Starting iperf3 server...";
+        _gatewayMessageClass = "info";
+        StateHasChanged();
+
+        try
+        {
+            var (success, message) = await GatewayService.StartIperf3ServerAsync(SiteId);
+            if (success)
+            {
+                _gatewayMessage = message;
+                _gatewayMessageClass = "success";
+                _iperf3Status = await GatewayService.CheckIperf3StatusAsync(SiteId);
+            }
+            else
+            {
+                _gatewayMessage = $"Failed to start iperf3: {message}";
+                _gatewayMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _gatewayMessage = $"Error: {ex.Message}";
+            _gatewayMessageClass = "danger";
+        }
+        finally
+        {
+            _startingIperf3 = false;
+            StateHasChanged();
+        }
+    }
+}

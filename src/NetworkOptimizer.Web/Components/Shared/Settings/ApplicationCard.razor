@@ -1,0 +1,61 @@
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Application Settings</h2>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label class="form-label">Monitoring Interval (seconds)</label>
+            <input type="number" class="form-control" @bind="_monitoringInterval" min="30" max="3600" />
+            <small class="form-help">How often to poll devices for metrics</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Alert Retention (days)</label>
+            <input type="number" class="form-control" @bind="_alertRetention" min="1" max="365" />
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_enableNotifications" />
+                <span>Enable email notifications for critical issues</span>
+            </label>
+        </div>
+
+        @if (_enableNotifications)
+        {
+            <div class="form-group">
+                <label class="form-label">Notification Email</label>
+                <input type="email" class="form-control" @bind="_notificationEmail" />
+            </div>
+        }
+
+        <div class="form-group">
+            <label class="form-label">Theme</label>
+            <select class="form-control" @bind="_theme">
+                <option value="dark">Dark (Default)</option>
+                <option value="light">Light</option>
+                <option value="auto">Auto (System)</option>
+            </select>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-success" @onclick="SaveAppSettings">
+                Save Application Settings
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int _monitoringInterval = 300;
+    private int _alertRetention = 30;
+    private bool _enableNotifications = false;
+    private string _notificationEmail = "";
+    private string _theme = "dark";
+
+    private async Task SaveAppSettings()
+    {
+        // TODO: Implement save
+        await Task.CompletedTask;
+    }
+}

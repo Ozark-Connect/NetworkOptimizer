@@ -1,0 +1,366 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Core.Interfaces
+@inject UniFiConnectionService ConnectionService
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">UniFi Console (Controller) Connection</h2>
+        <span class="status-badge status-@_controllerStatus.ToLower()">@_controllerStatus</span>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label class="form-label">Console URL</label>
+            <input type="text" class="form-control" @bind="_controllerUrl" placeholder="https://192.168.1.1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+            <small class="form-help">UniFi OS device (UDM, UCG, UDR, or Cloud Key) or self-hosted Network Server. Use local-only credentials for security.</small>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" class="form-control" @bind="_controllerUsername" placeholder="admin" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" @bind="_controllerPassword" autocomplete="new-password" placeholder="@(_hasControllerPassword ? "Saved – enter new to update" : "Enter password")" data-1p-ignore data-lpignore="true" data-bwignore />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Site</label>
+            <div class="input-with-button">
+                @if (_availableSites.Count > 0)
+                {
+                    <select class="form-control" @bind="_controllerSite">
+                        @foreach (var site in _availableSites)
+                        {
+                            <option value="@site.Name">@site.Description (@site.Name) - @site.DeviceCount devices</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input type="text" class="form-control" @bind="_controllerSite" placeholder="default" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore />
+                }
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="ListSites" disabled="@_loadingSites">
+                    @if (_loadingSites)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    else
+                    {
+                        <span>List Sites</span>
+                    }
+                </button>
+            </div>
+            <small class="form-help">Leave as "default" for most local UniFi OS devices. If you have multiple sites or are unsure, click "List Sites" to fetch available sites.</small>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_rememberCredentials" />
+                <span>Remember credentials</span>
+            </label>
+        </div>
+
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" @bind="_ignoreControllerSSLErrors" />
+                <span>Ignore SSL certificate errors</span>
+            </label>
+            <small class="form-help">Enable this for UniFi Consoles with self-signed certificates (default)</small>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn btn-primary" @onclick="SaveAndConnectController" disabled="@_testingController">
+                @if (ConnectionService.IsConnected(SiteId))
+                {
+                    <span>Update</span>
+                }
+                else
+                {
+                    <span>Connect</span>
+                }
+            </button>
+            <button class="btn btn-secondary" @onclick="TestControllerConnection" disabled="@_testingController">
+                @if (_testingController)
+                {
+                    <span class="spinner"></span>
+                    <span>Testing...</span>
+                }
+                else
+                {
+                    <span>Test Connection</span>
+                }
+            </button>
+            @if (ConnectionService.IsConnected(SiteId))
+            {
+                <button class="btn btn-warning" @onclick="DisconnectController">
+                    Disconnect
+                </button>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_controllerMessage))
+        {
+            <div class="alert alert-@_controllerMessageClass">
+                @_controllerMessage
+            </div>
+        }
+
+        <details class="setup-guide" open="@(!ConnectionService.IsConnected(SiteId))">
+            <summary>How to Create a UniFi Local Account</summary>
+            <div class="setup-guide-content">
+                <p>Network Optimizer requires a <strong>Local Access Only</strong> account on your UniFi Console (Controller). Ubiquiti SSO accounts will not work.</p>
+
+                <h4>Quick Setup</h4>
+                <p>For the easiest setup, create a <strong>Local Access Only</strong> account with <strong>Super Admin</strong> role.</p>
+
+                <h4>Restricted Setup (Recommended)</h4>
+                <p>For a more secure, least-privilege configuration:</p>
+                <ol>
+                    <li>Open UniFi Network: <code>https://&lt;gateway-ip&gt;</code> or <code>https://unifi.ui.com</code></li>
+                    <li>Sign in to your Console</li>
+                    <li>Click <strong>Admin &amp; Users</strong> at the bottom of the side menu</li>
+                    <li>Click <strong>Create New</strong> at the top</li>
+                    <li>Select <strong>Create New User</strong></li>
+                    <li>Enter a name and email for this service account</li>
+                    <li>Check <strong>Admin</strong></li>
+                    <li>Check <strong>Restrict to Local Access Only</strong></li>
+                    <li>Uncheck <strong>Use a Predefined Role</strong></li>
+                    <li>Set permissions:
+                        <ul>
+                            <li><strong>Network:</strong> View Only</li>
+                            <li><strong>Protect:</strong> View Only</li>
+                            <li><strong>User &amp; Account Management:</strong> None</li>
+                        </ul>
+                    </li>
+                    <li>Set a secure password and save</li>
+                </ol>
+                <p>Use this username and password in the fields above.</p>
+            </div>
+        </details>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    private string _controllerUrl = "https://192.168.1.1";
+    private string _controllerUsername = "";
+    private string _controllerPassword = "";
+    private string _controllerSite = "default";
+    private bool _rememberCredentials = true;
+    private bool _ignoreControllerSSLErrors = true;
+    private string _controllerStatus = "Disconnected";
+    private bool _testingController = false;
+    private string _controllerMessage = "";
+    private string _controllerMessageClass = "";
+    private string? _controllerInfo = null;
+    private List<UniFiSite> _availableSites = new();
+    private bool _loadingSites = false;
+    private bool _hasControllerPassword = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var connectionSettings = await ConnectionService.GetSettingsAsync(SiteId);
+        _hasControllerPassword = connectionSettings.HasCredentials;
+
+        if (!string.IsNullOrEmpty(connectionSettings.ControllerUrl))
+        {
+            _controllerUrl = connectionSettings.ControllerUrl;
+            _controllerUsername = connectionSettings.Username ?? "";
+            _controllerSite = connectionSettings.UniFiSiteId ?? "default";
+            _rememberCredentials = connectionSettings.RememberCredentials;
+            _ignoreControllerSSLErrors = connectionSettings.IgnoreControllerSSLErrors;
+        }
+
+        UpdateControllerStatus();
+    }
+
+    private void UpdateControllerStatus()
+    {
+        if (ConnectionService.IsConnected(SiteId))
+        {
+            _controllerStatus = "Connected";
+            _controllerInfo = ConnectionService.IsUniFiOs(SiteId) ? "UniFi OS" : "Standalone";
+        }
+        else if (!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+        {
+            _controllerStatus = "Error";
+        }
+        else
+        {
+            _controllerStatus = "Disconnected";
+        }
+    }
+
+    private async Task<UniFiConnectionConfig> BuildConfigAsync()
+    {
+        var password = _controllerPassword;
+        if (string.IsNullOrEmpty(password))
+        {
+            password = await ConnectionService.GetStoredPasswordAsync(SiteId) ?? "";
+        }
+
+        return new UniFiConnectionConfig
+        {
+            ControllerUrl = NormalizeControllerUrl(_controllerUrl),
+            Username = _controllerUsername,
+            Password = password,
+            UniFiSiteId = string.IsNullOrWhiteSpace(_controllerSite) ? "default" : _controllerSite,
+            RememberCredentials = _rememberCredentials,
+            IgnoreControllerSSLErrors = _ignoreControllerSSLErrors
+        };
+    }
+
+    private static string NormalizeControllerUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        url = url.Trim();
+
+        if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        return $"https://{url}";
+    }
+
+    private async Task TestControllerConnection()
+    {
+        _testingController = true;
+        _controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = await BuildConfigAsync();
+            var (success, error, info) = await ConnectionService.TestConnectionAsync(config);
+
+            if (success)
+            {
+                _controllerStatus = "Connected";
+                _controllerInfo = info;
+                _controllerMessage = $"Successfully connected: {info}";
+                _controllerMessageClass = "success";
+            }
+            else
+            {
+                _controllerStatus = "Error";
+                _controllerMessage = $"Connection failed: {error}";
+                _controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _controllerStatus = "Error";
+            _controllerMessage = $"Error: {ex.Message}";
+            _controllerMessageClass = "danger";
+        }
+        finally
+        {
+            _testingController = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAndConnectController()
+    {
+        _testingController = true;
+        _controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = await BuildConfigAsync();
+            var success = await ConnectionService.ConnectAsync(SiteId, config);
+
+            if (success)
+            {
+                _controllerStatus = "Connected";
+                _controllerInfo = ConnectionService.IsUniFiOs(SiteId) ? "UniFi OS" : "Standalone";
+                _controllerMessage = $"Connected and saved! ({_controllerInfo})";
+                _controllerMessageClass = "success";
+                _hasControllerPassword = true;
+                _controllerPassword = "";
+            }
+            else
+            {
+                _controllerStatus = "Error";
+                _controllerMessage = $"Connection failed: {ConnectionService.GetLastError(SiteId)}";
+                _controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _controllerStatus = "Error";
+            _controllerMessage = $"Error: {ex.Message}";
+            _controllerMessageClass = "danger";
+        }
+        finally
+        {
+            _testingController = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DisconnectController()
+    {
+        await ConnectionService.DisconnectAsync(SiteId);
+        _controllerStatus = "Disconnected";
+        _controllerMessage = "Disconnected from controller";
+        _controllerMessageClass = "info";
+        _controllerInfo = null;
+        StateHasChanged();
+    }
+
+    private async Task ListSites()
+    {
+        _loadingSites = true;
+        _controllerMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var config = await BuildConfigAsync();
+            var (success, error, sites) = await ConnectionService.GetUniFiSitesAsync(config);
+
+            if (success)
+            {
+                _availableSites = sites;
+                if (sites.Count == 1)
+                {
+                    _controllerSite = sites[0].Name;
+                    _controllerMessage = $"Found 1 site: {sites[0].Description}";
+                }
+                else
+                {
+                    _controllerMessage = $"Found {sites.Count} sites. Select one from the dropdown.";
+                    if (!sites.Any(s => s.Name == _controllerSite) && sites.Count > 0)
+                    {
+                        _controllerSite = sites[0].Name;
+                    }
+                }
+                _controllerMessageClass = "success";
+            }
+            else
+            {
+                _controllerMessage = $"Failed to list sites: {error}";
+                _controllerMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _controllerMessage = $"Error: {ex.Message}";
+            _controllerMessageClass = "danger";
+        }
+        finally
+        {
+            _loadingSites = false;
+            StateHasChanged();
+        }
+    }
+}

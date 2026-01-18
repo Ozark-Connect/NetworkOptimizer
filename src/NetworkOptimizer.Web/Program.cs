@@ -97,7 +97,13 @@ builder.Services.AddSingleton<NetworkOptimizer.Storage.Services.ICredentialProte
 
 // Register UniFi connection service (singleton - maintains connection state)
 builder.Services.AddSingleton<UniFiConnectionService>();
-builder.Services.AddSingleton<IUniFiClientProvider>(sp => sp.GetRequiredService<UniFiConnectionService>());
+// IUniFiClientProvider stub for NetworkPathAnalyzer compatibility
+// TODO: Refactor NetworkPathAnalyzer for proper multi-site support
+builder.Services.AddSingleton<IUniFiClientProvider>(sp =>
+{
+    var connectionService = sp.GetRequiredService<UniFiConnectionService>();
+    return new StubUniFiClientProvider(connectionService);
+});
 
 // Register Network Path Analyzer (singleton - uses caching)
 builder.Services.AddSingleton<INetworkPathAnalyzer, NetworkPathAnalyzer>();
@@ -159,6 +165,7 @@ builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IModemRepository,
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISpeedTestRepository, NetworkOptimizer.Storage.Repositories.SpeedTestRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISqmRepository, NetworkOptimizer.Storage.Repositories.SqmRepository>();
 builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.IAgentRepository, NetworkOptimizer.Storage.Repositories.AgentRepository>();
+builder.Services.AddScoped<NetworkOptimizer.Storage.Interfaces.ISiteRepository, NetworkOptimizer.Storage.Repositories.SiteRepository>();
 
 // Register SSH client service (singleton - cross-platform SSH.NET wrapper)
 builder.Services.AddSingleton<SshClientService>();
@@ -187,6 +194,9 @@ builder.Services.AddHostedService<Iperf3ServerService>();
 
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();
+
+// Register auto-connect service (connects to UniFi controllers for all configured sites on startup)
+builder.Services.AddHostedService<UniFiAutoConnectService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
@@ -534,51 +544,83 @@ app.MapPost("/api/metrics", async (HttpContext context) =>
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
+// Site management API endpoints
+app.MapGet("/api/sites", async (NetworkOptimizer.Storage.Interfaces.ISiteRepository siteRepo) =>
+{
+    var sites = await siteRepo.GetAllSitesAsync();
+    return Results.Ok(sites);
+});
+
+app.MapPost("/api/sites", async (NetworkOptimizer.Storage.Models.Site site, NetworkOptimizer.Storage.Interfaces.ISiteRepository siteRepo) =>
+{
+    var id = await siteRepo.CreateSiteAsync(site);
+    return Results.Created($"/api/sites/{id}", new { id });
+});
+
+app.MapGet("/api/sites/{siteId:int}", async (int siteId, NetworkOptimizer.Storage.Interfaces.ISiteRepository siteRepo) =>
+{
+    var site = await siteRepo.GetSiteAsync(siteId);
+    return site != null ? Results.Ok(site) : Results.NotFound(new { error = "Site not found" });
+});
+
+app.MapPut("/api/sites/{siteId:int}", async (int siteId, NetworkOptimizer.Storage.Models.Site site, NetworkOptimizer.Storage.Interfaces.ISiteRepository siteRepo) =>
+{
+    site.Id = siteId;
+    await siteRepo.UpdateSiteAsync(site);
+    return Results.Ok(new { success = true });
+});
+
+app.MapDelete("/api/sites/{siteId:int}", async (int siteId, NetworkOptimizer.Storage.Interfaces.ISiteRepository siteRepo) =>
+{
+    await siteRepo.DeleteSiteAsync(siteId);
+    return Results.Ok(new { success = true });
+});
+
 // Audit Report PDF download endpoints (serves pre-generated PDFs)
 // Auth handled by middleware for all /api/* paths
 // Uses strongly-typed int to prevent path traversal attacks
-app.MapGet("/api/reports/{auditId:int}/pdf", async (int auditId, AuditService auditService) =>
+app.MapGet("/api/sites/{siteId:int}/reports/{auditId:int}/pdf", async (int siteId, int auditId, AuditService auditService) =>
 {
-    var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(auditId);
+    var (pdfBytes, fileName) = await auditService.GetAuditPdfAsync(siteId, auditId);
     return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
 });
 
 // Get the latest audit report PDF (works across restarts since it queries database)
-app.MapGet("/api/reports/latest/pdf", async (AuditService auditService) =>
+app.MapGet("/api/sites/{siteId:int}/reports/latest/pdf", async (int siteId, AuditService auditService) =>
 {
-    var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync();
+    var (pdfBytes, fileName) = await auditService.GetLatestAuditPdfAsync(siteId);
     return pdfBytes != null ? Results.File(pdfBytes, "application/pdf", fileName) : Results.NotFound(new { error = "PDF not found" });
 });
 
 // iperf3 Speed Test API endpoints
-app.MapGet("/api/iperf3/devices", async (Iperf3SpeedTestService service) =>
+app.MapGet("/api/sites/{siteId:int}/iperf3/devices", async (int siteId, Iperf3SpeedTestService service) =>
 {
-    var devices = await service.GetDevicesAsync();
+    var devices = await service.GetDevicesAsync(siteId);
     return Results.Ok(devices);
 });
 
-app.MapPost("/api/iperf3/test/{deviceId:int}", async (int deviceId, Iperf3SpeedTestService service) =>
+app.MapPost("/api/sites/{siteId:int}/iperf3/test/{deviceId:int}", async (int siteId, int deviceId, Iperf3SpeedTestService service) =>
 {
-    var devices = await service.GetDevicesAsync();
+    var devices = await service.GetDevicesAsync(siteId);
     var device = devices.FirstOrDefault(d => d.Id == deviceId);
     if (device == null)
         return Results.NotFound(new { error = "Device not found" });
 
-    var result = await service.RunSpeedTestAsync(device);
+    var result = await service.RunSpeedTestAsync(siteId, device);
     return Results.Ok(result);
 });
 
-app.MapGet("/api/iperf3/results", async (Iperf3SpeedTestService service, int count = 50) =>
+app.MapGet("/api/sites/{siteId:int}/iperf3/results", async (int siteId, Iperf3SpeedTestService service, int count = 50) =>
 {
     // Validate count parameter is within reasonable bounds
     if (count < 1) count = 1;
     if (count > 1000) count = 1000;
 
-    var results = await service.GetRecentResultsAsync(count);
+    var results = await service.GetRecentResultsAsync(siteId, count);
     return Results.Ok(results);
 });
 
-app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3SpeedTestService service, int count = 20) =>
+app.MapGet("/api/sites/{siteId:int}/iperf3/results/{deviceHost}", async (int siteId, string deviceHost, Iperf3SpeedTestService service, int count = 20) =>
 {
     // Validate deviceHost format (IP address or hostname, no path traversal)
     if (string.IsNullOrWhiteSpace(deviceHost) ||
@@ -593,7 +635,7 @@ app.MapGet("/api/iperf3/results/{deviceHost}", async (string deviceHost, Iperf3S
     if (count < 1) count = 1;
     if (count > 1000) count = 1000;
 
-    var results = await service.GetResultsForDeviceAsync(deviceHost, count);
+    var results = await service.GetResultsForDeviceAsync(siteId, deviceHost, count);
     return Results.Ok(results);
 });
 
@@ -639,6 +681,9 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     double? longitude = double.TryParse(GetValue("lng"), out var lng) ? lng : null;
     int? locationAccuracy = int.TryParse(GetValue("acc"), out var acc) ? acc : null;
 
+    // Site ID (optional, defaults to 1001 for backwards compatibility)
+    int siteId = int.TryParse(GetValue("siteId"), out var sid) && sid > 0 ? sid : 1001;
+
     // Get client IP (handle proxies)
     var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
@@ -648,7 +693,7 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
     }
 
     var result = await service.RecordOpenSpeedTestResultAsync(
-        clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
+        siteId, clientIp, download, upload, ping, jitter, downloadData, uploadData, userAgent,
         latitude, longitude, locationAccuracy);
 
     return Results.Ok(new
@@ -734,13 +779,13 @@ app.MapGet("/api/auth/check", async (HttpContext context, IJwtService jwt) =>
 });
 
 // UPnP Notes API endpoints
-app.MapGet("/api/upnp/notes", async (NetworkOptimizerDbContext db) =>
+app.MapGet("/api/sites/{siteId:int}/upnp/notes", async (int siteId, NetworkOptimizerDbContext db) =>
 {
-    var notes = await db.UpnpNotes.ToListAsync();
+    var notes = await db.UpnpNotes.Where(n => n.SiteId == siteId).ToListAsync();
     return Results.Ok(notes);
 });
 
-app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbContext db) =>
+app.MapPut("/api/sites/{siteId:int}/upnp/notes", async (int siteId, HttpContext context, NetworkOptimizerDbContext db) =>
 {
     var request = await context.Request.ReadFromJsonAsync<UpnpNoteRequest>();
     if (request == null || string.IsNullOrWhiteSpace(request.HostIp) ||
@@ -754,6 +799,7 @@ app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbCont
 
     // Find existing note or create new
     var existing = await db.UpnpNotes.FirstOrDefaultAsync(n =>
+        n.SiteId == siteId &&
         n.HostIp == request.HostIp &&
         n.Port == request.Port &&
         n.Protocol == protocol);
@@ -776,6 +822,7 @@ app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbCont
         // Create new note
         var note = new UpnpNote
         {
+            SiteId = siteId,
             HostIp = request.HostIp,
             Port = request.Port,
             Protocol = protocol,
@@ -866,3 +913,20 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
 
 // Request DTO for UPnP notes
 record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);
+
+/// <summary>
+/// Stub IUniFiClientProvider that uses the first connected site from UniFiConnectionService.
+/// This is a temporary adapter until NetworkPathAnalyzer is refactored for multi-site support.
+/// </summary>
+class StubUniFiClientProvider : IUniFiClientProvider
+{
+    private readonly UniFiConnectionService _connectionService;
+
+    public StubUniFiClientProvider(UniFiConnectionService connectionService)
+    {
+        _connectionService = connectionService;
+    }
+
+    public bool IsConnected => _connectionService.IsAnyConnected();
+    public NetworkOptimizer.UniFi.UniFiApiClient? Client => _connectionService.GetAnyConnectedClient();
+}

@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
-/// UniFi controller connection settings (singleton - only one row).
+/// UniFi controller connection settings for a site.
 /// Stores the URL, credentials, and connection state for the UniFi controller API.
 /// Password is encrypted at rest using CredentialProtectionService.
 /// </summary>
@@ -11,6 +11,12 @@ public class UniFiConnectionSettings
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Site this connection belongs to (1:1 relationship)</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
 
     /// <summary>UniFi controller URL (e.g., https://192.168.1.1 or https://unifi.example.com)</summary>
     [MaxLength(500)]
@@ -24,9 +30,9 @@ public class UniFiConnectionSettings
     [MaxLength(500)]
     public string? Password { get; set; }
 
-    /// <summary>UniFi site name (default: "default")</summary>
+    /// <summary>UniFi site ID within the controller, used in API paths (default: "default")</summary>
     [MaxLength(100)]
-    public string Site { get; set; } = "default";
+    public string UniFiSiteId { get; set; } = "default";
 
     /// <summary>Whether to persist credentials for auto-reconnect on startup</summary>
     public bool RememberCredentials { get; set; } = true;

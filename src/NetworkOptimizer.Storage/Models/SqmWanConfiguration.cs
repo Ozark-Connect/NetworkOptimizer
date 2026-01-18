@@ -12,6 +12,12 @@ public class SqmWanConfiguration
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Site this WAN configuration belongs to</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
+
     /// <summary>WAN identifier (1 or 2)</summary>
     public int WanNumber { get; set; }
 

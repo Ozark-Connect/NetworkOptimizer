@@ -11,6 +11,12 @@ public class UpnpNote
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Site this UPnP note belongs to</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
+
     /// <summary>
     /// Internal host IP address (the forwarded-to address)
     /// </summary>

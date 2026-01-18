@@ -1,4 +1,4 @@
-@page "/speedtest"
+@page "/sites/{SiteId:int}/speedtest"
 @rendermode InteractiveServer
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
@@ -41,7 +41,7 @@
                     no SSH required, just open a browser or use iperf3.
                 </p>
             </div>
-            <a href="/client-speedtest" class="btn btn-primary">
+            <a href="/sites/@SiteId/client-speedtest" class="btn btn-primary">
                 Client Speed Test →
             </a>
         </div>
@@ -108,7 +108,7 @@
             {
                 <div class="alert alert-warning">
                     <strong>Gateway SSH not configured.</strong>
-                    Go to <a href="/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before running gateway speed tests.
+                    Go to <a href="/sites/@SiteId/settings#gateway-ssh">Settings</a> to configure Gateway SSH credentials before running gateway speed tests.
                 </div>
             }
             else
@@ -206,7 +206,7 @@
                             <span>Check iperf3</span>
                         }
                     </button>
-                    <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings#gateway-ssh"))">Settings</button>
+                    <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo($"/sites/{SiteId}/settings#gateway-ssh"))">Settings</button>
                 </div>
 
                 @if (gatewayRunning)
@@ -249,7 +249,7 @@
     {
         <div class="alert alert-warning">
             <strong>SSH credentials not configured.</strong>
-            Go to <a href="/settings#device-ssh">Settings</a> to configure Device SSH credentials before running speed tests.
+            Go to <a href="/sites/@SiteId/settings#device-ssh">Settings</a> to configure Device SSH credentials before running speed tests.
         </div>
     }
 
@@ -258,7 +258,7 @@
         <div class="card-header">
             <h2 class="card-title">UniFi Device Speed Test</h2>
             <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="LoadDiscoveredDevices" disabled="@(!ConnectionService.IsConnected || loadingDiscovered)">
+                <button class="btn btn-sm btn-secondary" @onclick="LoadDiscoveredDevices" disabled="@(!ConnectionService.IsConnected(SiteId) || loadingDiscovered)">
                     @if (loadingDiscovered)
                     {
                         <span class="spinner"></span>
@@ -277,15 +277,15 @@
                 <span class="tooltip-wrapper">
                     <span class="tooltip-icon">?</span>
                     <span class="tooltip-content">
-                        Some devices with MIPS-based CPU architecture don't have an iperf3 binary available. Consider using <a href="/client-speedtest">client-based speed tests</a> instead.
+                        Some devices with MIPS-based CPU architecture don't have an iperf3 binary available. Consider using <a href="/sites/@SiteId/client-speedtest">client-based speed tests</a> instead.
                     </span>
                 </span>
             </p>
 
-            @if (!ConnectionService.IsConnected)
+            @if (!ConnectionService.IsConnected(SiteId))
             {
                 <div class="alert alert-warning">
-                    Connect to your UniFi controller in <a href="/settings">Settings</a> to discover devices.
+                    Connect to your UniFi controller in <a href="/sites/@SiteId/settings">Settings</a> to discover devices.
                 </div>
             }
             else if (discoveredDevices.Count > 0)
@@ -399,7 +399,7 @@
         </div>
         <div class="card-body">
             <p class="section-description">
-                Test speed to servers, desktops, and other devices. SSH credentials are configured in <a href="/settings">Settings</a>.
+                Test speed to servers, desktops, and other devices. SSH credentials are configured in <a href="/sites/@SiteId/settings">Settings</a>.
             </p>
 
             @if (devices.Count > 0)
@@ -516,7 +516,7 @@
 
                         <div class="form-section-header" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
                             <h5 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">SSH Credential Overrides <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></h5>
-                            <span class="form-help">Leave blank to use global SSH settings from <a href="/settings">Settings</a>. Only fill in fields you want to override.</span>
+                            <span class="form-help">Leave blank to use global SSH settings from <a href="/sites/@SiteId/settings">Settings</a>. Only fill in fields you want to override.</span>
                         </div>
 
                         <div class="form-group">
@@ -670,7 +670,7 @@
                                     Streams
                                     <span class="tooltip-icon">?</span>
                                     <span class="tooltip-content">
-                                        Parallel TCP streams used for this test. Configure per device type in <a href="/settings#speed-test-settings">Settings</a>.
+                                        Parallel TCP streams used for this test. Configure per device type in <a href="/sites/@SiteId/settings#speed-test-settings">Settings</a>.
                                     </span>
                                 </span>
                             </th>
@@ -721,7 +721,7 @@
                                                     }
                                                     <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" />
 
-                                                    @if (pathAnalysis == null && ConnectionService.IsConnected)
+                                                    @if (pathAnalysis == null && ConnectionService.IsConnected(SiteId))
                                                     {
                                                         <div class="analyze-path-action">
                                                             <button class="btn btn-sm btn-secondary"
@@ -782,7 +782,7 @@
             <div class="info-section">
                 <p>This tool tests the network throughput between your Network Optimizer container and UniFi devices:</p>
                 <ol>
-                    <li><strong>SSH Connection:</strong> Connects to the device using the shared credentials from <a href="/settings">Settings</a></li>
+                    <li><strong>SSH Connection:</strong> Connects to the device using the shared credentials from <a href="/sites/@SiteId/settings">Settings</a></li>
                     <li><strong>Start Server:</strong> Launches <code>iperf3 -s</code> on the UniFi device (all UniFi devices have iperf3 built-in)</li>
                     <li><strong>To Device:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3</code> from the container to measure throughput to the device</li>
                     <li><strong>From Device:</strong> Runs <code>iperf3 -c &lt;device&gt; -P 3 -R</code> to measure throughput from the device</li>
@@ -1040,6 +1040,8 @@
 </style>
 
 @code {
+    [Parameter] public int SiteId { get; set; }
+
     // Local iperf3 availability
     private LocalIperf3Status? localIperf3Status;
     private bool recheckingIperf3 = false;
@@ -1107,7 +1109,7 @@
         localIperf3Status = await SettingsService.CheckLocalIperf3Async();
 
         // Wait for UniFi controller connection (auto-connect happens in background on startup)
-        await ConnectionService.WaitForConnectionAsync();
+        await ConnectionService.WaitForConnectionAsync(SiteId);
 
         await CheckSshConfiguration();
         await LoadGatewayConfiguration();
@@ -1137,9 +1139,9 @@
         gatewayLoading = true;
         try
         {
-            var settings = await GatewaySpeedTestService.GetSettingsAsync();
+            var settings = await GatewaySpeedTestService.GetSettingsAsync(SiteId);
             gatewayConfigured = settings.Enabled && settings.HasCredentials && !string.IsNullOrEmpty(settings.Host);
-            gatewayLastResult = GatewaySpeedTestService.GetLastResult();
+            gatewayLastResult = GatewaySpeedTestService.GetLastResult(SiteId);
         }
         finally
         {
@@ -1155,7 +1157,7 @@
 
         try
         {
-            gatewayIperf3Status = await GatewaySpeedTestService.CheckIperf3StatusAsync();
+            gatewayIperf3Status = await GatewaySpeedTestService.CheckIperf3StatusAsync(SiteId);
 
             // Check for SSH connection errors first
             if (!string.IsNullOrEmpty(gatewayIperf3Status.Error))
@@ -1203,7 +1205,7 @@
 
         try
         {
-            gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync();
+            gatewayLastResult = await GatewaySpeedTestService.RunSpeedTestAsync(SiteId);
 
             if (gatewayLastResult.Success)
             {
@@ -1243,7 +1245,7 @@
     {
         try
         {
-            var settings = await SshService.GetSettingsAsync();
+            var settings = await SshService.GetSettingsAsync(SiteId);
             sshConfigured = settings.Enabled && settings.HasCredentials;
         }
         catch
@@ -1256,7 +1258,7 @@
     {
         try
         {
-            devices = await SpeedTestService.GetDevicesAsync();
+            devices = await SpeedTestService.GetDevicesAsync(SiteId);
         }
         catch (Exception ex)
         {
@@ -1270,7 +1272,7 @@
         try
         {
             // Load all results (map handles its own time filtering)
-            testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
+            testHistory = await SpeedTestService.GetRecentResultsAsync(SiteId, count: 0);
             historyPage = 1; // Reset to first page when loading fresh data
 
             // Only set currentResult on initial page load (when it's null)
@@ -1281,7 +1283,7 @@
 
                 // PathAnalysis is normally a persisted snapshot - only calculate if missing
                 // (for backwards compatibility with old tests before PathAnalysis was added)
-                if (currentResult.PathAnalysis == null && ConnectionService.IsConnected)
+                if (currentResult.PathAnalysis == null && ConnectionService.IsConnected(SiteId))
                 {
                     try
                     {
@@ -1316,7 +1318,7 @@
 
         try
         {
-            var count = await SpeedTestService.ClearHistoryAsync();
+            var count = await SpeedTestService.ClearHistoryAsync(SiteId);
             testHistory.Clear();
             currentResult = null;
             historyPage = 1;
@@ -1413,7 +1415,7 @@
                 editingDevice.SshPassword = editingDevicePassword;
             }
 
-            await SpeedTestService.SaveDeviceAsync(editingDevice);
+            await SpeedTestService.SaveDeviceAsync(SiteId, editingDevice);
             savedDeviceMessage = editingDevice.Id > 0 ? "Device updated successfully" : "Device added successfully";
             savedDeviceMessageClass = "success";
 
@@ -1436,7 +1438,7 @@
     {
         try
         {
-            await SpeedTestService.DeleteDeviceAsync(device.Id);
+            await SpeedTestService.DeleteDeviceAsync(SiteId, device.Id);
             savedDeviceMessage = $"Deleted device: {device.Name}";
             savedDeviceMessageClass = "success";
             await LoadDevices();
@@ -1458,10 +1460,10 @@
         try
         {
             // Use device-specific credentials if configured
-            var (success, msg) = await SpeedTestService.TestConnectionAsync(device);
+            var (success, msg) = await SpeedTestService.TestConnectionAsync(SiteId, device);
             if (success)
             {
-                var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(device);
+                var (iperf3Available, version) = await SpeedTestService.CheckIperf3AvailableAsync(SiteId, device);
                 if (iperf3Available)
                 {
                     savedDeviceMessage = $"SSH OK! iperf3 available: {version}";
@@ -1498,7 +1500,7 @@
 
         try
         {
-            currentResult = await SpeedTestService.RunSpeedTestAsync(device);
+            currentResult = await SpeedTestService.RunSpeedTestAsync(SiteId, device);
 
             if (currentResult.Success)
             {
@@ -1605,18 +1607,18 @@
 
     private async Task LoadDiscoveredDevices()
     {
-        if (!ConnectionService.IsConnected)
+        if (!ConnectionService.IsConnected(SiteId))
             return;
 
         // Invalidate cache to get fresh device list
-        ConnectionService.InvalidateDeviceCache();
+        ConnectionService.InvalidateDeviceCache(SiteId);
 
         loadingDiscovered = true;
         StateHasChanged();
 
         try
         {
-            var allDevices = await ConnectionService.GetDiscoveredDevicesAsync();
+            var allDevices = await ConnectionService.GetDiscoveredDevicesAsync(SiteId);
 
             // Filter out gateway devices (have dedicated Gateway Speed Test section)
             // and devices that can't run iperf3
@@ -1666,7 +1668,7 @@
                 StartIperf3Server = true
             };
 
-            currentResult = await SpeedTestService.RunSpeedTestAsync(tempDevice);
+            currentResult = await SpeedTestService.RunSpeedTestAsync(SiteId, tempDevice);
 
             if (currentResult.Success)
             {

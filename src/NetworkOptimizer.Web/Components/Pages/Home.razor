@@ -1,0 +1,29 @@
+@page "/"
+@page "/dashboard"
+@using NetworkOptimizer.Storage.Interfaces
+@inject ISiteRepository SiteRepository
+@inject NavigationManager NavigationManager
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        var sites = await SiteRepository.GetAllSitesAsync();
+        var enabledSites = sites.Where(s => s.Enabled).ToList();
+
+        if (enabledSites.Count == 0)
+        {
+            // No enabled sites - go to site management
+            NavigationManager.NavigateTo("/sites", replace: true);
+        }
+        else if (enabledSites.Count == 1)
+        {
+            // Single site - go directly to its dashboard
+            NavigationManager.NavigateTo($"/sites/{enabledSites[0].Id}", replace: true);
+        }
+        else
+        {
+            // Multiple sites - show site list
+            NavigationManager.NavigateTo("/sites", replace: true);
+        }
+    }
+}

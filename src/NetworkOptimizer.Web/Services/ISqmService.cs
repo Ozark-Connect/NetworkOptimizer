@@ -7,72 +7,82 @@ namespace NetworkOptimizer.Web.Services;
 public interface ISqmService
 {
     /// <summary>
-    /// Configure the TC monitor endpoint to poll.
+    /// Configure the TC monitor endpoint to poll for a specific site.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <param name="host">The hostname or IP address of the gateway running TC monitor.</param>
     /// <param name="port">The port number for TC monitor (default: 8088).</param>
-    void ConfigureTcMonitor(string host, int port = 8088);
+    void ConfigureTcMonitor(int siteId, string host, int port = 8088);
 
     /// <summary>
     /// Get current SQM status including live TC rates if available.
     /// Results are cached for 2 minutes to avoid repeated HTTP calls.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <param name="forceRefresh">If true, bypasses the cache and fetches fresh data.</param>
     /// <returns>A <see cref="SqmStatusData"/> object containing current SQM status and TC rates.</returns>
-    Task<SqmStatusData> GetSqmStatusAsync(bool forceRefresh = false);
+    Task<SqmStatusData> GetSqmStatusAsync(int siteId, bool forceRefresh = false);
 
     /// <summary>
     /// Check if TC monitor is reachable on the gateway.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <param name="host">Optional hostname to test. If not provided, uses configured or controller host.</param>
     /// <param name="port">Optional port to test. If not provided, uses configured port.</param>
     /// <returns>A tuple indicating availability and any error message.</returns>
-    Task<(bool Available, string? Error)> TestTcMonitorAsync(string? host = null, int? port = null);
+    Task<(bool Available, string? Error)> TestTcMonitorAsync(int siteId, string? host = null, int? port = null);
 
     /// <summary>
     /// Get just the TC interface stats from the gateway.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <returns>A list of <see cref="TcInterfaceStats"/> or null if unavailable.</returns>
-    Task<List<TcInterfaceStats>?> GetTcInterfaceStatsAsync();
+    Task<List<TcInterfaceStats>?> GetTcInterfaceStatsAsync(int siteId);
 
     /// <summary>
     /// Get WAN interface configurations from the UniFi controller.
     /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Yelcot").
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <returns>A list of <see cref="WanInterfaceInfo"/> objects with WAN interface details.</returns>
-    Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync();
+    Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync(int siteId);
 
     /// <summary>
     /// Generate the tc-monitor configuration content based on controller WAN settings.
     /// This can be used to deploy the correct interface mapping to gateways.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <returns>Configuration string in the format expected by tc-monitor (e.g., "ifbeth4:Yelcot ifbeth0:Starlink").</returns>
-    Task<string> GenerateTcMonitorConfigAsync();
+    Task<string> GenerateTcMonitorConfigAsync(int siteId);
 
     /// <summary>
     /// Deploy SQM configuration to the gateway.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <param name="config">The SQM configuration to deploy.</param>
     /// <returns>True if deployment succeeded, false otherwise.</returns>
-    Task<bool> DeploySqmAsync(SqmConfiguration config);
+    Task<bool> DeploySqmAsync(int siteId, SqmConfiguration config);
 
     /// <summary>
     /// Generate SQM scripts for the specified configuration.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <param name="config">The SQM configuration to generate scripts for.</param>
     /// <returns>The path to the generated scripts archive.</returns>
-    Task<string> GenerateSqmScriptsAsync(SqmConfiguration config);
+    Task<string> GenerateSqmScriptsAsync(int siteId, SqmConfiguration config);
 
     /// <summary>
     /// Disable SQM on the gateway.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <returns>True if SQM was successfully disabled, false otherwise.</returns>
-    Task<bool> DisableSqmAsync();
+    Task<bool> DisableSqmAsync(int siteId);
 
     /// <summary>
     /// Run a speedtest on the gateway.
     /// </summary>
+    /// <param name="siteId">The site identifier.</param>
     /// <returns>A <see cref="SpeedtestResult"/> with the speedtest results.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the controller is not connected.</exception>
-    Task<SpeedtestResult> RunSpeedtestAsync();
+    Task<SpeedtestResult> RunSpeedtestAsync(int siteId);
 }

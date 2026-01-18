@@ -99,7 +99,7 @@ public class UniFiApiClient : IDisposable
 
         _httpClient = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(5)
         };
 
         _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");

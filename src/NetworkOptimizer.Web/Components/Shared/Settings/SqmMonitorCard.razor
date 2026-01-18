@@ -1,0 +1,98 @@
+@using NetworkOptimizer.Web.Services
+@inject SqmService SqmService
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Adaptive SQM Monitor</h2>
+        <span class="status-badge status-@_tcMonitorStatus.ToLower()">@_tcMonitorStatus</span>
+    </div>
+    <div class="card-body">
+        <p class="section-description">
+            The Adaptive SQM Monitor runs on your gateway and exposes current SQM rates via HTTP for the dashboard. Deploy it from the SQM Manager page.
+        </p>
+
+        <div class="form-row">
+            <div class="form-group" style="flex: 1;">
+                <label class="form-label">Port</label>
+                <input type="number" class="form-control" @bind="TcMonitorPort" @bind:after="OnPortChanged" min="1" max="65535" />
+            </div>
+            <div class="form-group" style="flex: 0; align-self: flex-end;">
+                <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@_testingTcMonitor">
+                    @if (_testingTcMonitor)
+                    {
+                        <span class="spinner"></span>
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>Test</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_tcMonitorMessage))
+        {
+            <div class="alert alert-@_tcMonitorMessageClass">
+                @_tcMonitorMessage
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    [Parameter]
+    public int TcMonitorPort { get; set; } = 8088;
+
+    [Parameter]
+    public EventCallback<int> TcMonitorPortChanged { get; set; }
+
+    private string _tcMonitorStatus = "Unknown";
+    private bool _testingTcMonitor = false;
+    private string _tcMonitorMessage = "";
+    private string _tcMonitorMessageClass = "";
+
+    private async Task OnPortChanged()
+    {
+        await TcMonitorPortChanged.InvokeAsync(TcMonitorPort);
+    }
+
+    private async Task TestTcMonitor()
+    {
+        _testingTcMonitor = true;
+        _tcMonitorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var (available, error) = await SqmService.TestTcMonitorAsync(SiteId, null, TcMonitorPort);
+
+            if (available)
+            {
+                _tcMonitorStatus = "Connected";
+                _tcMonitorMessage = "Adaptive SQM Monitor is responding";
+                _tcMonitorMessageClass = "success";
+            }
+            else
+            {
+                _tcMonitorStatus = "Offline";
+                _tcMonitorMessage = error ?? "Adaptive SQM Monitor is not responding";
+                _tcMonitorMessageClass = "danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            _tcMonitorStatus = "Error";
+            _tcMonitorMessage = $"Error: {ex.Message}";
+            _tcMonitorMessageClass = "danger";
+        }
+        finally
+        {
+            _testingTcMonitor = false;
+            StateHasChanged();
+        }
+    }
+}

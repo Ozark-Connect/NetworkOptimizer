@@ -1,4 +1,4 @@
-@page "/audit"
+@page "/sites/{SiteId:int}/audit"
 @using NetworkOptimizer.Audit.Models
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.Core.Helpers
@@ -12,6 +12,10 @@
 @inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
+@code {
+    [Parameter] public int SiteId { get; set; }
+}
+
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
 
 <div class="page-header">
@@ -19,7 +23,7 @@
     <p class="page-description">Comprehensive network security analysis</p>
 </div>
 
-@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+@if (!ConnectionService.IsConnected(SiteId))
 {
     <div class="connection-banner">
         <div class="banner-content">
@@ -28,7 +32,7 @@
                 <strong>Not Connected</strong>
                 <span>Connect to your UniFi Console to run security audits.</span>
             </div>
-            <a href="/settings" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings" class="btn btn-primary">Connect Now</a>
         </div>
     </div>
 }
@@ -41,7 +45,7 @@
         </div>
         <div class="card-body">
             <div class="audit-controls">
-                <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)" style="min-width: 140px;">
+                <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected(SiteId))" style="min-width: 140px;">
                     @if (isRunning)
                     {
                         <span class="spinner"></span>
@@ -55,7 +59,7 @@
 
                 @if (hasResults)
                 {
-                    <a href="/api/reports/latest/pdf" class="btn btn-secondary" download>
+                    <a href="/api/sites/@SiteId/reports/latest/pdf" class="btn btn-secondary" download>
                         Download PDF
                     </a>
                 }
@@ -66,7 +70,7 @@
                     </button>
                 }
 
-                <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo("/settings#security-audit"))">
+                <button class="btn btn-secondary" @onclick="@(() => NavigationManager.NavigateTo($"/sites/{SiteId}/settings#security-audit"))">
                     Settings
                 </button>
 
@@ -245,7 +249,7 @@
                                             @if (!string.IsNullOrEmpty(issue.ConfigurableSetting))
                                             {
                                                 <span class="tooltip-wrapper">
-                                                    <a href="/settings#security-audit" class="tooltip-icon issue-settings-icon">
+                                                    <a href="/sites/@SiteId/settings#security-audit" class="tooltip-icon issue-settings-icon">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                             <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
                                                         </svg>
@@ -261,7 +265,7 @@
                                                             <strong>Configurable Alert</strong><br/>
                                                             <text>You can adjust how this device type is treated when found on your main network(s).</text>
                                                         }
-                                                        <br/><a href="/settings#security-audit">Configure in Settings →</a>
+                                                        <br/><a href="/sites/@SiteId/settings#security-audit">Configure in Settings</a>
                                                     </span>
                                                 </span>
                                             }
@@ -327,7 +331,7 @@
                                                 @if (!string.IsNullOrEmpty(firstIssue.ConfigurableSetting))
                                                 {
                                                     <span class="tooltip-wrapper">
-                                                        <a href="/settings#security-audit" class="tooltip-icon issue-settings-icon" @onclick:stopPropagation="true">
+                                                        <a href="/sites/@SiteId/settings#security-audit" class="tooltip-icon issue-settings-icon" @onclick:stopPropagation="true">
                                                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                                 <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 018.82 1h2.36a1 1 0 01.98.804l.331 1.652a6.993 6.993 0 011.929 1.115l1.598-.54a1 1 0 011.186.447l1.18 2.044a1 1 0 01-.205 1.251l-1.267 1.113a7.047 7.047 0 010 2.228l1.267 1.113a1 1 0 01.206 1.25l-1.18 2.045a1 1 0 01-1.187.447l-1.598-.54a6.993 6.993 0 01-1.929 1.115l-.33 1.652a1 1 0 01-.98.804H8.82a1 1 0 01-.98-.804l-.331-1.652a6.993 6.993 0 01-1.929-1.115l-1.598.54a1 1 0 01-1.186-.447l-1.18-2.044a1 1 0 01.205-1.251l1.267-1.114a7.05 7.05 0 010-2.227L1.821 7.773a1 1 0 01-.206-1.25l1.18-2.045a1 1 0 011.187-.447l1.598.54A6.993 6.993 0 017.51 3.456l.33-1.652zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
                                                             </svg>
@@ -343,7 +347,7 @@
                                                                 <strong>Configurable Alert</strong><br/>
                                                                 <text>You can adjust how this device type is treated when found on your main network(s).</text>
                                                             }
-                                                            <br/><a href="/settings#security-audit">Configure in Settings →</a>
+                                                            <br/><a href="/sites/@SiteId/settings#security-audit">Configure in Settings</a>
                                                         </span>
                                                     </span>
                                                 }
@@ -840,10 +844,10 @@
     {
         // Wait for auto-connect to complete (if credentials are saved)
         // This prevents the "Not Connected" banner from flashing after page reload
-        await ConnectionService.WaitForConnectionAsync();
+        await ConnectionService.WaitForConnectionAsync(SiteId);
 
         // Load previous audit results from database/cache
-        var previousResult = await AuditService.LoadLastAuditFromDatabaseAsync();
+        var previousResult = await AuditService.LoadLastAuditFromDatabaseAsync(SiteId);
         if (previousResult != null)
         {
             lastResult = previousResult;
@@ -852,14 +856,14 @@
             scoreClass = previousResult.ScoreClass;
 
             // Use active (non-dismissed) issues
-            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            var activeIssues = await AuditService.GetActiveIssuesAsync(SiteId);
             criticalCount = activeIssues.Count(i => i.Severity == AuditSeverity.Critical);
             warningCount = activeIssues.Count(i => i.Severity == AuditSeverity.Recommended);
             infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Informational);
             issues = activeIssues;
 
             // Load dismissed issues
-            dismissedIssues = await AuditService.GetDismissedIssuesAsync();
+            dismissedIssues = await AuditService.GetDismissedIssuesAsync(SiteId);
 
             lastAuditTime = previousResult.CompletedAt.ToLocalTime().ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
@@ -876,7 +880,7 @@
         try
         {
             // Run audit and progress animation in parallel
-            var auditTask = AuditService.RunAuditAsync(new Services.AuditOptions
+            var auditTask = AuditService.RunAuditAsync(SiteId, new Services.AuditOptions
             {
                 IncludeFirewallRules = includeFirewallRules,
                 IncludeVlanSecurity = includeVlanSecurity,
@@ -914,14 +918,14 @@
             scoreClass = result.ScoreClass;
 
             // Use active (non-dismissed) issues
-            var activeIssues = await AuditService.GetActiveIssuesAsync();
+            var activeIssues = await AuditService.GetActiveIssuesAsync(SiteId);
             criticalCount = activeIssues.Count(i => i.Severity == AuditSeverity.Critical);
             warningCount = activeIssues.Count(i => i.Severity == AuditSeverity.Recommended);
             infoCount = activeIssues.Count(i => i.Severity == AuditSeverity.Informational);
             issues = activeIssues;
 
             // Load dismissed issues
-            dismissedIssues = await AuditService.GetDismissedIssuesAsync();
+            dismissedIssues = await AuditService.GetDismissedIssuesAsync(SiteId);
 
             lastAuditTime = DateTime.Now.ToString("MMM dd, yyyy HH:mm");
             hasResults = true;
@@ -1243,16 +1247,16 @@
         // Convert "UPnP Inspector" to a link
         formatted = formatted.Replace(
             "UPnP Inspector",
-            "<a href=\"/upnp-inspector\">UPnP Inspector</a>");
+            $"<a href=\"/sites/{SiteId}/upnp-inspector\">UPnP Inspector</a>");
 
         // Convert "Settings" to a link (but not "Network Settings" which refers to UniFi)
         // Match standalone "Settings" or "in Settings" patterns
         formatted = formatted.Replace(
             "in Settings",
-            "in <a href=\"/settings#security-audit\">Settings</a>");
+            $"in <a href=\"/sites/{SiteId}/settings#security-audit\">Settings</a>");
         formatted = formatted.Replace(
             "per Settings",
-            "per <a href=\"/settings#security-audit\">Settings</a>");
+            $"per <a href=\"/sites/{SiteId}/settings#security-audit\">Settings</a>");
 
         return new MarkupString(formatted);
     }
@@ -1309,7 +1313,7 @@
 
     private async Task DismissIssue(Services.AuditIssue issue)
     {
-        await AuditService.DismissIssueAsync(issue);
+        await AuditService.DismissIssueAsync(SiteId, issue);
 
         // Move from active to dismissed
         issues.Remove(issue);
@@ -1325,7 +1329,7 @@
 
     private async Task RestoreIssue(Services.AuditIssue issue)
     {
-        await AuditService.RestoreIssueAsync(issue);
+        await AuditService.RestoreIssueAsync(SiteId, issue);
 
         // Move from dismissed to active
         dismissedIssues.Remove(issue);

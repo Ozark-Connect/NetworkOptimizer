@@ -22,35 +22,38 @@ public class SpeedTestRepository : ISpeedTestRepository
     #region Gateway SSH Settings
 
     /// <summary>
-    /// Retrieves the gateway SSH connection settings.
+    /// Retrieves the gateway SSH connection settings for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The gateway SSH settings, or null if not configured.</returns>
-    public async Task<GatewaySshSettings?> GetGatewaySshSettingsAsync(CancellationToken cancellationToken = default)
+    public async Task<GatewaySshSettings?> GetGatewaySshSettingsAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.GatewaySshSettings
                 .AsNoTracking()
-                .FirstOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(g => g.SiteId == siteId, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get gateway SSH settings");
+            _logger.LogError(ex, "Failed to get gateway SSH settings for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Saves or updates the gateway SSH connection settings.
+    /// Saves or updates the gateway SSH connection settings for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="settings">The gateway SSH settings to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task SaveGatewaySshSettingsAsync(GatewaySshSettings settings, CancellationToken cancellationToken = default)
+    public async Task SaveGatewaySshSettingsAsync(int siteId, GatewaySshSettings settings, CancellationToken cancellationToken = default)
     {
         try
         {
-            var existing = await _context.GatewaySshSettings.FirstOrDefaultAsync(cancellationToken);
+            var existing = await _context.GatewaySshSettings
+                .FirstOrDefaultAsync(g => g.SiteId == siteId, cancellationToken);
             if (existing != null)
             {
                 existing.Host = settings.Host;
@@ -67,17 +70,18 @@ public class SpeedTestRepository : ISpeedTestRepository
             }
             else
             {
+                settings.SiteId = siteId;
                 settings.CreatedAt = DateTime.UtcNow;
                 settings.UpdatedAt = DateTime.UtcNow;
                 _context.GatewaySshSettings.Add(settings);
             }
 
             await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Saved gateway SSH settings for {Host}", settings.Host);
+            _logger.LogInformation("Saved gateway SSH settings for {Host} in site {SiteId}", settings.Host, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save gateway SSH settings");
+            _logger.LogError(ex, "Failed to save gateway SSH settings for site {SiteId}", siteId);
             throw;
         }
     }
@@ -87,38 +91,43 @@ public class SpeedTestRepository : ISpeedTestRepository
     #region Iperf3 Results
 
     /// <summary>
-    /// Saves an iperf3 speed test result.
+    /// Saves an iperf3 speed test result for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="result">The test result to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task SaveIperf3ResultAsync(Iperf3Result result, CancellationToken cancellationToken = default)
+    public async Task SaveIperf3ResultAsync(int siteId, Iperf3Result result, CancellationToken cancellationToken = default)
     {
         try
         {
+            result.SiteId = siteId;
             result.TestTime = DateTime.UtcNow;
             _context.Iperf3Results.Add(result);
             await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogDebug("Saved iperf3 result for {DeviceHost}", result.DeviceHost);
+            _logger.LogDebug("Saved iperf3 result for {DeviceHost} in site {SiteId}", result.DeviceHost, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save iperf3 result for {DeviceHost}", result.DeviceHost);
+            _logger.LogError(ex, "Failed to save iperf3 result for {DeviceHost} in site {SiteId}", result.DeviceHost, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves the most recent iperf3 test results.
+    /// Retrieves the most recent iperf3 test results for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="count">Maximum number of results to return (0 = no limit).</param>
     /// <param name="hours">Filter to results within the last N hours (0 = all time).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of recent results ordered by time descending.</returns>
-    public async Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, int hours = 0, CancellationToken cancellationToken = default)
+    public async Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int siteId, int count = 50, int hours = 0, CancellationToken cancellationToken = default)
     {
         try
         {
-            var query = _context.Iperf3Results.AsNoTracking();
+            var query = _context.Iperf3Results
+                .AsNoTracking()
+                .Where(r => r.SiteId == siteId);
 
             // Apply date filter if specified
             if (hours > 0)
@@ -139,55 +148,59 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get recent iperf3 results");
+            _logger.LogError(ex, "Failed to get recent iperf3 results for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves iperf3 test results for a specific device.
+    /// Retrieves iperf3 test results for a specific device in a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="deviceHost">The device host to filter by.</param>
     /// <param name="count">Maximum number of results to return.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of results for the device ordered by time descending.</returns>
-    public async Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(string deviceHost, int count = 50, CancellationToken cancellationToken = default)
+    public async Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(int siteId, string deviceHost, int count = 50, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.Iperf3Results
                 .AsNoTracking()
-                .Where(r => r.DeviceHost == deviceHost)
+                .Where(r => r.SiteId == siteId && r.DeviceHost == deviceHost)
                 .OrderByDescending(r => r.TestTime)
                 .Take(count)
                 .ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get iperf3 results for {DeviceHost}", deviceHost);
+            _logger.LogError(ex, "Failed to get iperf3 results for {DeviceHost} in site {SiteId}", deviceHost, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Clears all iperf3 test history.
+    /// Clears all iperf3 test history for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default)
+    public async Task ClearIperf3HistoryAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var allResults = await _context.Iperf3Results.ToListAsync(cancellationToken);
+            var allResults = await _context.Iperf3Results
+                .Where(r => r.SiteId == siteId)
+                .ToListAsync(cancellationToken);
             if (allResults.Count > 0)
             {
                 _context.Iperf3Results.RemoveRange(allResults);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Count} iperf3 results", allResults.Count);
+                _logger.LogInformation("Cleared {Count} iperf3 results for site {SiteId}", allResults.Count, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to clear iperf3 history");
+            _logger.LogError(ex, "Failed to clear iperf3 history for site {SiteId}", siteId);
             throw;
         }
     }
@@ -197,58 +210,62 @@ public class SpeedTestRepository : ISpeedTestRepository
     #region SQM WAN Configuration
 
     /// <summary>
-    /// Retrieves an SQM WAN configuration by WAN number.
+    /// Retrieves an SQM WAN configuration by WAN number for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="wanNumber">The WAN number (1, 2, etc.).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The WAN configuration, or null if not found.</returns>
-    public async Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default)
+    public async Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int siteId, int wanNumber, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.SqmWanConfigurations
                 .AsNoTracking()
-                .FirstOrDefaultAsync(c => c.WanNumber == wanNumber, cancellationToken);
+                .FirstOrDefaultAsync(c => c.SiteId == siteId && c.WanNumber == wanNumber, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get SQM WAN config for WAN {WanNumber}", wanNumber);
+            _logger.LogError(ex, "Failed to get SQM WAN config for WAN {WanNumber} in site {SiteId}", wanNumber, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Retrieves all SQM WAN configurations.
+    /// Retrieves all SQM WAN configurations for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A list of WAN configurations ordered by WAN number.</returns>
-    public async Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default)
+    public async Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
             return await _context.SqmWanConfigurations
                 .AsNoTracking()
+                .Where(c => c.SiteId == siteId)
                 .OrderBy(c => c.WanNumber)
                 .ToListAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get all SQM WAN configs");
+            _logger.LogError(ex, "Failed to get all SQM WAN configs for site {SiteId}", siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Saves or updates an SQM WAN configuration.
+    /// Saves or updates an SQM WAN configuration for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="config">The WAN configuration to save.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default)
+    public async Task SaveSqmWanConfigAsync(int siteId, SqmWanConfiguration config, CancellationToken cancellationToken = default)
     {
         try
         {
             var existing = await _context.SqmWanConfigurations
-                .FirstOrDefaultAsync(c => c.WanNumber == config.WanNumber, cancellationToken);
+                .FirstOrDefaultAsync(c => c.SiteId == siteId && c.WanNumber == config.WanNumber, cancellationToken);
 
             if (existing != null)
             {
@@ -268,66 +285,71 @@ public class SpeedTestRepository : ISpeedTestRepository
             }
             else
             {
+                config.SiteId = siteId;
                 config.CreatedAt = DateTime.UtcNow;
                 config.UpdatedAt = DateTime.UtcNow;
                 _context.SqmWanConfigurations.Add(config);
             }
 
             await _context.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("Saved SQM WAN config for WAN {WanNumber} ({Name})", config.WanNumber, config.Name);
+            _logger.LogInformation("Saved SQM WAN config for WAN {WanNumber} ({Name}) in site {SiteId}", config.WanNumber, config.Name, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save SQM WAN config for WAN {WanNumber}", config.WanNumber);
+            _logger.LogError(ex, "Failed to save SQM WAN config for WAN {WanNumber} in site {SiteId}", config.WanNumber, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Deletes an SQM WAN configuration by WAN number.
+    /// Deletes an SQM WAN configuration by WAN number for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="wanNumber">The WAN number to delete.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task DeleteSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default)
+    public async Task DeleteSqmWanConfigAsync(int siteId, int wanNumber, CancellationToken cancellationToken = default)
     {
         try
         {
             var existing = await _context.SqmWanConfigurations
-                .FirstOrDefaultAsync(c => c.WanNumber == wanNumber, cancellationToken);
+                .FirstOrDefaultAsync(c => c.SiteId == siteId && c.WanNumber == wanNumber, cancellationToken);
 
             if (existing != null)
             {
                 _context.SqmWanConfigurations.Remove(existing);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Deleted SQM WAN config for WAN {WanNumber}", wanNumber);
+                _logger.LogInformation("Deleted SQM WAN config for WAN {WanNumber} in site {SiteId}", wanNumber, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete SQM WAN config for WAN {WanNumber}", wanNumber);
+            _logger.LogError(ex, "Failed to delete SQM WAN config for WAN {WanNumber} in site {SiteId}", wanNumber, siteId);
             throw;
         }
     }
 
     /// <summary>
-    /// Clears all SQM WAN configurations.
+    /// Clears all SQM WAN configurations for a site.
     /// </summary>
+    /// <param name="siteId">The site ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    public async Task ClearAllSqmWanConfigsAsync(CancellationToken cancellationToken = default)
+    public async Task ClearAllSqmWanConfigsAsync(int siteId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var allConfigs = await _context.SqmWanConfigurations.ToListAsync(cancellationToken);
+            var allConfigs = await _context.SqmWanConfigurations
+                .Where(c => c.SiteId == siteId)
+                .ToListAsync(cancellationToken);
             if (allConfigs.Count > 0)
             {
                 _context.SqmWanConfigurations.RemoveRange(allConfigs);
                 await _context.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("Cleared {Count} SQM WAN configurations", allConfigs.Count);
+                _logger.LogInformation("Cleared {Count} SQM WAN configurations for site {SiteId}", allConfigs.Count, siteId);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to clear SQM WAN configurations");
+            _logger.LogError(ex, "Failed to clear SQM WAN configurations for site {SiteId}", siteId);
             throw;
         }
     }

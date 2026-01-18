@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.Storage.Services;
@@ -16,9 +17,8 @@ public class GatewaySshService : IGatewaySshService
     private readonly ICredentialProtectionService _credentialProtection;
     private readonly UniFiConnectionService _connectionService;
 
-    // Cache the settings to avoid repeated DB queries
-    private GatewaySshSettings? _cachedSettings;
-    private DateTime _cacheTime = DateTime.MinValue;
+    // Cache the settings per site to avoid repeated DB queries
+    private readonly ConcurrentDictionary<int, (GatewaySshSettings settings, DateTime cacheTime)> _settingsCache = new();
     private readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
 
     public GatewaySshService(
@@ -36,23 +36,23 @@ public class GatewaySshService : IGatewaySshService
     }
 
     /// <inheritdoc />
-    public async Task<GatewaySshSettings> GetSettingsAsync(bool forceRefresh = false)
+    public async Task<GatewaySshSettings> GetSettingsAsync(int siteId, bool forceRefresh = false)
     {
         // Check cache first (unless force refresh requested)
-        if (!forceRefresh && _cachedSettings != null && DateTime.UtcNow - _cacheTime < _cacheExpiry)
+        if (!forceRefresh && _settingsCache.TryGetValue(siteId, out var cached) && DateTime.UtcNow - cached.cacheTime < _cacheExpiry)
         {
-            return _cachedSettings;
+            return cached.settings;
         }
 
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
 
-        var settings = await repository.GetGatewaySshSettingsAsync();
+        var settings = await repository.GetGatewaySshSettingsAsync(siteId);
 
         if (settings == null)
         {
             // Create default settings, try to get gateway host from controller
-            var gatewayHost = GetGatewayHostFromController();
+            var gatewayHost = GetGatewayHostFromController(siteId);
 
             settings = new GatewaySshSettings
             {
@@ -64,17 +64,16 @@ public class GatewaySshService : IGatewaySshService
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
-            await repository.SaveGatewaySshSettingsAsync(settings);
+            await repository.SaveGatewaySshSettingsAsync(siteId, settings);
         }
 
-        _cachedSettings = settings;
-        _cacheTime = DateTime.UtcNow;
+        _settingsCache[siteId] = (settings, DateTime.UtcNow);
 
         return settings;
     }
 
     /// <inheritdoc />
-    public async Task<GatewaySshSettings> SaveSettingsAsync(GatewaySshSettings settings)
+    public async Task<GatewaySshSettings> SaveSettingsAsync(int siteId, GatewaySshSettings settings)
     {
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
@@ -87,18 +86,18 @@ public class GatewaySshService : IGatewaySshService
             settings.Password = _credentialProtection.Encrypt(settings.Password);
         }
 
-        await repository.SaveGatewaySshSettingsAsync(settings);
+        await repository.SaveGatewaySshSettingsAsync(siteId, settings);
 
-        // Invalidate cache
-        _cachedSettings = null;
+        // Invalidate cache for this site
+        _settingsCache.TryRemove(siteId, out _);
 
         return settings;
     }
 
     /// <inheritdoc />
-    public async Task<(bool success, string message)> TestConnectionAsync()
+    public async Task<(bool success, string message)> TestConnectionAsync(int siteId)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
 
         if (!settings.Enabled)
         {
@@ -129,7 +128,7 @@ public class GatewaySshService : IGatewaySshService
                     // Update last tested
                     settings.LastTestedAt = DateTime.UtcNow;
                     settings.LastTestResult = "Success";
-                    await SaveSettingsAsync(settings);
+                    await SaveSettingsAsync(siteId, settings);
 
                     return (true, "SSH connection successful");
                 }
@@ -147,6 +146,7 @@ public class GatewaySshService : IGatewaySshService
 
     /// <inheritdoc />
     public async Task<(bool success, string message)> TestConnectionAsync(
+        int siteId,
         string host,
         int port,
         string username,
@@ -199,11 +199,12 @@ public class GatewaySshService : IGatewaySshService
 
     /// <inheritdoc />
     public async Task<(bool success, string output)> RunCommandAsync(
+        int siteId,
         string command,
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
     {
-        var settings = await GetSettingsAsync();
+        var settings = await GetSettingsAsync(siteId);
 
         if (!settings.Enabled)
         {
@@ -243,13 +244,14 @@ public class GatewaySshService : IGatewaySshService
     /// <summary>
     /// Try to get gateway host from controller URL.
     /// </summary>
-    private string? GetGatewayHostFromController()
+    private string? GetGatewayHostFromController(int siteId)
     {
-        if (_connectionService.CurrentConfig != null)
+        var config = _connectionService.GetCurrentConfig(siteId);
+        if (config != null)
         {
             try
             {
-                var uri = new Uri(_connectionService.CurrentConfig.ControllerUrl);
+                var uri = new Uri(config.ControllerUrl);
                 return uri.Host;
             }
             catch

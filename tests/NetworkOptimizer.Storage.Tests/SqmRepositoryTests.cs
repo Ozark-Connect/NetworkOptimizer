@@ -34,7 +34,7 @@ public class SqmRepositoryTests : IDisposable
     {
         var baseline = CreateSqmBaseline("gateway-1", "eth0");
 
-        var id = await _repository.SaveSqmBaselineAsync(baseline);
+        var id = await _repository.SaveSqmBaselineAsync(1, baseline);
 
         id.Should().BeGreaterThan(0);
         var saved = await _context.SqmBaselines.FindAsync(id);
@@ -48,7 +48,7 @@ public class SqmRepositoryTests : IDisposable
         _context.SqmBaselines.Add(baseline);
         await _context.SaveChangesAsync();
 
-        var result = await _repository.GetSqmBaselineAsync("gateway-1", "eth0");
+        var result = await _repository.GetSqmBaselineAsync(1, "gateway-1", "eth0");
 
         result.Should().NotBeNull();
         result!.RecommendedDownloadMbps.Should().Be(100.0);
@@ -58,7 +58,7 @@ public class SqmRepositoryTests : IDisposable
     [Fact]
     public async Task GetSqmBaselineAsync_ReturnsNullWhenNotFound()
     {
-        var result = await _repository.GetSqmBaselineAsync("nonexistent", "eth0");
+        var result = await _repository.GetSqmBaselineAsync(1, "nonexistent", "eth0");
         result.Should().BeNull();
     }
 
@@ -71,7 +71,7 @@ public class SqmRepositoryTests : IDisposable
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAllSqmBaselinesAsync();
+        var results = await _repository.GetAllSqmBaselinesAsync(1);
 
         results.Should().HaveCount(2);
     }
@@ -85,7 +85,7 @@ public class SqmRepositoryTests : IDisposable
         );
         await _context.SaveChangesAsync();
 
-        var results = await _repository.GetAllSqmBaselinesAsync(deviceId: "device-1");
+        var results = await _repository.GetAllSqmBaselinesAsync(1, deviceId: "device-1");
 
         results.Should().HaveCount(1);
         results[0].DeviceId.Should().Be("device-1");
@@ -99,7 +99,7 @@ public class SqmRepositoryTests : IDisposable
         await _context.SaveChangesAsync();
         var id = baseline.Id;
 
-        await _repository.DeleteSqmBaselineAsync(id);
+        await _repository.DeleteSqmBaselineAsync(1, id);
 
         var deleted = await _context.SqmBaselines.FindAsync(id);
         deleted.Should().BeNull();
@@ -113,6 +113,7 @@ public class SqmRepositoryTests : IDisposable
     {
         return new SqmBaseline
         {
+            SiteId = 1,
             DeviceId = deviceId,
             InterfaceId = interfaceId,
             InterfaceName = "WAN",

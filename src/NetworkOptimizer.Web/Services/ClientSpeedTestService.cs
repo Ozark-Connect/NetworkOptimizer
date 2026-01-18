@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
 
@@ -7,33 +10,80 @@ namespace NetworkOptimizer.Web.Services;
 /// <summary>
 /// Service for managing client-initiated speed tests (browser-based and iperf3 clients).
 /// Uses the unified Iperf3Result table with Direction field to distinguish test types.
+/// Client-initiated tests are saved to the default site (first enabled site).
 /// </summary>
 public class ClientSpeedTestService
 {
     private readonly ILogger<ClientSpeedTestService> _logger;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
-    private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly IConfiguration _configuration;
+    private readonly ISiteRepository _siteRepository;
+    private readonly IMemoryCache _cache;
+    private readonly ILoggerFactory _loggerFactory;
+
+    // Cache the default site ID to avoid repeated DB lookups
+    private int? _cachedDefaultSiteId;
+    private DateTime _cacheExpiry = DateTime.MinValue;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+
+    // Site-specific path analyzers (keyed by siteId)
+    private readonly ConcurrentDictionary<int, INetworkPathAnalyzer> _pathAnalyzers = new();
 
     public ClientSpeedTestService(
         ILogger<ClientSpeedTestService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
-        INetworkPathAnalyzer pathAnalyzer,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ISiteRepository siteRepository,
+        IMemoryCache cache,
+        ILoggerFactory loggerFactory)
     {
         _logger = logger;
         _dbFactory = dbFactory;
         _connectionService = connectionService;
-        _pathAnalyzer = pathAnalyzer;
         _configuration = configuration;
+        _siteRepository = siteRepository;
+        _cache = cache;
+        _loggerFactory = loggerFactory;
+    }
+
+    /// <summary>
+    /// Gets or creates a site-specific path analyzer.
+    /// Each site needs its own analyzer to use the correct UniFi connection.
+    /// </summary>
+    private INetworkPathAnalyzer GetPathAnalyzer(int siteId)
+    {
+        return _pathAnalyzers.GetOrAdd(siteId, id =>
+        {
+            var clientProvider = new SiteSpecificClientProvider(_connectionService, id);
+            return new NetworkPathAnalyzer(clientProvider, _cache, _loggerFactory);
+        });
+    }
+
+    /// <summary>
+    /// Gets the default site ID for client-initiated speed tests.
+    /// Returns the first enabled site, or 1001 as a fallback.
+    /// </summary>
+    private async Task<int> GetDefaultSiteIdAsync()
+    {
+        // Return cached value if still valid
+        if (_cachedDefaultSiteId.HasValue && DateTime.UtcNow < _cacheExpiry)
+            return _cachedDefaultSiteId.Value;
+
+        var sites = await _siteRepository.GetAllSitesAsync();
+        var defaultSite = sites.FirstOrDefault(s => s.Enabled);
+        _cachedDefaultSiteId = defaultSite?.Id ?? 1001;
+        _cacheExpiry = DateTime.UtcNow.Add(CacheDuration);
+
+        return _cachedDefaultSiteId.Value;
     }
 
     /// <summary>
     /// Record a speed test result from OpenSpeedTest browser client.
     /// </summary>
     public async Task<Iperf3Result> RecordOpenSpeedTestResultAsync(
+        int siteId,
         string clientIp,
         double downloadMbps,
         double uploadMbps,
@@ -54,6 +104,7 @@ public class ClientSpeedTestService
         // - UploadBitsPerSecond = data server sent TO client = client's download
         var result = new Iperf3Result
         {
+            SiteId = siteId,
             Direction = SpeedTestDirection.BrowserToServer,
             DeviceHost = clientIp,
             LocalIp = serverIp,
@@ -73,11 +124,11 @@ public class ClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        // Try to look up client info from UniFi
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
+        // Try to look up client info from UniFi (site-specific)
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
 
-        // Perform path analysis (client to server)
-        await AnalyzePathAsync(result);
+        // Perform path analysis (client to server) using site-specific connection
+        await AnalyzePathAsync(siteId, result);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         db.Iperf3Results.Add(result);
@@ -111,6 +162,9 @@ public class ClientSpeedTestService
         // Use the actual server IP from iperf3, fall back to HOST_IP config
         var serverIp = serverLocalIp ?? _configuration["HOST_IP"];
 
+        // Get the default site for client-initiated tests
+        var siteId = await GetDefaultSiteIdAsync();
+
         await using var db = await _dbFactory.CreateDbContextAsync();
 
         // Check for recent result from same client that we can merge with
@@ -119,6 +173,7 @@ public class ClientSpeedTestService
         var recentResult = await db.Iperf3Results
             .Where(r => r.Direction == SpeedTestDirection.ClientToServer
                      && r.DeviceHost == clientIp
+                     && r.SiteId == siteId
                      && r.TestTime > mergeWindow)
             .OrderByDescending(r => r.TestTime)
             .FirstOrDefaultAsync();
@@ -148,8 +203,8 @@ public class ClientSpeedTestService
             if (parallelStreams > recentResult.ParallelStreams)
                 recentResult.ParallelStreams = parallelStreams;
 
-            // Re-analyze path with updated bidirectional data
-            await AnalyzePathAsync(recentResult);
+            // Re-analyze path with updated bidirectional data (using site-specific connection)
+            await AnalyzePathAsync(siteId, recentResult);
 
             await db.SaveChangesAsync();
 
@@ -164,6 +219,7 @@ public class ClientSpeedTestService
         // No merge - create new result
         var result = new Iperf3Result
         {
+            SiteId = siteId,
             Direction = SpeedTestDirection.ClientToServer,
             DeviceHost = clientIp,
             LocalIp = serverIp,
@@ -180,11 +236,11 @@ public class ClientSpeedTestService
             Success = true
         };
 
-        // Try to look up client info from UniFi
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
+        // Try to look up client info from UniFi (site-specific)
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
 
-        // Perform path analysis
-        await AnalyzePathAsync(result);
+        // Perform path analysis (using site-specific connection)
+        await AnalyzePathAsync(siteId, result);
 
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
@@ -200,12 +256,14 @@ public class ClientSpeedTestService
     /// Get recent client speed test results (ClientToServer and BrowserToServer directions).
     /// Retries path analysis for results missing valid paths.
     /// </summary>
+    /// <param name="siteId">Site ID to filter results</param>
     /// <param name="count">Maximum number of results (0 = no limit)</param>
     /// <param name="hours">Filter to results within the last N hours (0 = all time)</param>
-    public async Task<List<Iperf3Result>> GetResultsAsync(int count = 50, int hours = 0)
+    public async Task<List<Iperf3Result>> GetResultsAsync(int siteId, int count = 50, int hours = 0)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
         var query = db.Iperf3Results
+            .Where(r => r.SiteId == siteId)
             .Where(r => r.Direction == SpeedTestDirection.ClientToServer
                      || r.Direction == SpeedTestDirection.BrowserToServer);
 
@@ -239,10 +297,10 @@ public class ClientSpeedTestService
 
         if (needsRetry.Count > 0)
         {
-            _logger.LogInformation("Retrying path analysis for {Count} results without valid paths", needsRetry.Count);
+            _logger.LogInformation("Retrying path analysis for site {SiteId}: {Count} results without valid paths", siteId, needsRetry.Count);
             foreach (var result in needsRetry)
             {
-                await AnalyzePathAsync(result);
+                await AnalyzePathAsync(siteId, result);
             }
             await db.SaveChangesAsync();
         }
@@ -304,22 +362,25 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
-    /// Analyze network path for the speed test result.
+    /// Analyze network path for the speed test result using the site-specific UniFi connection.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
     /// If target not found, invalidates topology cache and retries once.
     /// </summary>
-    private async Task AnalyzePathAsync(Iperf3Result result, bool isRetry = false)
+    private async Task AnalyzePathAsync(int siteId, Iperf3Result result, bool isRetry = false)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Client} from {Server}{Retry}",
-                result.DeviceHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
+            _logger.LogDebug("Analyzing network path for site {SiteId} to {Client} from {Server}{Retry}",
+                siteId, result.DeviceHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
+
+            // Get the site-specific path analyzer
+            var pathAnalyzer = GetPathAnalyzer(siteId);
 
             // Calculate path from server to client
-            var path = await _pathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+            var path = await pathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
 
             // Analyze speed test against the path
-            var analysis = _pathAnalyzer.AnalyzeSpeedTest(
+            var analysis = pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,
                 result.UploadMbps,
@@ -347,8 +408,8 @@ public class ClientSpeedTestService
                 {
                     _logger.LogDebug("Path invalid ({Reason}), invalidating topology cache and retrying",
                         errorMsg.Contains("not yet") ? "stale data" : "target not found");
-                    _pathAnalyzer.InvalidateTopologyCache();
-                    await AnalyzePathAsync(result, isRetry: true);
+                    pathAnalyzer.InvalidateTopologyCache();
+                    await AnalyzePathAsync(siteId, result, isRetry: true);
                 }
                 else
                 {
@@ -358,7 +419,25 @@ public class ClientSpeedTestService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to analyze path for {Client}", result.DeviceHost);
+            _logger.LogWarning(ex, "Failed to analyze path for site {SiteId}, {Client}", siteId, result.DeviceHost);
         }
     }
+}
+
+/// <summary>
+/// Site-specific IUniFiClientProvider that wraps a single site's connection.
+/// </summary>
+internal class SiteSpecificClientProvider : IUniFiClientProvider
+{
+    private readonly UniFiConnectionService _connectionService;
+    private readonly int _siteId;
+
+    public SiteSpecificClientProvider(UniFiConnectionService connectionService, int siteId)
+    {
+        _connectionService = connectionService;
+        _siteId = siteId;
+    }
+
+    public bool IsConnected => _connectionService.IsConnected(_siteId);
+    public UniFiApiClient? Client => _connectionService.GetClient(_siteId);
 }

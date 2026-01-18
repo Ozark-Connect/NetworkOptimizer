@@ -25,6 +25,9 @@
 }
 
 @code {
+    [Parameter]
+    public int SiteId { get; set; }
+
     /// <summary>
     /// When true, always shows the banner (unless dismissed). Used on Settings page.
     /// When false (default), only shows after user completes meaningful actions.
@@ -65,10 +68,10 @@
             }
 
             // Check if user has completed meaningful actions (parallel)
-            var auditTask = AuditService.GetAuditSummaryAsync();
-            var speedTestTask = SpeedTestService.GetRecentResultsAsync(1);
-            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
+            var auditTask = AuditService.GetAuditSummaryAsync(SiteId);
+            var speedTestTask = SpeedTestService.GetRecentResultsAsync(SiteId, 1);
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(SiteId, 1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(SiteId, 2);
 
             await Task.WhenAll(auditTask, speedTestTask, wan1Task, wan2Task);
 

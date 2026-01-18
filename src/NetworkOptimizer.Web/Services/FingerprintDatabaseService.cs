@@ -78,7 +78,8 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
 
     private async Task FetchDatabaseAsync(CancellationToken cancellationToken)
     {
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        var client = _connectionService.GetAnyConnectedClient();
+        if (!_connectionService.IsAnyConnected() || client == null)
         {
             _logger.LogWarning("Cannot fetch fingerprint database: not connected to UniFi controller");
             return;
@@ -88,7 +89,7 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
         {
             _logger.LogInformation("Fetching fingerprint database from UniFi controller...");
 
-            _database = await _connectionService.Client.GetCompleteFingerprintDatabaseAsync(cancellationToken);
+            _database = await client.GetCompleteFingerprintDatabaseAsync(cancellationToken);
             _lastFetchTime = DateTime.UtcNow;
 
             if (_database != null)

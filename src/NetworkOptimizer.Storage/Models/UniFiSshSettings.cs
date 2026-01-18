@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 namespace NetworkOptimizer.Storage.Models;
 
 /// <summary>
-/// Shared SSH settings for UniFi network devices (APs, switches).
+/// Shared SSH settings for UniFi network devices (APs, switches) at a site.
 /// All UniFi devices on a network share the same SSH credentials.
 /// Note: Gateway/UDM may have different credentials and should use separate config.
 /// </summary>
@@ -11,6 +11,12 @@ public class UniFiSshSettings
 {
     [Key]
     public int Id { get; set; }
+
+    /// <summary>Site these SSH settings belong to (1:1 relationship)</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
 
     /// <summary>SSH port (default 22)</summary>
     public int Port { get; set; } = 22;

@@ -7,9 +7,9 @@ namespace NetworkOptimizer.Storage.Interfaces;
 /// </summary>
 public interface IModemRepository
 {
-    Task<List<ModemConfiguration>> GetModemConfigurationsAsync(CancellationToken cancellationToken = default);
-    Task<List<ModemConfiguration>> GetEnabledModemConfigurationsAsync(CancellationToken cancellationToken = default);
-    Task<ModemConfiguration?> GetModemConfigurationAsync(int id, CancellationToken cancellationToken = default);
-    Task SaveModemConfigurationAsync(ModemConfiguration config, CancellationToken cancellationToken = default);
-    Task DeleteModemConfigurationAsync(int id, CancellationToken cancellationToken = default);
+    Task<List<ModemConfiguration>> GetModemConfigurationsAsync(int siteId, CancellationToken cancellationToken = default);
+    Task<List<ModemConfiguration>> GetEnabledModemConfigurationsAsync(int siteId, CancellationToken cancellationToken = default);
+    Task<ModemConfiguration?> GetModemConfigurationAsync(int siteId, int id, CancellationToken cancellationToken = default);
+    Task SaveModemConfigurationAsync(int siteId, ModemConfiguration config, CancellationToken cancellationToken = default);
+    Task DeleteModemConfigurationAsync(int siteId, int id, CancellationToken cancellationToken = default);
 }

@@ -34,18 +34,19 @@ public class DashboardService : IDashboardService
 
     /// <summary>
     /// Retrieves comprehensive dashboard data including device counts, client counts,
-    /// security audit summary, and SQM status.
+    /// security audit summary, and SQM status for a site.
     /// </summary>
+    /// <param name="siteId">The site ID to retrieve dashboard data for.</param>
     /// <returns>A <see cref="DashboardData"/> object containing all dashboard metrics.</returns>
-    public async Task<DashboardData> GetDashboardDataAsync()
+    public async Task<DashboardData> GetDashboardDataAsync(int siteId)
     {
-        _logger.LogInformation("Loading dashboard data");
+        _logger.LogInformation("Loading dashboard data for site {SiteId}", siteId);
 
         var data = new DashboardData();
 
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        if (!_connectionService.IsConnected(siteId))
         {
-            _logger.LogWarning("UniFi controller not connected, returning empty dashboard");
+            _logger.LogWarning("UniFi controller not connected for site {SiteId}, returning empty dashboard", siteId);
             data.ConnectionStatus = "Disconnected";
             return data;
         }
@@ -53,7 +54,7 @@ public class DashboardService : IDashboardService
         try
         {
             // Fetch devices using discovery service (returns proper DeviceType enum)
-            var devices = await _connectionService.GetDiscoveredDevicesAsync();
+            var devices = await _connectionService.GetDiscoveredDevicesAsync(siteId);
 
             if (devices != null)
             {
@@ -78,13 +79,13 @@ public class DashboardService : IDashboardService
             }
 
             data.ConnectionStatus = "Connected";
-            data.ControllerType = _connectionService.IsUniFiOs ? "UniFi OS" : "Standalone";
+            data.ControllerType = _connectionService.IsUniFiOs(siteId) ? "UniFi OS" : "Standalone";
 
-            _logger.LogInformation("Dashboard loaded: {DeviceCount} devices", data.DeviceCount);
+            _logger.LogInformation("Dashboard loaded for site {SiteId}: {DeviceCount} devices", siteId, data.DeviceCount);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading dashboard data from UniFi API");
+            _logger.LogError(ex, "Error loading dashboard data from UniFi API for site {SiteId}", siteId);
             data.ConnectionStatus = "Error";
             data.LastError = ex.Message;
         }
@@ -92,7 +93,7 @@ public class DashboardService : IDashboardService
         // Load audit summary (from memory cache or database)
         try
         {
-            var auditSummary = await _auditService.GetAuditSummaryAsync();
+            var auditSummary = await _auditService.GetAuditSummaryAsync(siteId);
             data.SecurityScore = auditSummary.Score;
             data.CriticalIssues = auditSummary.CriticalCount;
             data.WarningIssues = auditSummary.WarningCount;
@@ -103,13 +104,13 @@ public class DashboardService : IDashboardService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load audit summary");
+            _logger.LogWarning(ex, "Failed to load audit summary for site {SiteId}", siteId);
         }
 
         // Get SQM status (quick check - only poll TC monitor if SQM is configured)
         try
         {
-            var gatewaySettings = await _gatewayService.GetSettingsAsync();
+            var gatewaySettings = await _gatewayService.GetSettingsAsync(siteId);
             if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
             {
                 data.SqmStatus = "Not Configured";
@@ -117,7 +118,7 @@ public class DashboardService : IDashboardService
             else
             {
                 // Check if any SQM WAN configs are enabled before polling
-                var sqmConfigs = await _speedTestRepository.GetAllSqmWanConfigsAsync();
+                var sqmConfigs = await _speedTestRepository.GetAllSqmWanConfigsAsync(siteId);
                 var hasEnabledSqm = sqmConfigs.Any(c => c.Enabled);
 
                 if (!hasEnabledSqm)
@@ -135,7 +136,7 @@ public class DashboardService : IDashboardService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to get SQM status");
+            _logger.LogWarning(ex, "Failed to get SQM status for site {SiteId}", siteId);
             data.SqmStatus = "Unknown";
         }
 

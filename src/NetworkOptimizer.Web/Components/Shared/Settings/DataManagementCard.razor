@@ -1,0 +1,75 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Storage.Interfaces
+@inject IAuditRepository AuditRepository
+@inject ISpeedTestRepository SpeedTestRepository
+@inject AuditService AuditService
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Data Management</h2>
+    </div>
+    <div class="card-body">
+        <div class="data-actions">
+            <div class="action-item">
+                <h4>Export Configuration</h4>
+                <p>Export all settings and configuration to a JSON file</p>
+                <button class="btn btn-secondary" disabled title="Coming soon">Export Config</button>
+            </div>
+
+            <div class="action-item">
+                <h4>Import Configuration</h4>
+                <p>Import settings from a previously exported JSON file</p>
+                <button class="btn btn-secondary" disabled title="Coming soon">Import Config</button>
+            </div>
+
+            <div class="action-item">
+                <h4>Clear Cache</h4>
+                <p>Clear audit history, dismissed issues, and speed test results for this site</p>
+                <button class="btn btn-warning" @onclick="ClearCache">Clear Cache</button>
+                @if (!string.IsNullOrEmpty(_cacheMessage))
+                {
+                    <div class="status-message @_cacheMessageType" style="margin-top: 0.5rem;">@_cacheMessage</div>
+                }
+            </div>
+
+            <div class="action-item danger-zone">
+                <h4>Reset All Settings</h4>
+                <p>Reset all configuration to defaults</p>
+                <button class="btn btn-danger" disabled title="Coming soon">Reset to Defaults</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    private string? _cacheMessage;
+    private string? _cacheMessageType;
+
+    private async Task ClearCache()
+    {
+        try
+        {
+            // Clear audit data (results and dismissed issues) from database
+            await AuditRepository.ClearAllAuditsAsync(SiteId);
+            await AuditRepository.ClearAllDismissedIssuesAsync(SiteId);
+
+            // Clear in-memory audit cache
+            AuditService.ClearCache(SiteId);
+
+            // Clear speed test history
+            await SpeedTestRepository.ClearIperf3HistoryAsync(SiteId);
+
+            _cacheMessage = "Cache cleared successfully";
+            _cacheMessageType = "success";
+        }
+        catch (Exception ex)
+        {
+            _cacheMessage = $"Error clearing cache: {ex.Message}";
+            _cacheMessageType = "error";
+        }
+        StateHasChanged();
+    }
+}

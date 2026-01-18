@@ -12,6 +12,12 @@ public class AuditResult
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public int Id { get; set; }
 
+    /// <summary>Site this audit belongs to</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
+
     [Required]
     [MaxLength(100)]
     public string DeviceId { get; set; } = string.Empty;

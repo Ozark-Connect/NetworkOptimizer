@@ -16,19 +16,19 @@ public class SqmService : ISqmService
     private readonly TcMonitorClient _tcMonitorClient;
     private readonly IServiceProvider _serviceProvider;
 
-    // Track SQM state
-    private SqmConfiguration? _currentConfig;
-    private TcMonitorResponse? _lastTcStats;
-    private DateTime? _lastPollTime;
+    // Track SQM state per site
+    private readonly Dictionary<int, SqmConfiguration?> _currentConfigs = new();
+    private readonly Dictionary<int, TcMonitorResponse?> _lastTcStats = new();
+    private readonly Dictionary<int, DateTime?> _lastPollTimes = new();
 
-    // TC Monitor settings
-    private string? _tcMonitorHost;
-    private int _tcMonitorPort = TcMonitorClient.DefaultPort;
+    // TC Monitor settings per site
+    private readonly Dictionary<int, string?> _tcMonitorHosts = new();
+    private readonly Dictionary<int, int> _tcMonitorPorts = new();
 
-    // Cache for SQM status (avoids repeated HTTP calls)
+    // Cache for SQM status per site (avoids repeated HTTP calls)
     private static readonly TimeSpan StatusCacheDuration = TimeSpan.FromMinutes(2);
-    private static SqmStatusData? _cachedStatusData;
-    private static DateTime _lastStatusCheck = DateTime.MinValue;
+    private static readonly Dictionary<int, SqmStatusData?> _cachedStatusData = new();
+    private static readonly Dictionary<int, DateTime> _lastStatusCheck = new();
 
     public SqmService(
         ILogger<SqmService> logger,
@@ -43,34 +43,37 @@ public class SqmService : ISqmService
     }
 
     /// <summary>
-    /// Configure the TC monitor endpoint to poll
+    /// Configure the TC monitor endpoint to poll for a specific site
     /// </summary>
-    public void ConfigureTcMonitor(string host, int port = 8088)
+    public void ConfigureTcMonitor(int siteId, string host, int port = 8088)
     {
-        _tcMonitorHost = host;
-        _tcMonitorPort = port;
-        _logger.LogInformation("TC Monitor configured: {Host}:{Port}", host, port);
+        _tcMonitorHosts[siteId] = host;
+        _tcMonitorPorts[siteId] = port;
+        _logger.LogInformation("TC Monitor configured for site {SiteId}: {Host}:{Port}", siteId, host, port);
     }
 
     /// <summary>
     /// Get current SQM status including live TC rates if available.
     /// Results are cached for 5 minutes to avoid repeated HTTP calls.
     /// </summary>
-    public async Task<SqmStatusData> GetSqmStatusAsync(bool forceRefresh = false)
+    public async Task<SqmStatusData> GetSqmStatusAsync(int siteId, bool forceRefresh = false)
     {
-        if (!forceRefresh && _cachedStatusData != null &&
-            DateTime.UtcNow - _lastStatusCheck < StatusCacheDuration)
+        if (!forceRefresh &&
+            _cachedStatusData.TryGetValue(siteId, out var cachedData) && cachedData != null &&
+            _lastStatusCheck.TryGetValue(siteId, out var lastCheck) &&
+            DateTime.UtcNow - lastCheck < StatusCacheDuration)
         {
-            _logger.LogDebug("Returning cached SQM status");
-            return _cachedStatusData;
+            _logger.LogDebug("Returning cached SQM status for site {SiteId}", siteId);
+            return cachedData;
         }
 
-        _logger.LogDebug("Loading SQM status data (cache miss or force refresh)");
+        _logger.LogDebug("Loading SQM status data for site {SiteId} (cache miss or force refresh)", siteId);
 
         SqmStatusData result;
 
         // Gateway host from database settings - doesn't require active controller connection
-        var gatewayHost = _tcMonitorHost ?? await GetGatewayHostAsync();
+        _tcMonitorHosts.TryGetValue(siteId, out var tcMonitorHost);
+        var gatewayHost = tcMonitorHost ?? await GetGatewayHostAsync(siteId);
 
         if (string.IsNullOrEmpty(gatewayHost))
         {
@@ -79,16 +82,17 @@ public class SqmService : ISqmService
                 Status = "Not Configured",
                 StatusMessage = "Gateway SSH not configured. Go to Settings to configure your gateway connection."
             };
-            CacheStatusResult(result);
+            CacheStatusResult(siteId, result);
             return result;
         }
 
-        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, _tcMonitorPort);
+        var port = _tcMonitorPorts.TryGetValue(siteId, out var configuredPort) ? configuredPort : TcMonitorClient.DefaultPort;
+        var tcStats = await _tcMonitorClient.GetTcStatsAsync(gatewayHost, port);
 
         if (tcStats != null)
         {
-            _lastTcStats = tcStats;
-            _lastPollTime = DateTime.UtcNow;
+            _lastTcStats[siteId] = tcStats;
+            _lastPollTimes[siteId] = DateTime.UtcNow;
         }
 
         if (tcStats == null)
@@ -98,7 +102,7 @@ public class SqmService : ISqmService
                 Status = "Offline",
                 StatusMessage = "TC Monitor not running"
             };
-            CacheStatusResult(result);
+            CacheStatusResult(siteId, result);
             return result;
         }
 
@@ -106,85 +110,98 @@ public class SqmService : ISqmService
         var interfaces = tcStats.GetAllInterfaces();
         var primaryWan = interfaces.FirstOrDefault(i => i.Status == "active");
 
+        _currentConfigs.TryGetValue(siteId, out var currentConfig);
+        _lastPollTimes.TryGetValue(siteId, out var lastPollTime);
+
         result = new SqmStatusData
         {
             Status = "Active",
             CurrentRate = primaryWan?.RateMbps ?? 0,
-            BaselineRate = _currentConfig?.DownloadSpeed ?? primaryWan?.RateMbps ?? 0,
+            BaselineRate = currentConfig?.DownloadSpeed ?? primaryWan?.RateMbps ?? 0,
             // TODO(latency-monitoring): Get real latency from agent metrics.
             // Requires: Agent infrastructure pushing latency samples to /api/metrics endpoint.
             CurrentLatency = 0,
-            LastAdjustment = _lastPollTime?.ToString("HH:mm:ss") ?? "Never",
+            LastAdjustment = lastPollTime?.ToString("HH:mm:ss") ?? "Never",
             IsLearning = false,
             LearningProgress = 100,
             HoursLearned = 168,
             TcInterfaces = interfaces,
             TcMonitorTimestamp = tcStats.Timestamp
         };
-        CacheStatusResult(result);
+        CacheStatusResult(siteId, result);
         return result;
     }
 
-    private static void CacheStatusResult(SqmStatusData result)
+    private static void CacheStatusResult(int siteId, SqmStatusData result)
     {
-        _cachedStatusData = result;
-        _lastStatusCheck = DateTime.UtcNow;
+        _cachedStatusData[siteId] = result;
+        _lastStatusCheck[siteId] = DateTime.UtcNow;
     }
 
     /// <summary>
-    /// Invalidate the SQM status cache (call after deploy/remove)
+    /// Invalidate the SQM status cache for a specific site (call after deploy/remove)
     /// </summary>
-    public static void InvalidateStatusCache()
+    public static void InvalidateStatusCache(int siteId)
     {
-        _cachedStatusData = null;
-        _lastStatusCheck = DateTime.MinValue;
+        _cachedStatusData.Remove(siteId);
+        _lastStatusCheck.Remove(siteId);
     }
 
     /// <summary>
-    /// Poll TC stats from the configured gateway
+    /// Invalidate the SQM status cache for all sites
     /// </summary>
-    private async Task<TcMonitorResponse?> PollTcStatsAsync()
+    public static void InvalidateAllStatusCaches()
+    {
+        _cachedStatusData.Clear();
+        _lastStatusCheck.Clear();
+    }
+
+    /// <summary>
+    /// Poll TC stats from the configured gateway for a specific site
+    /// </summary>
+    private async Task<TcMonitorResponse?> PollTcStatsAsync(int siteId)
     {
         // If no explicit host configured, try to use the gateway SSH host
-        var host = _tcMonitorHost;
+        _tcMonitorHosts.TryGetValue(siteId, out var host);
         if (string.IsNullOrEmpty(host))
         {
-            host = await GetGatewayHostAsync();
+            host = await GetGatewayHostAsync(siteId);
         }
 
         if (string.IsNullOrEmpty(host))
             return null;
 
-        var stats = await _tcMonitorClient.GetTcStatsAsync(host, _tcMonitorPort);
+        var port = _tcMonitorPorts.TryGetValue(siteId, out var configuredPort) ? configuredPort : TcMonitorClient.DefaultPort;
+        var stats = await _tcMonitorClient.GetTcStatsAsync(host, port);
 
         if (stats != null)
         {
-            _lastTcStats = stats;
-            _lastPollTime = DateTime.UtcNow;
+            _lastTcStats[siteId] = stats;
+            _lastPollTimes[siteId] = DateTime.UtcNow;
         }
 
         return stats;
     }
 
     /// <summary>
-    /// Get the gateway host from SSH settings
+    /// Get the gateway host from SSH settings for a specific site
     /// </summary>
-    private async Task<string?> GetGatewayHostAsync()
+    private async Task<string?> GetGatewayHostAsync(int siteId)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
-            var settings = await repository.GetGatewaySshSettingsAsync();
+            var settings = await repository.GetGatewaySshSettingsAsync(siteId);
             if (!string.IsNullOrEmpty(settings?.Host))
             {
-                _logger.LogDebug("Using gateway SSH host for TC monitor: {Host}", settings.Host);
+                _logger.LogDebug("Using gateway SSH host for TC monitor on site {SiteId}: {Host}", siteId, settings.Host);
                 return settings.Host;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to get gateway SSH settings");
+            _logger.LogWarning(ex, "Failed to get gateway SSH settings for site {SiteId}", siteId);
         }
         return null;
     }
@@ -192,15 +209,17 @@ public class SqmService : ISqmService
     /// <summary>
     /// Check if TC monitor is reachable on the gateway
     /// </summary>
-    public async Task<(bool Available, string? Error)> TestTcMonitorAsync(string? host = null, int? port = null)
+    public async Task<(bool Available, string? Error)> TestTcMonitorAsync(int siteId, string? host = null, int? port = null)
     {
-        var testHost = host ?? _tcMonitorHost;
-        var testPort = port ?? _tcMonitorPort;
+        _tcMonitorHosts.TryGetValue(siteId, out var configuredHost);
+        var testHost = host ?? configuredHost;
+        var testPort = port ?? (_tcMonitorPorts.TryGetValue(siteId, out var configuredPort) ? configuredPort : TcMonitorClient.DefaultPort);
 
         if (string.IsNullOrEmpty(testHost))
         {
             // Try controller host
-            var controllerUrl = _connectionService.CurrentConfig?.ControllerUrl;
+            var config = _connectionService.GetCurrentConfig(siteId);
+            var controllerUrl = config?.ControllerUrl;
             if (!string.IsNullOrEmpty(controllerUrl))
             {
                 try
@@ -229,11 +248,11 @@ public class SqmService : ISqmService
     }
 
     /// <summary>
-    /// Get just the TC interface stats
+    /// Get just the TC interface stats for a specific site
     /// </summary>
-    public async Task<List<TcInterfaceStats>?> GetTcInterfaceStatsAsync()
+    public async Task<List<TcInterfaceStats>?> GetTcInterfaceStatsAsync(int siteId)
     {
-        var stats = await PollTcStatsAsync();
+        var stats = await PollTcStatsAsync(siteId);
         return stats?.Interfaces;
     }
 
@@ -241,28 +260,29 @@ public class SqmService : ISqmService
     /// Get WAN interface configurations from the UniFi controller
     /// Returns a mapping of interface name to friendly name (e.g., "eth4" -> "Yelcot")
     /// </summary>
-    public async Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync()
+    public async Task<List<WanInterfaceInfo>> GetWanInterfacesFromControllerAsync(int siteId)
     {
         var result = new List<WanInterfaceInfo>();
 
-        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        var client = _connectionService.GetClient(siteId);
+        if (!_connectionService.IsConnected(siteId) || client == null)
         {
-            _logger.LogWarning("Cannot get WAN interfaces: controller not connected");
+            _logger.LogWarning("Cannot get WAN interfaces for site {SiteId}: controller not connected", siteId);
             return result;
         }
 
         try
         {
             // Get WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname and ip)
-            var deviceJson = await _connectionService.Client.GetDevicesRawJsonAsync();
+            var deviceJson = await client.GetDevicesRawJsonAsync();
             if (string.IsNullOrEmpty(deviceJson))
             {
-                _logger.LogWarning("No device data available");
+                _logger.LogWarning("No device data available for site {SiteId}", siteId);
                 return result;
             }
 
             // Get WAN network configs for friendly names and SmartQ status
-            var wanConfigs = await _connectionService.Client.GetWanConfigsAsync();
+            var wanConfigs = await client.GetWanConfigsAsync();
 
             // Build lookup by IP (for WANs with static IPs)
             var ipToName = wanConfigs
@@ -281,11 +301,11 @@ public class SqmService : ISqmService
 
             result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName);
 
-            _logger.LogInformation("Found {Count} WAN interfaces from device data", result.Count);
+            _logger.LogInformation("Found {Count} WAN interfaces from device data for site {SiteId}", result.Count, siteId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error fetching WAN interfaces from controller");
+            _logger.LogError(ex, "Error fetching WAN interfaces from controller for site {SiteId}", siteId);
         }
 
         return result;
@@ -525,9 +545,9 @@ public class SqmService : ISqmService
     /// Generate the tc-monitor configuration content based on controller WAN settings
     /// This can be used to deploy the correct interface mapping to gateways
     /// </summary>
-    public async Task<string> GenerateTcMonitorConfigAsync()
+    public async Task<string> GenerateTcMonitorConfigAsync(int siteId)
     {
-        var wans = await GetWanInterfacesFromControllerAsync();
+        var wans = await GetWanInterfacesFromControllerAsync(siteId);
 
         if (wans.Count == 0)
         {
@@ -543,13 +563,13 @@ public class SqmService : ISqmService
         return config;
     }
 
-    public async Task<bool> DeploySqmAsync(SqmConfiguration config)
+    public async Task<bool> DeploySqmAsync(int siteId, SqmConfiguration config)
     {
-        _logger.LogInformation("Deploying SQM configuration: {@Config}", config);
+        _logger.LogInformation("Deploying SQM configuration for site {SiteId}: {@Config}", siteId, config);
 
-        if (!_connectionService.IsConnected)
+        if (!_connectionService.IsConnected(siteId))
         {
-            _logger.LogWarning("Cannot deploy SQM: controller not connected");
+            _logger.LogWarning("Cannot deploy SQM for site {SiteId}: controller not connected", siteId);
             return false;
         }
 
@@ -561,14 +581,14 @@ public class SqmService : ISqmService
 
         await Task.Delay(2000); // Simulate deployment
 
-        _currentConfig = config;
+        _currentConfigs[siteId] = config;
 
         return true;
     }
 
-    public async Task<string> GenerateSqmScriptsAsync(SqmConfiguration config)
+    public async Task<string> GenerateSqmScriptsAsync(int siteId, SqmConfiguration config)
     {
-        _logger.LogInformation("Generating SQM scripts for configuration: {@Config}", config);
+        _logger.LogInformation("Generating SQM scripts for site {SiteId}, configuration: {@Config}", siteId, config);
 
         // TODO(sqm-scripts): Integrate NetworkOptimizer.Sqm.ScriptGenerator.
         // Requires: Finalized script templates for CAKE qdisc configuration.
@@ -579,13 +599,13 @@ public class SqmService : ISqmService
         return "/downloads/sqm-scripts.tar.gz";
     }
 
-    public async Task<bool> DisableSqmAsync()
+    public async Task<bool> DisableSqmAsync(int siteId)
     {
-        _logger.LogInformation("Disabling SQM");
+        _logger.LogInformation("Disabling SQM for site {SiteId}", siteId);
 
-        if (!_connectionService.IsConnected)
+        if (!_connectionService.IsConnected(siteId))
         {
-            _logger.LogWarning("Cannot disable SQM: controller not connected");
+            _logger.LogWarning("Cannot disable SQM for site {SiteId}: controller not connected", siteId);
             return false;
         }
 
@@ -594,13 +614,13 @@ public class SqmService : ISqmService
         return true;
     }
 
-    public async Task<SpeedtestResult> RunSpeedtestAsync()
+    public async Task<SpeedtestResult> RunSpeedtestAsync(int siteId)
     {
-        _logger.LogInformation("Running speedtest");
+        _logger.LogInformation("Running speedtest for site {SiteId}", siteId);
 
-        if (!_connectionService.IsConnected)
+        if (!_connectionService.IsConnected(siteId))
         {
-            throw new InvalidOperationException("Cannot run speedtest: controller not connected");
+            throw new InvalidOperationException($"Cannot run speedtest for site {siteId}: controller not connected");
         }
 
         // TODO(agent-infrastructure): Trigger speedtest on gateway agent.

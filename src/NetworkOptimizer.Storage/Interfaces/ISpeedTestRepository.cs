@@ -12,19 +12,19 @@ namespace NetworkOptimizer.Storage.Interfaces;
 public interface ISpeedTestRepository
 {
     // Gateway SSH Settings
-    Task<GatewaySshSettings?> GetGatewaySshSettingsAsync(CancellationToken cancellationToken = default);
-    Task SaveGatewaySshSettingsAsync(GatewaySshSettings settings, CancellationToken cancellationToken = default);
+    Task<GatewaySshSettings?> GetGatewaySshSettingsAsync(int siteId, CancellationToken cancellationToken = default);
+    Task SaveGatewaySshSettingsAsync(int siteId, GatewaySshSettings settings, CancellationToken cancellationToken = default);
 
     // Iperf3 Results
-    Task SaveIperf3ResultAsync(Iperf3Result result, CancellationToken cancellationToken = default);
-    Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int count = 50, int hours = 0, CancellationToken cancellationToken = default);
-    Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(string deviceHost, int count = 50, CancellationToken cancellationToken = default);
-    Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
+    Task SaveIperf3ResultAsync(int siteId, Iperf3Result result, CancellationToken cancellationToken = default);
+    Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int siteId, int count = 50, int hours = 0, CancellationToken cancellationToken = default);
+    Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(int siteId, string deviceHost, int count = 50, CancellationToken cancellationToken = default);
+    Task ClearIperf3HistoryAsync(int siteId, CancellationToken cancellationToken = default);
 
     // SQM WAN Configuration
-    Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
-    Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);
-    Task SaveSqmWanConfigAsync(SqmWanConfiguration config, CancellationToken cancellationToken = default);
-    Task DeleteSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
-    Task ClearAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);
+    Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int siteId, int wanNumber, CancellationToken cancellationToken = default);
+    Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(int siteId, CancellationToken cancellationToken = default);
+    Task SaveSqmWanConfigAsync(int siteId, SqmWanConfiguration config, CancellationToken cancellationToken = default);
+    Task DeleteSqmWanConfigAsync(int siteId, int wanNumber, CancellationToken cancellationToken = default);
+    Task ClearAllSqmWanConfigsAsync(int siteId, CancellationToken cancellationToken = default);
 }

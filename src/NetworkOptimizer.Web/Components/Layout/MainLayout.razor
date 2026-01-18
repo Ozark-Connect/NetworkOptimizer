@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Components.Shared
 @using System.Reflection
 @inject UniFiConnectionService ConnectionService
 
@@ -23,21 +24,9 @@
             <a href="/" class="mobile-logo">
                 <img src="images/network-optimizer-logo.png" alt="Network Optimizer" />
             </a>
+            <SiteSelector />
             <div class="status-indicators">
-                @if (ConnectionService.IsConnected)
-                {
-                    <div class="status-item status-connected">
-                        <span class="status-icon">●</span>
-                        <span>Console Connected</span>
-                    </div>
-                }
-                else
-                {
-                    <div class="status-item status-disconnected">
-                        <span class="status-icon">●</span>
-                        <span>Console Disconnected</span>
-                    </div>
-                }
+                @* Connection status is now shown in the SiteSelector *@
             </div>
             <div class="header-actions">
                 <a href="/api/auth/logout" class="logout-btn">

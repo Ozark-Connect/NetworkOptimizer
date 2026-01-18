@@ -29,6 +29,12 @@ public class Iperf3Result
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Site this speed test result belongs to</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
+
     /// <summary>Test direction - who initiated the test</summary>
     public SpeedTestDirection Direction { get; set; } = SpeedTestDirection.ServerToDevice;
 

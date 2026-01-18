@@ -10,6 +10,12 @@ public class ModemConfiguration
     [Key]
     public int Id { get; set; }
 
+    /// <summary>Site this modem configuration belongs to</summary>
+    public int SiteId { get; set; }
+
+    /// <summary>Navigation property to parent site</summary>
+    public Site? Site { get; set; }
+
     /// <summary>Friendly name for this modem (e.g., "U5G-Max Primary")</summary>
     [Required]
     [MaxLength(100)]

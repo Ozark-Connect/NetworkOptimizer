@@ -1,4 +1,4 @@
-@page "/upnp-inspector"
+@page "/sites/{SiteId:int}/upnp-inspector"
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
@@ -16,7 +16,7 @@
     <p class="page-description">Monitor dynamic port forwarding rules opened via UPnP</p>
 </div>
 
-@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+@if (!ConnectionService.IsConnected(SiteId))
 {
     <div class="connection-banner">
         <div class="banner-content">
@@ -25,7 +25,7 @@
                 <strong>Not Connected</strong>
                 <span>Connect to your UniFi Console to view UPnP mappings.</span>
             </div>
-            <a href="/settings" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings" class="btn btn-primary">Connect Now</a>
         </div>
     </div>
 }
@@ -38,7 +38,7 @@
         </div>
         <div class="card-body">
             <div class="upnp-controls">
-                <button class="btn btn-primary" @onclick="RefreshData" disabled="@(isLoading || !ConnectionService.IsConnected)" style="min-width: 140px;">
+                <button class="btn btn-primary" @onclick="RefreshData" disabled="@(isLoading || !ConnectionService.IsConnected(SiteId))" style="min-width: 140px;">
                     @if (isLoading)
                     {
                         <span class="spinner"></span>
@@ -253,7 +253,7 @@
             </div>
         </div>
     }
-    else if (!hasData && !isLoading && ConnectionService.IsConnected)
+    else if (!hasData && !isLoading && ConnectionService.IsConnected(SiteId))
     {
         <div class="card">
             <div class="card-body text-center">
@@ -268,6 +268,8 @@
 </div>
 
 @code {
+    [Parameter] public int SiteId { get; set; }
+
     private bool isLoading = false;
     private bool hasData = false;
     private bool autoRefresh = false;
@@ -297,12 +299,12 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await ConnectionService.WaitForConnectionAsync();
+        await ConnectionService.WaitForConnectionAsync(SiteId);
 
         // Load notes from API
         await LoadNotesAsync();
 
-        if (ConnectionService.IsConnected)
+        if (ConnectionService.IsConnected(SiteId))
         {
             await RefreshData();
         }
@@ -419,7 +421,8 @@
 
     private async Task RefreshData()
     {
-        if (!ConnectionService.IsConnected || ConnectionService.Client == null)
+        var client = ConnectionService.GetClient(SiteId);
+        if (!ConnectionService.IsConnected(SiteId) || client == null)
         {
             errorMessage = "Not connected to UniFi controller";
             return;
@@ -432,8 +435,8 @@
         try
         {
             // Fetch UPnP enabled status and port forward rules in parallel
-            var upnpEnabledTask = ConnectionService.Client.GetUpnpEnabledAsync();
-            var rulesTask = ConnectionService.Client.GetPortForwardRulesAsync();
+            var upnpEnabledTask = client.GetUpnpEnabledAsync();
+            var rulesTask = client.GetPortForwardRulesAsync();
 
             await Task.WhenAll(upnpEnabledTask, rulesTask);
 
@@ -522,7 +525,7 @@
             {
                 await InvokeAsync(async () =>
                 {
-                    if (autoRefresh && ConnectionService.IsConnected)
+                    if (autoRefresh && ConnectionService.IsConnected(SiteId))
                     {
                         await RefreshData();
                     }

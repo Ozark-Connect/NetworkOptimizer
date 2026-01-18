@@ -75,6 +75,18 @@ function getLocationFormData() {
 }
 
 /**
+ * Get siteId from URL query parameter
+ */
+function getSiteIdFormData() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var siteId = urlParams.get('siteId');
+    if (siteId) {
+        return "&siteId=" + encodeURIComponent(siteId);
+    }
+    return "";
+}
+
+/**
  * Intercept XMLHttpRequest to append location to POST body
  */
 (function() {
@@ -92,6 +104,12 @@ function getLocationFormData() {
         var args = arguments;
 
         if (this._isSpeedTestResult && body) {
+            // Always append siteId if present in URL
+            var siteIdData = getSiteIdFormData();
+            if (siteIdData) {
+                body = body + siteIdData;
+            }
+
             // If we already have location, send immediately
             var locationData = getLocationFormData();
             if (locationData) {

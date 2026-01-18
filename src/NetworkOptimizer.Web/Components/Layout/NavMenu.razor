@@ -4,62 +4,105 @@
 <nav class="nav-menu">
     <ul class="nav-list">
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+            <NavLink class="nav-link" href="@GetSiteUrl("")" Match="NavLinkMatch.All">
                 <img src="/icons/chart-v2.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Dashboard</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/audit">
+            <NavLink class="nav-link" href="@GetSiteUrl("/audit")">
                 <img src="/icons/shield-v2.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Security Audit</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/upnp-inspector">
+            <NavLink class="nav-link" href="@GetSiteUrl("/upnp-inspector")">
                 <img src="/icons/port-scan.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">UPnP Inspector</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/sqm">
+            <NavLink class="nav-link" href="@GetSiteUrl("/sqm")">
                 <img src="/icons/sqm-v3.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Adaptive SQM</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/speedtest">
+            <NavLink class="nav-link" href="@GetSiteUrl("/speedtest")">
                 <img src="/icons/speed-v4.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">LAN Speed Test</span>
             </NavLink>
         </li>
         <li class="nav-item nav-sub-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/client-speedtest">
+            <NavLink class="nav-link" href="@GetSiteUrl("/client-speedtest")">
                 <span class="nav-sub-icon">└</span>
                 <span class="nav-text">Client Speed Test</span>
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
-            <NavLink class="nav-link" href="/settings">
+            <NavLink class="nav-link" href="@GetSiteUrl("/settings")">
                 <img src="/icons/settings-v2.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Settings</span>
             </NavLink>
         </li>
+        <li class="nav-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="/sites" Match="NavLinkMatch.All">
+                <img src="/icons/sites.png" alt="" class="nav-icon-img" onerror="this.style.display='none'" />
+                <span class="nav-text">Sites</span>
+            </NavLink>
+        </li>
     </ul>
-
-    @* License status - hidden for now
-    <div class="nav-footer">
-        <div class="license-status">
-            <img src="/icons/verified-v2.png" alt="" class="nav-icon-img" />
-            <span class="license-text">Licensed</span>
-        </div>
-    </div>
-    *@
 </nav>
 
 @code {
     [Parameter]
     public Action? OnNavigate { get; set; }
+
+    private int? _currentSiteId;
+
+    protected override void OnInitialized()
+    {
+        NavigationManager.LocationChanged += OnLocationChanged;
+        UpdateCurrentSiteId();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateCurrentSiteId();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateCurrentSiteId()
+    {
+        var uri = new Uri(NavigationManager.Uri);
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length >= 2 && segments[0] == "sites" && int.TryParse(segments[1], out var siteId))
+        {
+            _currentSiteId = siteId;
+        }
+    }
+
+    private string GetSiteUrl(string path)
+    {
+        if (_currentSiteId.HasValue)
+        {
+            return $"/sites/{_currentSiteId.Value}{path}";
+        }
+        // No site context - return a path that won't incorrectly match as active
+        // These will redirect through LegacyRedirects.razor to the default site
+        return path switch
+        {
+            "" => "/",
+            "/audit" => "/audit",
+            "/upnp-inspector" => "/upnp-inspector",
+            "/sqm" => "/sqm",
+            "/speedtest" => "/speedtest",
+            "/client-speedtest" => "/client-speedtest",
+            "/settings" => "/settings",
+            _ => "/"
+        };
+    }
 
     private void HandleNavClick()
     {
@@ -68,6 +111,6 @@
 
     public void Dispose()
     {
-        // No cleanup needed
+        NavigationManager.LocationChanged -= OnLocationChanged;
     }
 }
