@@ -20,6 +20,7 @@ public static class IssueTypes
     public const string MgmtMissingAfcAccess = "MGMT_MISSING_AFC_ACCESS";
     public const string MgmtMissingNtpAccess = "MGMT_MISSING_NTP_ACCESS";
     public const string MgmtMissing5gAccess = "MGMT_MISSING_5G_ACCESS";
+    public const string ExternalZoneNotDetected = "EXTERNAL_ZONE_NOT_DETECTED";
 
     // VLAN Security
     public const string IotVlan = "IOT-VLAN-001";
@@ -73,4 +74,5 @@ public static class IssueTypes
     public const string DnsDnatPartialCoverage = "DNS_DNAT_PARTIAL_COVERAGE";
     public const string DnsDnatSingleIp = "DNS_DNAT_SINGLE_IP";
     public const string DnsDnatWrongDestination = "DNS_DNAT_WRONG_DESTINATION";
+    public const string DnsDnatRestrictedDestination = "DNS_DNAT_RESTRICTED_DESTINATION";
 }

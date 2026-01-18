@@ -21,6 +21,11 @@ public class AuditIssue
     public required string Message { get; init; }
 
     /// <summary>
+    /// General description for grouping similar issues (e.g., "Management to External Access")
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
     /// Switch/device name where the issue was found
     /// </summary>
     public string? DeviceName { get; init; }

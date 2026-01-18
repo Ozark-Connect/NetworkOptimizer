@@ -44,7 +44,7 @@ public class FirewallRuleAnalyzer
     /// - Info: DENY before ALLOW makes the ALLOW ineffective
     /// - Warning: ALLOW before DENY subverts a security rule
     /// </summary>
-    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules)
+    public List<AuditIssue> DetectShadowedRules(List<FirewallRule> rules, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null, List<NetworkInfo>? networks = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -76,7 +76,7 @@ public class FirewallRuleAnalyzer
                         continue;
 
                     // Check if rules could overlap (same source/dest/protocol patterns)
-                    if (!FirewallRuleOverlapDetector.RulesOverlap(earlierRule, laterRule))
+                    if (!FirewallRuleOverlapDetector.RulesOverlap(earlierRule, laterRule, networkConfigs))
                         continue;
 
                     if (earlierIsAllow && !laterIsAllow)
@@ -87,12 +87,26 @@ public class FirewallRuleAnalyzer
 
                         if (isNarrowException)
                         {
+                            // Skip known management service exceptions - they're covered by MGMT_MISSING_* rules
+                            if (IsKnownManagementServiceException(earlierRule))
+                            {
+                                _logger.LogDebug(
+                                    "Skipping management service exception: '{AllowRule}' allows known service traffic",
+                                    earlierRule.Name);
+                                continue;
+                            }
+
+                            // Determine traffic pattern description for grouping
+                            // Use the allow rule for destination purpose since it's more specific
+                            var description = GetExceptionPatternDescription(laterRule, earlierRule, externalZoneId, networks);
+
                             // Narrow allow before broad deny = intentional exception pattern (Info only)
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.AllowExceptionPattern,
                                 Severity = AuditSeverity.Informational,
                                 Message = $"Allow rule '{earlierRule.Name}' creates an intentional exception to deny rule '{laterRule.Name}'",
+                                Description = description,
                                 Metadata = new Dictionary<string, object>
                                 {
                                     { "allow_rule", earlierRule.Name ?? earlierRule.Id },
@@ -125,8 +139,10 @@ public class FirewallRuleAnalyzer
                                 ScoreImpact = 5,
                                 RecommendedAction = "Review rule order - the deny rule may never match due to the earlier allow rule"
                             });
+                            // For subverts, only report the first one
+                            break;
                         }
-                        break;
+                        // For exception patterns, continue to find all of them
                     }
                     else if (!earlierIsAllow && laterIsAllow)
                     {
@@ -169,7 +185,7 @@ public class FirewallRuleAnalyzer
                                 RecommendedAction = "Review rule order - the allow rule may never match due to the earlier deny rule"
                             });
                         }
-                        break;
+                        // Continue checking other earlier rules that may also shadow this allow
                     }
                 }
             }
@@ -582,13 +598,13 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Run all firewall analyses
     /// </summary>
-    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks)
+    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
-        issues.AddRange(DetectShadowedRules(rules));
+        issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId, networks));
         issues.AddRange(DetectPermissiveRules(rules));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks));
@@ -603,7 +619,11 @@ public class FirewallRuleAnalyzer
     /// When a management network has isolation enabled but internet disabled,
     /// it needs specific firewall rules to allow UniFi cloud, AFC, and device registration traffic.
     /// </summary>
-    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false)
+    /// <param name="rules">Firewall rules to analyze</param>
+    /// <param name="networks">Network configurations</param>
+    /// <param name="has5GDevice">Whether a 5G/LTE device is present on the network</param>
+    /// <param name="externalZoneId">Optional External/WAN zone ID for validating port-based rule destinations</param>
+    public List<AuditIssue> AnalyzeManagementNetworkFirewallAccess(List<FirewallRule> rules, List<NetworkInfo> networks, bool has5GDevice = false, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -684,15 +704,17 @@ public class FirewallRuleAnalyzer
             }
 
             // Check for NTP access rule - needed for time sync (required for AFC)
-            // Can be satisfied by: web domain containing ntp.org (TCP) OR destination port 123 (UDP)
+            // Can be satisfied by: web domain containing ntp.org (TCP) OR destination port 123 (UDP) to External zone
             // Note: Must check that ports and protocol are not inverted
+            // For port-based rules, we must verify the destination zone is External
             var hasNtpAccess = rules.Any(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 ((r.WebDomains?.Any(d => d.Contains("ntp.org", StringComparison.OrdinalIgnoreCase)) == true &&
                   FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp")) ||
-                 FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp")));
+                 (FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp") &&
+                  TargetsExternalZone(r, externalZoneId))));
 
             if (!hasNtpAccess)
             {
@@ -901,5 +923,164 @@ public class FirewallRuleAnalyzer
     private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
     {
         return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
+    }
+
+    /// <summary>
+    /// Check if a firewall rule targets the External/WAN zone.
+    /// Returns true if the rule's destination zone matches the external zone ID,
+    /// or if we don't have an external zone ID to check against.
+    /// </summary>
+    private static bool TargetsExternalZone(FirewallRule rule, string? externalZoneId)
+    {
+        // If no external zone ID is provided, we can't validate - assume it targets external
+        if (string.IsNullOrEmpty(externalZoneId))
+            return true;
+
+        // Check if the rule's destination zone matches the external zone
+        return string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Determines a description for firewall exception patterns based on the deny rule being excepted.
+    /// Uses the allow rule's destination for purpose lookup since it's more specific.
+    /// </summary>
+    private static string GetExceptionPatternDescription(FirewallRule denyRule, FirewallRule allowRule, string? externalZoneId, List<NetworkInfo>? networks)
+    {
+        var destTarget = denyRule.DestinationMatchingTarget?.ToUpperInvariant();
+        var srcTarget = denyRule.SourceMatchingTarget?.ToUpperInvariant();
+
+        // Check for external/internet blocking rules - must target the external zone specifically
+        // If the destination zone is external, it's an external access exception regardless of
+        // whether the destination is ANY, specific IPs, or domains
+        if (!string.IsNullOrEmpty(externalZoneId) &&
+            string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
+        {
+            return "External Access Exception";
+        }
+
+        // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
+        // Group by the ALLOW rule's destination network purpose (more specific than deny rule)
+        if (destTarget == "NETWORK" || srcTarget == "NETWORK")
+        {
+            // Try to get purpose from the allow rule's destination first (more specific)
+            var purposeSuffix = GetDestinationNetworkPurposeSuffix(allowRule, networks);
+            // Fall back to deny rule if allow rule doesn't have network destinations
+            if (string.IsNullOrEmpty(purposeSuffix))
+            {
+                purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
+            }
+            return $"Cross-VLAN Access Exception{purposeSuffix}";
+        }
+
+        // Default for other patterns (including Gateway zone blocks)
+        return "Firewall Exception";
+    }
+
+    /// <summary>
+    /// Gets a suffix describing the destination network purpose for grouping.
+    /// Returns empty string if purpose can't be determined or there are multiple different purposes.
+    /// </summary>
+    private static string GetDestinationNetworkPurposeSuffix(FirewallRule rule, List<NetworkInfo>? networks)
+    {
+        if (networks == null || networks.Count == 0)
+            return "";
+
+        var purposes = new HashSet<NetworkPurpose>();
+
+        // First try: Check DestinationNetworkIds
+        var destNetworkIds = rule.DestinationNetworkIds;
+        if (destNetworkIds != null && destNetworkIds.Count > 0)
+        {
+            foreach (var networkId in destNetworkIds)
+            {
+                var network = networks.FirstOrDefault(n =>
+                    string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+                if (network != null)
+                {
+                    purposes.Add(network.Purpose);
+                }
+            }
+        }
+        // Second try: Check DestinationIps - find which network's subnet they belong to
+        else if (rule.DestinationIps != null && rule.DestinationIps.Count > 0)
+        {
+            foreach (var destIp in rule.DestinationIps)
+            {
+                // Skip IP ranges for now, just check single IPs
+                var ip = destIp.Contains('-') ? destIp.Split('-')[0] : destIp;
+                // Skip CIDR notation, just check single IPs
+                if (ip.Contains('/'))
+                    ip = ip.Split('/')[0];
+
+                // Find which network this IP belongs to
+                foreach (var network in networks)
+                {
+                    if (!string.IsNullOrEmpty(network.Subnet) &&
+                        FirewallRuleOverlapDetector.IpMatchesCidr(ip, network.Subnet))
+                    {
+                        purposes.Add(network.Purpose);
+                        break; // Found the network for this IP
+                    }
+                }
+            }
+        }
+
+        // If all destinations have the same purpose, include it in the description
+        if (purposes.Count == 1)
+        {
+            var purpose = purposes.First();
+            return purpose switch
+            {
+                NetworkPurpose.IoT => " (IoT)",
+                NetworkPurpose.Security => " (Security)",
+                NetworkPurpose.Management => " (Management)",
+                NetworkPurpose.Guest => " (Guest)",
+                NetworkPurpose.Corporate => " (Corporate)",
+                NetworkPurpose.Home => " (Home)",
+                _ => ""
+            };
+        }
+
+        // Multiple different purposes or unknown - no suffix
+        return "";
+    }
+
+    /// <summary>
+    /// Check if an allow rule is for a known management service (UniFi, AFC, NTP, 5G).
+    /// These exceptions are already covered by MGMT_MISSING_* audit rules and don't need
+    /// to be reported as generic firewall exceptions.
+    /// </summary>
+    private static bool IsKnownManagementServiceException(FirewallRule allowRule)
+    {
+        // Check web domains for known management service domains
+        if (allowRule.WebDomains != null)
+        {
+            foreach (var domain in allowRule.WebDomains)
+            {
+                // UniFi cloud management
+                if (domain.Contains("ui.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // AFC (Automated Frequency Coordination) for 6GHz WiFi
+                if (domain.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // NTP time sync (domain-based)
+                if (domain.Contains("ntp.org", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                // 5G/LTE modem registration
+                if (domain.Contains("trafficmanager.net", StringComparison.OrdinalIgnoreCase) ||
+                    domain.Contains("t-mobile.com", StringComparison.OrdinalIgnoreCase) ||
+                    domain.Contains("gsma.com", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        // NTP port-based rule (UDP 123)
+        if (FirewallGroupHelper.RuleAllowsPortAndProtocol(allowRule, "123", "udp"))
+            return true;
+
+        return false;
     }
 }

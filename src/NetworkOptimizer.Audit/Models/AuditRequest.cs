@@ -92,4 +92,10 @@ public class AuditRequest
     /// Optional: Port forwarding rules including UPnP mappings (from GetPortForwardRulesAsync)
     /// </summary>
     public List<UniFiPortForwardRule>? PortForwardRules { get; init; }
+
+    /// <summary>
+    /// Optional: Network configurations from /rest/networkconf API.
+    /// Used to determine the External/WAN firewall zone ID for firewall rule analysis.
+    /// </summary>
+    public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
 }

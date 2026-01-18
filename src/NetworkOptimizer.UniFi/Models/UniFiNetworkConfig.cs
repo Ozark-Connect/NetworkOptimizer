@@ -267,4 +267,11 @@ public class UniFiNetworkConfig
     // Content filtering
     [JsonPropertyName("contentfilter_enabled")]
     public bool ContentfilterEnabled { get; set; }
+
+    /// <summary>
+    /// The firewall zone ID for this network.
+    /// Used to identify which firewall zone this network belongs to (e.g., LAN zone vs WAN/External zone).
+    /// </summary>
+    [JsonPropertyName("firewall_zone_id")]
+    public string? FirewallZoneId { get; set; }
 }

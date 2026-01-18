@@ -1,4 +1,5 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
 
@@ -14,13 +15,25 @@ public static class FirewallRuleOverlapDetector
     /// </summary>
     public static bool RulesOverlap(FirewallRule rule1, FirewallRule rule2)
     {
+        return RulesOverlap(rule1, rule2, null);
+    }
+
+    /// <summary>
+    /// Check if two rules could potentially overlap (match same traffic).
+    /// Rules overlap only if ALL criteria have overlap.
+    /// </summary>
+    /// <param name="rule1">First firewall rule</param>
+    /// <param name="rule2">Second firewall rule</param>
+    /// <param name="networkConfigs">Optional network configs for accurate IP-to-network matching</param>
+    public static bool RulesOverlap(FirewallRule rule1, FirewallRule rule2, List<UniFiNetworkConfig>? networkConfigs)
+    {
         // First check zones - if zones differ, rules cannot overlap
         if (!ZonesOverlap(rule1, rule2))
             return false;
 
         return ProtocolsOverlap(rule1, rule2) &&
-               SourcesOverlap(rule1, rule2) &&
-               DestinationsOverlap(rule1, rule2) &&
+               SourcesOverlap(rule1, rule2, networkConfigs) &&
+               DestinationsOverlap(rule1, rule2, networkConfigs) &&
                PortsOverlap(rule1, rule2) &&
                IcmpTypesOverlap(rule1, rule2);
     }
@@ -76,6 +89,18 @@ public static class FirewallRuleOverlapDetector
     /// </summary>
     public static bool SourcesOverlap(FirewallRule rule1, FirewallRule rule2)
     {
+        return SourcesOverlap(rule1, rule2, null);
+    }
+
+    /// <summary>
+    /// Check if sources overlap (either is ANY, or networks/IPs intersect).
+    /// Handles match_opposite_* flags which invert the matching.
+    /// </summary>
+    /// <param name="rule1">First firewall rule</param>
+    /// <param name="rule2">Second firewall rule</param>
+    /// <param name="networkConfigs">Optional network configs for accurate IP-to-network CIDR matching</param>
+    public static bool SourcesOverlap(FirewallRule rule1, FirewallRule rule2, List<UniFiNetworkConfig>? networkConfigs)
+    {
         var target1 = rule1.SourceMatchingTarget?.ToUpperInvariant() ?? "ANY";
         var target2 = rule2.SourceMatchingTarget?.ToUpperInvariant() ?? "ANY";
 
@@ -83,10 +108,13 @@ public static class FirewallRuleOverlapDetector
         if (target1 == "ANY" || target2 == "ANY")
             return true;
 
-        // NETWORK and IP CAN overlap: an IP address may fall within a network's CIDR.
-        // Since we don't have network CIDR info here, we conservatively assume they might overlap.
+        // NETWORK and IP: Check if the IP falls within the network's CIDR
         if ((target1 == "NETWORK" && target2 == "IP") || (target1 == "IP" && target2 == "NETWORK"))
-            return true;
+        {
+            var networkRule = target1 == "NETWORK" ? rule1 : rule2;
+            var ipRule = target1 == "IP" ? rule1 : rule2;
+            return IpOverlapsWithNetworks(ipRule.SourceIps, networkRule.SourceNetworkIds, networkConfigs);
+        }
 
         // Different target types don't overlap (CLIENT vs NETWORK, CLIENT vs IP, etc.)
         if (target1 != target2)
@@ -190,6 +218,18 @@ public static class FirewallRuleOverlapDetector
     /// </summary>
     public static bool DestinationsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
+        return DestinationsOverlap(rule1, rule2, null);
+    }
+
+    /// <summary>
+    /// Check if destinations overlap (either is ANY, or networks/IPs/domains intersect).
+    /// Handles match_opposite_* flags which invert the matching.
+    /// </summary>
+    /// <param name="rule1">First firewall rule</param>
+    /// <param name="rule2">Second firewall rule</param>
+    /// <param name="networkConfigs">Optional network configs for accurate IP-to-network CIDR matching</param>
+    public static bool DestinationsOverlap(FirewallRule rule1, FirewallRule rule2, List<UniFiNetworkConfig>? networkConfigs)
+    {
         var target1 = rule1.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
         var target2 = rule2.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
 
@@ -204,11 +244,13 @@ public static class FirewallRuleOverlapDetector
                 return false;
         }
 
-        // NETWORK and IP CAN overlap: an IP address may fall within a network's CIDR.
-        // Since we don't have network CIDR info here, we conservatively assume they might overlap.
-        // This catches cases like "Block to NETWORK X" eclipsing "Allow to IP within X".
+        // NETWORK and IP: Check if the IP falls within the network's CIDR
         if ((target1 == "NETWORK" && target2 == "IP") || (target1 == "IP" && target2 == "NETWORK"))
-            return true;
+        {
+            var networkRule = target1 == "NETWORK" ? rule1 : rule2;
+            var ipRule = target1 == "IP" ? rule1 : rule2;
+            return IpOverlapsWithNetworks(ipRule.DestinationIps, networkRule.DestinationNetworkIds, networkConfigs);
+        }
 
         // Other different target types don't overlap
         if (target1 != target2)
@@ -360,6 +402,54 @@ public static class FirewallRuleOverlapDetector
             foreach (var ip2 in ips2)
             {
                 if (IpMatchesCidr(ip1, ip2) || IpMatchesCidr(ip2, ip1))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if any IP address overlaps with any of the specified networks.
+    /// Uses network configs to get CIDR info when available.
+    /// </summary>
+    /// <param name="ips">List of IP addresses from the IP-based rule</param>
+    /// <param name="networkIds">List of network IDs from the network-based rule</param>
+    /// <param name="networkConfigs">Optional network configs with CIDR info</param>
+    /// <returns>True if any IP falls within any of the networks' CIDRs</returns>
+    public static bool IpOverlapsWithNetworks(List<string>? ips, List<string>? networkIds, List<UniFiNetworkConfig>? networkConfigs)
+    {
+        if (ips == null || ips.Count == 0 || networkIds == null || networkIds.Count == 0)
+            return false;
+
+        // If we don't have network configs, we can't determine overlap accurately
+        // Fall back to conservative behavior (assume they might overlap)
+        if (networkConfigs == null || networkConfigs.Count == 0)
+            return true;
+
+        // Get the CIDRs for the specified network IDs
+        var networkCidrs = new List<string>();
+        foreach (var networkId in networkIds)
+        {
+            var network = networkConfigs.FirstOrDefault(n =>
+                string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+
+            if (network?.IpSubnet != null)
+            {
+                networkCidrs.Add(network.IpSubnet);
+            }
+        }
+
+        // If we couldn't find CIDRs for any networks, fall back to conservative behavior
+        if (networkCidrs.Count == 0)
+            return true;
+
+        // Check if any IP falls within any of the network CIDRs
+        foreach (var ip in ips)
+        {
+            foreach (var cidr in networkCidrs)
+            {
+                if (IpMatchesCidr(ip, cidr))
                     return true;
             }
         }

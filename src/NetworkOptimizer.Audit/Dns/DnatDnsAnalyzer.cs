@@ -112,6 +112,25 @@ public class DnatRuleInfo
     /// This inverts the network matching logic.
     /// </summary>
     public bool MatchOpposite { get; init; }
+
+    /// <summary>
+    /// Destination address filter (if specified). When set without InvertDestinationAddress,
+    /// the rule only matches traffic to specific IPs instead of all DNS traffic.
+    /// </summary>
+    public string? DestinationAddress { get; init; }
+
+    /// <summary>
+    /// When true, the destination address is inverted (matches traffic NOT going to the address).
+    /// This is valid for DNS redirection as it catches bypass attempts.
+    /// </summary>
+    public bool InvertDestinationAddress { get; init; }
+
+    /// <summary>
+    /// Whether the destination filter is restricted (specific address without invert).
+    /// A restricted destination means the rule only catches some DNS bypass attempts.
+    /// </summary>
+    public bool HasRestrictedDestination =>
+        !string.IsNullOrEmpty(DestinationAddress) && !InvertDestinationAddress;
 }
 
 /// <summary>
@@ -295,6 +314,10 @@ public class DnatDnsAnalyzer
                 continue;
             }
 
+            // Parse destination filter address and invert flag
+            var destAddress = destFilter.Value.GetStringOrNull("address");
+            var destInvertAddress = destFilter.Value.GetBoolOrDefault("invert_address", false);
+
             // This is a valid DNAT DNS rule - parse it
             var id = rule.GetStringOrNull("_id") ?? Guid.NewGuid().ToString();
             var description = rule.GetStringOrNull("description");
@@ -324,7 +347,9 @@ public class DnatDnsAnalyzer
                     NetworkId = networkConfId,
                     RedirectIp = redirectIp,
                     InInterface = inInterface,
-                    MatchOpposite = matchOpposite
+                    MatchOpposite = matchOpposite,
+                    DestinationAddress = destAddress,
+                    InvertDestinationAddress = destInvertAddress
                 };
             }
             else if (!string.IsNullOrEmpty(address))
@@ -339,7 +364,9 @@ public class DnatDnsAnalyzer
                         CoverageType = "subnet",
                         SubnetCidr = address,
                         RedirectIp = redirectIp,
-                        InInterface = inInterface
+                        InInterface = inInterface,
+                        DestinationAddress = destAddress,
+                        InvertDestinationAddress = destInvertAddress
                     };
                 }
                 else
@@ -352,7 +379,9 @@ public class DnatDnsAnalyzer
                         CoverageType = "single_ip",
                         SingleIp = address,
                         RedirectIp = redirectIp,
-                        InInterface = inInterface
+                        InInterface = inInterface,
+                        DestinationAddress = destAddress,
+                        InvertDestinationAddress = destInvertAddress
                     };
                 }
             }
@@ -366,7 +395,9 @@ public class DnatDnsAnalyzer
                     CoverageType = "interface",
                     NetworkId = inInterface, // Use in_interface as the network ID for coverage
                     RedirectIp = redirectIp,
-                    InInterface = inInterface
+                    InInterface = inInterface,
+                    DestinationAddress = destAddress,
+                    InvertDestinationAddress = destInvertAddress
                 };
             }
             else

@@ -1,12 +1,13 @@
 namespace NetworkOptimizer.Audit.Models;
 
 /// <summary>
-/// Network classification types based on purpose
+/// Network classification types based on purpose.
+/// Note: Corporate is the default (value 0), matching UniFi's API behavior.
 /// </summary>
 public enum NetworkPurpose
 {
     /// <summary>
-    /// Corporate/business network for general use
+    /// Corporate/business network for general use (default)
     /// </summary>
     Corporate,
 
@@ -139,4 +140,17 @@ public class NetworkInfo
     /// appear in firewall rules, so we skip firewall isolation checks for them.
     /// </summary>
     public bool IsUniFiGuestNetwork { get; init; }
+
+    /// <summary>
+    /// Firewall zone ID for this network (from UniFi).
+    /// LAN networks share one zone ID, WAN networks have a different zone ID.
+    /// Used to detect firewall rules that block internet access.
+    /// </summary>
+    public string? FirewallZoneId { get; init; }
+
+    /// <summary>
+    /// Network group (LAN, WAN, WAN2, etc.).
+    /// Used to identify whether this is an internal or external network.
+    /// </summary>
+    public string? NetworkGroup { get; init; }
 }

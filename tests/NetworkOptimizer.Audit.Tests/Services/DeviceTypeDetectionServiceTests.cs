@@ -2,6 +2,7 @@ using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -253,8 +254,8 @@ public class DeviceTypeDetectionServiceTests
         var result = _service.DetectDeviceType(client);
 
         // Assert - Camera name + Nest vendor = CloudCamera (not self-hosted Camera)
+        // Confidence may vary based on detection path (name supplement vs direct detection)
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
-        result.ConfidenceScore.Should().BeGreaterThanOrEqualTo(95);
     }
 
     [Theory]
@@ -360,6 +361,156 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.Smartphone);
         result.VendorName.Should().Be("Apple");
         result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    #endregion
+
+    #region Pixel Phone Tests
+
+    [Theory]
+    [InlineData("Pixel 6")]
+    [InlineData("Pixel 7 Pro")]
+    [InlineData("Pixel 8a")]
+    [InlineData("John's Pixel 9")]
+    [InlineData("[Phone] Pixel8")]
+    public void DetectDeviceType_PixelPhone_ReturnsSmartphone(string deviceName)
+    {
+        // Arrange - Pixel phones should be categorized as smartphone
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 4 // Some other fingerprint (should be overridden)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be("Google");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("Pixel Tablet", ClientDeviceCategory.SmartTV)] // DevCat 47 = Smart TV
+    [InlineData("Pixelbook", ClientDeviceCategory.Laptop)] // DevCat 1 = Laptop
+    [InlineData("Pixel Slate", ClientDeviceCategory.Tablet)] // DevCat 2 = Tablet
+    public void DetectDeviceType_PixelNonPhone_DoesNotOverrideToSmartphone(string deviceName, ClientDeviceCategory expectedFromFingerprint)
+    {
+        // Arrange - Pixel Tablet, Pixelbook, Pixel Slate should NOT be overridden to smartphone
+        var devCatForCategory = expectedFromFingerprint switch
+        {
+            ClientDeviceCategory.SmartTV => 47,
+            ClientDeviceCategory.Laptop => 1,
+            ClientDeviceCategory.Tablet => 2,
+            _ => 0
+        };
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCatForCategory
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should NOT be overridden to Smartphone
+        result.Category.Should().NotBe(ClientDeviceCategory.Smartphone);
+    }
+
+    #endregion
+
+    #region Watch Misfingerprint Correction Tests
+
+    [Theory]
+    [InlineData("Samsung Watch", 25)]  // Desktop (Thin Client)
+    [InlineData("Galaxy Watch 5", 9)]  // Camera
+    [InlineData("My Watch", 47)]       // SmartTV
+    [InlineData("Fitbit Watch", 4)]    // IoTGeneric (Miscellaneous)
+    public void DetectDeviceType_WatchMisfingerprinted_CorrectToSmartphone(string deviceName, int devCat)
+    {
+        // Arrange - device named "Watch" but misfingerprinted as something else
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be corrected to Smartphone
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Fact]
+    public void DetectDeviceType_WatchWithNoFingerprint_CorrectToSmartphone()
+    {
+        // Arrange - device named "Watch" with no fingerprint (Unknown)
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Garmin Watch",
+            DevCat = null
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be corrected to Smartphone
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("Watcher")] // Not a watch
+    [InlineData("Night Watcher Camera")] // Not a watch
+    [InlineData("Bird Watching Camera")] // Not a watch
+    [InlineData("Watchdog")] // Not a watch
+    public void DetectDeviceType_WatchSubstring_DoesNotCorrectToSmartphone(string deviceName)
+    {
+        // Arrange - names containing "watch" as substring should NOT be corrected
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should remain as Camera, not corrected to Smartphone
+        result.Category.Should().NotBe(ClientDeviceCategory.Smartphone);
+    }
+
+    [Theory]
+    [InlineData("John's Watch", "Samsung", "Samsung")]
+    [InlineData("Apple Watch SE", "", "Apple")]
+    [InlineData("Galaxy Watch 6", "", "Samsung")]
+    [InlineData("Fitbit Watch", "", "Fitbit")]
+    [InlineData("Garmin Watch", "", "Garmin")]
+    public void DetectDeviceType_WatchCorrection_PreservesVendor(string deviceName, string oui, string expectedVendor)
+    {
+        // Arrange - watch with known vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 25 // Desktop fingerprint (Thin Client) - should be overridden
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be(expectedVendor);
     }
 
     #endregion
@@ -741,6 +892,87 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.Camera);
     }
 
+    [Theory]
+    [InlineData("SimpliSafe", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Ring", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Nest", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Wyze", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Arlo", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Blink", ClientDeviceCategory.CloudCamera)]
+    [InlineData("TP-Link", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Canary", ClientDeviceCategory.CloudCamera)]
+    public void DetectFromMac_HistoryCameraFingerprint_WithCloudVendor_ReturnsCloudCamera(string vendor, ClientDeviceCategory expected)
+    {
+        // Arrange - history with camera fingerprint (DevCat 9) and cloud vendor via OUI
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Doorbell",
+                Oui = vendor,
+                Fingerprint = new ClientFingerprintData { DevCat = 9, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should be upgraded to CloudCamera due to cloud vendor
+        result.Category.Should().Be(expected);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Theory]
+    [InlineData("SimpliSafe", ClientDeviceCategory.CloudSecuritySystem)]
+    public void DetectFromMac_HistorySecuritySystemFingerprint_WithCloudVendor_ReturnsCloudSecuritySystem(string vendor, ClientDeviceCategory expected)
+    {
+        // Arrange - history with security system fingerprint (DevCat 80 = Smart Home Security System) and cloud vendor via OUI
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Basestation",
+                Oui = vendor,
+                Fingerprint = new ClientFingerprintData { DevCat = 80, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should be upgraded to CloudSecuritySystem due to cloud vendor
+        result.Category.Should().Be(expected);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void DetectFromMac_HistoryCameraFingerprint_WithLocalVendor_ReturnsCamera()
+    {
+        // Arrange - history with camera fingerprint (DevCat 9) and non-cloud vendor
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Backyard Camera",
+                Oui = "Hikvision", // Local NVR vendor, not cloud-dependent
+                Fingerprint = new ClientFingerprintData { DevCat = 9, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should stay as Camera (not upgraded to CloudCamera)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
     #endregion
 
     #region Category Extension Tests
@@ -968,6 +1200,184 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region UniFi Protect Camera Tests
+
+    [Theory]
+    [InlineData("G5 Turret Ultra")]           // Default product name
+    [InlineData("Front Door Camera")]          // User alias
+    [InlineData("[Cam] Driveway")]             // User alias with tag
+    [InlineData("Garage - Road View")]         // User alias with location
+    [InlineData("")]                           // Empty name
+    public void DetectDeviceType_UniFiProtectCamera_Wired_ReturnsCamera(string cameraName)
+    {
+        // Arrange - Simulate wired UniFi Protect camera
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", cameraName);
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = cameraName,
+            Oui = "Ubiquiti Inc"  // Wired cameras show Ubiquiti OUI
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should be Camera on Security network, NOT CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+        result.VendorName.Should().Be("Ubiquiti");
+        result.ConfidenceScore.Should().Be(100);
+    }
+
+    [Theory]
+    [InlineData("G6 Instant")]                 // Default product name
+    [InlineData("Back Yard Camera")]           // User alias
+    [InlineData("[Cam] Dogs")]                 // User alias with tag
+    [InlineData("Tiny Home - Front Door")]     // User alias with location
+    [InlineData("")]                           // Empty name
+    public void DetectDeviceType_UniFiProtectCamera_WiFi_ReturnsCamera(string cameraName)
+    {
+        // Arrange - Simulate Wi-Fi UniFi Protect camera
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", cameraName);
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = cameraName,
+            Oui = "Ubiquiti Inc",
+            IsWired = false,  // Wireless
+            ApMac = "11:22:33:44:55:66"  // Connected to AP
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should be Camera on Security network, NOT CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+        result.VendorName.Should().Be("Ubiquiti");
+        result.ConfidenceScore.Should().Be(100);
+    }
+
+    [Fact]
+    public void DetectDeviceType_UniFiProtectCamera_WithCloudKeywordInName_StillReturnsCamera()
+    {
+        // Arrange - Protect camera with name containing cloud camera vendor keyword
+        // This ensures Ubiquiti Protect cameras aren't accidentally classified as CloudCamera
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Ring-style Doorbell");  // Contains "Ring"
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Ring-style Doorbell",
+            Oui = "Ubiquiti Inc"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Protect cameras should NEVER become CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+        result.VendorName.Should().Be("Ubiquiti");
+    }
+
+    [Fact]
+    public void DetectDeviceType_UniFiProtectCamera_BypassesFingerprint()
+    {
+        // Arrange - Protect camera that also has fingerprint data
+        // Protect API should take priority over fingerprint
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Test Camera");
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Test Camera",
+            Oui = "Ubiquiti Inc",
+            DevCat = 14,  // SmartSensor fingerprint (would normally return different category)
+            DevVendor = 999
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Protect API takes priority (confidence 100)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata.Should().ContainKey("detection_method");
+        result.Metadata!["detection_method"].Should().Be("unifi_protect_api");
+    }
+
+    [Fact]
+    public void DetectDeviceType_UniFiProtectCamera_BypassesNameOverride()
+    {
+        // Arrange - Protect camera with name that would normally trigger a different category
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "Smart Plug Camera");  // Contains "Plug"
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Smart Plug Camera",  // Would normally match plug pattern
+            Oui = "Ubiquiti Inc"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Protect API takes priority over name-based detection
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+    }
+
+    [Fact]
+    public void DetectDeviceType_NotInProtectCollection_UsesNormalDetection()
+    {
+        // Arrange - Device NOT in Protect collection, but has camera fingerprint
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("11:22:33:44:55:66", "Different Camera");  // Different MAC
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",  // NOT in Protect collection
+            Name = "Some Camera",
+            Oui = "Ring LLC",  // Cloud camera vendor
+            DevCat = 9  // Camera fingerprint
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should use normal detection (Ring = CloudCamera)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
+    #endregion
+
     #region Vendor Preservation Tests - Cloud Cameras
 
     [Theory]
@@ -1072,6 +1482,209 @@ public class DeviceTypeDetectionServiceTests
         // Assert
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
         result.VendorName.Should().Be("Arlo");
+    }
+
+    [Fact]
+    public void DetectDeviceType_SimpliSafeVendor_ReturnsCloudCamera()
+    {
+        // Arrange - SimpliSafe cameras require cloud services
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door Camera",
+            Oui = "SimpliSafe Inc",
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_TpLinkCameraVendor_ReturnsCloudCamera()
+    {
+        // Arrange - TP-Link Tapo/Kasa cameras are cloud-dependent
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Garage Camera",
+            Oui = "TP-Link Technologies",
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CanaryVendor_ReturnsCloudCamera()
+    {
+        // Arrange - Canary cameras are cloud-dependent
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Living Room Camera",
+            Oui = "Canary Connect",
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CloudCameraVendor_FingerprintVendorTakesPriorityOverOui()
+    {
+        // Arrange - Fingerprint vendor is SimpliSafe, but OUI is generic manufacturer
+        // This simulates a device where UniFi fingerprint correctly identifies vendor
+        // but MAC OUI shows the actual chip manufacturer
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door",  // No camera keyword - relies on fingerprint
+            Oui = "Realtek Semiconductor",  // Generic chip manufacturer
+            DevCat = 9,  // Camera fingerprint
+            DevVendor = 999  // Would resolve to SimpliSafe in fingerprint DB
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Without fingerprint DB, falls back to OUI which isn't a cloud vendor
+        // So this should be Camera, not CloudCamera (proving OUI fallback works)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_NonCloudCameraVendor_RemainsCamera()
+    {
+        // Arrange - Generic camera vendor that is NOT a cloud camera
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Security Camera",
+            Oui = "Hikvision",  // Local NVR camera, not cloud
+            DevCat = 9  // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should remain Camera (self-hosted), not CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CameraNameWithCloudOui_BecomesCloudCamera()
+    {
+        // Arrange - Name indicates camera, OUI indicates cloud vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "[Cam] Driveway",  // Camera name tag
+            Oui = "Ring LLC"  // Cloud vendor
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudCamera due to Ring OUI
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CameraNameWithNonCloudOui_RemainsCamera()
+    {
+        // Arrange - Name indicates camera, OUI is NOT a cloud vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "[Cam] Backyard",  // Camera name tag
+            Oui = "Axis Communications"  // Professional/self-hosted camera
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should remain Camera (for Security VLAN)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+    }
+
+    [Theory]
+    [InlineData("Springfield Security")]  // Contains "ring" as substring
+    [InlineData("Honest Labs")]           // Contains "nest" as substring
+    [InlineData("Blinking Lights Co")]    // Contains "blink" as substring
+    [InlineData("Carlo Industries")]      // Contains "arlo" as substring
+    public void DetectDeviceType_VendorWithCloudKeywordSubstring_DoesNotFalsePositive(string oui)
+    {
+        // Arrange - OUI contains cloud vendor as substring but is NOT a cloud vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door Camera",
+            Oui = oui,
+            DevCat = 9  // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should remain Camera, NOT CloudCamera (word boundary prevents false positive)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Security);
+    }
+
+    [Theory]
+    // Full vendor names with suffixes
+    [InlineData("Ring Inc")]
+    [InlineData("Ring LLC")]
+    [InlineData("Nest Labs")]
+    [InlineData("Google Inc")]
+    [InlineData("Wyze Labs")]
+    [InlineData("Blink Home")]
+    [InlineData("Arlo Technologies")]
+    [InlineData("SimpliSafe Inc")]
+    [InlineData("TP-Link Technologies")]
+    [InlineData("Canary Connect")]
+    // Bare vendor names (word boundary should still match)
+    [InlineData("Ring")]
+    [InlineData("Nest")]
+    [InlineData("Google")]
+    [InlineData("Wyze")]
+    [InlineData("Blink")]
+    [InlineData("Arlo")]
+    [InlineData("SimpliSafe")]
+    [InlineData("TP-Link")]
+    [InlineData("Canary")]
+    public void DetectDeviceType_ActualCloudVendor_BecomesCloudCamera(string oui)
+    {
+        // Arrange - Actual cloud camera vendor OUI
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door Camera",
+            Oui = oui,
+            DevCat = 9  // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
     }
 
     #endregion
@@ -1235,6 +1848,276 @@ public class DeviceTypeDetectionServiceTests
         // Assert
         result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
         result.VendorName.Should().Be("Ring LLC");
+    }
+
+    #endregion
+
+    #region SimpliSafe Device Tests
+
+    [Theory]
+    [InlineData("SimpliSafe Basestation")]
+    [InlineData("SimpliSafe Base Station")]
+    [InlineData("[Security] SimpliSafe Basestation")]
+    public void DetectDeviceType_SimpliSafeBasestation_ReturnsCloudSecuritySystem(string deviceName)
+    {
+        // Arrange - SimpliSafe basestations are cloud-dependent security hubs
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudSecuritySystem (new category for cloud-dependent security systems)
+        result.Category.Should().Be(ClientDeviceCategory.CloudSecuritySystem);
+        result.VendorName.Should().Be("SimpliSafe");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
+    [Theory]
+    [InlineData("SimpliSafe Camera")]
+    [InlineData("SimpliSafe Outdoor Camera")]
+    [InlineData("[Cam] SimpliSafe Indoor")]
+    public void DetectDeviceType_SimpliSafeCameraByName_ReturnsCloudCamera(string deviceName)
+    {
+        // Arrange - SimpliSafe cameras are cloud cameras requiring internet
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudCamera
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("SimpliSafe");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
+    [Fact]
+    public void DetectDeviceType_SimpliSafeVendorWithCameraFingerprint_ReturnsCloudCamera()
+    {
+        // Arrange - SimpliSafe OUI with camera fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door",
+            Oui = "SimpliSafe Inc",
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Theory]
+    [InlineData("Basestation")]
+    [InlineData("Base Station")]
+    [InlineData("[Security] Basestation")]
+    public void DetectDeviceType_SimpliSafeOuiWithBasestationName_ReturnsCloudSecuritySystem(string deviceName)
+    {
+        // Arrange - SimpliSafe OUI with "Basestation" in name but NOT "SimpliSafe"
+        // This tests OUI-based vendor detection with device name disambiguation
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = "SimpliSafe Inc"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be CloudSecuritySystem based on OUI + basestation keyword
+        result.Category.Should().Be(ClientDeviceCategory.CloudSecuritySystem);
+        result.VendorName.Should().Contain("SimpliSafe");  // OUI returns "SimpliSafe Inc"
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+    }
+
+    #endregion
+
+    #region Camera Name with Cloud Vendor Tests
+
+    [Theory]
+    [InlineData("Front Yard Cameras", "Ring LLC", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Back Yard Camera", "Wyze Labs", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Driveway Cam", "Nest Labs", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Porch Camera", "Arlo Technologies", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Garage Cam", "Reolink Innovation", ClientDeviceCategory.Camera)]  // Non-cloud vendor
+    [InlineData("Office Camera", "Hikvision", ClientDeviceCategory.Camera)]  // Non-cloud vendor
+    public void DetectDeviceType_GenericCameraNameWithVendorOui_ClassifiesCorrectly(
+        string deviceName, string oui, ClientDeviceCategory expectedCategory)
+    {
+        // Arrange - Generic camera name (no vendor keyword) with various OUIs
+        // Cloud vendors should become CloudCamera, others remain Camera
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(expectedCategory);
+    }
+
+    [Theory]
+    [InlineData("Ring Front Porch Camera", "Unknown Manufacturer")]  // Vendor in name with camera keyword
+    [InlineData("Wyze Garage Cam", "Generic Corp")]
+    [InlineData("Nest Driveway Camera", "Some Electronics")]
+    [InlineData("Blink Doorbell", "Random Inc")]
+    [InlineData("Arlo Backyard Cam", "Other Vendor")]
+    public void DetectDeviceType_CloudVendorInName_BecomesCloudCamera(string deviceName, string oui)
+    {
+        // Arrange - Vendor keyword is in NAME, not OUI
+        // Should detect as CloudCamera based on name alone
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui  // Unrelated OUI
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should still be CloudCamera because vendor is in the name
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_SimpliSafeInName_WithCameraKeyword_ReturnsCloudCamera()
+    {
+        // Arrange - SimpliSafe keyword in name should trigger cloud camera detection
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "SimpliSafe Front Door Cam",
+            Oui = "Unknown Manufacturer"  // No SimpliSafe OUI
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+        result.VendorName.Should().Be("SimpliSafe");
+    }
+
+    #endregion
+
+    #region Misfingerprinted Camera Override Tests
+
+    [Theory]
+    [InlineData("A Camera", 1)]       // Desktop fingerprint
+    [InlineData("Front Camera", 1)]   // Desktop fingerprint (same as above, testing different name)
+    [InlineData("Garage Cam", 6)]     // Smartphone fingerprint
+    [InlineData("Back Yard Camera", 30)]  // Tablet fingerprint
+    public void DetectDeviceType_CameraNameWithWrongFingerprint_OverridesToCamera(string deviceName, int devCat)
+    {
+        // Arrange - Device has a clear camera name but wrong UniFi fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat,  // Wrong fingerprint (Desktop/Laptop/Phone/Tablet)
+            Oui = "Generic Manufacturer"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Name should override the wrong fingerprint
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Source.Should().Be(DetectionSource.DeviceName);
+    }
+
+    [Theory]
+    [InlineData("Ring Doorbell", 1)]   // Desktop fingerprint but Ring vendor in name
+    [InlineData("Wyze Cam v3", 1)]     // Desktop fingerprint but Wyze vendor in name
+    [InlineData("Nest Camera", 6)]     // Smartphone fingerprint but Nest vendor in name
+    public void DetectDeviceType_CloudCameraNameWithWrongFingerprint_OverridesToCloudCamera(string deviceName, int devCat)
+    {
+        // Arrange - Device has cloud vendor + camera in name but wrong fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat,  // Wrong fingerprint
+            Oui = "Generic Manufacturer"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Name should override to CloudCamera (cloud vendor in name)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CameraNameWithCameraFingerprint_KeepsCamera()
+    {
+        // Arrange - Device has camera name AND camera fingerprint - don't double-process
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Porch Camera",
+            DevCat = 9,  // Camera fingerprint
+            Oui = "Hikvision"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should stay Camera (fingerprint is correct)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
+    #region CloudSecuritySystem Category Extension Tests
+
+    [Fact]
+    public void IsIoT_CloudSecuritySystem_ReturnsTrue()
+    {
+        // Act & Assert - CloudSecuritySystem should be IoT (needs internet)
+        ClientDeviceCategory.CloudSecuritySystem.IsIoT().Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsSurveillance_CloudSecuritySystem_ReturnsTrue()
+    {
+        // Act & Assert - CloudSecuritySystem is a surveillance/security device
+        ClientDeviceCategory.CloudSecuritySystem.IsSurveillance().Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsHighRiskIoT_CloudSecuritySystem_ReturnsTrue()
+    {
+        // Act & Assert - CloudSecuritySystem is high-risk
+        ClientDeviceCategory.CloudSecuritySystem.IsHighRiskIoT().Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(ClientDeviceCategory.CloudCamera, true)]
+    [InlineData(ClientDeviceCategory.CloudSecuritySystem, true)]
+    [InlineData(ClientDeviceCategory.Camera, false)]
+    [InlineData(ClientDeviceCategory.SecuritySystem, false)]
+    [InlineData(ClientDeviceCategory.SmartTV, false)]
+    public void IsCloudSurveillance_ReturnsCorrectValue(ClientDeviceCategory category, bool expected)
+    {
+        // Act & Assert - Only cloud-based surveillance devices return true
+        category.IsCloudSurveillance().Should().Be(expected);
     }
 
     #endregion

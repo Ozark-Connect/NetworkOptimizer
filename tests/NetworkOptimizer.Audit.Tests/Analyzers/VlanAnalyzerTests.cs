@@ -1182,6 +1182,387 @@ public class VlanAnalyzerTests
 
     #endregion
 
+    #region AnalyzeInternetAccess Firewall Rule Tests
+
+    private const string LanZoneId = "lan-zone-001";
+    private const string WanZoneId = "wan-zone-002";
+
+    [Fact]
+    public void AnalyzeInternetAccess_SecurityNetwork_InternetBlockedViaFirewallRule_ReturnsNoIssues()
+    {
+        // Arrange - Security network has internet_access_enabled=true but firewall blocks it
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            // WAN network to detect WAN zone ID
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues because firewall effectively blocks internet
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_ManagementNetwork_InternetBlockedViaFirewallRule_ReturnsNoIssues()
+    {
+        // Arrange - Management network has internet_access_enabled=true but firewall blocks it
+        var networkId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            // WAN network to detect WAN zone ID
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues because firewall effectively blocks internet
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_SecurityNetwork_DisabledFirewallRule_ReturnsIssue()
+    {
+        // Arrange - Firewall rule exists but is disabled
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId, enabled: false)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Issue returned because disabled rule doesn't block
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_SecurityNetwork_AllowRuleNotBlock_ReturnsIssue()
+    {
+        // Arrange - Firewall rule is ALLOW, not BLOCK
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId, action: "ALLOW")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Issue returned because ALLOW rule doesn't block internet
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_SecurityNetwork_PartialProtocolBlock_ReturnsIssue()
+    {
+        // Arrange - Firewall blocks only TCP, not all protocols
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId, protocol: "tcp")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Issue returned because only TCP is blocked, not all traffic
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_FirewallRuleBlocksMultipleNetworks_BothTreatedAsBlocked()
+    {
+        // Arrange - Single firewall rule blocks internet for multiple networks
+        var securityNetworkId = "security-network-001";
+        var mgmtNetworkId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: securityNetworkId),
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: mgmtNetworkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // Single rule blocks both networks
+        var firewallRules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Multiple Networks Internet",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { securityNetworkId, mgmtNetworkId },
+                SourceZoneId = LanZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues because both networks have internet blocked via firewall
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_FirewallRuleBlocksOneOfTwoNetworks_OneIssueReturned()
+    {
+        // Arrange - Firewall rule only blocks one of two security networks
+        var blockedNetworkId = "security-network-001";
+        var unblockedNetworkId = "security-network-002";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras 1", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: blockedNetworkId),
+            CreateNetwork("Security Cameras 2", NetworkPurpose.Security, vlanId: 43,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: unblockedNetworkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // Rule only blocks the first network
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(blockedNetworkId, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Only one issue for the unblocked network
+        issues.Should().HaveCount(1);
+        issues[0].CurrentNetwork.Should().Be("Security Cameras 2");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NoExternalZoneId_FallsBackToConfigSetting()
+    {
+        // Arrange - No external zone ID provided (simulates when zone can't be determined from API)
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId)
+        };
+
+        // Act - Pass null for externalZoneId to simulate when it can't be determined
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, externalZoneId: null);
+
+        // Assert - Issue returned because without external zone ID, firewall rules can't be validated
+        // so it falls back to the config setting (internet_access_enabled=true)
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_NoFirewallRulesProvided_UsesConfigSettingOnly()
+    {
+        // Arrange - internet_access_enabled=false without firewall rules
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: false,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN")
+        };
+
+        // Act - No firewall rules passed
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", null);
+
+        // Assert - No issues because internet_access_enabled=false
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_BothMethodsBlockInternet_ReturnsNoIssues()
+    {
+        // Arrange - Both internet_access_enabled=false AND firewall rule exists
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: false,  // Config says disabled
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // Firewall also blocks
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues, internet blocked via both methods
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_RuleTargetsWrongZone_ReturnsIssue()
+    {
+        // Arrange - Firewall rule targets internal zone, not WAN zone
+        var networkId = "security-network-001";
+        var otherLanZoneId = "other-lan-zone";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // Rule targets a different LAN zone, not WAN
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, otherLanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Issue returned because rule doesn't target WAN zone
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_DropAndRejectActionsAlsoCount_ReturnsNoIssues()
+    {
+        // Arrange - Test that DROP and REJECT actions are also recognized as blocking
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // Test with DROP action
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRule(networkId, LanZoneId, WanZoneId, action: "DROP")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues because DROP also blocks internet
+        issues.Should().BeEmpty();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -1190,11 +1571,14 @@ public class VlanAnalyzerTests
         int vlanId = 10,
         bool networkIsolationEnabled = false,
         bool internetAccessEnabled = true,
-        bool dhcpEnabled = true)
+        bool dhcpEnabled = true,
+        string? firewallZoneId = null,
+        string? networkGroup = null,
+        string? id = null)
     {
         return new NetworkInfo
         {
-            Id = Guid.NewGuid().ToString(),
+            Id = id ?? Guid.NewGuid().ToString(),
             Name = name,
             VlanId = vlanId,
             Purpose = purpose,
@@ -1202,7 +1586,32 @@ public class VlanAnalyzerTests
             Gateway = $"192.168.{vlanId}.1",
             DhcpEnabled = dhcpEnabled,
             NetworkIsolationEnabled = networkIsolationEnabled,
-            InternetAccessEnabled = internetAccessEnabled
+            InternetAccessEnabled = internetAccessEnabled,
+            FirewallZoneId = firewallZoneId,
+            NetworkGroup = networkGroup
+        };
+    }
+
+    private static FirewallRule CreateInternetBlockRule(
+        string networkId,
+        string sourceZoneId,
+        string destinationZoneId,
+        bool enabled = true,
+        string action = "BLOCK",
+        string protocol = "all")
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block Internet Access",
+            Enabled = enabled,
+            Action = action,
+            Protocol = protocol,
+            SourceMatchingTarget = "NETWORK",
+            SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = sourceZoneId,
+            DestinationMatchingTarget = "ANY",
+            DestinationZoneId = destinationZoneId
         };
     }
 

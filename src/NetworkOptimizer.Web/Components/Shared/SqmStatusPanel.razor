@@ -143,30 +143,30 @@
 
         try
         {
-            // Get gateway host from settings (fast - just DB lookup)
+            // Check if we have saved WAN configs with SQM enabled FIRST (fast DB lookup)
+            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
+            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
+            await Task.WhenAll(wan1Task, wan2Task);
+            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
+
+            // If no SQM config exists, show as not deployed - no need to check gateway SSH
+            if (!hasSavedEnabledConfig)
+            {
+                SetNotDeployedStatus();
+                _shouldPoll = false;
+                isLoading = false;
+                return;
+            }
+
+            // SQM is configured - now we need gateway host to poll TC Monitor
             var gatewaySettings = await GatewayService.GetSettingsAsync();
 
             if (string.IsNullOrEmpty(gatewaySettings?.Host) || !gatewaySettings.HasCredentials)
             {
                 statusLabel = "Not Configured";
                 statusClass = "not-configured";
-                errorMessage = "Gateway SSH not configured. Configure your gateway connection first.";
+                errorMessage = "Gateway SSH not configured. Configure your gateway connection to monitor SQM status.";
                 needsGatewayConfig = true;
-                _shouldPoll = false;
-                isLoading = false;
-                return;
-            }
-
-            // Check if we have saved WAN configs with SQM enabled BEFORE polling TC monitor
-            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
-            await Task.WhenAll(wan1Task, wan2Task);
-            hasSavedEnabledConfig = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
-
-            // Skip TC monitor poll if no SQM config exists - avoids connection failures
-            if (!hasSavedEnabledConfig)
-            {
-                SetNotDeployedStatus();
                 _shouldPoll = false;
                 isLoading = false;
                 return;

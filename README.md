@@ -148,11 +148,9 @@ src/
 
 ## Status
 
-Core features are working. Actively looking for testers.
+All core functionality is working and tested on many combinations of UniFi Gateways, CloudKeys, and network fabric devices. Features shown in the app are all fully functional and ready to use, with enhancements and fixes being rolled out regularly.
 
-What works: UniFi controller authentication (UniFi OS and standalone), security auditing with 39 checks and PDF reports, adaptive SQM with dual-WAN support, LAN speed testing with path analysis, cellular modem monitoring.
-
-In progress: Time-series metrics, cable modem monitoring, multi-site support.
+In progress: Time-series metrics, cable modem monitoring, WiFi analysis, multi-site support.
 
 ## Contributing
 

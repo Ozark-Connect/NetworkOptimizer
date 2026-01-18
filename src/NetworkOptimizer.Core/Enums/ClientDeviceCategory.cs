@@ -29,6 +29,12 @@ public enum ClientDeviceCategory
     /// </summary>
     CloudCamera = 3,
 
+    /// <summary>
+    /// Cloud-based security systems requiring internet (SimpliSafe, Ring Alarm, ADT)
+    /// These are security hubs/basestations that depend on cloud services
+    /// </summary>
+    CloudSecuritySystem = 4,
+
     // IoT/Smart Home (10-29)
     /// <summary>
     /// Smart bulbs, light strips (Hue, IKEA, LIFX)
@@ -197,6 +203,7 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.StreamingDevice => true,
         ClientDeviceCategory.MediaPlayer => true,
         ClientDeviceCategory.CloudCamera => true, // Cloud cameras need internet, belong on IoT VLAN
+        ClientDeviceCategory.CloudSecuritySystem => true, // Cloud security systems need internet
         _ => false
     };
 
@@ -208,6 +215,7 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.Camera => true,
         ClientDeviceCategory.CloudCamera => true,
         ClientDeviceCategory.SecuritySystem => true,
+        ClientDeviceCategory.CloudSecuritySystem => true,
         _ => false
     };
 
@@ -216,6 +224,14 @@ public static class ClientDeviceCategoryExtensions
     /// </summary>
     public static bool IsCloudCamera(this ClientDeviceCategory category) =>
         category == ClientDeviceCategory.CloudCamera;
+
+    /// <summary>
+    /// Check if the category is a cloud-based surveillance device (camera or security system).
+    /// These devices require internet access and should be on IoT VLAN, not Security VLAN.
+    /// </summary>
+    public static bool IsCloudSurveillance(this ClientDeviceCategory category) =>
+        category == ClientDeviceCategory.CloudCamera ||
+        category == ClientDeviceCategory.CloudSecuritySystem;
 
     /// <summary>
     /// Check if the category is a low-risk IoT device.
@@ -249,6 +265,7 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.Camera => true,
         ClientDeviceCategory.CloudCamera => true,
         ClientDeviceCategory.SecuritySystem => true,
+        ClientDeviceCategory.CloudSecuritySystem => true,
         ClientDeviceCategory.SmartHub => true,
         ClientDeviceCategory.SmartSensor => true,
         _ => false
@@ -286,6 +303,7 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.MediaPlayer => "Media Player",
         ClientDeviceCategory.GameConsole => "Game Console",
         ClientDeviceCategory.SecuritySystem => "Security System",
+        ClientDeviceCategory.CloudSecuritySystem => "Cloud Security System",
         ClientDeviceCategory.AccessPoint => "Access Point",
         ClientDeviceCategory.CloudCamera => "Cloud Camera",
         _ => category.ToString()
