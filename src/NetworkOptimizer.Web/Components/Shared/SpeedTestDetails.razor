@@ -50,28 +50,18 @@
     @if (OnDelete.HasDelegate && Result != null)
     {
         <span class="delete-action">
-            @if (_confirmingDelete)
-            {
-                <span class="delete-confirm">
-                    <span>Delete this result?</span>
-                    <button class="btn btn-sm btn-danger" @onclick="ConfirmDelete" disabled="@_deleting">
-                        @if (_deleting)
-                        {
-                            <span class="spinner-sm"></span>
-                        }
-                        Yes
-                    </button>
-                    <button class="btn btn-sm btn-secondary" @onclick="CancelDelete" disabled="@_deleting">No</button>
-                </span>
-            }
-            else
-            {
-                <button class="btn-link-danger" @onclick="StartDelete" data-tooltip="Delete this result">
+            <button class="btn-link-danger" @onclick="HandleDelete" disabled="@_deleting" data-tooltip="Delete this result">
+                @if (_deleting)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
                     </svg>
-                </button>
-            }
+                }
+            </button>
         </span>
     }
 </div>
@@ -241,8 +231,7 @@
     // Track previous Result ID to detect when Result changes
     private int? _previousResultId;
 
-    // Delete confirmation state
-    private bool _confirmingDelete;
+    // Delete state
     private bool _deleting;
 
     protected override void OnParametersSet()
@@ -620,17 +609,7 @@
         builder.AddContent(0, GetHopIcon(hop.Type));
     };
 
-    private void StartDelete()
-    {
-        _confirmingDelete = true;
-    }
-
-    private void CancelDelete()
-    {
-        _confirmingDelete = false;
-    }
-
-    private async Task ConfirmDelete()
+    private async Task HandleDelete()
     {
         if (Result == null) return;
 
@@ -642,7 +621,6 @@
         finally
         {
             _deleting = false;
-            _confirmingDelete = false;
         }
     }
 }

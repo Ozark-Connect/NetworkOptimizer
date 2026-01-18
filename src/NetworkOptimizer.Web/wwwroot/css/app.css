@@ -2993,12 +2993,6 @@ select.form-control {
     margin-left: auto;
 }
 
-.test-details .delete-confirm {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
 .test-details .btn-link-danger {
     background: none;
     border: none;
@@ -3016,24 +3010,18 @@ select.form-control {
     color: var(--danger-color);
 }
 
-.test-details .btn-danger {
-    background: var(--danger-color);
-    color: white;
-}
-
-.test-details .btn-danger:hover {
-    background: #c53030;
+.test-details .btn-link-danger:disabled {
+    cursor: wait;
+    opacity: 0.4;
 }
 
 .test-details .spinner-sm {
-    width: 12px;
-    height: 12px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top-color: white;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--text-muted);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
-    display: inline-block;
-    margin-right: 0.25rem;
 }
 
 /* Path Analysis - Redesigned */
