@@ -976,11 +976,18 @@ public class DeviceTypeDetectionService
     /// </summary>
     private DeviceDetectionResult ApplyCameraNameSupplement(DeviceDetectionResult result, UniFiClientResponse? client)
     {
-        // Only supplement Unknown or low-confidence generic categories
-        // Don't override specific classifications like SmartPlug, SmartThermostat, etc.
-        var shouldSupplement = result.Category == ClientDeviceCategory.Unknown ||
-                               result.Category == ClientDeviceCategory.IoTGeneric;
-        if (!shouldSupplement)
+        // Override obviously wrong fingerprints when name clearly indicates a camera
+        // - Unknown/IoTGeneric: always supplement
+        // - Desktop/Laptop/Phone/Tablet: fingerprint is clearly wrong if named "camera"
+        // - Don't override actual surveillance categories (Camera, CloudCamera, etc.)
+        var isGenericOrUnknown = result.Category == ClientDeviceCategory.Unknown ||
+                                 result.Category == ClientDeviceCategory.IoTGeneric;
+        var isMisfingerprinted = result.Category == ClientDeviceCategory.Desktop ||
+                                 result.Category == ClientDeviceCategory.Laptop ||
+                                 result.Category == ClientDeviceCategory.Smartphone ||
+                                 result.Category == ClientDeviceCategory.Tablet;
+
+        if (!isGenericOrUnknown && !isMisfingerprinted)
             return result;
 
         var checkName = client?.Name ?? client?.Hostname;
@@ -996,23 +1003,29 @@ public class DeviceTypeDetectionService
         // Resolve vendor from OUI
         var resolvedVendor = client?.Oui;
 
+        // Build reason for supplement/override
+        var reason = isMisfingerprinted
+            ? $"Name clearly indicates camera, overriding misfingerprinted {result.Category}"
+            : "Name contains camera keyword but no fingerprint/OUI match";
+
         // Create a Camera result (will be upgraded to CloudCamera if cloud vendor)
         var cameraResult = new DeviceDetectionResult
         {
             Category = ClientDeviceCategory.Camera,
             Source = DetectionSource.DeviceName,
-            ConfidenceScore = 60, // Lower confidence - only name-based, no fingerprint/OUI match
+            ConfidenceScore = 60, // Lower confidence - only name-based
             VendorName = resolvedVendor,
             RecommendedNetwork = NetworkPurpose.Security,
             Metadata = new Dictionary<string, object>
             {
-                ["supplement_reason"] = "Name contains camera keyword but no fingerprint/OUI match",
-                ["matched_name"] = checkName
+                ["supplement_reason"] = reason,
+                ["matched_name"] = checkName,
+                ["original_category"] = result.Category.ToString()
             }
         };
 
-        _logger?.LogDebug("[Detection] Supplementing Unknown → Camera for name '{Name}' (vendor: {Vendor})",
-            checkName, resolvedVendor ?? "unknown");
+        _logger?.LogDebug("[Detection] Supplementing {Original} → Camera for name '{Name}' (vendor: {Vendor})",
+            result.Category, checkName, resolvedVendor ?? "unknown");
 
         // Run through cloud vendor upgrade
         return ApplyCloudSecurityOverride(cameraResult, client);

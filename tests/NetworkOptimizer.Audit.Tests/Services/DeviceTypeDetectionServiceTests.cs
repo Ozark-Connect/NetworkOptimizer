@@ -1785,6 +1785,75 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region Misfingerprinted Camera Override Tests
+
+    [Theory]
+    [InlineData("A Camera", 1)]       // Desktop fingerprint
+    [InlineData("Front Camera", 1)]   // Desktop fingerprint (same as above, testing different name)
+    [InlineData("Garage Cam", 6)]     // Smartphone fingerprint
+    [InlineData("Back Yard Camera", 30)]  // Tablet fingerprint
+    public void DetectDeviceType_CameraNameWithWrongFingerprint_OverridesToCamera(string deviceName, int devCat)
+    {
+        // Arrange - Device has a clear camera name but wrong UniFi fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat,  // Wrong fingerprint (Desktop/Laptop/Phone/Tablet)
+            Oui = "Generic Manufacturer"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Name should override the wrong fingerprint
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Source.Should().Be(DetectionSource.DeviceName);
+    }
+
+    [Theory]
+    [InlineData("Ring Doorbell", 1)]   // Desktop fingerprint but Ring vendor in name
+    [InlineData("Wyze Cam v3", 1)]     // Desktop fingerprint but Wyze vendor in name
+    [InlineData("Nest Camera", 6)]     // Smartphone fingerprint but Nest vendor in name
+    public void DetectDeviceType_CloudCameraNameWithWrongFingerprint_OverridesToCloudCamera(string deviceName, int devCat)
+    {
+        // Arrange - Device has cloud vendor + camera in name but wrong fingerprint
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat,  // Wrong fingerprint
+            Oui = "Generic Manufacturer"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Name should override to CloudCamera (cloud vendor in name)
+        result.Category.Should().Be(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_CameraNameWithCameraFingerprint_KeepsCamera()
+    {
+        // Arrange - Device has camera name AND camera fingerprint - don't double-process
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Porch Camera",
+            DevCat = 9,  // Camera fingerprint
+            Oui = "Hikvision"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should stay Camera (fingerprint is correct)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
     #region CloudSecuritySystem Category Extension Tests
 
     [Fact]
