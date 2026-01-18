@@ -102,6 +102,9 @@ public class Iperf3ServerService : BackgroundService
     /// <returns>True if the process ran for more than 2 seconds (successful), false if it exited immediately.</returns>
     private async Task<bool> RunIperf3ServerAsync(CancellationToken stoppingToken)
     {
+        // Check cancellation before starting a new process
+        stoppingToken.ThrowIfCancellationRequested();
+
         var iperf3Path = GetIperf3Path();
         _logger.LogDebug("Using iperf3 at: {Path}", iperf3Path);
 
@@ -394,28 +397,37 @@ public class Iperf3ServerService : BackgroundService
 
         // Use pkill as a fallback to ensure cleanup on Unix systems
         // This handles cases where the process reference was lost or race conditions
+        // Run twice with a delay to catch processes spawned during the shutdown race
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
-            try
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                using var pkill = Process.Start(new ProcessStartInfo
+                if (attempt > 0)
                 {
-                    FileName = "pkill",
-                    Arguments = "iperf3",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                });
-                pkill?.WaitForExit(2000);
-                if (pkill?.ExitCode == 0)
-                {
-                    _logger.LogInformation("Killed iperf3 processes via pkill");
+                    await Task.Delay(500, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "pkill iperf3 failed");
+
+                try
+                {
+                    using var pkill = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "pkill",
+                        Arguments = "iperf3",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    });
+                    pkill?.WaitForExit(2000);
+                    if (pkill?.ExitCode == 0)
+                    {
+                        _logger.LogInformation("Killed iperf3 processes via pkill");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "pkill iperf3 failed");
+                }
             }
         }
 
