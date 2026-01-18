@@ -22,9 +22,6 @@ The script will:
 After installation, edit `~/network-optimizer/start.sh` to configure environment variables:
 
 ```bash
-# Host IP - required for speed test result tracking and path analysis
-export HOST_IP="192.168.1.100"  # Your Mac's IP address (auto-detected during install)
-
 # Timezone
 export TZ="America/Chicago"
 
@@ -37,6 +34,8 @@ Additional environment variables can be added to `start.sh` - see [docker/.env.e
 - `REVERSE_PROXIED_HOST_NAME` - Hostname when behind a reverse proxy (enables HTTPS)
 - `OPENSPEEDTEST_HTTPS` - Enable HTTPS for speed tests (required for geolocation)
 - `LOG_LEVEL` / `APP_LOG_LEVEL` - Logging verbosity
+
+Note: The app auto-detects its IP address, so `HOST_IP` is not required for native installations.
 
 After editing, restart the service:
 
