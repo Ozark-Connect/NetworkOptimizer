@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
@@ -19,24 +20,45 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     private readonly IServiceProvider _serviceProvider;
     private readonly IGatewaySshService _gatewaySsh;
     private readonly SystemSettingsService _systemSettings;
-    private readonly INetworkPathAnalyzer _pathAnalyzer;
+    private readonly UniFiConnectionService _connectionService;
+    private readonly IMemoryCache _cache;
+    private readonly ILoggerFactory _loggerFactory;
 
     // Track running tests per site
     private readonly ConcurrentDictionary<int, bool> _isTestRunning = new();
     private readonly ConcurrentDictionary<int, GatewaySpeedTestResult> _lastResult = new();
+
+    // Site-specific path analyzers
+    private readonly ConcurrentDictionary<int, INetworkPathAnalyzer> _pathAnalyzers = new();
 
     public GatewaySpeedTestService(
         ILogger<GatewaySpeedTestService> logger,
         IServiceProvider serviceProvider,
         IGatewaySshService gatewaySsh,
         SystemSettingsService systemSettings,
-        INetworkPathAnalyzer pathAnalyzer)
+        UniFiConnectionService connectionService,
+        IMemoryCache cache,
+        ILoggerFactory loggerFactory)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _gatewaySsh = gatewaySsh;
         _systemSettings = systemSettings;
-        _pathAnalyzer = pathAnalyzer;
+        _connectionService = connectionService;
+        _cache = cache;
+        _loggerFactory = loggerFactory;
+    }
+
+    /// <summary>
+    /// Gets or creates a site-specific path analyzer.
+    /// </summary>
+    private INetworkPathAnalyzer GetPathAnalyzer(int siteId)
+    {
+        return _pathAnalyzers.GetOrAdd(siteId, id =>
+        {
+            var clientProvider = new SiteSpecificClientProvider(_connectionService, id);
+            return new NetworkPathAnalyzer(clientProvider, _cache, _loggerFactory);
+        });
     }
 
     #region Settings Management (delegated to IGatewaySshService)
@@ -307,6 +329,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
 
             // Analyze network path before saving (use LocalIp parsed from iperf3 output)
             var pathAnalysis = await AnalyzePathAsync(
+                siteId,
                 settings.Host,
                 result.DownloadMbps,
                 result.UploadMbps,
@@ -442,6 +465,7 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     /// Analyze the network path to the gateway and calculate efficiency grades
     /// </summary>
     private async Task<PathAnalysisResult?> AnalyzePathAsync(
+        int siteId,
         string targetHost,
         double downloadMbps,
         double uploadMbps,
@@ -453,10 +477,11 @@ public class GatewaySpeedTestService : IGatewaySpeedTestService
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to gateway {Host}", targetHost);
+            _logger.LogDebug("Analyzing network path for site {SiteId} to gateway {Host}", siteId, targetHost);
 
-            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, localIp);
-            var analysis = _pathAnalyzer.AnalyzeSpeedTest(
+            var pathAnalyzer = GetPathAnalyzer(siteId);
+            var path = await pathAnalyzer.CalculatePathAsync(targetHost, localIp);
+            var analysis = pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 downloadMbps,
                 uploadMbps,

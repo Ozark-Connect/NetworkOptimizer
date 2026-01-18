@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -17,8 +18,9 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly IServiceProvider _serviceProvider;
     private readonly UniFiSshService _sshService;
     private readonly SystemSettingsService _settingsService;
-    private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly UniFiConnectionService _connectionService;
+    private readonly IMemoryCache _cache;
+    private readonly ILoggerFactory _loggerFactory;
 
     // Track running tests per site to prevent duplicates
     private readonly ConcurrentDictionary<int, HashSet<string>> _runningTests = new();
@@ -33,20 +35,37 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     // Cache iperf3 path per host (for Windows with paths containing spaces, keyed by siteId:host)
     private readonly ConcurrentDictionary<string, string> _iperf3PathCache = new();
 
+    // Site-specific path analyzers
+    private readonly ConcurrentDictionary<int, INetworkPathAnalyzer> _pathAnalyzers = new();
+
     public Iperf3SpeedTestService(
         ILogger<Iperf3SpeedTestService> logger,
         IServiceProvider serviceProvider,
         UniFiSshService sshService,
         SystemSettingsService settingsService,
-        INetworkPathAnalyzer pathAnalyzer,
-        UniFiConnectionService connectionService)
+        UniFiConnectionService connectionService,
+        IMemoryCache cache,
+        ILoggerFactory loggerFactory)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
         _sshService = sshService;
         _settingsService = settingsService;
-        _pathAnalyzer = pathAnalyzer;
         _connectionService = connectionService;
+        _cache = cache;
+        _loggerFactory = loggerFactory;
+    }
+
+    /// <summary>
+    /// Gets or creates a site-specific path analyzer.
+    /// </summary>
+    private INetworkPathAnalyzer GetPathAnalyzer(int siteId)
+    {
+        return _pathAnalyzers.GetOrAdd(siteId, id =>
+        {
+            var clientProvider = new SiteSpecificClientProvider(_connectionService, id);
+            return new NetworkPathAnalyzer(clientProvider, _cache, _loggerFactory);
+        });
     }
 
     /// <summary>
@@ -354,7 +373,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             }
 
             // Refresh topology to get current link speeds before test
-            _pathAnalyzer.InvalidateTopologyCache();
+            GetPathAnalyzer(siteId).InvalidateTopologyCache();
 
             // Detect OS if we need to manage the server
             if (manageServer)
@@ -684,10 +703,12 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}", targetHost, result.LocalIp ?? "auto");
+            _logger.LogDebug("Analyzing network path for site {SiteId} to {Host} from {SourceIp}",
+                siteId, targetHost, result.LocalIp ?? "auto");
 
-            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp);
-            var analysis = _pathAnalyzer.AnalyzeSpeedTest(
+            var pathAnalyzer = GetPathAnalyzer(siteId);
+            var path = await pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp);
+            var analysis = pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,
                 result.UploadMbps,
