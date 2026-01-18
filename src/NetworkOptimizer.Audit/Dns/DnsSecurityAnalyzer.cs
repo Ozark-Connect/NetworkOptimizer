@@ -1598,8 +1598,10 @@ public class DnsSecurityAnalyzer
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Get DHCP networks that are NOT using the third-party DNS
+        // Exempt Corporate networks - they may legitimately use internal corporate DNS servers
         var networksWithoutThirdPartyDns = dhcpNetworks
             .Where(n => !networksWithThirdPartyDns.Contains(n.Name))
+            .Where(n => n.Purpose != NetworkPurpose.Corporate)
             .ToList();
 
         if (networksWithoutThirdPartyDns.Any())

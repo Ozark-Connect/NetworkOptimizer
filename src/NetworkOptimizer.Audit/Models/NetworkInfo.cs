@@ -6,6 +6,11 @@ namespace NetworkOptimizer.Audit.Models;
 public enum NetworkPurpose
 {
     /// <summary>
+    /// Unknown or unclassified network (default)
+    /// </summary>
+    Unknown,
+
+    /// <summary>
     /// Corporate/business network for general use
     /// </summary>
     Corporate,
@@ -38,12 +43,7 @@ public enum NetworkPurpose
     /// <summary>
     /// Printer/scanner network
     /// </summary>
-    Printer,
-
-    /// <summary>
-    /// Unknown or unclassified network
-    /// </summary>
-    Unknown
+    Printer
 }
 
 /// <summary>

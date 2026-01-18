@@ -2923,6 +2923,98 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
     }
 
+    [Fact]
+    public async Task Analyze_CorporateNetworkWithoutThirdPartyDns_NotFlagged()
+    {
+        // Arrange - Third-party DNS on IoT network, Corporate network uses different DNS
+        // Corporate networks are exempt from DNS consistency checks as they may use internal DNS
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "IoT",
+                VlanId = 10,
+                Purpose = NetworkPurpose.IoT,
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.10.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Corporate",
+                VlanId = 20,
+                Purpose = NetworkPurpose.Corporate,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.20.1" } // Uses gateway DNS (internal corporate DNS)
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Corporate network should be exempt from DNS consistency check
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+    }
+
+    [Fact]
+    public async Task Analyze_NonCorporateNetworkWithoutThirdPartyDns_IsFlagged()
+    {
+        // Arrange - Third-party DNS on one network, Home network uses different DNS
+        // Non-corporate networks should still be flagged for inconsistent DNS
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "IoT",
+                VlanId = 10,
+                Purpose = NetworkPurpose.IoT,
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.10.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Home",
+                VlanId = 20,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                DnsServers = new List<string> { "192.168.20.1" } // Not using Pi-hole
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallData: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Home network should be flagged for not using Pi-hole
+        result.HasThirdPartyDns.Should().BeTrue();
+        var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        inconsistentIssue.Should().NotBeNull();
+        inconsistentIssue!.Message.Should().Contain("Home");
+    }
+
     #endregion
 
     #region Unknown vs Known Provider Rating Tests
