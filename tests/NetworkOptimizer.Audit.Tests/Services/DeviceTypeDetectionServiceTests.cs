@@ -365,6 +365,156 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region Pixel Phone Tests
+
+    [Theory]
+    [InlineData("Pixel 6")]
+    [InlineData("Pixel 7 Pro")]
+    [InlineData("Pixel 8a")]
+    [InlineData("John's Pixel 9")]
+    [InlineData("[Phone] Pixel8")]
+    public void DetectDeviceType_PixelPhone_ReturnsSmartphone(string deviceName)
+    {
+        // Arrange - Pixel phones should be categorized as smartphone
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 4 // Some other fingerprint (should be overridden)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be("Google");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("Pixel Tablet", ClientDeviceCategory.SmartTV)] // DevCat 47 = Smart TV
+    [InlineData("Pixelbook", ClientDeviceCategory.Laptop)] // DevCat 1 = Laptop
+    [InlineData("Pixel Slate", ClientDeviceCategory.Tablet)] // DevCat 2 = Tablet
+    public void DetectDeviceType_PixelNonPhone_DoesNotOverrideToSmartphone(string deviceName, ClientDeviceCategory expectedFromFingerprint)
+    {
+        // Arrange - Pixel Tablet, Pixelbook, Pixel Slate should NOT be overridden to smartphone
+        var devCatForCategory = expectedFromFingerprint switch
+        {
+            ClientDeviceCategory.SmartTV => 47,
+            ClientDeviceCategory.Laptop => 1,
+            ClientDeviceCategory.Tablet => 2,
+            _ => 0
+        };
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCatForCategory
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should NOT be overridden to Smartphone
+        result.Category.Should().NotBe(ClientDeviceCategory.Smartphone);
+    }
+
+    #endregion
+
+    #region Watch Misfingerprint Correction Tests
+
+    [Theory]
+    [InlineData("Samsung Watch", 25)]  // Desktop (Thin Client)
+    [InlineData("Galaxy Watch 5", 9)]  // Camera
+    [InlineData("My Watch", 47)]       // SmartTV
+    [InlineData("Fitbit Watch", 4)]    // IoTGeneric (Miscellaneous)
+    public void DetectDeviceType_WatchMisfingerprinted_CorrectToSmartphone(string deviceName, int devCat)
+    {
+        // Arrange - device named "Watch" but misfingerprinted as something else
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = devCat
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be corrected to Smartphone
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Fact]
+    public void DetectDeviceType_WatchWithNoFingerprint_CorrectToSmartphone()
+    {
+        // Arrange - device named "Watch" with no fingerprint (Unknown)
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Garmin Watch",
+            DevCat = null
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be corrected to Smartphone
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+    }
+
+    [Theory]
+    [InlineData("Watcher")] // Not a watch
+    [InlineData("Night Watcher Camera")] // Not a watch
+    [InlineData("Bird Watching Camera")] // Not a watch
+    [InlineData("Watchdog")] // Not a watch
+    public void DetectDeviceType_WatchSubstring_DoesNotCorrectToSmartphone(string deviceName)
+    {
+        // Arrange - names containing "watch" as substring should NOT be corrected
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            DevCat = 9 // Camera fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should remain as Camera, not corrected to Smartphone
+        result.Category.Should().NotBe(ClientDeviceCategory.Smartphone);
+    }
+
+    [Theory]
+    [InlineData("John's Watch", "Samsung", "Samsung")]
+    [InlineData("Apple Watch SE", "", "Apple")]
+    [InlineData("Galaxy Watch 6", "", "Samsung")]
+    [InlineData("Fitbit Watch", "", "Fitbit")]
+    [InlineData("Garmin Watch", "", "Garmin")]
+    public void DetectDeviceType_WatchCorrection_PreservesVendor(string deviceName, string oui, string expectedVendor)
+    {
+        // Arrange - watch with known vendor
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 25 // Desktop fingerprint (Thin Client) - should be overridden
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert
+        result.Category.Should().Be(ClientDeviceCategory.Smartphone);
+        result.VendorName.Should().Be(expectedVendor);
+    }
+
+    #endregion
+
     #region VR Headset Detection Tests
 
     [Theory]

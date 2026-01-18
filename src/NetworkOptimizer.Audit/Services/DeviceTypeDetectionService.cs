@@ -264,6 +264,15 @@ public class DeviceTypeDetectionService
                 return supplement;
             }
 
+            // Try watch name supplement for devices with watch-like names
+            supplement = ApplyWatchNameSupplement(DeviceDetectionResult.Unknown, client);
+            if (supplement.Category != ClientDeviceCategory.Unknown)
+            {
+                _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): Supplemented → {Category}",
+                    displayName, mac, supplement.Category);
+                return supplement;
+            }
+
             _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): No detection → Unknown",
                 displayName, mac);
             return DeviceDetectionResult.Unknown;
@@ -280,6 +289,9 @@ public class DeviceTypeDetectionService
 
         // Post-processing: Supplement classification for camera-like names that weren't classified
         best = ApplyCameraNameSupplement(best, client);
+
+        // Post-processing: Correct misfingerprinted watches (often show as Desktop/Camera)
+        best = ApplyWatchNameSupplement(best, client);
 
         // If multiple sources agree, boost confidence
         if (results.Count > 1)
@@ -527,6 +539,29 @@ public class DeviceTypeDetectionService
                 Metadata = new Dictionary<string, object>
                 {
                     ["override_reason"] = "iPhone is a smartphone",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Pixel phone - Google smartphone (exclude Pixel Tablet, Pixelbook, Pixel Slate)
+        // Pixel phones are named "Pixel [number]" like "Pixel 6", "Pixel 7 Pro", "Pixel 8a"
+        if (nameLower.Contains("pixel") &&
+            !nameLower.Contains("tablet") &&
+            !nameLower.Contains("book") &&
+            !nameLower.Contains("slate") &&
+            System.Text.RegularExpressions.Regex.IsMatch(nameLower, @"pixel\s*\d"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Smartphone,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Google",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Pixel phone is a Google smartphone",
                     ["matched_name"] = checkName
                 }
             };
@@ -1029,6 +1064,67 @@ public class DeviceTypeDetectionService
 
         // Run through cloud vendor upgrade
         return ApplyCloudSecurityOverride(cameraResult, client);
+    }
+
+    /// <summary>
+    /// Post-process supplement: If a device is misfingerprinted but has "watch" in the name,
+    /// reclassify as Smartphone. Smartwatches are network-wise equivalent to phones.
+    /// Uses word boundary matching to avoid false positives (e.g., "Watcher", "watching").
+    /// </summary>
+    private DeviceDetectionResult ApplyWatchNameSupplement(DeviceDetectionResult result, UniFiClientResponse? client)
+    {
+        // Only correct obviously wrong fingerprints when name contains "watch"
+        // - Don't override Smartphone (already correct for smartwatches)
+        // - Don't override wearables that are already correctly classified
+        var isMisfingerprinted = result.Category == ClientDeviceCategory.Desktop ||
+                                 result.Category == ClientDeviceCategory.Laptop ||
+                                 result.Category == ClientDeviceCategory.Camera ||
+                                 result.Category == ClientDeviceCategory.CloudCamera ||
+                                 result.Category == ClientDeviceCategory.SmartTV ||
+                                 result.Category == ClientDeviceCategory.IoTGeneric ||
+                                 result.Category == ClientDeviceCategory.Unknown;
+
+        if (!isMisfingerprinted)
+            return result;
+
+        var checkName = client?.Name ?? client?.Hostname;
+        if (string.IsNullOrEmpty(checkName))
+            return result;
+
+        var nameLower = checkName.ToLowerInvariant();
+
+        // Use word boundary to match "watch" but not "watcher", "watching", etc.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(nameLower, @"\bwatch\b"))
+            return result;
+
+        // Resolve vendor from OUI or name hints
+        var resolvedVendor = client?.Oui;
+        if (string.IsNullOrEmpty(resolvedVendor))
+        {
+            // Try to infer vendor from name
+            if (nameLower.Contains("apple")) resolvedVendor = "Apple";
+            else if (nameLower.Contains("samsung") || nameLower.Contains("galaxy")) resolvedVendor = "Samsung";
+            else if (nameLower.Contains("fitbit")) resolvedVendor = "Fitbit";
+            else if (nameLower.Contains("garmin")) resolvedVendor = "Garmin";
+        }
+
+        _logger?.LogDebug("[Detection] Supplementing {Original} → Smartphone for watch name '{Name}' (vendor: {Vendor})",
+            result.Category, checkName, resolvedVendor ?? "unknown");
+
+        return new DeviceDetectionResult
+        {
+            Category = ClientDeviceCategory.Smartphone,
+            Source = DetectionSource.DeviceName,
+            ConfidenceScore = 60, // Lower confidence - only name-based
+            VendorName = resolvedVendor,
+            RecommendedNetwork = NetworkPurpose.Corporate,
+            Metadata = new Dictionary<string, object>
+            {
+                ["supplement_reason"] = $"Name contains 'watch', overriding misfingerprinted {result.Category}",
+                ["matched_name"] = checkName,
+                ["original_category"] = result.Category.ToString()
+            }
+        };
     }
 
     /// <summary>
