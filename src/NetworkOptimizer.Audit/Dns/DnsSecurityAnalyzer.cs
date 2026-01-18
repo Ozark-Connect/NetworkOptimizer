@@ -1776,58 +1776,82 @@ public class DnsSecurityAnalyzer
                 }
             }
         }
-        else if (result.DohConfigured)
+        else
         {
-            // DoH: DNAT must point to native VLAN gateway OR the rule's specific VLAN gateway
-            // Find native VLAN (VLAN 1) gateway - this is always valid
+            // No site-wide third-party DNS: validate each rule against its network's DHCP DNS servers
+            // If a network has DHCP DNS configured, DNAT should redirect to those servers
+            // If no DHCP DNS but DoH is configured, validate against gateways
+            // If neither, skip validation
+
+            // Build lookup of network ID to DNS servers and gateway
+            var networkDnsMap = networks
+                .ToDictionary(
+                    n => n.Id,
+                    n => new { DnsServers = n.DnsServers ?? new List<string>(), Gateway = n.Gateway ?? string.Empty },
+                    StringComparer.OrdinalIgnoreCase);
+
+            // Find native VLAN gateway for DoH fallback
             var nativeNetwork = networks.FirstOrDefault(n => n.IsNative || n.VlanId == 1);
             var nativeGateway = nativeNetwork?.Gateway;
 
-            // Build lookup of network ID to gateway
-            var networkGatewayMap = networks
-                .Where(n => !string.IsNullOrEmpty(n.Gateway))
-                .ToDictionary(n => n.Id, n => n.Gateway ?? string.Empty, StringComparer.OrdinalIgnoreCase);
-
             // Track all valid destinations for reporting
             var allValidDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (!string.IsNullOrEmpty(nativeGateway))
-                allValidDestinations.Add(nativeGateway);
 
             foreach (var rule in coverageResult.Rules)
             {
                 if (string.IsNullOrEmpty(rule.RedirectIp))
                     continue;
 
-                // Build valid destinations for THIS rule
+                // Build valid destinations for THIS rule based on the network's DHCP DNS settings
                 var ruleValidDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                // Native VLAN gateway is always valid
-                if (!string.IsNullOrEmpty(nativeGateway))
-                    ruleValidDestinations.Add(nativeGateway);
-
-                // If rule has a specific network (from in_interface or network_conf_id), that gateway is also valid
                 var ruleNetworkId = rule.InInterface ?? rule.NetworkId;
-                if (!string.IsNullOrEmpty(ruleNetworkId) && networkGatewayMap.TryGetValue(ruleNetworkId, out var ruleNetworkGateway))
+                if (!string.IsNullOrEmpty(ruleNetworkId) && networkDnsMap.TryGetValue(ruleNetworkId, out var networkConfig))
                 {
-                    ruleValidDestinations.Add(ruleNetworkGateway);
-                    allValidDestinations.Add(ruleNetworkGateway);
+                    // If network has DHCP DNS servers configured, those are the valid destinations
+                    if (networkConfig.DnsServers.Any(s => !string.IsNullOrEmpty(s)))
+                    {
+                        foreach (var dns in networkConfig.DnsServers.Where(s => !string.IsNullOrEmpty(s)))
+                        {
+                            ruleValidDestinations.Add(dns);
+                            allValidDestinations.Add(dns);
+                        }
+                    }
+                    else if (result.DohConfigured)
+                    {
+                        // No DHCP DNS configured but DoH is enabled - validate against gateways
+                        // Native VLAN gateway is always valid
+                        if (!string.IsNullOrEmpty(nativeGateway))
+                        {
+                            ruleValidDestinations.Add(nativeGateway);
+                            allValidDestinations.Add(nativeGateway);
+                        }
+                        // Network's own gateway is also valid
+                        if (!string.IsNullOrEmpty(networkConfig.Gateway))
+                        {
+                            ruleValidDestinations.Add(networkConfig.Gateway);
+                            allValidDestinations.Add(networkConfig.Gateway);
+                        }
+                    }
+                    // else: No DHCP DNS and no DoH - skip validation for this rule
+                }
+
+                if (ruleValidDestinations.Count == 0)
+                {
+                    // Can't determine expected destination - skip validation for this rule
+                    continue;
                 }
 
                 if (!IsValidRedirectTarget(rule.RedirectIp, ruleValidDestinations))
                 {
                     result.DnatRedirectTargetIsValid = false;
-                    var expectedGateways = string.Join(" or ", ruleValidDestinations);
+                    var expectedDns = string.Join(" or ", ruleValidDestinations);
                     result.InvalidDnatRules.Add(
-                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp} (expected {expectedGateways})");
+                        $"Rule '{rule.Description ?? rule.Id}' redirects to {rule.RedirectIp} (expected {expectedDns})");
                 }
             }
 
             result.ExpectedDnatDestinations.AddRange(allValidDestinations);
-        }
-        else
-        {
-            // No DNS control solution - skip validation (other issues will be raised)
-            return;
         }
 
         if (!result.DnatRedirectTargetIsValid)
