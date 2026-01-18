@@ -565,9 +565,13 @@ public class FingerprintDetector
     {
         return category switch
         {
-            // Surveillance -> Security VLAN
+            // Surveillance -> Security VLAN (local/self-hosted)
             ClientDeviceCategory.Camera => NetworkPurpose.Security,
             ClientDeviceCategory.SecuritySystem => NetworkPurpose.Security,
+
+            // Cloud-based surveillance -> IoT VLAN (needs internet)
+            ClientDeviceCategory.CloudCamera => NetworkPurpose.IoT,
+            ClientDeviceCategory.CloudSecuritySystem => NetworkPurpose.IoT,
 
             // IoT -> IoT VLAN (isolated)
             ClientDeviceCategory.SmartLighting => NetworkPurpose.IoT,
