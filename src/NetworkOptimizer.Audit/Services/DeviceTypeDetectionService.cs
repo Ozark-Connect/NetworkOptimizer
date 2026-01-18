@@ -1169,6 +1169,7 @@ public class DeviceTypeDetectionService
                     Mac = historyClient.Mac,
                     Name = historyClient.Name ?? string.Empty,
                     Hostname = historyClient.Hostname ?? string.Empty,
+                    Oui = historyClient.Oui ?? string.Empty,
                     DevIdOverride = historyClient.Fingerprint.DevIdOverride,
                     DevCat = historyClient.Fingerprint.DevCat,
                     DevFamily = historyClient.Fingerprint.DevFamily,
@@ -1178,6 +1179,8 @@ public class DeviceTypeDetectionService
                 var fpResult = _fingerprintDetector.Detect(pseudoClient);
                 if (fpResult.Category != ClientDeviceCategory.Unknown)
                 {
+                    // Apply cloud vendor override (same as in DetectDeviceType)
+                    fpResult = ApplyCloudSecurityOverride(fpResult, pseudoClient);
                     _logger?.LogDebug("[Detection] Client history fingerprint detected: {Category} ({Confidence}%)",
                         fpResult.CategoryName, fpResult.ConfidenceScore);
                     return fpResult;

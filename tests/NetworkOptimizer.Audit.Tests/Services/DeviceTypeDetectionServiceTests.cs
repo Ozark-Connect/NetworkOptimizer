@@ -742,6 +742,87 @@ public class DeviceTypeDetectionServiceTests
         result.Category.Should().Be(ClientDeviceCategory.Camera);
     }
 
+    [Theory]
+    [InlineData("SimpliSafe", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Ring", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Nest", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Wyze", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Arlo", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Blink", ClientDeviceCategory.CloudCamera)]
+    [InlineData("TP-Link", ClientDeviceCategory.CloudCamera)]
+    [InlineData("Canary", ClientDeviceCategory.CloudCamera)]
+    public void DetectFromMac_HistoryCameraFingerprint_WithCloudVendor_ReturnsCloudCamera(string vendor, ClientDeviceCategory expected)
+    {
+        // Arrange - history with camera fingerprint (DevCat 9) and cloud vendor via OUI
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Doorbell",
+                Oui = vendor,
+                Fingerprint = new ClientFingerprintData { DevCat = 9, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should be upgraded to CloudCamera due to cloud vendor
+        result.Category.Should().Be(expected);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Theory]
+    [InlineData("SimpliSafe", ClientDeviceCategory.CloudSecuritySystem)]
+    public void DetectFromMac_HistorySecuritySystemFingerprint_WithCloudVendor_ReturnsCloudSecuritySystem(string vendor, ClientDeviceCategory expected)
+    {
+        // Arrange - history with security system fingerprint (DevCat 80 = Smart Home Security System) and cloud vendor via OUI
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Basestation",
+                Oui = vendor,
+                Fingerprint = new ClientFingerprintData { DevCat = 80, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should be upgraded to CloudSecuritySystem due to cloud vendor
+        result.Category.Should().Be(expected);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
+    [Fact]
+    public void DetectFromMac_HistoryCameraFingerprint_WithLocalVendor_ReturnsCamera()
+    {
+        // Arrange - history with camera fingerprint (DevCat 9) and non-cloud vendor
+        var history = new List<UniFiClientHistoryResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Name = "Backyard Camera",
+                Oui = "Hikvision", // Local NVR vendor, not cloud-dependent
+                Fingerprint = new ClientFingerprintData { DevCat = 9, DevVendor = 100 }
+            }
+        };
+        _service.SetClientHistory(history);
+
+        // Act
+        var result = _service.DetectFromMac("11:22:33:44:55:66");
+
+        // Assert - should stay as Camera (not upgraded to CloudCamera)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.Source.Should().Be(DetectionSource.UniFiFingerprint);
+    }
+
     #endregion
 
     #region Category Extension Tests
