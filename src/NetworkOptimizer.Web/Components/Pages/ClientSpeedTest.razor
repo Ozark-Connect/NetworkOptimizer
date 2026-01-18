@@ -812,8 +812,9 @@
         // Check for 192.168.x.x not in any known network → Teleport
         if (clientIp.StartsWith("192.168.") && _networks != null)
         {
-            var isInKnownNetwork = _networks.Any(n => IsIpInSubnet(clientIp, n.IpSubnet));
-            if (!isInKnownNetwork)
+            var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
+            Console.WriteLine($"DEBUG TELEPORT: {clientIp} matchingNetwork={matchingNetwork?.Name ?? "NONE"} subnet={matchingNetwork?.IpSubnet ?? "N/A"}");
+            if (matchingNetwork == null)
                 return "Teleport";
         }
 
