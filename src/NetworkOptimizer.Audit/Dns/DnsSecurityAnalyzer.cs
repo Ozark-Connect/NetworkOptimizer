@@ -910,17 +910,13 @@ public class DnsSecurityAnalyzer
         // Issue: DNAT redirects to wrong translated IP
         if (result.HasDnatDnsRules && !result.DnatRedirectTargetIsValid && result.InvalidDnatRules.Any())
         {
-            var expectedDest = result.HasThirdPartyDns
-                ? $"third-party DNS server ({string.Join(", ", result.ExpectedDnatDestinations)})"
-                : $"gateway ({string.Join(", ", result.ExpectedDnatDestinations)})";
-
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDnatWrongDestination,
                 Severity = AuditSeverity.Critical,
                 DeviceName = result.GatewayName,
-                Message = $"DNAT DNS rules have incorrect translated IP address. {string.Join("; ", result.InvalidDnatRules)}. Expected translated IP: {expectedDest}.",
-                RecommendedAction = result.HasThirdPartyDns
+                Message = $"DNAT DNS rules have incorrect translated IP address. {string.Join("; ", result.InvalidDnatRules)}.",
+                RecommendedAction = result.IsSiteWideThirdPartyDns
                     ? "Update the translated IP address in DNAT rules to your Pi-hole/DNS server IP"
                     : "Update the translated IP address in DNAT rules to a gateway IP",
                 RuleId = "DNS-DNAT-003",
@@ -929,7 +925,7 @@ public class DnsSecurityAnalyzer
                 {
                     { "invalid_rules", result.InvalidDnatRules.ToList() },
                     { "expected_destinations", result.ExpectedDnatDestinations.ToList() },
-                    { "has_third_party_dns", result.HasThirdPartyDns }
+                    { "is_site_wide_third_party_dns", result.IsSiteWideThirdPartyDns }
                 }
             });
         }
@@ -1561,8 +1557,39 @@ public class DnsSecurityAnalyzer
                     thirdPartyResults.Count);
             }
 
-            // Check for DNS consistency across all DHCP-enabled networks
-            CheckDnsConsistencyAcrossNetworks(networks, thirdPartyResults, result);
+            // Determine if this is a site-wide DNS solution or just specialized corporate DNS
+            // Site-wide = configured on at least one non-Corporate network
+            var networkNamesWithThirdPartyDns = thirdPartyResults
+                .Select(r => r.NetworkName)
+                .Distinct()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var nonCorporateNetworksWithThirdPartyDns = networks
+                .Where(n => networkNamesWithThirdPartyDns.Contains(n.Name))
+                .Where(n => n.Purpose != NetworkPurpose.Corporate)
+                .ToList();
+
+            result.IsSiteWideThirdPartyDns = nonCorporateNetworksWithThirdPartyDns.Count > 0;
+
+            if (result.IsSiteWideThirdPartyDns)
+            {
+                // Populate the site-wide DNS IPs
+                var siteWideDnsIps = thirdPartyResults
+                    .Select(r => r.DnsServerIp)
+                    .Distinct()
+                    .ToList();
+                result.SiteWideDnsServerIps.AddRange(siteWideDnsIps);
+
+                _logger.LogInformation("Third-party DNS is site-wide (configured on non-Corporate networks): {Ips}",
+                    string.Join(", ", siteWideDnsIps));
+
+                // Check for DNS consistency across all DHCP-enabled networks
+                CheckDnsConsistencyAcrossNetworks(networks, thirdPartyResults, result);
+            }
+            else
+            {
+                _logger.LogInformation("Third-party DNS only on Corporate networks - treating as specialized internal DNS, not site-wide");
+            }
         }
     }
 
@@ -1570,6 +1597,7 @@ public class DnsSecurityAnalyzer
     /// Check if all DHCP-enabled networks use the same third-party DNS server.
     /// If a third-party DNS (like Pi-hole) is configured on some networks but not all,
     /// this creates a security gap where DNS filtering can be bypassed.
+    /// Note: This is only called if IsSiteWideThirdPartyDns is true (already determined by caller).
     /// </summary>
     private void CheckDnsConsistencyAcrossNetworks(
         List<NetworkInfo> networks,
@@ -1596,19 +1624,6 @@ public class DnsSecurityAnalyzer
             .Select(r => r.NetworkName)
             .Distinct()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        // Check if third-party DNS is configured on at least one non-Corporate network.
-        // If it's ONLY on Corporate networks, that's a specialized setup (internal DNS), not network-wide DNS filtering.
-        var nonCorporateNetworksWithThirdPartyDns = dhcpNetworks
-            .Where(n => networksWithThirdPartyDns.Contains(n.Name))
-            .Where(n => n.Purpose != NetworkPurpose.Corporate)
-            .ToList();
-
-        if (nonCorporateNetworksWithThirdPartyDns.Count == 0)
-        {
-            _logger.LogDebug("Third-party DNS only configured on Corporate networks, skipping DNS consistency check");
-            return;
-        }
 
         // Get DHCP networks that are NOT using the third-party DNS
         // Exempt Corporate networks - they may legitimately use internal corporate DNS servers
@@ -1712,8 +1727,9 @@ public class DnsSecurityAnalyzer
 
     /// <summary>
     /// Validate that DNAT redirect destinations point to the correct DNS server.
-    /// - With third-party DNS (Pi-hole): must redirect to the third-party server IP
-    /// - With DoH (no third-party DNS): must redirect to native VLAN gateway OR the specific VLAN gateway
+    /// - With site-wide third-party DNS (Pi-hole on non-Corporate networks): must redirect to the third-party server IP
+    /// - With DoH (no site-wide third-party DNS): must redirect to native VLAN gateway OR the specific VLAN gateway
+    /// Note: Third-party DNS only on Corporate networks is NOT considered site-wide and falls through to DoH/gateway validation.
     /// </summary>
     private void ValidateDnatRedirectTargets(
         DnatCoverageResult coverageResult,
@@ -1723,13 +1739,13 @@ public class DnsSecurityAnalyzer
         if (!coverageResult.HasDnatDnsRules)
             return;
 
-        if (result.HasThirdPartyDns)
+        if (result.IsSiteWideThirdPartyDns)
         {
-            // Third-party DNS: DNAT must point to the third-party server(s)
+            // Site-wide third-party DNS: DNAT must point to the third-party server(s)
             // Also accept gateway IPs that are configured as DNS servers (common dual-DNS setup)
             var validDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var thirdParty in result.ThirdPartyDnsServers)
-                validDestinations.Add(thirdParty.DnsServerIp);
+            foreach (var ip in result.SiteWideDnsServerIps)
+                validDestinations.Add(ip);
 
             // Also include any gateway IPs that are configured as DHCP DNS servers
             // This handles the common case where DHCP DNS 1 = gateway and DNS 2 = Pi-hole
@@ -2044,6 +2060,18 @@ public class DnsSecurityResult
     public bool IsPiholeDetected => ThirdPartyDnsServers.Any(t => t.IsPihole);
     public bool IsAdGuardHomeDetected => ThirdPartyDnsServers.Any(t => t.IsAdGuardHome);
     public string? ThirdPartyDnsProviderName { get; set; }
+
+    /// <summary>
+    /// Whether third-party DNS is configured as a site-wide solution (on at least one non-Corporate network).
+    /// If third-party DNS is ONLY on Corporate networks, it's considered specialized internal DNS,
+    /// not intended for all networks, and won't be used as the expected DNAT destination.
+    /// </summary>
+    public bool IsSiteWideThirdPartyDns { get; set; }
+
+    /// <summary>
+    /// The IPs of the site-wide third-party DNS servers (only populated if IsSiteWideThirdPartyDns is true)
+    /// </summary>
+    public List<string> SiteWideDnsServerIps { get; } = new();
 
     // DNAT DNS Coverage
     public bool HasDnatDnsRules { get; set; }

@@ -3974,12 +3974,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
     [Fact]
     public async Task Analyze_DnatWithPihole_RedirectsToGateway_RaisesIssue()
     {
-        // Arrange - Pi-hole configured, but DNAT incorrectly points to gateway
+        // Arrange - Pi-hole configured on non-Corporate network (site-wide), but DNAT incorrectly points to gateway
         var networks = new List<NetworkInfo>
         {
             new NetworkInfo
             {
                 Id = "net1", Name = "LAN", VlanId = 1,
+                Purpose = NetworkPurpose.Home, // Non-Corporate so third-party DNS is site-wide
                 Subnet = "192.168.1.0/24", DhcpEnabled = true,
                 Gateway = "192.168.1.1",
                 DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
@@ -3992,6 +3993,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var result = await _analyzer.AnalyzeAsync(null, null, switches, networks, null, null, natRules);
 
         // Assert - Should raise wrong destination issue
+        result.IsSiteWideThirdPartyDns.Should().BeTrue();
         result.DnatRedirectTargetIsValid.Should().BeFalse();
         result.InvalidDnatRules.Should().NotBeEmpty();
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
@@ -4689,6 +4691,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net1",
                 Name = "LAN",
                 VlanId = 1,
+                Purpose = NetworkPurpose.Home, // Non-Corporate so third-party DNS is site-wide
                 Subnet = "192.168.1.0/24",
                 DhcpEnabled = true,
                 Gateway = "192.168.1.1",
@@ -4748,6 +4751,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net1",
                 Name = "Guest",
                 VlanId = 210,
+                Purpose = NetworkPurpose.Guest, // Non-Corporate so third-party DNS is site-wide
                 Subnet = "192.168.210.0/24",
                 DhcpEnabled = true,
                 Gateway = "192.168.210.1",
@@ -4813,6 +4817,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net1",
                 Name = "Guest",
                 VlanId = 210,
+                Purpose = NetworkPurpose.Guest, // Non-Corporate so third-party DNS is site-wide
                 Subnet = "192.168.210.0/24",
                 DhcpEnabled = true,
                 Gateway = "192.168.210.1",
@@ -4877,6 +4882,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Id = "net1",
                 Name = "LAN",
                 VlanId = 1,
+                Purpose = NetworkPurpose.Home, // Non-Corporate so third-party DNS is site-wide
                 Subnet = "192.168.1.0/24",
                 DhcpEnabled = true,
                 Gateway = "192.168.1.1",
@@ -4918,6 +4924,78 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HasDnatDnsRules.Should().BeTrue();
         result.DnatRedirectTargetIsValid.Should().BeFalse();
         result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithCorporateOnlyThirdPartyDns_ValidatesAgainstGateway()
+    {
+        // Arrange - Third-party DNS ONLY on Corporate network
+        // DNAT should validate against gateway (not third-party DNS) since it's not site-wide
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "corp",
+                Name = "Corporate",
+                VlanId = 10,
+                Purpose = NetworkPurpose.Corporate, // Corporate with third-party DNS
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                DnsServers = new List<string> { "192.168.10.5" } // Internal corporate DNS
+            },
+            new NetworkInfo
+            {
+                Id = "home",
+                Name = "Home",
+                VlanId = 1, // VLAN 1 is the default network in UniFi
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1"
+                // No third-party DNS - uses gateway
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+        // DNAT points to native gateway - should be valid since third-party DNS is not site-wide
+        var natRules = JsonDocument.Parse("""
+        [
+            {
+                "_id": "rule1",
+                "type": "DNAT",
+                "enabled": true,
+                "protocol": "udp",
+                "ip_address": "192.168.1.1",
+                "destination_filter": { "filter_type": "ADDRESS_AND_PORT", "port": "53" },
+                "source_filter": { "filter_type": "NETWORK_CONF", "network_conf_id": "home" }
+            }
+        ]
+        """).RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: settings,
+            firewallData: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: natRules);
+
+        // Assert - Third-party DNS detected but NOT site-wide (only on Corporate)
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.IsSiteWideThirdPartyDns.Should().BeFalse();
+        // DNAT validates against gateway since there's no site-wide third-party DNS
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
     }
 
     #endregion
