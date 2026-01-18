@@ -15,7 +15,7 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 - You need easy updates via image pulls
 - Your network speeds are under 2 Gbps (except macOS - see below)
 
-**macOS note:** Docker Desktop's virtualization limits network throughput to ~1.8 Gbps. For accurate multi-gigabit speed tests on macOS, use native deployment. The native install script includes OpenSpeedTest setup, so you get both maximum performance and browser-based speed testing.
+**macOS note:** Docker Desktop limits network throughput for speed testing. For accurate multi-gigabit measurements on macOS, use native deployment. The native install script includes OpenSpeedTest setup, so you get both maximum performance and browser-based speed testing.
 
 ## Platform-Specific Instructions
 
@@ -27,27 +27,13 @@ Run Network Optimizer directly on the host without Docker for maximum network pe
 
 ## macOS Deployment
 
-### Quick Install (Recommended)
+For the quickest macOS installation, see [macOS Installation Guide](../docs/MACOS-INSTALLATION.md).
 
-Use the automated installation script:
-
-```bash
-git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
-cd NetworkOptimizer
-./scripts/install-macos-native.sh
-```
-
-The script handles everything: prerequisites, build, code signing, OpenSpeedTest setup, and launchd service creation.
-
-After installation:
-- Web UI: http://localhost:8042
-- SpeedTest: http://localhost:3005
+For manual installation or customization, continue with the steps below.
 
 ---
 
 ### Manual Installation
-
-If you prefer to install manually, follow the steps below.
 
 ### Prerequisites
 

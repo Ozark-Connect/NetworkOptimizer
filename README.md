@@ -4,22 +4,7 @@
 
 ## New: macOS Native Installation
 
-Install natively on macOS for maximum speed test performance (Docker Desktop limits network throughput to ~1.8 Gbps).
-
-```bash
-git clone https://github.com/Ozark-Connect/NetworkOptimizer.git
-cd NetworkOptimizer
-./scripts/install-macos-native.sh
-```
-
-The script installs prerequisites via Homebrew, builds from source, sets up OpenSpeedTest with nginx, and creates a launchd service for auto-start.
-
-After installation, edit `~/network-optimizer/start.sh` to configure environment variables:
-- `HOST_IP` - Your Mac's IP address (auto-detected, but verify it's correct)
-- `TZ` - Timezone (default: America/Chicago)
-- `APP_PASSWORD` - Optional admin password (auto-generated on first run if not set)
-
-Access the web UI at `http://localhost:8042` or `http://<your-mac-ip>:8042`.
+Install natively on macOS for maximum speed test performance (Docker Desktop limits network throughput for speed testing). See [macOS Installation Guide](docs/MACOS-INSTALLATION.md) for full instructions.
 
 ## New: Windows Installer
 
@@ -102,10 +87,10 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 | Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
 | Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#nas-deployment) |
-| macOS | Native (best performance) | [macOS Native](docker/NATIVE-DEPLOYMENT.md#macos-deployment) |
+| macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
 
-Docker Desktop on macOS and Windows adds virtualization overhead that limits network throughput. For accurate multi-gigabit speed testing, use native deployment.
+Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
 
 ### Quick Start (Linux Docker)
 

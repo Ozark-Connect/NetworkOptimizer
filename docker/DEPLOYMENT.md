@@ -9,7 +9,7 @@ Production deployment guide for Network Optimizer.
 | Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux + Docker | Self-built servers, VMs, cloud | [Below](#1-linux-docker-recommended) |
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
-| macOS Native | Mac servers, multi-gigabit speed testing | [Native Guide](NATIVE-DEPLOYMENT.md#macos-deployment) |
+| macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
 
 ---

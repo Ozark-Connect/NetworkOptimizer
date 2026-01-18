@@ -622,17 +622,27 @@
                 <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
                 @if (testHistory.Count > 0)
                 {
-                    <button class="btn btn-sm btn-danger" @onclick="ClearHistory" disabled="@clearingHistory">
-                        @if (clearingHistory)
-                        {
-                            <span class="spinner-sm"></span>
-                            <span>Clearing...</span>
-                        }
-                        else
-                        {
-                            <span>Clear History</span>
-                        }
-                    </button>
+                    @if (confirmingClearHistory)
+                    {
+                        <span class="confirm-inline">
+                            <span class="confirm-text">Delete all history?</span>
+                            <button class="btn btn-sm btn-danger" @onclick="ConfirmClearHistory" disabled="@clearingHistory">
+                                @if (clearingHistory)
+                                {
+                                    <span class="spinner-sm"></span>
+                                }
+                                else
+                                {
+                                    <span>Yes, delete</span>
+                                }
+                            </button>
+                            <button class="btn btn-sm btn-secondary" @onclick="CancelClearHistory" disabled="@clearingHistory">Cancel</button>
+                        </span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="ShowClearHistoryConfirm">Clear History</button>
+                    }
                 }
             </div>
         </div>
@@ -1078,6 +1088,7 @@
 
     // History state
     private bool clearingHistory = false;
+    private bool confirmingClearHistory = false;
     private int? expandedHistoryId = null;
 
     // Path analysis for historical results (calculated on demand)
@@ -1309,7 +1320,17 @@
         StateHasChanged();
     }
 
-    private async Task ClearHistory()
+    private void ShowClearHistoryConfirm()
+    {
+        confirmingClearHistory = true;
+    }
+
+    private void CancelClearHistory()
+    {
+        confirmingClearHistory = false;
+    }
+
+    private async Task ConfirmClearHistory()
     {
         clearingHistory = true;
         StateHasChanged();
@@ -1328,6 +1349,7 @@
         finally
         {
             clearingHistory = false;
+            confirmingClearHistory = false;
             StateHasChanged();
         }
     }

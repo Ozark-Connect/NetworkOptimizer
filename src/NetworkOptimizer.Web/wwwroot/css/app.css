@@ -269,6 +269,17 @@ a:hover {
     gap: 1rem;
 }
 
+.confirm-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.confirm-text {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
 .timestamp {
     font-size: 0.875rem;
     color: var(--text-muted);
