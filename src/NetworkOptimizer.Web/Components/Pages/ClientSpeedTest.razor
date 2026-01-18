@@ -499,6 +499,12 @@
         margin-right: 0.25rem;
     }
 
+    .badge-vpn-vpn {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+        margin-right: 0.25rem;
+    }
+
     .code-block {
         background: var(--bg-primary);
         border-radius: var(--border-radius);
@@ -810,15 +816,15 @@
         }
 
         // Check for VPN clients:
-        // 1. IP in a network with purpose "remote-user-vpn" → Teleport (UniFi VPN)
-        // 2. IP in 192.168.x.x not in any known network → Teleport (external VPN like Teleport)
+        // 1. IP in a network with purpose "remote-user-vpn" → VPN (UniFi built-in VPN)
+        // 2. IP in 192.168.x.x not in any known network → Teleport (external VPN)
         if (_networks != null)
         {
             var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
 
-            // If in a VPN-purpose network, label as Teleport
+            // If in a UniFi VPN network, label as VPN
             if (matchingNetwork?.Purpose == "remote-user-vpn")
-                return "Teleport";
+                return "VPN";
 
             // If 192.168.x.x but not in any known network, label as Teleport
             if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
