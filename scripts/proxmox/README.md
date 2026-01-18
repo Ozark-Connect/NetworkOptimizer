@@ -53,6 +53,8 @@ The script creates a privileged Debian 12 LXC container with:
 | Network | DHCP | Static IP also supported (with DNS) |
 | Web Port | 8042 | Network Optimizer web UI (fixed) |
 | Speedtest Port | 3005 | OpenSpeedTest web UI (configurable) |
+| iperf3 Server | Disabled | CLI-based speed testing (port 5201) |
+| Reverse Proxy | None | Optional hostname for reverse proxy setup |
 | Timezone | America/New_York | Container timezone |
 
 ## Post-Installation
