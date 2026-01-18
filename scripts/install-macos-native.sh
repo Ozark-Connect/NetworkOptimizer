@@ -15,7 +15,8 @@ set -e
 INSTALL_DIR="$HOME/network-optimizer"
 DATA_DIR="$HOME/Library/Application Support/NetworkOptimizer"
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
-LAUNCH_AGENT_FILE="com.networkoptimizer.app.plist"
+LAUNCH_AGENT_FILE="net.ozarkconnect.networkoptimizer.plist"
+OLD_LAUNCH_AGENT_FILE="com.networkoptimizer.app.plist"  # For migration from older installs
 
 # Detect architecture
 ARCH=$(uname -m)
@@ -252,7 +253,7 @@ cat > "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" << EOF
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.networkoptimizer.app</string>
+    <string>net.ozarkconnect.networkoptimizer</string>
     <key>ProgramArguments</key>
     <array>
         <string>$INSTALL_DIR/start.sh</string>
@@ -276,6 +277,22 @@ EOF
 echo ""
 echo "[8/8] Starting services..."
 
+# Migrate from old plist name if present
+if [ -f "$LAUNCH_AGENT_DIR/$OLD_LAUNCH_AGENT_FILE" ]; then
+    echo "Migrating from old service name..."
+    launchctl unload "$LAUNCH_AGENT_DIR/$OLD_LAUNCH_AGENT_FILE" 2>/dev/null || true
+    rm -f "$LAUNCH_AGENT_DIR/$OLD_LAUNCH_AGENT_FILE"
+    # Also remove the old speedtest plist if it exists
+    launchctl unload "$LAUNCH_AGENT_DIR/com.networkoptimizer.speedtest.plist" 2>/dev/null || true
+    rm -f "$LAUNCH_AGENT_DIR/com.networkoptimizer.speedtest.plist"
+fi
+
+# Gracefully stop any orphaned processes from previous installs
+pkill -f "NetworkOptimizer.Web" 2>/dev/null || true
+pkill iperf3 2>/dev/null || true
+pkill nginx 2>/dev/null || true
+sleep 2  # Give processes time to shut down gracefully
+
 # Unload if already loaded (ignore errors)
 launchctl unload "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE"
@@ -290,7 +307,7 @@ echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "Checking service status..."
-if launchctl list | grep -q "com.networkoptimizer.app"; then
+if launchctl list | grep -q "net.ozarkconnect.networkoptimizer"; then
     echo "✓ Network Optimizer service is running"
 else
     echo "✗ Network Optimizer service failed to start"
