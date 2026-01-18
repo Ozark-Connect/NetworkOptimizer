@@ -318,8 +318,10 @@ configure_application() {
     APP_REVERSE_PROXY_HOST=${APP_REVERSE_PROXY_HOST:-}
 
     # Optional password
-    echo -e "\n${WH}Admin Password${CL} ${DIM}(optional - will auto-generate if left empty)${CL}"
-    read -rsp "Admin password (hidden): " APP_PASSWORD
+    echo -e "\n${WH}Admin Password${CL}"
+    echo -e "${DIM}Leave empty for auto-generated password (shown in logs on first run).${CL}"
+    echo -e "${DIM}Recommended: Set permanent password in Settings > Admin Password after login.${CL}"
+    read -rsp "Admin password (hidden, press Enter to skip): " APP_PASSWORD
     echo ""
     APP_PASSWORD=${APP_PASSWORD:-}
 }
@@ -634,6 +636,7 @@ show_completion() {
         echo -e "\n${BLD}Admin Password:${CL}"
         echo -e "  ${YW}Auto-generated on first run. View with:${CL}"
         echo -e "  ${DIM}pct exec $CT_ID -- docker logs network-optimizer 2>&1 | grep -A5 'AUTO-GENERATED'${CL}"
+        echo -e "  ${DIM}Set a permanent password in Settings > Admin Password after login.${CL}"
     fi
 
     echo -e "\n${BLD}Container Management:${CL}"
