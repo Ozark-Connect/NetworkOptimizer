@@ -343,17 +343,42 @@ public class NginxHostedService : IHostedService, IDisposable
 
     private void StopNginx()
     {
-        if (_nginxProcess == null || _nginxProcess.HasExited)
-            return;
-
         try
         {
-            _logger.LogInformation("Stopping nginx (PID: {Pid})", _nginxProcess.Id);
+            // First try to kill our tracked process if it's still running
+            if (_nginxProcess is { HasExited: false })
+            {
+                _logger.LogInformation("Stopping nginx (PID: {Pid})", _nginxProcess.Id);
+                _nginxProcess.Kill(entireProcessTree: true);
+                _nginxProcess.WaitForExit(5000);
+            }
 
-            // nginx on Windows: send WM_QUIT or kill the process
-            // nginx -s stop would be cleaner but requires a separate process
-            _nginxProcess.Kill(entireProcessTree: true);
-            _nginxProcess.WaitForExit(5000);
+            // nginx runs as a daemon on macOS (forks and parent exits), so the tracked
+            // process may already be gone. Use pkill as a fallback to ensure cleanup.
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+            {
+                try
+                {
+                    using var pkill = Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "pkill",
+                        Arguments = "nginx",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    });
+                    pkill?.WaitForExit(2000);
+                    if (pkill?.ExitCode == 0)
+                    {
+                        _logger.LogInformation("Killed nginx processes via pkill");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "pkill nginx failed");
+                }
+            }
 
             _logger.LogInformation("nginx stopped");
         }

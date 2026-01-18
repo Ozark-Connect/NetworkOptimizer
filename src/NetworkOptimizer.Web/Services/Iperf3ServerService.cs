@@ -379,6 +379,7 @@ public class Iperf3ServerService : BackgroundService
     {
         _logger.LogInformation("Stopping iperf3 server service");
 
+        // First try to kill our tracked process
         if (_iperf3Process is { HasExited: false })
         {
             try
@@ -388,6 +389,33 @@ public class Iperf3ServerService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Error killing iperf3 process on stop");
+            }
+        }
+
+        // Use pkill as a fallback to ensure cleanup on Unix systems
+        // This handles cases where the process reference was lost or race conditions
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+        {
+            try
+            {
+                using var pkill = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "pkill",
+                    Arguments = "iperf3",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                });
+                pkill?.WaitForExit(2000);
+                if (pkill?.ExitCode == 0)
+                {
+                    _logger.LogInformation("Killed iperf3 processes via pkill");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "pkill iperf3 failed");
             }
         }
 
