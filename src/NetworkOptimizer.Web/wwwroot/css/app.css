@@ -2989,6 +2989,53 @@ select.form-control {
     border-top: 1px solid var(--border-color);
 }
 
+.test-details .delete-action {
+    margin-left: auto;
+}
+
+.test-details .delete-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.test-details .btn-link-danger {
+    background: none;
+    border: none;
+    padding: 0.25rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+}
+
+.test-details .btn-link-danger:hover {
+    opacity: 1;
+    color: var(--danger-color);
+}
+
+.test-details .btn-danger {
+    background: var(--danger-color);
+    color: white;
+}
+
+.test-details .btn-danger:hover {
+    background: #c53030;
+}
+
+.test-details .spinner-sm {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    display: inline-block;
+    margin-right: 0.25rem;
+}
+
 /* Path Analysis - Redesigned */
 .path-analysis {
     margin-top: 1.25rem;

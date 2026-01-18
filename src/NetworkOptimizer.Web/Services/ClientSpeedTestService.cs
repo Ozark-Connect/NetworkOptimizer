@@ -304,6 +304,25 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Delete a speed test result by ID.
+    /// </summary>
+    /// <returns>True if the result was deleted, false if not found.</returns>
+    public async Task<bool> DeleteResultAsync(int id)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var result = await db.Iperf3Results.FindAsync(id);
+        if (result == null)
+        {
+            return false;
+        }
+
+        db.Iperf3Results.Remove(result);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Deleted speed test result {Id} for {DeviceHost}", id, result.DeviceHost);
+        return true;
+    }
+
+    /// <summary>
     /// Analyze network path for the speed test result.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
     /// If target not found, invalidates topology cache and retries once.

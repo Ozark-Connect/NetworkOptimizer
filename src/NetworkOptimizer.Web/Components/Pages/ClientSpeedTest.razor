@@ -268,7 +268,7 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" />
                                                 </div>
                                             </div>
                                         </div>
@@ -863,6 +863,18 @@
     private void ToggleHistoryExpand(int resultId)
     {
         expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
+    }
+
+    private async Task HandleDeleteResult(int resultId)
+    {
+        var deleted = await ClientSpeedTestService.DeleteResultAsync(resultId);
+        if (deleted)
+        {
+            // Remove from local list and collapse the row
+            testHistory.RemoveAll(r => r.Id == resultId);
+            expandedHistoryId = null;
+            StateHasChanged();
+        }
     }
 
     private async Task ScrollToResult(int resultId)

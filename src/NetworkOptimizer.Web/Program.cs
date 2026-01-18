@@ -680,6 +680,13 @@ app.MapGet("/api/speedtest/results", async (ClientSpeedTestService service, stri
     return Results.Ok(await service.GetResultsAsync(count));
 });
 
+// Authenticated endpoint for deleting a speed test result
+app.MapDelete("/api/speedtest/results/{id:int}", async (int id, ClientSpeedTestService service) =>
+{
+    var deleted = await service.DeleteResultAsync(id);
+    return deleted ? Results.NoContent() : Results.NotFound();
+});
+
 // Auth API endpoints
 app.MapGet("/api/auth/set-cookie", (HttpContext context, string token, string returnUrl = "/") =>
 {

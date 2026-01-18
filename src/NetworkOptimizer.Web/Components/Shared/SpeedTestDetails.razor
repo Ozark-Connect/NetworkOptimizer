@@ -47,6 +47,33 @@
     <span>Duration: @DurationSeconds seconds</span>
     <span>Streams: @ParallelStreams parallel</span>
     <span>Time: @TestTime.ToLocalTime().ToString("g")</span>
+    @if (OnDelete.HasDelegate && Result != null)
+    {
+        <span class="delete-action">
+            @if (_confirmingDelete)
+            {
+                <span class="delete-confirm">
+                    <span>Delete this result?</span>
+                    <button class="btn btn-sm btn-danger" @onclick="ConfirmDelete" disabled="@_deleting">
+                        @if (_deleting)
+                        {
+                            <span class="spinner-sm"></span>
+                        }
+                        Yes
+                    </button>
+                    <button class="btn btn-sm btn-secondary" @onclick="CancelDelete" disabled="@_deleting">No</button>
+                </span>
+            }
+            else
+            {
+                <button class="btn-link-danger" @onclick="StartDelete" data-tooltip="Delete this result">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                    </svg>
+                </button>
+            }
+        </span>
+    }
 </div>
 
 @if (PathAnalysis != null)
@@ -205,8 +232,18 @@
     /// </summary>
     [Parameter] public GatewaySpeedTestResult? GatewayResult { get; set; }
 
+    /// <summary>
+    /// Callback invoked when the user confirms deletion.
+    /// If not provided, the delete button is hidden.
+    /// </summary>
+    [Parameter] public EventCallback<int> OnDelete { get; set; }
+
     // Track previous Result ID to detect when Result changes
     private int? _previousResultId;
+
+    // Delete confirmation state
+    private bool _confirmingDelete;
+    private bool _deleting;
 
     protected override void OnParametersSet()
     {
@@ -582,4 +619,30 @@
         // Fallback to emoji
         builder.AddContent(0, GetHopIcon(hop.Type));
     };
+
+    private void StartDelete()
+    {
+        _confirmingDelete = true;
+    }
+
+    private void CancelDelete()
+    {
+        _confirmingDelete = false;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (Result == null) return;
+
+        _deleting = true;
+        try
+        {
+            await OnDelete.InvokeAsync(Result.Id);
+        }
+        finally
+        {
+            _deleting = false;
+            _confirmingDelete = false;
+        }
+    }
 }
