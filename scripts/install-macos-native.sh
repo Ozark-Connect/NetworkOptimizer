@@ -297,16 +297,11 @@ sleep 2  # Give processes time to shut down gracefully
 launchctl unload "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" 2>/dev/null || true
 launchctl load "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE"
 
-# Wait for startup
+# Wait for startup and verify
 echo ""
-echo "Waiting for services to start..."
-sleep 5
+echo "Waiting for service to start..."
 
-# Verify
-echo ""
-echo "=== Installation Complete ==="
-echo ""
-echo "Checking service status..."
+# Check launchd service status
 if launchctl list | grep -q "net.ozarkconnect.networkoptimizer"; then
     echo "✓ Network Optimizer service is running"
 else
@@ -314,12 +309,25 @@ else
     echo "  Check logs: tail -f $INSTALL_DIR/logs/stderr.log"
 fi
 
-# Test health endpoint
+# Wait for health endpoint with retries
+echo "Waiting for application to be ready..."
+HEALTH_OK=false
+for i in {1..12}; do
+    if curl -s http://localhost:8042/api/health | grep -q "ok\|Healthy"; then
+        HEALTH_OK=true
+        break
+    fi
+    sleep 5
+done
+
 echo ""
-if curl -s http://localhost:8042/api/health | grep -q "ok\|Healthy"; then
+echo "=== Installation Complete ==="
+echo ""
+if [ "$HEALTH_OK" = true ]; then
     echo "✓ Health check passed"
 else
-    echo "✗ Health check failed (may still be starting up)"
+    echo "✗ Health check failed after 60 seconds"
+    echo "  The app may still be starting. Check logs: tail -f $INSTALL_DIR/logs/stdout.log"
 fi
 
 echo ""
