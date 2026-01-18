@@ -543,8 +543,8 @@ public class ConfigAuditEngine
         DeviceDetectionResult detection,
         long twoWeeksAgo)
     {
-        // Skip cloud cameras - they're handled by CheckOfflineCameraPlacement
-        if (detection.Category.IsCloudCamera())
+        // Skip cloud surveillance devices - they're handled by CheckOfflineCameraPlacement
+        if (detection.Category.IsCloudSurveillance())
             return;
 
         var placement = Rules.VlanPlacementChecker.CheckIoTPlacement(
@@ -590,8 +590,8 @@ public class ConfigAuditEngine
         DeviceDetectionResult detection,
         long twoWeeksAgo)
     {
-        // Cloud cameras (Ring, Nest, Wyze, Blink, Arlo) should go on IoT VLAN, not Security VLAN
-        var isCloudCamera = detection.Category.IsCloudCamera();
+        // Cloud surveillance (Ring, Nest, Wyze, Blink, Arlo, SimpliSafe) should go on IoT VLAN, not Security VLAN
+        var isCloudCamera = detection.Category.IsCloudSurveillance();
         var placement = isCloudCamera
             ? Rules.VlanPlacementChecker.CheckIoTPlacement(
                 detection.Category, lastNetwork, ctx.Networks, 8, ctx.AllowanceSettings, detection.VendorName)

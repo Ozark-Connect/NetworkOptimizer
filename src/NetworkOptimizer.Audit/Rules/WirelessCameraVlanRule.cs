@@ -7,7 +7,7 @@ namespace NetworkOptimizer.Audit.Rules;
 
 /// <summary>
 /// Detects wireless self-hosted security cameras not on a dedicated security VLAN.
-/// Note: Cloud cameras (Ring, Nest, Wyze, Blink, Arlo) are handled by IoT VLAN rules instead.
+/// Note: Cloud surveillance (Ring, Nest, Wyze, Blink, Arlo, SimpliSafe) are handled by IoT VLAN rules instead.
 /// </summary>
 public class WirelessCameraVlanRule : WirelessAuditRuleBase
 {
@@ -19,13 +19,13 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
 
     public override AuditIssue? Evaluate(WirelessClientInfo client, List<NetworkInfo> networks)
     {
-        // Check if this is a surveillance/security device (but not cloud cameras)
-        // Cloud cameras (Ring, Nest, Wyze, Blink, Arlo) are handled by IoT VLAN rules
+        // Check if this is a surveillance/security device (but not cloud-based ones)
+        // Cloud surveillance (Ring, Nest, Wyze, Blink, Arlo, SimpliSafe) are handled by IoT VLAN rules
         if (!client.Detection.Category.IsSurveillance())
             return null;
 
-        // Skip cloud cameras - they should go on IoT VLAN, not Security VLAN
-        if (client.Detection.Category.IsCloudCamera())
+        // Skip cloud surveillance devices - they need internet so should go on IoT VLAN, not Security VLAN
+        if (client.Detection.Category.IsCloudSurveillance())
             return null;
 
         // Get the network this client is on
@@ -40,7 +40,7 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
             return null;
 
         return CreateIssue(
-            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be on security network",
+            $"{client.Detection.CategoryName} on {network.Name} VLAN - should be on security VLAN",
             client,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,

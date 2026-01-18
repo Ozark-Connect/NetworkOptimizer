@@ -57,13 +57,13 @@ public class CameraVlanRule : AuditRuleBase
             return null;
         }
 
-        // Check if this is a surveillance/security device (but not cloud cameras)
-        // Cloud cameras (Ring, Nest, Wyze, Blink, Arlo) are handled by IoT VLAN rules
+        // Check if this is a surveillance/security device (but not cloud-based ones)
+        // Cloud surveillance (Ring, Nest, Wyze, Blink, Arlo, SimpliSafe) are handled by IoT VLAN rules
         if (!detection.Category.IsSurveillance())
             return null;
 
-        // Skip cloud cameras - they should go on IoT VLAN, not Security VLAN
-        if (detection.Category.IsCloudCamera())
+        // Skip cloud surveillance devices - they need internet so should go on IoT VLAN, not Security VLAN
+        if (detection.Category.IsCloudSurveillance())
             return null;
 
         // Get the network this port is on

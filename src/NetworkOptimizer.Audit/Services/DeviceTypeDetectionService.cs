@@ -128,7 +128,7 @@ public class DeviceTypeDetectionService
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Name override → {Category} (name clearly indicates device type)",
                 displayName, obviousNameResult.Category);
-            return obviousNameResult;
+            return ApplyCloudSecurityOverride(obviousNameResult, client);
         }
 
         // Priority 0.5: Check OUI for vendors that need special handling
@@ -139,7 +139,7 @@ public class DeviceTypeDetectionService
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
                 displayName, vendorOverrideResult.Category);
-            return vendorOverrideResult;
+            return ApplyCloudSecurityOverride(vendorOverrideResult, client);
         }
 
         // Priority 1: UniFi Fingerprint (if client has fingerprint data)
@@ -192,7 +192,7 @@ public class DeviceTypeDetectionService
         // Priority 2: UniFi OUI name (manufacturer from controller)
         if (!string.IsNullOrEmpty(client?.Oui))
         {
-            var ouiNameResult = DetectFromUniFiOui(client.Oui);
+            var ouiNameResult = DetectFromUniFiOui(client.Oui, client.Name ?? client.Hostname);
             if (ouiNameResult.Category != ClientDeviceCategory.Unknown)
             {
                 results.Add(ouiNameResult);
@@ -255,6 +255,24 @@ public class DeviceTypeDetectionService
         // Return best result
         if (results.Count == 0)
         {
+            // Try camera name supplement for devices with camera-like names
+            var supplement = ApplyCameraNameSupplement(DeviceDetectionResult.Unknown, client);
+            if (supplement.Category != ClientDeviceCategory.Unknown)
+            {
+                _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): Supplemented → {Category}",
+                    displayName, mac, supplement.Category);
+                return supplement;
+            }
+
+            // Try watch name supplement for devices with watch-like names
+            supplement = ApplyWatchNameSupplement(DeviceDetectionResult.Unknown, client);
+            if (supplement.Category != ClientDeviceCategory.Unknown)
+            {
+                _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): Supplemented → {Category}",
+                    displayName, mac, supplement.Category);
+                return supplement;
+            }
+
             _logger?.LogDebug("[Detection] '{DisplayName}' ({Mac}): No detection → Unknown",
                 displayName, mac);
             return DeviceDetectionResult.Unknown;
@@ -266,30 +284,14 @@ public class DeviceTypeDetectionService
             .ThenByDescending(r => r.ConfidenceScore)
             .First();
 
-        // Post-processing: Override Camera to CloudCamera for cloud camera vendors
-        // This handles cases where fingerprint returns Camera but OUI indicates a cloud vendor
-        if (best.Category == ClientDeviceCategory.Camera && !string.IsNullOrEmpty(client?.Oui))
-        {
-            var ouiLower = client.Oui.ToLowerInvariant();
-            if (IsCloudCameraVendor(ouiLower))
-            {
-                _logger?.LogDebug("[Detection] Overriding Camera → CloudCamera for cloud vendor OUI '{Oui}'", client.Oui);
-                best = new DeviceDetectionResult
-                {
-                    Category = ClientDeviceCategory.CloudCamera,
-                    Source = best.Source,
-                    ConfidenceScore = best.ConfidenceScore,
-                    VendorName = best.VendorName ?? client.Oui,
-                    ProductName = best.ProductName,
-                    RecommendedNetwork = NetworkPurpose.IoT,
-                    Metadata = new Dictionary<string, object>(best.Metadata ?? new Dictionary<string, object>())
-                    {
-                        ["cloud_vendor_override"] = true,
-                        ["oui"] = client.Oui
-                    }
-                };
-            }
-        }
+        // Post-processing: Upgrade Camera/SecuritySystem to cloud variants for cloud vendors
+        best = ApplyCloudSecurityOverride(best, client);
+
+        // Post-processing: Supplement classification for camera-like names that weren't classified
+        best = ApplyCameraNameSupplement(best, client);
+
+        // Post-processing: Correct misfingerprinted watches (often show as Desktop/Camera)
+        best = ApplyWatchNameSupplement(best, client);
 
         // If multiple sources agree, boost confidence
         if (results.Count > 1)
@@ -333,11 +335,13 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
-    /// Detect device type from UniFi's resolved OUI manufacturer name
+    /// Detect device type from UniFi's resolved OUI manufacturer name.
+    /// For multi-purpose vendors (Nest, Google, Amazon), uses device name to disambiguate.
     /// </summary>
-    private DeviceDetectionResult DetectFromUniFiOui(string ouiName)
+    private DeviceDetectionResult DetectFromUniFiOui(string ouiName, string? deviceName = null)
     {
         var name = ouiName.ToLowerInvariant();
+        var deviceNameLower = deviceName?.ToLowerInvariant() ?? "";
 
         // IoT / Smart Home manufacturers
         if (name.Contains("ikea")) return CreateOuiResult(ClientDeviceCategory.SmartHub, ouiName, OuiStandardConfidence);
@@ -346,20 +350,48 @@ public class DeviceTypeDetectionService
         if (name.Contains("belkin")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, OuiLowerConfidence);
         if (name.Contains("tp-link") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartPlug, ouiName, OuiLowerConfidence);
         if (name.Contains("ecobee")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiHighConfidence);
-        if (name.Contains("nest")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiMediumConfidence);
-        if (name.Contains("honeywell")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiLowestConfidence);
         if (name.Contains("august") || name.Contains("yale") || name.Contains("schlage")) return CreateOuiResult(ClientDeviceCategory.SmartLock, ouiName, OuiMediumConfidence);
         if (name.Contains("sonos")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiHighConfidence);
-        if (name.Contains("amazon") && !name.Contains("aws")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
-        if (name.Contains("google") && !name.Contains("cloud")) return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
         if (name.Contains("irobot") || name.Contains("roborock") || name.Contains("ecovacs")) return CreateOuiResult(ClientDeviceCategory.RoboticVacuum, ouiName, OuiHighConfidence);
         if (name.Contains("samsung") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, OuiLowestConfidence);
         if (name.Contains("lg") && name.Contains("smart")) return CreateOuiResult(ClientDeviceCategory.SmartAppliance, ouiName, OuiLowestConfidence);
+
+        // Multi-purpose vendors: Nest/Google make thermostats, cameras, speakers
+        // Use device name to disambiguate, default to thermostat if unclear
+        if (name.Contains("nest") || (name.Contains("google") && !name.Contains("cloud")))
+        {
+            if (IsCameraName(deviceNameLower))
+                return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+            if (deviceNameLower.Contains("speaker") || deviceNameLower.Contains("home") || deviceNameLower.Contains("hub") || deviceNameLower.Contains("mini"))
+                return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiMediumConfidence);
+            // Default to thermostat for Nest, speaker for Google
+            if (name.Contains("nest"))
+                return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiMediumConfidence);
+            return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
+        }
+
+        // Multi-purpose vendor: Amazon makes cameras (Ring/Blink), speakers (Echo), etc.
+        if (name.Contains("amazon") && !name.Contains("aws"))
+        {
+            if (IsCameraName(deviceNameLower))
+                return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+            return CreateOuiResult(ClientDeviceCategory.SmartSpeaker, ouiName, OuiLowestConfidence);
+        }
+
+        if (name.Contains("honeywell")) return CreateOuiResult(ClientDeviceCategory.SmartThermostat, ouiName, OuiLowestConfidence);
 
         // Cloud cameras (require internet/cloud services) - note: Wyze handled in CheckVendorDefaultOverride
         if (name.Contains("ring")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
         if (name.Contains("arlo")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiHighConfidence);
         if (name.Contains("blink")) return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+
+        // SimpliSafe: check device name for basestation vs camera
+        if (name.Contains("simplisafe"))
+        {
+            if (deviceNameLower.Contains("basestation") || deviceNameLower.Contains("base station"))
+                return CreateOuiResult(ClientDeviceCategory.CloudSecuritySystem, ouiName, OuiMediumConfidence);
+            return CreateOuiResult(ClientDeviceCategory.CloudCamera, ouiName, OuiMediumConfidence);
+        }
 
         // Self-hosted cameras (local storage/NVR)
         if (name.Contains("reolink")) return CreateOuiResult(ClientDeviceCategory.Camera, ouiName, OuiHighConfidence);
@@ -507,6 +539,29 @@ public class DeviceTypeDetectionService
                 Metadata = new Dictionary<string, object>
                 {
                     ["override_reason"] = "iPhone is a smartphone",
+                    ["matched_name"] = checkName
+                }
+            };
+        }
+
+        // Pixel phone - Google smartphone (exclude Pixel Tablet, Pixelbook, Pixel Slate)
+        // Pixel phones are named "Pixel [number]" like "Pixel 6", "Pixel 7 Pro", "Pixel 8a"
+        if (nameLower.Contains("pixel") &&
+            !nameLower.Contains("tablet") &&
+            !nameLower.Contains("book") &&
+            !nameLower.Contains("slate") &&
+            System.Text.RegularExpressions.Regex.IsMatch(nameLower, @"pixel\s*\d"))
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Smartphone,
+                Source = DetectionSource.DeviceName,
+                ConfidenceScore = NameOverrideConfidence,
+                VendorName = "Google",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "Pixel phone is a Google smartphone",
                     ["matched_name"] = checkName
                 }
             };
@@ -712,28 +767,49 @@ public class DeviceTypeDetectionService
             };
         }
 
-        // Generic camera/doorbell - preserve OUI vendor, check OUI for cloud vendor
-        if (IsCameraName(nameLower))
+        // SimpliSafe devices (cloud-based security system) - specific vendor+noun
+        if (nameLower.Contains("simplisafe"))
         {
-            var ouiLower = oui?.ToLowerInvariant() ?? "";
-            var isCloudCamera = IsCloudCameraVendor(ouiLower);
-            return new DeviceDetectionResult
+            // SimpliSafe Basestation - cloud security system hub
+            if (nameLower.Contains("basestation") || nameLower.Contains("base station"))
             {
-                Category = isCloudCamera ? ClientDeviceCategory.CloudCamera : ClientDeviceCategory.Camera,
-                Source = DetectionSource.DeviceName,
-                ConfidenceScore = NameOverrideConfidence,
-                VendorName = oui,  // Preserve OUI vendor for generic camera matches
-                RecommendedNetwork = isCloudCamera ? NetworkPurpose.IoT : NetworkPurpose.Security,
-                Metadata = new Dictionary<string, object>
+                return new DeviceDetectionResult
                 {
-                    ["override_reason"] = isCloudCamera
-                        ? "Camera detected with cloud vendor OUI"
-                        : "Name contains camera/doorbell keyword",
-                    ["matched_name"] = checkName,
-                    ["is_cloud_camera"] = isCloudCamera
-                }
-            };
+                    Category = ClientDeviceCategory.CloudSecuritySystem,
+                    Source = DetectionSource.DeviceName,
+                    ConfidenceScore = NameOverrideConfidence,
+                    VendorName = "SimpliSafe",
+                    RecommendedNetwork = NetworkPurpose.IoT,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["override_reason"] = "SimpliSafe Basestation is a cloud security system requiring internet access",
+                        ["matched_name"] = checkName
+                    }
+                };
+            }
+
+            // SimpliSafe camera - specific vendor+camera combo
+            if (IsCameraName(nameLower))
+            {
+                return new DeviceDetectionResult
+                {
+                    Category = ClientDeviceCategory.CloudCamera,
+                    Source = DetectionSource.DeviceName,
+                    ConfidenceScore = NameOverrideConfidence,
+                    VendorName = "SimpliSafe",
+                    RecommendedNetwork = NetworkPurpose.IoT,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["override_reason"] = "SimpliSafe is a cloud camera requiring internet access",
+                        ["matched_name"] = checkName
+                    }
+                };
+            }
         }
+
+        // NOTE: Generic camera names (e.g., "Front Yard Camera") are NOT handled here.
+        // They flow through to fingerprint/OUI detection so vendor can be properly determined.
+        // Post-processing (ApplyCameraNameSupplement) will catch camera names that weren't classified.
 
         // Thermostats with vendor-specific detection
         // Ecobee
@@ -885,20 +961,189 @@ public class DeviceTypeDetectionService
     }
 
     /// <summary>
-    /// Check if a name or OUI indicates a cloud camera vendor (requires internet/cloud services).
-    /// Cloud cameras should go on IoT VLAN, not Security VLAN.
+    /// Apply cloud security vendor override if applicable.
+    /// Upgrades Camera → CloudCamera and SecuritySystem → CloudSecuritySystem for cloud vendors.
+    /// VendorName priority: result.VendorName → client.Oui fallback
     /// </summary>
-    private static bool IsCloudCameraVendor(string nameLower)
+    private DeviceDetectionResult ApplyCloudSecurityOverride(DeviceDetectionResult result, UniFiClientResponse? client)
     {
-        return nameLower.Contains("ring") ||
-               nameLower.Contains("nest") ||
-               nameLower.Contains("google") ||   // Google Nest cameras
-               nameLower.Contains("wyze") ||
-               nameLower.Contains("blink") ||
-               nameLower.Contains("arlo") ||
-               nameLower.Contains("simplisafe") ||
-               nameLower.Contains("tp-link") ||  // TP-Link Tapo/Kasa cameras
-               nameLower.Contains("canary");
+        // Only upgrade Camera or SecuritySystem categories
+        if (result.Category != ClientDeviceCategory.Camera &&
+            result.Category != ClientDeviceCategory.SecuritySystem)
+            return result;
+
+        var resolvedVendor = result.VendorName ?? client?.Oui;
+        if (string.IsNullOrEmpty(resolvedVendor))
+            return result;
+
+        var vendorLower = resolvedVendor.ToLowerInvariant();
+        if (!IsCloudSecurityVendor(vendorLower))
+            return result;
+
+        // Determine target category based on original type
+        var targetCategory = result.Category == ClientDeviceCategory.Camera
+            ? ClientDeviceCategory.CloudCamera
+            : ClientDeviceCategory.CloudSecuritySystem;
+
+        _logger?.LogDebug("[Detection] Overriding {Original} → {Target} for cloud vendor '{Vendor}'",
+            result.Category, targetCategory, resolvedVendor);
+
+        return new DeviceDetectionResult
+        {
+            Category = targetCategory,
+            Source = result.Source,
+            ConfidenceScore = result.ConfidenceScore,
+            VendorName = result.VendorName ?? resolvedVendor,
+            ProductName = result.ProductName,
+            RecommendedNetwork = NetworkPurpose.IoT,
+            Metadata = new Dictionary<string, object>(result.Metadata ?? new Dictionary<string, object>())
+            {
+                ["cloud_vendor_override"] = true,
+                ["vendor"] = resolvedVendor
+            }
+        };
+    }
+
+    /// <summary>
+    /// Post-process supplement: If a device wasn't well-classified but has an obvious camera-like name,
+    /// classify it based on vendor. This runs AFTER fingerprint/OUI detection, so vendor is known.
+    /// Also upgrades low-confidence categories like IoTGeneric when the name clearly indicates a camera.
+    /// </summary>
+    private DeviceDetectionResult ApplyCameraNameSupplement(DeviceDetectionResult result, UniFiClientResponse? client)
+    {
+        // Override obviously wrong fingerprints when name clearly indicates a camera
+        // - Unknown/IoTGeneric: always supplement
+        // - Desktop/Laptop/Phone/Tablet: fingerprint is clearly wrong if named "camera"
+        // - Don't override actual surveillance categories (Camera, CloudCamera, etc.)
+        var isGenericOrUnknown = result.Category == ClientDeviceCategory.Unknown ||
+                                 result.Category == ClientDeviceCategory.IoTGeneric;
+        var isMisfingerprinted = result.Category == ClientDeviceCategory.Desktop ||
+                                 result.Category == ClientDeviceCategory.Laptop ||
+                                 result.Category == ClientDeviceCategory.Smartphone ||
+                                 result.Category == ClientDeviceCategory.Tablet;
+
+        if (!isGenericOrUnknown && !isMisfingerprinted)
+            return result;
+
+        var checkName = client?.Name ?? client?.Hostname;
+        if (string.IsNullOrEmpty(checkName))
+            return result;
+
+        var nameLower = checkName.ToLowerInvariant();
+
+        // Check if name indicates a camera
+        if (!IsCameraName(nameLower))
+            return result;
+
+        // Resolve vendor from OUI
+        var resolvedVendor = client?.Oui;
+
+        // Build reason for supplement/override
+        var reason = isMisfingerprinted
+            ? $"Name clearly indicates camera, overriding misfingerprinted {result.Category}"
+            : "Name contains camera keyword but no fingerprint/OUI match";
+
+        // Create a Camera result (will be upgraded to CloudCamera if cloud vendor)
+        var cameraResult = new DeviceDetectionResult
+        {
+            Category = ClientDeviceCategory.Camera,
+            Source = DetectionSource.DeviceName,
+            ConfidenceScore = 60, // Lower confidence - only name-based
+            VendorName = resolvedVendor,
+            RecommendedNetwork = NetworkPurpose.Security,
+            Metadata = new Dictionary<string, object>
+            {
+                ["supplement_reason"] = reason,
+                ["matched_name"] = checkName,
+                ["original_category"] = result.Category.ToString()
+            }
+        };
+
+        _logger?.LogDebug("[Detection] Supplementing {Original} → Camera for name '{Name}' (vendor: {Vendor})",
+            result.Category, checkName, resolvedVendor ?? "unknown");
+
+        // Run through cloud vendor upgrade
+        return ApplyCloudSecurityOverride(cameraResult, client);
+    }
+
+    /// <summary>
+    /// Post-process supplement: If a device is misfingerprinted but has "watch" in the name,
+    /// reclassify as Smartphone. Smartwatches are network-wise equivalent to phones.
+    /// Uses word boundary matching to avoid false positives (e.g., "Watcher", "watching").
+    /// </summary>
+    private DeviceDetectionResult ApplyWatchNameSupplement(DeviceDetectionResult result, UniFiClientResponse? client)
+    {
+        // Only correct obviously wrong fingerprints when name contains "watch"
+        // - Don't override Smartphone (already correct for smartwatches)
+        // - Don't override wearables that are already correctly classified
+        var isMisfingerprinted = result.Category == ClientDeviceCategory.Desktop ||
+                                 result.Category == ClientDeviceCategory.Laptop ||
+                                 result.Category == ClientDeviceCategory.Camera ||
+                                 result.Category == ClientDeviceCategory.CloudCamera ||
+                                 result.Category == ClientDeviceCategory.SmartTV ||
+                                 result.Category == ClientDeviceCategory.IoTGeneric ||
+                                 result.Category == ClientDeviceCategory.Unknown;
+
+        if (!isMisfingerprinted)
+            return result;
+
+        var checkName = client?.Name ?? client?.Hostname;
+        if (string.IsNullOrEmpty(checkName))
+            return result;
+
+        var nameLower = checkName.ToLowerInvariant();
+
+        // Use word boundary to match "watch" but not "watcher", "watching", etc.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(nameLower, @"\bwatch\b"))
+            return result;
+
+        // Resolve vendor from OUI or name hints
+        var resolvedVendor = client?.Oui;
+        if (string.IsNullOrEmpty(resolvedVendor))
+        {
+            // Try to infer vendor from name
+            if (nameLower.Contains("apple")) resolvedVendor = "Apple";
+            else if (nameLower.Contains("samsung") || nameLower.Contains("galaxy")) resolvedVendor = "Samsung";
+            else if (nameLower.Contains("fitbit")) resolvedVendor = "Fitbit";
+            else if (nameLower.Contains("garmin")) resolvedVendor = "Garmin";
+        }
+
+        _logger?.LogDebug("[Detection] Supplementing {Original} → Smartphone for watch name '{Name}' (vendor: {Vendor})",
+            result.Category, checkName, resolvedVendor ?? "unknown");
+
+        return new DeviceDetectionResult
+        {
+            Category = ClientDeviceCategory.Smartphone,
+            Source = DetectionSource.DeviceName,
+            ConfidenceScore = 60, // Lower confidence - only name-based
+            VendorName = resolvedVendor,
+            RecommendedNetwork = NetworkPurpose.Corporate,
+            Metadata = new Dictionary<string, object>
+            {
+                ["supplement_reason"] = $"Name contains 'watch', overriding misfingerprinted {result.Category}",
+                ["matched_name"] = checkName,
+                ["original_category"] = result.Category.ToString()
+            }
+        };
+    }
+
+    /// <summary>
+    /// Check if a vendor is a cloud-dependent security vendor (cameras, security systems).
+    /// Cloud devices require internet access and should be on IoT VLAN, not Security VLAN.
+    /// Uses word boundary matching to avoid false positives (e.g., "Springfield" matching "ring").
+    /// </summary>
+    private static bool IsCloudSecurityVendor(string vendorLower)
+    {
+        // Word boundary pattern for each vendor - prevents substring false positives
+        return System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bring\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bnest\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bgoogle\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bwyze\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bblink\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\barlo\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bsimplisafe\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\btp-link\b") ||
+               System.Text.RegularExpressions.Regex.IsMatch(vendorLower, @"\bcanary\b");
     }
 
     /// <summary>
@@ -1020,6 +1265,7 @@ public class DeviceTypeDetectionService
                     Mac = historyClient.Mac,
                     Name = historyClient.Name ?? string.Empty,
                     Hostname = historyClient.Hostname ?? string.Empty,
+                    Oui = historyClient.Oui ?? string.Empty,
                     DevIdOverride = historyClient.Fingerprint.DevIdOverride,
                     DevCat = historyClient.Fingerprint.DevCat,
                     DevFamily = historyClient.Fingerprint.DevFamily,
@@ -1029,6 +1275,8 @@ public class DeviceTypeDetectionService
                 var fpResult = _fingerprintDetector.Detect(pseudoClient);
                 if (fpResult.Category != ClientDeviceCategory.Unknown)
                 {
+                    // Apply cloud vendor override (same as in DetectDeviceType)
+                    fpResult = ApplyCloudSecurityOverride(fpResult, pseudoClient);
                     _logger?.LogDebug("[Detection] Client history fingerprint detected: {Category} ({Confidence}%)",
                         fpResult.CategoryName, fpResult.ConfidenceScore);
                     return fpResult;
