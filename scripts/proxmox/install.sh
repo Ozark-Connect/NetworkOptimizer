@@ -517,11 +517,62 @@ deploy_application() {
     pct exec "$CT_ID" -- mkdir -p "$app_dir"
     msg_ok "Directory created"
 
-    msg_info "Downloading docker-compose.yml..."
-    pct exec "$CT_ID" -- curl -fsSL \
-        "https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/docker/docker-compose.yml" \
-        -o "$app_dir/docker-compose.yml"
-    msg_ok "docker-compose.yml downloaded"
+    msg_info "Creating docker-compose.yml..."
+    # Generate compose file that pulls from GHCR (no build context)
+    # This is simpler and faster than building from source
+    local compose_content='services:
+  network-optimizer:
+    image: ghcr.io/ozark-connect/network-optimizer:latest
+    container_name: network-optimizer
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+      - ./ssh-keys:/app/ssh-keys:ro
+      - ./logs:/app/logs
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      - BIND_LOCALHOST_ONLY=${BIND_LOCALHOST_ONLY:-false}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - HOST_IP=${HOST_IP:-}
+      - HOST_NAME=${HOST_NAME:-}
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
+      - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
+      - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8042/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  network-optimizer-speedtest:
+    image: ghcr.io/ozark-connect/speedtest:latest
+    container_name: network-optimizer-speedtest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - SAVE_DATA=true
+      - HOST_IP=${HOST_IP:-}
+      - HOST_NAME=${HOST_NAME:-}
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
+      - API_PORT=8042
+      - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${OPENSPEEDTEST_PORT:-3005}/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+'
+    local encoded_compose
+    encoded_compose=$(echo "$compose_content" | base64 -w 0)
+    pct exec "$CT_ID" -- bash -c "echo '$encoded_compose' | base64 -d > $app_dir/docker-compose.yml"
+    msg_ok "docker-compose.yml created"
 
     msg_info "Downloading .env.example (reference)..."
     pct exec "$CT_ID" -- curl -fsSL \
