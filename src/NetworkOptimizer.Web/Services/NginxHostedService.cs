@@ -355,28 +355,37 @@ public class NginxHostedService : IHostedService, IDisposable
 
             // nginx runs as a daemon on macOS (forks and parent exits), so the tracked
             // process may already be gone. Use pkill as a fallback to ensure cleanup.
+            // Run twice with a delay to catch processes spawned during shutdown race.
             if (OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
             {
-                try
+                for (var attempt = 0; attempt < 2; attempt++)
                 {
-                    using var pkill = Process.Start(new ProcessStartInfo
+                    if (attempt > 0)
                     {
-                        FileName = "pkill",
-                        Arguments = "nginx",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    });
-                    pkill?.WaitForExit(2000);
-                    if (pkill?.ExitCode == 0)
-                    {
-                        _logger.LogInformation("Killed nginx processes via pkill");
+                        Thread.Sleep(500);
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "pkill nginx failed");
+
+                    try
+                    {
+                        using var pkill = Process.Start(new ProcessStartInfo
+                        {
+                            FileName = "pkill",
+                            Arguments = "nginx",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        });
+                        pkill?.WaitForExit(2000);
+                        if (pkill?.ExitCode == 0)
+                        {
+                            _logger.LogInformation("Killed nginx processes via pkill");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "pkill nginx failed");
+                    }
                 }
             }
 

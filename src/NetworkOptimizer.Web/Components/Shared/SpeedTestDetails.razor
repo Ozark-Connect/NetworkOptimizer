@@ -3,6 +3,7 @@
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Web.Components.Shared
+@implements IDisposable
 
 <div class="speed-results">
     @if (DownloadMbps > 0)
@@ -233,6 +234,7 @@
 
     // Delete state
     private bool _deleting;
+    private bool _disposed;
 
     protected override void OnParametersSet()
     {
@@ -620,7 +622,16 @@
         }
         finally
         {
-            _deleting = false;
+            // Only reset if component is still mounted (delete may have removed us from DOM)
+            if (!_disposed)
+            {
+                _deleting = false;
+            }
         }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
     }
 }

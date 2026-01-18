@@ -161,6 +161,12 @@ EOF
 
 chmod +x "$INSTALL_DIR/start.sh"
 
+# Restore backed up start.sh if it exists (preserves user's env config on upgrade)
+if [ -n "${BACKUP_DIR:-}" ] && [ -f "$BACKUP_DIR/start.sh" ]; then
+    cp "$BACKUP_DIR/start.sh" "$INSTALL_DIR/start.sh"
+    echo "  ✓ Restored custom startup configuration from backup"
+fi
+
 # Step 5: Create log directory
 echo ""
 echo "[5/8] Creating directories..."
