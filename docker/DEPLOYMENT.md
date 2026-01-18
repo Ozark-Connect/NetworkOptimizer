@@ -7,15 +7,15 @@ Production deployment guide for Network Optimizer.
 | Option | Best For | Guide |
 |--------|----------|-------|
 | Windows Installer | Windows desktops/servers | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
-| Proxmox LXC | Homelab virtualization, one-liner install | [Proxmox Guide](#proxmox-lxc-recommended) |
-| Linux + Docker | Self-built servers, VMs, cloud | [Below](#1-linux-docker-recommended) |
+| Linux + Docker | Self-built servers, VMs, cloud (recommended) | [Below](#1-linux-docker-recommended) |
+| Proxmox LXC | Homelab virtualization, one-liner install | [Proxmox Guide](#proxmox-lxc) |
 | NAS + Docker | Synology, QNAP, Unraid | [NAS Deployment](#2-nas-deployment-docker) |
 | macOS Native | Mac servers, multi-gigabit speed testing | [macOS Installation](../docs/MACOS-INSTALLATION.md) |
 | Linux Native | Maximum performance, no Docker | [Native Guide](NATIVE-DEPLOYMENT.md#linux-deployment) |
 
 ---
 
-### Proxmox LXC (Recommended)
+### Proxmox LXC
 
 The easiest way to deploy on Proxmox. Run this one-liner on your **Proxmox VE host**:
 
