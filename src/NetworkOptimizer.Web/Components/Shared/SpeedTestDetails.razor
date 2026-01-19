@@ -609,8 +609,8 @@
             builder.AddAttribute(2, "width", "24");
             builder.AddAttribute(3, "height", "24");
             builder.AddAttribute(4, "class", "vpn-icon tailscale-icon");
-            // Official Tailscale logo - 3x3 dot grid with middle row solid, top/bottom faded
-            builder.AddMarkupContent(5, @"<ellipse cx=""2.45"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""9.79"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""17.13"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""9.79"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""9.79"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/>");
+            // Official Tailscale logo - 3x3 dot grid: middle row + center bottom solid, corners faded
+            builder.AddMarkupContent(5, @"<ellipse cx=""2.45"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""9.79"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""17.13"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""9.79"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""9.79"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/>");
             builder.CloseElement();
             return;
         }
