@@ -299,9 +299,21 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (targetDevice == null && targetClient == null)
             {
-                path.IsValid = false;
-                path.ErrorMessage = $"Target '{targetHost}' not found in network topology";
-                return path;
+                // Check if it's an external IP (Tailscale CGNAT or Teleport range)
+                // If so, use the gateway as the target device
+                if (IsExternalVpnIp(targetHost, topology))
+                {
+                    targetDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+                    path.IsExternalPath = true;
+                    _logger.LogDebug("External IP {Ip} - using gateway as target", targetHost);
+                }
+
+                if (targetDevice == null)
+                {
+                    path.IsValid = false;
+                    path.ErrorMessage = $"Target '{targetHost}' not found in network topology";
+                    return path;
+                }
             }
 
             // Set destination info
@@ -1258,6 +1270,37 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP is an external VPN IP (Tailscale CGNAT or Teleport range).
+    /// </summary>
+    private static bool IsExternalVpnIp(string ip, NetworkTopology topology)
+    {
+        if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
+            return false;
+
+        // Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
+        if (ip.StartsWith("100."))
+        {
+            var parts = ip.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 64 && secondOctet <= 127)
+                    return true;
+            }
+        }
+
+        // Teleport: 192.168.x.x that's NOT in any known UniFi network
+        if (ip.StartsWith("192.168."))
+        {
+            var isInKnownNetwork = topology.Networks.Any(n =>
+                !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
+            if (!isInKnownNetwork)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
