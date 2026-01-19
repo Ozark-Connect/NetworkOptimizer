@@ -1056,16 +1056,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (isGateway)
                 {
                     reachedGateway = true;
-                    // Add known gateway routing limits
+                    // Add known gateway routing limits as informational note (don't overwrite link speeds)
                     if (path.RequiresRouting)
                     {
-                        hop.Notes = "L3 routing (inter-VLAN)";
                         if (GatewayRoutingLimits.TryGetValue(device.FriendlyModelName, out int limit) ||
                             GatewayRoutingLimits.TryGetValue(device.Model ?? "", out limit))
                         {
-                            hop.IngressSpeedMbps = limit;
-                            hop.EgressSpeedMbps = limit;
                             hop.Notes = $"L3 routing (inter-VLAN) - {limit / 1000.0:F1} Gbps capacity";
+                        }
+                        else
+                        {
+                            hop.Notes = "L3 routing (inter-VLAN)";
                         }
                     }
                     break;
