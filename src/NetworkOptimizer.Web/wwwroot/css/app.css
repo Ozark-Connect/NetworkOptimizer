@@ -3298,6 +3298,8 @@ select.form-control {
 /* VPN hop icons (Teleport, Tailscale) */
 .vpn-icon {
     color: currentColor;
+    vertical-align: middle;
+    display: inline-block;
 }
 
 .path-analysis .path-hop.hop-teleport {
