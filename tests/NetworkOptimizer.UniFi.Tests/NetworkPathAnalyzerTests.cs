@@ -722,6 +722,26 @@ public class NetworkPathAnalyzerTests
     }
 
     [Fact]
+    public void VpnHop_HasWanPortNames()
+    {
+        // Arrange - Generic VPN hop (remote-user-vpn network) should have WAN port names
+        var hop = new NetworkHop
+        {
+            Type = HopType.Vpn,
+            DeviceName = "VPN",
+            DeviceIp = "10.255.255.100",
+            IngressSpeedMbps = 100,
+            EgressSpeedMbps = 100,
+            IngressPortName = "WAN",
+            EgressPortName = "WAN"
+        };
+
+        // Assert
+        hop.IngressPortName.Should().Be("WAN");
+        hop.EgressPortName.Should().Be("WAN");
+    }
+
+    [Fact]
     public void VpnPath_BottleneckDescription_ShowsWan()
     {
         // Arrange - Path with VPN hop as bottleneck should show "WAN" not "unknown"

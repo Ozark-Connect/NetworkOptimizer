@@ -108,5 +108,8 @@ public enum HopType
     Tailscale,
 
     /// <summary>WAN/Internet (external IP not in local network)</summary>
-    Wan
+    Wan,
+
+    /// <summary>Generic VPN (UniFi remote-user-vpn network)</summary>
+    Vpn
 }

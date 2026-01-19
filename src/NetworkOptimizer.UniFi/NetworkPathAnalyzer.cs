@@ -1271,9 +1271,30 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
         }
 
-        // Check if it's any other external IP (not in any known network)
-        var isExternalIp = !topology.Networks.Any(n =>
+        // Check for UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
+        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
             !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+
+        if (matchingNetwork?.Purpose == "remote-user-vpn")
+        {
+            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            return new NetworkHop
+            {
+                Type = HopType.Vpn,
+                DeviceName = "VPN",
+                DeviceIp = clientIp,
+                IngressSpeedMbps = wanSpeed,
+                EgressSpeedMbps = wanSpeed,
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                Notes = wanUploadMbps > 0
+                    ? $"VPN ({matchingNetwork.Name}, WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : $"VPN ({matchingNetwork.Name})"
+            };
+        }
+
+        // Check if it's any other external IP (not in any known network)
+        var isExternalIp = matchingNetwork == null;
 
         if (isExternalIp)
         {
