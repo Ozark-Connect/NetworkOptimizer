@@ -123,13 +123,16 @@
         }
     }
 
-    // LAN = has valid L2 path AND has Wi-Fi signal (excludes wired clients)
+    // LAN = has valid L2 path, NOT external, AND has Wi-Fi signal (excludes wired clients)
     private IEnumerable<Iperf3Result> LanResults => LocationResults
-        .Where(r => r.PathAnalysis?.Path?.IsValid == true && r.WifiSignalDbm.HasValue);
+        .Where(r => r.PathAnalysis?.Path?.IsValid == true
+                    && r.PathAnalysis?.Path?.IsExternalPath != true
+                    && r.WifiSignalDbm.HasValue);
 
-    // External = no valid L2 path (Tailscale, remote, etc.)
+    // External = no valid L2 path OR is external path (VPN, Tailscale, Teleport, WAN)
     private IEnumerable<Iperf3Result> ExternalResults => LocationResults
-        .Where(r => r.PathAnalysis?.Path?.IsValid != true);
+        .Where(r => r.PathAnalysis?.Path?.IsValid != true
+                    || r.PathAnalysis?.Path?.IsExternalPath == true);
 
     private int LanCount => LanResults.Count();
     private int ExternalCount => ExternalResults.Count();
