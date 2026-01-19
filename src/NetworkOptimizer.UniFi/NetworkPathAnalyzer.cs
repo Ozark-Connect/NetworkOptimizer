@@ -1173,8 +1173,85 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         };
         hops.Add(serverHop);
 
+        // Check if we need to prepend a VPN hop (Teleport or Tailscale)
+        var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology);
+        if (vpnHop != null)
+        {
+            // VPN hop becomes first (order -1 sorts before 0)
+            vpnHop.Order = -1;
+            hops.Add(vpnHop);
+            _logger.LogDebug("Prepended {VpnType} hop for client {ClientIp}",
+                vpnHop.Type, path.DestinationHost);
+        }
+
         // Sort hops by order
         path.Hops = hops.OrderBy(h => h.Order).ToList();
+    }
+
+    /// <summary>
+    /// Detects if the client IP is coming through a VPN (Teleport or Tailscale)
+    /// and creates an appropriate hop to prepend to the path.
+    /// </summary>
+    private NetworkHop? DetectAndCreateVpnHop(string clientIp, NetworkTopology topology)
+    {
+        if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
+            return null;
+
+        // Check for Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
+        if (clientIp.StartsWith("100."))
+        {
+            var parts = clientIp.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 64 && secondOctet <= 127)
+                {
+                    return new NetworkHop
+                    {
+                        Type = HopType.Tailscale,
+                        DeviceName = "Tailscale",
+                        DeviceIp = clientIp,
+                        Notes = "Tailscale VPN mesh"
+                    };
+                }
+            }
+        }
+
+        // Check for Teleport: 192.168.x.x that's NOT in any known UniFi network
+        if (clientIp.StartsWith("192.168."))
+        {
+            // Check if this IP is in any known UniFi network
+            var isInKnownNetwork = topology.Networks.Any(n =>
+                !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+
+            if (!isInKnownNetwork)
+            {
+                return new NetworkHop
+                {
+                    Type = HopType.Teleport,
+                    DeviceName = "Teleport",
+                    DeviceIp = clientIp,
+                    Notes = "Teleport VPN gateway"
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP address is within a CIDR subnet (e.g., "192.168.1.0/24").
+    /// </summary>
+    private static bool IsIpInSubnetCidr(string ipAddress, string cidrSubnet)
+    {
+        if (!System.Net.IPAddress.TryParse(ipAddress, out var ip))
+            return false;
+
+        var parts = cidrSubnet.Split('/');
+        if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
+            !int.TryParse(parts[1], out var prefixLength))
+            return false;
+
+        return IsInSubnet(ip, subnetIp, prefixLength);
     }
 
     private static HopType GetHopType(DeviceType deviceType) => deviceType switch

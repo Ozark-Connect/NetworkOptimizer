@@ -323,6 +323,8 @@
         HopType.AccessPoint => "hop-ap",
         HopType.Gateway => "hop-gateway",
         HopType.Server => "hop-server",
+        HopType.Teleport => "hop-teleport",
+        HopType.Tailscale => "hop-tailscale",
         _ => ""
     };
 
@@ -357,6 +359,8 @@
         HopType.Server => "Server",
         HopType.Client => "Client",
         HopType.WirelessClient => "Wireless Client",
+        HopType.Teleport => "Teleport VPN",
+        HopType.Tailscale => "Tailscale VPN",
         _ => "Device"
     };
 
@@ -368,6 +372,8 @@
         HopType.AccessPoint => "📶",
         HopType.Gateway => "🌐",
         HopType.Server => "🖥️",
+        HopType.Teleport => "🔒",
+        HopType.Tailscale => "🔒",
         _ => "•"
     };
 
@@ -583,6 +589,32 @@
     /// </summary>
     private RenderFragment GetHopIconMarkup(NetworkHop hop) => builder =>
     {
+        // VPN hops get custom SVG icons
+        if (hop.Type == HopType.Teleport)
+        {
+            builder.OpenElement(0, "svg");
+            builder.AddAttribute(1, "viewBox", "0 0 20 20");
+            builder.AddAttribute(2, "width", "24");
+            builder.AddAttribute(3, "height", "24");
+            builder.AddAttribute(4, "class", "vpn-icon teleport-icon");
+            builder.AddMarkupContent(5, @"<path fill-rule=""evenodd"" clip-rule=""evenodd"" d=""M5.111 7.255c-.125-1.072-.318-1.952-.544-2.55-.115-.3-.227-.502-.322-.618a.555.555 0 0 0-.066-.07.897.897 0 0 0-.183.243c-.156.27-.312.693-.45 1.26-.275 1.127-.45 2.708-.45 4.474 0 1.765.175 3.347.45 4.473.138.567.294.99.45 1.26.086.15.15.216.183.244a.558.558 0 0 0 .068-.072c.096-.12.21-.324.324-.63.228-.606.422-1.497.545-2.582a.5.5 0 1 1 .994.114c-.129 1.126-.335 2.107-.603 2.82-.133.354-.291.67-.483.908-.188.231-.47.459-.845.459-.51 0-.848-.41-1.05-.761-.223-.388-.407-.915-.555-1.523-.299-1.224-.478-2.89-.478-4.71 0-1.821.18-3.486.478-4.71.148-.609.332-1.136.555-1.523C3.331 3.41 3.67 3 4.18 3c.373 0 .653.224.84.454.192.235.35.548.483.898.267.704.473 1.673.603 2.788a.5.5 0 0 1-.994.115Zm-.96 8.736-.003.001h.003ZM15.543 4.706c-.227.597-.42 1.477-.545 2.55a.5.5 0 0 1-.993-.116c.13-1.115.336-2.084.603-2.788.132-.35.29-.663.482-.898.187-.23.467-.454.84-.454.511 0 .848.41 1.05.76.223.388.407.915.555 1.524.299 1.224.478 2.889.478 4.71 0 1.82-.18 3.486-.478 4.71-.148.608-.332 1.135-.555 1.523-.202.35-.539.76-1.05.76-.375 0-.656-.227-.844-.458-.193-.238-.351-.554-.484-.908-.268-.713-.474-1.694-.603-2.82a.5.5 0 1 1 .994-.114c.124 1.085.317 1.976.545 2.582.115.306.228.51.324.63a.562.562 0 0 0 .068.072.898.898 0 0 0 .183-.244c.156-.27.313-.693.45-1.26.275-1.126.45-2.708.45-4.473 0-1.766-.175-3.347-.45-4.474-.137-.567-.294-.99-.45-1.26a.896.896 0 0 0-.183-.243.554.554 0 0 0-.066.07c-.095.116-.207.318-.321.619Zm.418 11.286h-.002.002ZM7.557 9.684a.5.5 0 0 0 0 .707l2.122 2.122a.5.5 0 0 0 .707 0l2.123-2.122a.5.5 0 0 0 0-.707L10.386 7.56a.5.5 0 0 0-.707 0L7.557 9.684Zm1.06.353 1.416 1.416 1.415-1.416-1.415-1.415-1.416 1.415Z"" fill=""currentColor""/>");
+            builder.CloseElement();
+            return;
+        }
+
+        if (hop.Type == HopType.Tailscale)
+        {
+            builder.OpenElement(0, "svg");
+            builder.AddAttribute(1, "viewBox", "0 0 24 24");
+            builder.AddAttribute(2, "width", "24");
+            builder.AddAttribute(3, "height", "24");
+            builder.AddAttribute(4, "class", "vpn-icon tailscale-icon");
+            // Tailscale logo - three connected dots
+            builder.AddMarkupContent(5, @"<circle cx=""6"" cy=""12"" r=""2.5"" fill=""currentColor""/><circle cx=""12"" cy=""6"" r=""2.5"" fill=""currentColor""/><circle cx=""12"" cy=""18"" r=""2.5"" fill=""currentColor""/><circle cx=""18"" cy=""12"" r=""2.5"" fill=""currentColor""/><line x1=""8"" y1=""11"" x2=""10"" y2=""7"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""8"" y1=""13"" x2=""10"" y2=""17"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""14"" y1=""7"" x2=""16"" y2=""11"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""14"" y1=""17"" x2=""16"" y2=""13"" stroke=""currentColor"" stroke-width=""1.5""/>");
+            builder.CloseElement();
+            return;
+        }
+
         var model = hop.DeviceModel;
 
         // Show device icons for any device with a model name - onerror falls back to emoji

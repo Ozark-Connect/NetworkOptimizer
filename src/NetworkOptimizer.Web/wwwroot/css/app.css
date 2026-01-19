@@ -3295,6 +3295,29 @@ select.form-control {
     font-weight: 500;
 }
 
+/* VPN hop icons (Teleport, Tailscale) */
+.vpn-icon {
+    color: currentColor;
+}
+
+.path-analysis .path-hop.hop-teleport {
+    background: rgba(168, 85, 247, 0.15);
+    border-color: rgba(168, 85, 247, 0.3);
+}
+
+.path-analysis .path-hop.hop-teleport .hop-icon {
+    color: var(--purple-light);
+}
+
+.path-analysis .path-hop.hop-tailscale {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.path-analysis .path-hop.hop-tailscale .hop-icon {
+    color: #60a5fa;
+}
+
 /* Warnings and badges */
 .path-analysis .bottleneck-warning {
     padding: 0.5rem 0.75rem;

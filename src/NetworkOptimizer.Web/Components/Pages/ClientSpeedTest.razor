@@ -218,7 +218,6 @@
                                     <td>
                                         @{
                                             var vpnType = DetectVpnType(result);
-                                            Console.WriteLine($"DEBUG VPN: {result.DeviceHost} PathAnalysis={result.PathAnalysis != null} Path={result.PathAnalysis?.Path != null} IsValid={result.PathAnalysis?.Path?.IsValid} _networks={_networks?.Count} vpnType={vpnType}");
                                         }
                                         @if (vpnType != null)
                                         {

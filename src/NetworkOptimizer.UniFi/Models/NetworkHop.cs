@@ -99,5 +99,11 @@ public enum HopType
     Server,
 
     /// <summary>Wireless client endpoint (laptop)</summary>
-    WirelessClient
+    WirelessClient,
+
+    /// <summary>Teleport VPN gateway (external VPN)</summary>
+    Teleport,
+
+    /// <summary>Tailscale VPN (CGNAT mesh)</summary>
+    Tailscale
 }
