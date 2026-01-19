@@ -299,9 +299,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (targetDevice == null && targetClient == null)
             {
-                // Check if it's an external IP (Tailscale CGNAT or Teleport range)
+                // Check if it's an external IP (VPN or public internet)
                 // If so, use the gateway as the target device
-                if (IsExternalVpnIp(targetHost, topology))
+                if (IsExternalIp(targetHost, topology))
                 {
                     targetDevice = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
                     path.IsExternalPath = true;
@@ -1269,38 +1269,46 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
         }
 
+        // Check if it's any other external IP (not in any known network)
+        var isExternalIp = !topology.Networks.Any(n =>
+            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+
+        if (isExternalIp)
+        {
+            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            return new NetworkHop
+            {
+                Type = HopType.Wan,
+                DeviceName = "WAN",
+                DeviceIp = clientIp,
+                IngressSpeedMbps = wanSpeed,
+                EgressSpeedMbps = wanSpeed,
+                IngressPortName = "WAN",
+                EgressPortName = "WAN",
+                Notes = wanUploadMbps > 0
+                    ? $"External (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                    : "External connection"
+            };
+        }
+
         return null;
     }
 
     /// <summary>
-    /// Checks if an IP is an external VPN IP (Tailscale CGNAT or Teleport range).
+    /// Checks if an IP is external (not in any known local network).
+    /// This includes VPN ranges (Tailscale, Teleport) and public internet IPs.
     /// </summary>
-    private static bool IsExternalVpnIp(string ip, NetworkTopology topology)
+    private static bool IsExternalIp(string ip, NetworkTopology topology)
     {
         if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out _))
             return false;
 
-        // Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
-        if (ip.StartsWith("100."))
-        {
-            var parts = ip.Split('.');
-            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
-            {
-                if (secondOctet >= 64 && secondOctet <= 127)
-                    return true;
-            }
-        }
+        // Check if in any known network
+        var isInKnownNetwork = topology.Networks.Any(n =>
+            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
 
-        // Teleport: 192.168.x.x that's NOT in any known UniFi network
-        if (ip.StartsWith("192.168."))
-        {
-            var isInKnownNetwork = topology.Networks.Any(n =>
-                !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
-            if (!isInKnownNetwork)
-                return true;
-        }
-
-        return false;
+        // If not in any known network, it's external
+        return !isInKnownNetwork;
     }
 
     /// <summary>

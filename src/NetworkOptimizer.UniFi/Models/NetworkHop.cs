@@ -105,5 +105,8 @@ public enum HopType
     Teleport,
 
     /// <summary>Tailscale VPN (CGNAT mesh)</summary>
-    Tailscale
+    Tailscale,
+
+    /// <summary>WAN/Internet (external IP not in local network)</summary>
+    Wan
 }
