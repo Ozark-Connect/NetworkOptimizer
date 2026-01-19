@@ -170,7 +170,7 @@ public static class UniFiProductDatabase
         { "UDR5G", "UDR-5G-Max" },
         { "EXPRESS", "UX" },
         { "UX7", "UX7" },
-        { "UXMAX", "UXG-Max" },
+        { "UXMAX", "UX7" },
 
         // =====================================================================
         // SWITCHES
@@ -584,23 +584,18 @@ public static class UniFiProductDatabase
     /// </summary>
     /// <param name="model">The model field (internal code)</param>
     /// <param name="shortname">The shortname field</param>
-    /// <param name="modelDisplay">The model_display field (if present)</param>
     /// <returns>Best available friendly name</returns>
-    public static string GetBestProductName(string? model, string? shortname, string? modelDisplay)
+    public static string GetBestProductName(string? model, string? shortname)
     {
-        // Try model_display first if it looks like a product name
-        if (!string.IsNullOrEmpty(modelDisplay) && modelDisplay.Contains("-"))
-            return modelDisplay;
+        // Try model lookup first (preferred over shortname)
+        var modelLookup = GetProductName(model);
+        if (!string.IsNullOrEmpty(model) && modelLookup != model)
+            return modelLookup;
 
         // Try shortname lookup
         var shortnameLookup = GetProductName(shortname);
         if (!string.IsNullOrEmpty(shortname) && shortnameLookup != shortname)
             return shortnameLookup;
-
-        // Try model lookup
-        var modelLookup = GetProductName(model);
-        if (!string.IsNullOrEmpty(model) && modelLookup != model)
-            return modelLookup;
 
         // Fall back to shortname, then model
         return shortname ?? model ?? "Unknown";
@@ -624,11 +619,10 @@ public static class UniFiProductDatabase
     /// </summary>
     /// <param name="model">The model field (internal code)</param>
     /// <param name="shortname">The shortname field</param>
-    /// <param name="modelDisplay">The model_display field (if present)</param>
     /// <returns>True if the device supports iperf3</returns>
-    public static bool CanRunIperf3(string? model, string? shortname, string? modelDisplay)
+    public static bool CanRunIperf3(string? model, string? shortname)
     {
-        var productName = GetBestProductName(model, shortname, modelDisplay);
+        var productName = GetBestProductName(model, shortname);
         return CanRunIperf3(productName);
     }
 

@@ -67,7 +67,6 @@ public class UniFiDiscovery
                 HardwareType = hardwareType,
                 Model = d.Model,
                 Shortname = d.Shortname,
-                ModelDisplay = d.ModelDisplay,
                 IpAddress = d.Ip,
                 // Set LAN IP for gateways from network config
                 LanIpAddress = effectiveType.IsGateway() ? defaultLanGatewayIp : null,
@@ -510,14 +509,13 @@ public class DiscoveredDevice
 
     public string Model { get; set; } = string.Empty;
     public string? Shortname { get; set; }
-    public string ModelDisplay { get; set; } = string.Empty;
 
     /// <summary>
     /// Best product name for display and image lookup.
     /// Uses the same logic as UniFiDeviceResponse.FriendlyModelName.
     /// </summary>
     public string FriendlyModelName =>
-        UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
+        UniFiProductDatabase.GetBestProductName(Model, Shortname);
 
     /// <summary>
     /// Whether this device can run iperf3 for LAN speed testing

@@ -219,7 +219,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             Hostname = serverClient.Hostname,
             SwitchMac = serverClient.ConnectedToDeviceMac,
             SwitchName = connectedSwitch?.Name,
-            SwitchModel = connectedSwitch?.ModelDisplay ?? connectedSwitch?.Model,
+            SwitchModel = connectedSwitch?.FriendlyModelName,
             SwitchPort = serverClient.SwitchPort,
             NetworkId = serverClient.EffectiveNetworkId,
             NetworkName = network?.Name ?? serverClient.Network,
@@ -360,7 +360,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 if (gateway != null)
                 {
                     path.GatewayDevice = gateway.Name;
-                    path.GatewayModel = gateway.ModelDisplay ?? gateway.Model;
+                    path.GatewayModel = gateway.FriendlyModelName;
                 }
 
                 _logger.LogInformation("Inter-VLAN routing detected: {SrcNetwork} (VLAN {SrcVlan}) -> {DstNetwork} (VLAN {DstVlan})",
@@ -703,9 +703,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             currentPort = targetDevice.UplinkPort;
 
             // Add target device as first hop
-            var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname, targetDevice.ModelDisplay);
-            _logger.LogDebug("Target device model resolution: Model={Model}, Shortname={Shortname}, ModelDisplay={ModelDisplay} => DeviceModel={DeviceModel}",
-                targetDevice.Model, targetDevice.Shortname, targetDevice.ModelDisplay, deviceModel);
+            var deviceModel = UniFiProductDatabase.GetBestProductName(targetDevice.Model, targetDevice.Shortname);
+            _logger.LogDebug("Target device model resolution: Model={Model}, Shortname={Shortname} => DeviceModel={DeviceModel}",
+                targetDevice.Model, targetDevice.Shortname, deviceModel);
             var deviceHop = new NetworkHop
             {
                 Order = 0,
@@ -872,7 +872,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         Type = GetHopType(chainDevice.Type),
                         DeviceMac = chainDevice.Mac,
                         DeviceName = chainDevice.Name,
-                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname, chainDevice.ModelDisplay),
+                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
                         IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
@@ -911,7 +911,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     Type = HopType.Switch,
                     DeviceMac = switchDevice.Mac,
                     DeviceName = switchDevice.Name,
-                    DeviceModel = UniFiProductDatabase.GetBestProductName(switchDevice.Model, switchDevice.Shortname, switchDevice.ModelDisplay),
+                    DeviceModel = UniFiProductDatabase.GetBestProductName(switchDevice.Model, switchDevice.Shortname),
                     DeviceFirmware = switchDevice.Firmware,
                     DeviceIp = switchDevice.IpAddress,
                     IngressPort = currentPort,
@@ -978,7 +978,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     Type = GetHopType(device.Type),
                     DeviceMac = device.Mac,
                     DeviceName = device.Name,
-                    DeviceModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname, device.ModelDisplay),
+                    DeviceModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname),
                     DeviceFirmware = device.Firmware,
                     DeviceIp = device.IpAddress,
                     IngressPort = currentPort,
@@ -1060,7 +1060,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     if (path.RequiresRouting)
                     {
                         hop.Notes = "L3 routing (inter-VLAN)";
-                        if (GatewayRoutingLimits.TryGetValue(device.ModelDisplay ?? "", out int limit) ||
+                        if (GatewayRoutingLimits.TryGetValue(device.FriendlyModelName, out int limit) ||
                             GatewayRoutingLimits.TryGetValue(device.Model ?? "", out limit))
                         {
                             hop.IngressSpeedMbps = limit;
@@ -1093,7 +1093,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         Type = GetHopType(chainDevice.Type),
                         DeviceMac = chainDevice.Mac,
                         DeviceName = chainDevice.Name,
-                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname, chainDevice.ModelDisplay),
+                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
                         IngressPort = chainPort,
@@ -1144,7 +1144,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         Type = GetHopType(chainDevice.Type),
                         DeviceMac = chainDevice.Mac,
                         DeviceName = chainDevice.Name,
-                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname, chainDevice.ModelDisplay),
+                        DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
                         IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),

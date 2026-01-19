@@ -94,7 +94,7 @@ public class UniFiProductDatabaseTests
     [InlineData("UX", "UX")]
     [InlineData("EXPRESS", "UX")]
     [InlineData("UX7", "UX7")]
-    [InlineData("UXMAX", "UXG-Max")]
+    [InlineData("UXMAX", "UX7")]
     public void GetProductName_UniFiExpress_ReturnsCorrectName(string modelCode, string expected)
     {
         // Act
@@ -331,45 +331,28 @@ public class UniFiProductDatabaseTests
     #region GetBestProductName Tests
 
     [Fact]
-    public void GetBestProductName_ModelDisplayWithDash_ReturnsModelDisplay()
+    public void GetBestProductName_KnownModel_ReturnsModelLookup()
     {
-        // Arrange - modelDisplay with dash is preferred
+        // Arrange - model lookup takes priority over shortname
         var model = "UDMPRO";
         var shortname = "UDM-PRO";
-        var modelDisplay = "UDM-Pro-Custom";
 
         // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.GetBestProductName(model, shortname);
 
-        // Assert
-        result.Should().Be("UDM-Pro-Custom");
-    }
-
-    [Fact]
-    public void GetBestProductName_NoModelDisplay_UsesShortnameLookup()
-    {
-        // Arrange
-        var model = "UDMPRO";
-        var shortname = "UDM-PRO";
-        string? modelDisplay = null;
-
-        // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
-
-        // Assert
+        // Assert - model lookup wins
         result.Should().Be("UDM-Pro");
     }
 
     [Fact]
-    public void GetBestProductName_NoMatchingShortname_UsesModelLookup()
+    public void GetBestProductName_NoMatchingModel_UsesShortnameLookup()
     {
-        // Arrange
-        var model = "UDMPRO";
-        var shortname = "unknown-shortname";
-        string? modelDisplay = null;
+        // Arrange - when model doesn't match, falls back to shortname lookup
+        var model = "unknown-model";
+        var shortname = "UDM-PRO";
 
         // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.GetBestProductName(model, shortname);
 
         // Assert
         result.Should().Be("UDM-Pro");
@@ -381,10 +364,9 @@ public class UniFiProductDatabaseTests
         // Arrange
         var model = "unknown-model";
         var shortname = "fallback-shortname";
-        string? modelDisplay = null;
 
         // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.GetBestProductName(model, shortname);
 
         // Assert
         result.Should().Be("fallback-shortname");
@@ -396,10 +378,9 @@ public class UniFiProductDatabaseTests
         // Arrange
         var model = "unknown-model";
         string? shortname = null;
-        string? modelDisplay = null;
 
         // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.GetBestProductName(model, shortname);
 
         // Assert
         result.Should().Be("unknown-model");
@@ -409,40 +390,10 @@ public class UniFiProductDatabaseTests
     public void GetBestProductName_AllNull_ReturnsUnknown()
     {
         // Act
-        var result = UniFiProductDatabase.GetBestProductName(null, null, null);
+        var result = UniFiProductDatabase.GetBestProductName(null, null);
 
         // Assert
         result.Should().Be("Unknown");
-    }
-
-    [Fact]
-    public void GetBestProductName_ModelDisplayWithoutDash_SkipsModelDisplay()
-    {
-        // Arrange - modelDisplay without dash is NOT preferred
-        var model = "UDMPRO";
-        var shortname = "UDM-PRO";
-        var modelDisplay = "SomeDisplayName";  // No dash
-
-        // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
-
-        // Assert
-        result.Should().Be("UDM-Pro");  // Falls back to shortname lookup
-    }
-
-    [Fact]
-    public void GetBestProductName_EmptyModelDisplay_SkipsModelDisplay()
-    {
-        // Arrange
-        var model = "UDMPRO";
-        var shortname = "UDM-PRO";
-        var modelDisplay = "";
-
-        // Act
-        var result = UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
-
-        // Assert
-        result.Should().Be("UDM-Pro");
     }
 
     #endregion
@@ -606,61 +557,44 @@ public class UniFiProductDatabaseTests
 
     #endregion
 
-    #region CanRunIperf3 Tests (Three Parameters)
+    #region CanRunIperf3 Tests (Two Parameters)
 
     [Fact]
-    public void CanRunIperf3_ThreeParams_UsesGetBestProductName()
+    public void CanRunIperf3_TwoParams_UsesGetBestProductName()
     {
         // Arrange - USW-Flex-Mini doesn't support iperf3
         var model = "USWFLEXMINI";
         var shortname = "USW-FLEX-MINI";
-        var modelDisplay = "USW-Flex-Mini";
 
         // Act
-        var result = UniFiProductDatabase.CanRunIperf3(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.CanRunIperf3(model, shortname);
 
         // Assert
         result.Should().BeFalse();
     }
 
     [Fact]
-    public void CanRunIperf3_ThreeParams_SupportedDevice_ReturnsTrue()
+    public void CanRunIperf3_TwoParams_SupportedDevice_ReturnsTrue()
     {
         // Arrange - UDM-Pro supports iperf3
         var model = "UDMPRO";
         var shortname = "UDM-PRO";
-        string? modelDisplay = null;
 
         // Act
-        var result = UniFiProductDatabase.CanRunIperf3(model, shortname, modelDisplay);
+        var result = UniFiProductDatabase.CanRunIperf3(model, shortname);
 
         // Assert
         result.Should().BeTrue();
     }
 
     [Fact]
-    public void CanRunIperf3_ThreeParams_AllNull_ReturnsTrue()
+    public void CanRunIperf3_TwoParams_AllNull_ReturnsTrue()
     {
         // Act
-        var result = UniFiProductDatabase.CanRunIperf3(null, null, null);
+        var result = UniFiProductDatabase.CanRunIperf3(null, null);
 
         // Assert
         result.Should().BeTrue();  // Unknown device defaults to true
-    }
-
-    [Fact]
-    public void CanRunIperf3_ThreeParams_WithModelDisplayDash_UsesModelDisplay()
-    {
-        // Arrange - modelDisplay with dash takes priority
-        var model = "UDMPRO";
-        var shortname = "UDM-PRO";
-        var modelDisplay = "USW-Flex-Mini";  // This would be an odd case but tests priority
-
-        // Act
-        var result = UniFiProductDatabase.CanRunIperf3(model, shortname, modelDisplay);
-
-        // Assert
-        result.Should().BeFalse();  // USW-Flex-Mini doesn't support iperf3
     }
 
     #endregion

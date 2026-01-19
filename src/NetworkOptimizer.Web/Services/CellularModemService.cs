@@ -74,7 +74,7 @@ public class CellularModemService : ICellularModemService
                 // Use product database to identify cellular modems
                 if (UniFiProductDatabase.IsCellularModem(device.Model, device.Shortname, device.Type))
                 {
-                    var displayModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname, null);
+                    var displayModel = UniFiProductDatabase.GetBestProductName(device.Model, device.Shortname);
                     discovered.Add(new DiscoveredModem
                     {
                         DeviceId = device.Id,

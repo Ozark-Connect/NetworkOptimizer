@@ -38,12 +38,6 @@ public class UniFiDeviceResponse
     public string? Shortname { get; set; }
 
     /// <summary>
-    /// Display model name (may be same as shortname or model)
-    /// </summary>
-    [JsonPropertyName("model_display")]
-    public string ModelDisplay { get; set; } = string.Empty;
-
-    /// <summary>
     /// Model in long-term support (legacy field)
     /// </summary>
     [JsonPropertyName("model_in_lts")]
@@ -62,7 +56,7 @@ public class UniFiDeviceResponse
     /// Gets the best available friendly product name using the product database lookup
     /// </summary>
     public string FriendlyModelName =>
-        UniFiProductDatabase.GetBestProductName(Model, Shortname, ModelDisplay);
+        UniFiProductDatabase.GetBestProductName(Model, Shortname);
 
     /// <summary>
     /// Whether this device can run iperf3 for LAN speed testing

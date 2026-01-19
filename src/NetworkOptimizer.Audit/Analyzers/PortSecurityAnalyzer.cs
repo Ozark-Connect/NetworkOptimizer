@@ -355,8 +355,7 @@ public class PortSecurityAnalyzer
         var mac = device.GetStringOrNull("mac");
         var model = device.GetStringOrNull("model");
         var shortname = device.GetStringOrNull("shortname");
-        var modelDisplay = device.GetStringOrNull("model_display");
-        var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+        var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname);
         var ip = device.GetStringOrNull("ip");
         var capabilities = ParseSwitchCapabilities(device);
 
@@ -804,8 +803,7 @@ public class PortSecurityAnalyzer
                 var name = device.GetStringFromAny("name", "mac") ?? "Unknown AP";
                 var model = device.GetStringOrNull("model");
                 var shortname = device.GetStringOrNull("shortname");
-                var modelDisplay = device.GetStringOrNull("model_display");
-                var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname, modelDisplay);
+                var modelName = NetworkOptimizer.UniFi.UniFiProductDatabase.GetBestProductName(model, shortname);
 
                 if (!string.IsNullOrEmpty(mac) && !apsByMac.ContainsKey(mac))
                 {
