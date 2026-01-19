@@ -122,9 +122,10 @@ public class PathAnalysisResult
         }
 
         // Recommendations based on bottleneck (wired only - wireless speeds vary naturally)
-        if (Path.TheoreticalMaxMbps <= 100 && !Path.HasWirelessConnection)
+        // 10/100 Mbps links on UniFi gear typically indicate cable or auto-negotiation issues
+        if ((Path.TheoreticalMaxMbps == 10 || Path.TheoreticalMaxMbps == 100) && !Path.HasWirelessConnection)
         {
-            Recommendations.Add("100 Mbps link detected - consider upgrading to gigabit");
+            Recommendations.Add("10/100 Mbps link detected - cable quality or auto-negotiation may be faulty");
         }
         else if (Path.TheoreticalMaxMbps == 1000 && avgEfficiency >= 90)
         {

@@ -326,13 +326,13 @@ public class PathAnalysisResultTests
         result.GenerateInsights();
 
         // Assert
-        result.Recommendations.Should().Contain(r => r.Contains("100 Mbps link detected"));
+        result.Recommendations.Should().Contain(r => r.Contains("10/100 Mbps link detected"));
     }
 
     [Fact]
     public void GenerateInsights_WirelessWith100MbpsTheo_DoesNotRecommendUpgrade()
     {
-        // Arrange - Wireless paths shouldn't trigger 100M wired upgrade recommendation
+        // Arrange - Wireless paths shouldn't trigger 10/100M wired cable warning
         var result = new PathAnalysisResult
         {
             Path = new NetworkPath
@@ -354,7 +354,7 @@ public class PathAnalysisResultTests
         result.GenerateInsights();
 
         // Assert
-        result.Recommendations.Should().NotContain(r => r.Contains("100 Mbps link detected"));
+        result.Recommendations.Should().NotContain(r => r.Contains("10/100 Mbps link detected"));
     }
 
     [Fact]

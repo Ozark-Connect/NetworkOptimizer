@@ -1225,15 +1225,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 if (secondOctet >= 64 && secondOctet <= 127)
                 {
+                    // Use higher of upload/download until asymmetric link support is added
+                    var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
                     return new NetworkHop
                     {
                         Type = HopType.Tailscale,
                         DeviceName = "Tailscale",
                         DeviceIp = clientIp,
-                        // WAN upload = server can send to client (client download)
-                        // WAN download = server can receive from client (client upload)
-                        IngressSpeedMbps = wanDownloadMbps,
-                        EgressSpeedMbps = wanUploadMbps,
+                        IngressSpeedMbps = wanSpeed,
+                        EgressSpeedMbps = wanSpeed,
+                        IngressPortName = "WAN",
+                        EgressPortName = "WAN",
                         Notes = wanUploadMbps > 0
                             ? $"Tailscale VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
                             : "Tailscale VPN mesh"

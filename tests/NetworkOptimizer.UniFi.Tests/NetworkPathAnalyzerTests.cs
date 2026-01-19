@@ -244,8 +244,8 @@ public class NetworkPathAnalyzerTests
         // Act
         result.GenerateInsights();
 
-        // Assert - Should recommend upgrade for wired 100 Mbps
-        result.Recommendations.Should().Contain("100 Mbps link detected - consider upgrading to gigabit");
+        // Assert - Should warn about cable/auto-negotiation for wired 100 Mbps
+        result.Recommendations.Should().Contain("10/100 Mbps link detected - cable quality or auto-negotiation may be faulty");
     }
 
     [Fact]
@@ -264,8 +264,8 @@ public class NetworkPathAnalyzerTests
         // Act
         result.GenerateInsights();
 
-        // Assert - Should NOT recommend upgrade for wireless (speeds vary naturally)
-        result.Recommendations.Should().NotContain(r => r.Contains("100 Mbps link detected"));
+        // Assert - Should NOT warn about cable for wireless (speeds vary naturally)
+        result.Recommendations.Should().NotContain(r => r.Contains("10/100 Mbps link detected"));
     }
 
     [Fact]
@@ -286,8 +286,8 @@ public class NetworkPathAnalyzerTests
         // Act
         result.GenerateInsights();
 
-        // Assert - Should NOT recommend upgrade for mesh (it's wireless)
-        result.Recommendations.Should().NotContain(r => r.Contains("100 Mbps link detected"));
+        // Assert - Should NOT warn about cable for mesh (it's wireless)
+        result.Recommendations.Should().NotContain(r => r.Contains("10/100 Mbps link detected"));
     }
 
     [Fact]
@@ -655,6 +655,163 @@ public class NetworkPathAnalyzerTests
         topology.Devices.Should().HaveCount(4); // Gateway, Switch, Wired AP, Mesh AP
         topology.Clients.Should().HaveCount(2); // Wired client, Wireless client
         topology.Networks.Should().HaveCount(1); // Default network
+    }
+
+    #endregion
+
+    #region VPN Hop Tests
+
+    [Fact]
+    public void TailscaleHop_HasWanPortNames()
+    {
+        // Arrange - Tailscale hop should have WAN port names for bottleneck description
+        var hop = new NetworkHop
+        {
+            Type = HopType.Tailscale,
+            DeviceName = "Tailscale",
+            DeviceIp = "100.97.85.114",
+            IngressSpeedMbps = 100,
+            EgressSpeedMbps = 100,
+            IngressPortName = "WAN",
+            EgressPortName = "WAN"
+        };
+
+        // Assert
+        hop.IngressPortName.Should().Be("WAN");
+        hop.EgressPortName.Should().Be("WAN");
+    }
+
+    [Fact]
+    public void TeleportHop_HasWanPortNames()
+    {
+        // Arrange - Teleport hop should have WAN port names for bottleneck description
+        var hop = new NetworkHop
+        {
+            Type = HopType.Teleport,
+            DeviceName = "Teleport",
+            DeviceIp = "192.168.50.100",
+            IngressSpeedMbps = 100,
+            EgressSpeedMbps = 100,
+            IngressPortName = "WAN",
+            EgressPortName = "WAN"
+        };
+
+        // Assert
+        hop.IngressPortName.Should().Be("WAN");
+        hop.EgressPortName.Should().Be("WAN");
+    }
+
+    [Fact]
+    public void WanHop_HasWanPortNames()
+    {
+        // Arrange - WAN hop for external IPs should have WAN port names
+        var hop = new NetworkHop
+        {
+            Type = HopType.Wan,
+            DeviceName = "WAN",
+            DeviceIp = "8.8.8.8",
+            IngressSpeedMbps = 100,
+            EgressSpeedMbps = 100,
+            IngressPortName = "WAN",
+            EgressPortName = "WAN"
+        };
+
+        // Assert
+        hop.IngressPortName.Should().Be("WAN");
+        hop.EgressPortName.Should().Be("WAN");
+    }
+
+    [Fact]
+    public void VpnPath_BottleneckDescription_ShowsWan()
+    {
+        // Arrange - Path with VPN hop as bottleneck should show "WAN" not "unknown"
+        var path = new NetworkPath
+        {
+            TheoreticalMaxMbps = 29,
+            RealisticMaxMbps = 29,
+            HasRealBottleneck = true,
+            BottleneckDescription = "29 Mbps link at Tailscale (WAN)",
+            Hops = new List<NetworkHop>
+            {
+                new()
+                {
+                    Type = HopType.Tailscale,
+                    DeviceName = "Tailscale",
+                    IngressSpeedMbps = 29,
+                    EgressSpeedMbps = 29,
+                    IngressPortName = "WAN",
+                    EgressPortName = "WAN",
+                    IsBottleneck = true
+                },
+                new()
+                {
+                    Type = HopType.Gateway,
+                    DeviceName = "Gateway",
+                    IngressSpeedMbps = 1000,
+                    EgressSpeedMbps = 1000
+                },
+                new()
+                {
+                    Type = HopType.Server,
+                    DeviceName = "Server"
+                }
+            }
+        };
+
+        // Assert - Bottleneck description should show "WAN" not "unknown"
+        path.BottleneckDescription.Should().Contain("WAN");
+        path.BottleneckDescription.Should().NotContain("unknown");
+    }
+
+    [Fact]
+    public void ExternalPath_IsExternalPath_IsTrue()
+    {
+        // Arrange - Path from external IP should have IsExternalPath = true
+        var path = new NetworkPath
+        {
+            IsExternalPath = true,
+            Hops = new List<NetworkHop>
+            {
+                new() { Type = HopType.Tailscale, DeviceName = "Tailscale" },
+                new() { Type = HopType.Gateway, DeviceName = "Gateway" },
+                new() { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+
+        // Assert
+        path.IsExternalPath.Should().BeTrue();
+    }
+
+    [Fact]
+    public void GenerateInsights_ExternalPath_DoesNotShowGatewayWarning()
+    {
+        // Arrange - External path targeting gateway should NOT show gateway CPU warning
+        var path = new NetworkPath
+        {
+            IsExternalPath = true,
+            TargetIsGateway = true,
+            TheoreticalMaxMbps = 1000,
+            RealisticMaxMbps = 940,
+            Hops = new List<NetworkHop>
+            {
+                new() { Type = HopType.Teleport, DeviceName = "Teleport" },
+                new() { Type = HopType.Gateway, DeviceName = "Gateway" },
+                new() { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+        var result = new PathAnalysisResult
+        {
+            Path = path,
+            MeasuredFromDeviceMbps = 500,
+            MeasuredToDeviceMbps = 500
+        };
+        result.CalculateEfficiency();
+
+        // Act
+        result.GenerateInsights();
+
+        // Assert - Should NOT show gateway warning for external paths
+        result.Insights.Should().NotContain("Gateway speed test - results limited by gateway CPU, not network");
     }
 
     #endregion
