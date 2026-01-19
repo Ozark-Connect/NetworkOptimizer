@@ -1484,15 +1484,20 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // Only set description if there's a real bottleneck
             if (path.HasRealBottleneck)
             {
+                // Skip redundant port info when device name matches port (e.g., "WAN (WAN)")
+                var portSuffix = bottleneckPort?.Equals(bottleneckHop.DeviceName, StringComparison.OrdinalIgnoreCase) == true
+                    ? ""
+                    : $" ({bottleneckPort})";
+
                 if (minSpeed < 1000)
                 {
-                    path.BottleneckDescription = $"{minSpeed} Mbps link at {bottleneckHop.DeviceName} ({bottleneckPort})";
+                    path.BottleneckDescription = $"{minSpeed} Mbps link at {bottleneckHop.DeviceName}{portSuffix}";
                 }
                 else
                 {
                     var gbps = minSpeed / 1000.0;
                     var gbpsStr = gbps % 1 == 0 ? $"{(int)gbps}" : $"{gbps:F1}";
-                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {bottleneckHop.DeviceName} ({bottleneckPort})";
+                    path.BottleneckDescription = $"{gbpsStr} Gbps link at {bottleneckHop.DeviceName}{portSuffix}";
                 }
             }
         }
