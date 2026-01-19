@@ -791,20 +791,17 @@
 
     /// <summary>
     /// Detects VPN type based on client IP and known network subnets.
-    /// Returns "Tailscale", "Teleport", or null for LAN/unknown.
+    /// Returns "Tailscale", "VPN", "Teleport", or null for LAN/unknown.
     /// </summary>
     // TODO: Consider unifying with SpeedTestMap.DetectVpnType (different signature - this takes Iperf3Result and checks PathAnalysis, that takes IP string directly)
     private string? DetectVpnType(Iperf3Result result)
     {
-        // Only check external clients (no valid path)
-        if (result.PathAnalysis?.Path?.IsValid == true)
-            return null;
-
         var clientIp = result.DeviceHost;
         if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
             return null;
 
         // Check for Tailscale CGNAT range: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
+        // Always check this regardless of path validity
         if (clientIp.StartsWith("100."))
         {
             var parts = clientIp.Split('.');
@@ -815,9 +812,7 @@
             }
         }
 
-        // Check for VPN clients:
-        // 1. IP in a network with purpose "remote-user-vpn" → VPN (UniFi built-in VPN)
-        // 2. IP in 192.168.x.x not in any known network → Teleport (external VPN)
+        // Check for VPN-purpose networks (even if path is valid - gateway devices on VPN networks)
         if (_networks != null)
         {
             var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
@@ -826,8 +821,10 @@
             if (matchingNetwork?.Purpose == "remote-user-vpn")
                 return "VPN";
 
-            // If 192.168.x.x but not in any known network, label as Teleport
-            if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
+            // If 192.168.x.x not in any known network AND no valid path, label as Teleport
+            // (Only for external clients - if path is valid, it's a known LAN device)
+            if (clientIp.StartsWith("192.168.") && matchingNetwork == null &&
+                result.PathAnalysis?.Path?.IsValid != true)
                 return "Teleport";
         }
 
