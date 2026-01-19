@@ -1258,33 +1258,30 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Gets WAN speed from provider capabilities, or falls back to WAN interface link speed.
+    /// Gets WAN speed from primary WAN provider capabilities, or falls back to primary WAN port link speed.
+    /// Only uses primary WAN (wan_networkgroup = "WAN"), does not aggregate from secondary WANs.
     /// </summary>
     private (int downloadMbps, int uploadMbps) GetWanSpeed(
         NetworkTopology topology,
         Dictionary<string, UniFiDeviceResponse> rawDevices)
     {
-        // First try: WAN provider capabilities (ISP speed configuration)
-        var primaryWan = topology.Networks.FirstOrDefault(n => n.IsWan && n.WanDownloadMbps > 0);
-        if (primaryWan != null && primaryWan.WanDownloadMbps > 0)
+        // First: Primary WAN provider capabilities (ISP speed configuration)
+        var primaryWan = topology.Networks.FirstOrDefault(n => n.IsPrimaryWan);
+        if (primaryWan != null && primaryWan.WanDownloadMbps > 0 && primaryWan.WanUploadMbps > 0)
         {
-            return (primaryWan.WanDownloadMbps ?? 0, primaryWan.WanUploadMbps ?? 0);
+            return (primaryWan.WanDownloadMbps.Value, primaryWan.WanUploadMbps.Value);
         }
 
-        // Fallback: WAN interface link speed from gateway's port table
+        // Fallback: Gateway port where network_name = "wan" exactly (primary WAN interface)
         var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
         if (gateway != null && rawDevices.TryGetValue(gateway.Mac, out var gatewayDevice))
         {
-            // Find WAN port(s) - look for is_uplink flag or port name containing "WAN"
             var wanPort = gatewayDevice.PortTable?
-                .Where(p => p.IsUplink || p.Name.Contains("WAN", StringComparison.OrdinalIgnoreCase))
-                .Where(p => p.Up && p.Speed > 0)
-                .OrderByDescending(p => p.Speed)
-                .FirstOrDefault();
+                .FirstOrDefault(p => p.Up && p.Speed > 0 &&
+                    p.NetworkName?.Equals("wan", StringComparison.OrdinalIgnoreCase) == true);
 
             if (wanPort != null)
             {
-                // Link speed is symmetric for interface rate
                 return (wanPort.Speed, wanPort.Speed);
             }
         }

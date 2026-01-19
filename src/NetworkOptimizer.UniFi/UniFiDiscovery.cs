@@ -276,7 +276,8 @@ public class UniFiDiscovery
                 Gateway = n.DhcpdGateway,
                 IsNat = n.IsNat,
                 WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
-                WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps
+                WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps,
+                WanNetworkgroup = n.WanNetworkgroup
             }).ToList() ?? new List<NetworkInfo>(),
             DiscoveredAt = DateTime.UtcNow
         };
@@ -669,8 +670,14 @@ public class NetworkInfo
     /// <summary>WAN download speed in Mbps (only for WAN networks)</summary>
     public int? WanDownloadMbps { get; set; }
 
+    /// <summary>WAN network group: "WAN" for primary, "WAN2", "WAN3" for secondary</summary>
+    public string? WanNetworkgroup { get; set; }
+
     /// <summary>Whether this is a WAN network</summary>
     public bool IsWan => Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether this is the primary WAN (wan_networkgroup = "WAN")</summary>
+    public bool IsPrimaryWan => WanNetworkgroup?.Equals("WAN", StringComparison.OrdinalIgnoreCase) == true;
 }
 
 public class FirewallConfiguration

@@ -203,6 +203,13 @@ public class SwitchPort
     /// </summary>
     [JsonPropertyName("is_uplink")]
     public bool IsUplink { get; set; }
+
+    /// <summary>
+    /// Network name for this port (e.g., "wan", "wan2", "lan").
+    /// Used to identify which network/WAN interface the port belongs to.
+    /// </summary>
+    [JsonPropertyName("network_name")]
+    public string? NetworkName { get; set; }
 }
 
 public class UplinkInfo
