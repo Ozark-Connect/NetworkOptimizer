@@ -1319,7 +1319,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     /// <summary>
     /// Checks if an IP is external (not in any known local network).
-    /// This includes VPN ranges (Tailscale, Teleport) and public internet IPs.
+    /// This includes VPN ranges (Tailscale, Teleport), VPN network clients, and public internet IPs.
+    /// VPN network IPs are considered external because VPN clients don't appear as devices/clients in UniFi.
     /// </summary>
     private static bool IsExternalIp(string ip, NetworkTopology topology)
     {
@@ -1327,11 +1328,19 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             return false;
 
         // Check if in any known network
-        var isInKnownNetwork = topology.Networks.Any(n =>
+        var matchingNetwork = topology.Networks.FirstOrDefault(n =>
             !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
 
         // If not in any known network, it's external
-        return !isInKnownNetwork;
+        if (matchingNetwork == null)
+            return true;
+
+        // If in a VPN network (remote-user-vpn), treat as external because VPN clients
+        // don't appear as devices/clients in UniFi controller
+        if (matchingNetwork.Purpose == "remote-user-vpn")
+            return true;
+
+        return false;
     }
 
     /// <summary>
