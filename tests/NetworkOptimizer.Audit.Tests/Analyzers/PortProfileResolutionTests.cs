@@ -477,4 +477,269 @@ public class PortProfileResolutionTests
     }
 
     #endregion
+
+    #region VLAN Resolution Tests
+
+    /// <summary>
+    /// Tests that a port profile's VLAN takes precedence over the port's base native_networkconf_id.
+    /// This is the bug fix for AP ethernet ports where UniFi returns Default LAN as the port's
+    /// native_networkconf_id even when a port profile with a different VLAN is applied.
+    /// </summary>
+    [Fact]
+    public void ExtractSwitches_PortWithProfileVlan_ProfileVlanTakesPrecedence()
+    {
+        // Port has native_networkconf_id="default-lan-id" but profile has NativeNetworkId="iot-vlan-id"
+        // The profile setting should take precedence
+        // Note: Using type="usw" (switch) since UAPs with <=2 ports are skipped
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""Port 1"",
+                        ""portconf_id"": ""profile-iot-vlan"",
+                        ""native_networkconf_id"": ""default-lan-id"",
+                        ""forward"": ""native"",
+                        ""up"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "default-lan-id", Name = "Default", VlanId = 1, Subnet = "10.10.10.0/24" },
+            new() { Id = "iot-vlan-id", Name = "IoT", VlanId = 30, Subnet = "10.10.30.0/24" }
+        };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new()
+            {
+                Id = "profile-iot-vlan",
+                Name = "IoT Devices",
+                NativeNetworkId = "iot-vlan-id"
+            }
+        };
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].NativeNetworkId.Should().Be("iot-vlan-id",
+            "profile VLAN should override port's native_networkconf_id");
+    }
+
+    /// <summary>
+    /// Tests that when a profile has no VLAN set, the port's native_networkconf_id is used.
+    /// </summary>
+    [Fact]
+    public void ExtractSwitches_PortWithProfileButNoVlan_UsesPortNativeNetworkId()
+    {
+        // Profile exists but has null NativeNetworkId - use port's native_networkconf_id
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""portconf_id"": ""profile-no-vlan"",
+                        ""native_networkconf_id"": ""management-vlan-id"",
+                        ""forward"": ""native"",
+                        ""up"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "management-vlan-id", Name = "Management", VlanId = 10, Subnet = "10.10.10.0/24" }
+        };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new()
+            {
+                Id = "profile-no-vlan",
+                Name = "Security Profile",
+                NativeNetworkId = null,
+                PortSecurityEnabled = true
+            }
+        };
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].NativeNetworkId.Should().Be("management-vlan-id",
+            "when profile has no VLAN setting, port's native_networkconf_id should be used");
+    }
+
+    /// <summary>
+    /// Tests that when a port has no native_networkconf_id and profile has one, profile is used.
+    /// </summary>
+    [Fact]
+    public void ExtractSwitches_PortWithoutVlanAndProfileHasVlan_UsesProfileVlan()
+    {
+        // Port has no native_networkconf_id, profile provides one
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""portconf_id"": ""profile-with-vlan"",
+                        ""forward"": ""native"",
+                        ""up"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "guest-vlan-id", Name = "Guest", VlanId = 50, Subnet = "10.10.50.0/24" }
+        };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new()
+            {
+                Id = "profile-with-vlan",
+                Name = "Guest Port",
+                NativeNetworkId = "guest-vlan-id"
+            }
+        };
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].NativeNetworkId.Should().Be("guest-vlan-id",
+            "profile VLAN should be used when port has no native_networkconf_id");
+    }
+
+    /// <summary>
+    /// Integration test: Verifies that WiredSubnetMismatchRule uses the profile's VLAN
+    /// when validating client IP addresses, not the port's base VLAN.
+    /// This is the exact bug scenario where a U6 Enterprise IW port profile assigns
+    /// a VLAN but the audit incorrectly compares against the Default LAN.
+    /// </summary>
+    [Fact]
+    public void Integration_PortWithProfileVlan_WiredSubnetMismatchUsesProfileVlan()
+    {
+        // Arrange: Port has Default LAN (10.10.10.0/24) as base, but profile assigns IoT VLAN (10.10.30.0/24)
+        // Client has IP 10.10.30.50 which is correct for IoT VLAN
+        // Without fix: Would flag as mismatch (10.10.30.50 not in Default's 10.10.10.0/24)
+        // With fix: Should NOT flag (10.10.30.50 IS in IoT's 10.10.30.0/24)
+        // Note: U6 Enterprise IW has 4 ports, need 3+ ports for UAP to not be skipped
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""uap"",
+                ""name"": ""U6 Enterprise IW"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""LAN 1"",
+                        ""portconf_id"": ""profile-iot"",
+                        ""native_networkconf_id"": ""default-lan-id"",
+                        ""forward"": ""native"",
+                        ""up"": true
+                    },
+                    {
+                        ""port_idx"": 2,
+                        ""name"": ""LAN 2"",
+                        ""forward"": ""native"",
+                        ""up"": false
+                    },
+                    {
+                        ""port_idx"": 3,
+                        ""name"": ""LAN 3"",
+                        ""forward"": ""native"",
+                        ""up"": false
+                    },
+                    {
+                        ""port_idx"": 4,
+                        ""name"": ""Uplink"",
+                        ""forward"": ""native"",
+                        ""up"": true,
+                        ""is_uplink"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "default-lan-id", Name = "Default", VlanId = 1, Subnet = "10.10.10.0/24" },
+            new() { Id = "iot-vlan-id", Name = "IoT", VlanId = 30, Subnet = "10.10.30.0/24" }
+        };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new()
+            {
+                Id = "profile-iot",
+                Name = "IoT Devices",
+                NativeNetworkId = "iot-vlan-id"
+            }
+        };
+        var clients = new List<UniFiClientResponse>
+        {
+            new()
+            {
+                Mac = "11:22:33:44:55:66",
+                Ip = "10.10.30.50",  // Correct IP for IoT VLAN
+                IsWired = true,
+                SwMac = "aa:bb:cc:dd:ee:ff",
+                SwPort = 1
+            }
+        };
+
+        // Act
+        var switches = _engine.ExtractSwitches(deviceData, networks, clients, null, portProfiles);
+        var issues = _engine.AnalyzePorts(switches, networks);
+
+        // Assert: Port should have IoT VLAN and client should NOT be flagged
+        switches[0].Ports[0].NativeNetworkId.Should().Be("iot-vlan-id",
+            "port should have profile's VLAN");
+        issues.Should().NotContain(i => i.Type == "WIRED-SUBNET-001",
+            "client IP matches profile's VLAN subnet, should not be flagged");
+    }
+
+    /// <summary>
+    /// Integration test: Without profiles passed, the port keeps its base VLAN.
+    /// This verifies that profile resolution only happens when profiles are provided.
+    /// </summary>
+    [Fact]
+    public void Integration_PortWithoutProfilesProvided_KeepsBaseVlan()
+    {
+        // Port has native_networkconf_id set but no profiles provided for resolution
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""mac"": ""aa:bb:cc:dd:ee:ff"",
+                ""port_table"": [
+                    {
+                        ""port_idx"": 1,
+                        ""name"": ""Port 1"",
+                        ""portconf_id"": ""profile-iot"",
+                        ""native_networkconf_id"": ""default-lan-id"",
+                        ""forward"": ""native"",
+                        ""up"": true
+                    }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "default-lan-id", Name = "Default", VlanId = 1, Subnet = "10.10.10.0/24" },
+            new() { Id = "iot-vlan-id", Name = "IoT", VlanId = 30, Subnet = "10.10.30.0/24" }
+        };
+
+        // Act: Extract WITHOUT profiles - port should keep base VLAN
+        var switches = _engine.ExtractSwitches(deviceData, networks, null, null, null);
+
+        // Assert: Without profile resolution, port keeps its base native_networkconf_id
+        switches[0].Ports[0].NativeNetworkId.Should().Be("default-lan-id",
+            "without profiles provided, port keeps its base native_networkconf_id");
+    }
+
+    #endregion
 }
