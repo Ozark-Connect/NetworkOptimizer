@@ -90,87 +90,63 @@ public static class UniFiProductDatabase
     };
 
     /// <summary>
-    /// Map of model code to friendly product name
+    /// Map of official model codes to friendly product names.
+    /// These are the primary codes from Ubiquiti's public.json device database.
     /// </summary>
-    private static readonly Dictionary<string, string> ModelToProductName = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> OfficialModelCodes = new(StringComparer.OrdinalIgnoreCase)
     {
         // =====================================================================
         // GATEWAYS / SECURITY GATEWAYS
         // =====================================================================
 
-        // ----- Official: UniFi Dream Machine family -----
+        // ----- UniFi Dream Machine family -----
         { "UDM", "UDM" },
         { "UDMPRO", "UDM-Pro" },
         { "UDMPROMAX", "UDM-Pro-Max" },
         { "UDMPROSE", "UDM-SE" },
 
-        // ----- Official: Dream Wall -----
+        // ----- Dream Wall -----
         { "UDW", "UDW" },
 
-        // ----- Official: Enterprise Fortress Gateway -----
+        // ----- Enterprise Fortress Gateway -----
         { "UDMENT", "EFG" },
 
-        // ----- Official: Cloud Gateways -----
+        // ----- Cloud Gateways -----
         { "UCGMAX", "UCG-Max" },
         { "UDMA6A8", "UCG-Fiber" },
 
-        // ----- Official: Cloud Keys -----
+        // ----- Cloud Keys -----
         { "UCK-v3", "UCK" },
         { "UCKG2", "UCK-G2" },
         { "UCKP", "UCK-G2-Plus" },
         { "UCKENT", "CK-Enterprise" },
 
-        // ----- Official: UniFi Security Gateways -----
+        // ----- UniFi Security Gateways -----
         { "UGW3", "USG-3P" },
         { "UGW4", "USG-Pro-4" },
         { "UGW8", "UGW8" },
         { "UGWHD4", "USG" },
         { "UGWXG", "USG-XG-8" },
 
-        // ----- Official: UniFi Application Server -----
+        // ----- UniFi Application Server -----
         { "UASXG", "UAS-XG" },
 
-        // ----- Official: UniFi Gateways (Next-Gen) -----
+        // ----- UniFi Gateways (Next-Gen) -----
         { "UXG", "UXG-Lite" },
         { "UXGB", "UXG-Max" },
         { "UXGENT", "UXG-Enterprise" },
         { "UXGPRO", "UXG-Pro" },
         { "UXGA6AA", "UXG-Fiber" },
 
-        // ----- Official: Dream Routers -----
+        // ----- Dream Routers -----
         { "UDR", "UDR" },
         { "UDRULT", "UCG-Ultra" },
         { "UDMA67A", "UDR7" },
         { "UDMA6B9", "UDR-5G-Max" },
 
-        // ----- Official: UniFi Express -----
+        // ----- UniFi Express -----
         { "UX", "UX" },
         { "UDMA69B", "UX7" },
-
-        // ----- Legacy/Alternate codes (not in official public.json) -----
-        // These are kept for compatibility with older firmware or alternate
-        // API responses. They map to the same products as official codes.
-        { "UDM-PRO", "UDM-Pro" },
-        { "UDM-PRO-SE", "UDM-SE" },
-        { "UDM-PRO-MAX", "UDM-Pro-Max" },
-        { "UDMSE", "UDM-SE" },
-        { "EFG", "EFG" },
-        { "UCGF", "UCG-Fiber" },
-        { "UCG-ULTRA", "UCG-Ultra" },
-        { "UCK-G2", "UCK-G2" },
-        { "UCK-G2-PLUS", "UCK-G2-Plus" },
-        { "UCKP2", "UCK-G2-Plus" },
-        { "USG", "USG" },
-        { "UGW", "USG" },
-        { "UXG-PRO", "UXG-Pro" },
-        { "UXGPROV2", "UXG-Pro" },
-        { "UXGLITE", "UXG-Lite" },
-        { "UXGFIBER", "UXG-Fiber" },
-        { "UDR7", "UDR7" },
-        { "UDR5G", "UDR-5G-Max" },
-        { "EXPRESS", "UX" },
-        { "UX7", "UX7" },
-        { "UXMAX", "UX7" },
 
         // =====================================================================
         // SWITCHES
@@ -286,74 +262,11 @@ public static class UniFiProductDatabase
         { "USWED74", "USW-WAN" },
         { "USWED75", "USW-WAN-RJ45" },
 
-        // ----- Official: Power Distribution -----
+        // ----- Power Distribution -----
         { "USPPDUP", "USP-PDU-Pro" },
         { "USPPDUHD", "USP-PDU-HD" },
         { "USPRPS", "USP-RPS" },
         { "USPRPSP", "USP-RPS-Pro" },
-
-        // ----- Legacy/Alternate codes (not in official public.json) -----
-        // These are kept for compatibility with older firmware or alternate
-        // API responses. They map to the same products as official codes.
-        { "USWFLEX", "USW-Flex" },
-        { "USWFLEXMINI", "USW-Flex-Mini" },
-        { "USW-FLEX-MINI", "USW-Flex-Mini" },
-        { "USM25G5", "USW-Flex-2.5G-5" },
-        { "USM25G8", "USW-Flex-2.5G-8" },
-        { "USM25G8P", "USW-Flex-2.5G-8-PoE" },
-        { "USWULTRA", "USW-Ultra" },
-        { "USWLITE8", "USW-Lite-8-PoE" },
-        { "USWLITE16", "USW-Lite-16-PoE" },
-        { "USW8", "US-8" },
-        { "USW8P60", "US-8-60W" },
-        { "USW8P150", "US-8-150W" },
-        { "US8P60", "US-8-60W" },
-        { "US8P150", "US-8-150W" },
-        { "USW16P150", "USW-16-PoE" },
-        { "USW24", "USW-24" },
-        { "USW24P250", "USW-24-PoE" },
-        { "USW48", "USW-48" },
-        { "USW48P500", "USW-48-PoE" },
-        { "USWPRO24", "USW-Pro-24" },
-        { "USWPRO24POE", "USW-Pro-24-PoE" },
-        { "US24PRO", "USW-Pro-24-PoE" },
-        { "USWPRO48", "USW-Pro-48" },
-        { "USWPRO48POE", "USW-Pro-48-PoE" },
-        { "US48PRO", "USW-Pro-48-PoE" },
-        { "USPXG8P", "USW-Pro-XG-8-PoE" },
-        { "USPXG10P", "USW-Pro-XG-10-PoE" },
-        { "USWPXG24", "USW-Pro-XG-24" },
-        { "USWPXG24P", "USW-Pro-XG-24-PoE" },
-        { "USWPXG48", "USW-Pro-XG-48" },
-        { "USWPXG48P", "USW-Pro-XG-48-PoE" },
-        { "USPH24", "USW-Pro-XG-24" },
-        { "USWENTERPRISE8POE", "USW-Enterprise-8-PoE" },
-        { "USWENTERPRISE24POE", "USW-Enterprise-24-PoE" },
-        { "USWENTERPRISE48POE", "USW-Enterprise-48-PoE" },
-        { "USWENTERPRISEXG24", "USW-EnterpriseXG-24" },
-        { "USWAGGREGATION", "USW-Aggregation" },
-        { "USWAGGPRO", "USW-Pro-Aggregation" },
-        { "US16XG", "US-16-XG" },
-        { "EAS24", "ECS-24-PoE" },
-        { "EAS24P", "ECS-24-PoE" },
-        { "EAS48", "ECS-48-PoE" },
-        { "EAS48P", "ECS-48-PoE" },
-        { "ECS-AGG", "ECS-Aggregation" },
-        { "ECSAGG", "ECS-Aggregation" },
-        { "USWF064", "ECS-Aggregation" },
-        { "ESWHS", "ECS-Aggregation" },
-        { "USW-LEAF", "USW-Leaf" },
-        { "S28150", "US-8-150W" },
-        { "S216150", "US-16-150W" },
-        { "S224250", "US-24-250W" },
-        { "S224500", "US-24-500W" },
-        { "S248500", "US-48-500W" },
-        { "S248750", "US-48-750W" },
-        { "USWF068", "USW-Pro-24" },
-        { "USWF070", "USW-Pro-24" },
-        { "WRS3", "USW-Pro-24" },
-        { "WRS3F", "USW-Pro-24" },
-        { "UPS2U", "USP-RPS" },
 
         // =====================================================================
         // ACCESS POINTS
@@ -439,55 +352,8 @@ public static class UniFiProductDatabase
         { "U2HSR", "UAP-Outdoor+" },
         { "U5O", "UAP-Outdoor-5" },
 
-        // ----- Official: BeaconHD -----
+        // ----- BeaconHD -----
         { "UDMB", "UAP-BeaconHD" },
-
-        // ----- Legacy/Alternate codes (not in official public.json) -----
-        // These are kept for compatibility with older firmware or alternate
-        // API responses. They map to the same products as official codes.
-        { "U7PROMAXB", "U7-Pro-Max" },
-        { "U7PROXGSB", "U7-Pro-XGS-B" },
-        { "U7PROXGS", "U7-Pro-XGS" },
-        { "U7PROXGB", "U7-Pro-XG-B" },
-        { "U7PROXG", "U7-Pro-XG" },
-        { "U7PO", "U7-Pro-Outdoor" },
-        { "U7POEU", "U7-Pro-Outdoor" },
-        { "G7LR", "U7-LR" },
-        { "G7LRV2", "U7-LR" },
-        { "G7LT", "U7-Lite" },
-        { "G7IW", "U7-IW" },
-        { "E7", "E7" },
-        { "E7CEU", "E7" },
-        { "E7CAMPUS", "E7-Campus" },
-        { "E7AUDIENCE", "E7-Audience" },
-        { "E7AUDEU", "E7-Audience" },
-        { "U6ENTERPRISEB", "U6-Enterprise" },
-        { "U6ENTERPRISEINWALL", "U6-Enterprise-IW" },
-        { "U6MESH", "U6-Mesh" },
-        { "U6PRO", "U6-Pro" },
-        { "U6LR", "U6-LR" },
-        { "UAP6", "U6-LR" },
-        { "U6LITE", "U6-Lite" },
-        { "U6PLUS", "U6+" },
-        { "U6EXTENDER", "U6-Extender" },
-        { "UAPHD", "UAP-AC-HD" },
-        { "UAPSHD", "UAP-AC-SHD" },
-        { "UAPNANOHD", "UAP-nanoHD" },
-        { "UFLEXHD", "UAP-FlexHD" },
-        { "U7E", "UAP-AC" },
-        { "UAPPRO", "UAP-AC-Pro" },
-        { "UAPLR", "UAP-AC-LR" },
-        { "UAPLITE", "UAP-AC-Lite" },
-        { "UAPM", "UAP-AC-M" },
-        { "UAPMESH", "UAP-AC-M" },
-        { "UAPMESHPRO", "UAP-AC-M-PRO" },
-        { "UAPIW", "UAP-AC-IW" },
-        { "UAPIWPRO", "UAP-AC-IW-Pro" },
-        { "UAPXG", "UAP-XG" },
-        { "UAPBASESTATION", "UAP-XG" },
-        { "BZ2", "UAP" },
-        { "BZ2LR", "UAP-LR" },
-        { "UAP", "UAP" },
 
         // =====================================================================
         // OTHER DEVICES
@@ -543,14 +409,158 @@ public static class UniFiProductDatabase
         { "UP5tc", "UVP-Pro" },
         { "UP7c", "UVP-Executive" },
 
-        // ----- Official: Other -----
+        // ----- Other -----
         { "USFPW", "UACC-SFP-Wizard" },
         { "UTREA06", "UTR" },
         { "p2N", "PICOM2HP" },
+    };
 
-        // ----- Legacy/Alternate codes (not in official public.json) -----
-        // These are kept for compatibility with older firmware or alternate
-        // API responses. They map to the same products as official codes.
+    /// <summary>
+    /// Legacy/alternate codes for shortname-based lookup.
+    /// These are kept for compatibility with older firmware or alternate
+    /// API responses. They map to the same products as official codes.
+    /// Used only when the official model code lookup fails.
+    /// </summary>
+    private static readonly Dictionary<string, string> LegacyShortnameAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // =====================================================================
+        // GATEWAYS
+        // =====================================================================
+        { "UDM-PRO", "UDM-Pro" },
+        { "UDM-PRO-SE", "UDM-SE" },
+        { "UDM-PRO-MAX", "UDM-Pro-Max" },
+        { "UDMSE", "UDM-SE" },
+        { "EFG", "EFG" },
+        { "UCGF", "UCG-Fiber" },
+        { "UCG-ULTRA", "UCG-Ultra" },
+        { "UCK-G2", "UCK-G2" },
+        { "UCK-G2-PLUS", "UCK-G2-Plus" },
+        { "UCKP2", "UCK-G2-Plus" },
+        { "USG", "USG" },
+        { "UGW", "USG" },
+        { "UXG-PRO", "UXG-Pro" },
+        { "UXGPROV2", "UXG-Pro" },
+        { "UXGLITE", "UXG-Lite" },
+        { "UXGFIBER", "UXG-Fiber" },
+        { "UDR7", "UDR7" },
+        { "UDR5G", "UDR-5G-Max" },
+        { "EXPRESS", "UX" },
+        { "UX7", "UX7" },
+        { "UXMAX", "UX7" },
+
+        // =====================================================================
+        // SWITCHES
+        // =====================================================================
+        { "USWFLEX", "USW-Flex" },
+        { "USWFLEXMINI", "USW-Flex-Mini" },
+        { "USW-FLEX-MINI", "USW-Flex-Mini" },
+        { "USM25G5", "USW-Flex-2.5G-5" },
+        { "USM25G8", "USW-Flex-2.5G-8" },
+        { "USM25G8P", "USW-Flex-2.5G-8-PoE" },
+        { "USWULTRA", "USW-Ultra" },
+        { "USWLITE8", "USW-Lite-8-PoE" },
+        { "USWLITE16", "USW-Lite-16-PoE" },
+        { "USW8", "US-8" },
+        { "USW8P60", "US-8-60W" },
+        { "USW8P150", "US-8-150W" },
+        { "US8P60", "US-8-60W" },
+        { "US8P150", "US-8-150W" },
+        { "USW16P150", "USW-16-PoE" },
+        { "USW24", "USW-24" },
+        { "USW24P250", "USW-24-PoE" },
+        { "USW48", "USW-48" },
+        { "USW48P500", "USW-48-PoE" },
+        { "USWPRO24", "USW-Pro-24" },
+        { "USWPRO24POE", "USW-Pro-24-PoE" },
+        { "US24PRO", "USW-Pro-24-PoE" },
+        { "USWPRO48", "USW-Pro-48" },
+        { "USWPRO48POE", "USW-Pro-48-PoE" },
+        { "US48PRO", "USW-Pro-48-PoE" },
+        { "USPXG8P", "USW-Pro-XG-8-PoE" },
+        { "USPXG10P", "USW-Pro-XG-10-PoE" },
+        { "USWPXG24", "USW-Pro-XG-24" },
+        { "USWPXG24P", "USW-Pro-XG-24-PoE" },
+        { "USWPXG48", "USW-Pro-XG-48" },
+        { "USWPXG48P", "USW-Pro-XG-48-PoE" },
+        { "USPH24", "USW-Pro-XG-24" },
+        { "USWENTERPRISE8POE", "USW-Enterprise-8-PoE" },
+        { "USWENTERPRISE24POE", "USW-Enterprise-24-PoE" },
+        { "USWENTERPRISE48POE", "USW-Enterprise-48-PoE" },
+        { "USWENTERPRISEXG24", "USW-EnterpriseXG-24" },
+        { "USWAGGREGATION", "USW-Aggregation" },
+        { "USWAGGPRO", "USW-Pro-Aggregation" },
+        { "US16XG", "US-16-XG" },
+        { "EAS24", "ECS-24-PoE" },
+        { "EAS24P", "ECS-24-PoE" },
+        { "EAS48", "ECS-48-PoE" },
+        { "EAS48P", "ECS-48-PoE" },
+        { "ECS-AGG", "ECS-Aggregation" },
+        { "ECSAGG", "ECS-Aggregation" },
+        { "USWF064", "ECS-Aggregation" },
+        { "ESWHS", "ECS-Aggregation" },
+        { "USW-LEAF", "USW-Leaf" },
+        { "S28150", "US-8-150W" },
+        { "S216150", "US-16-150W" },
+        { "S224250", "US-24-250W" },
+        { "S224500", "US-24-500W" },
+        { "S248500", "US-48-500W" },
+        { "S248750", "US-48-750W" },
+        { "USWF068", "USW-Pro-24" },
+        { "USWF070", "USW-Pro-24" },
+        { "WRS3", "USW-Pro-24" },
+        { "WRS3F", "USW-Pro-24" },
+        { "UPS2U", "USP-RPS" },
+
+        // =====================================================================
+        // ACCESS POINTS
+        // =====================================================================
+        { "U7PROMAXB", "U7-Pro-Max" },
+        { "U7PROXGSB", "U7-Pro-XGS-B" },
+        { "U7PROXGS", "U7-Pro-XGS" },
+        { "U7PROXGB", "U7-Pro-XG-B" },
+        { "U7PROXG", "U7-Pro-XG" },
+        { "U7PO", "U7-Pro-Outdoor" },
+        { "U7POEU", "U7-Pro-Outdoor" },
+        { "G7LR", "U7-LR" },
+        { "G7LRV2", "U7-LR" },
+        { "G7LT", "U7-Lite" },
+        { "G7IW", "U7-IW" },
+        { "E7", "E7" },
+        { "E7CEU", "E7" },
+        { "E7CAMPUS", "E7-Campus" },
+        { "E7AUDIENCE", "E7-Audience" },
+        { "E7AUDEU", "E7-Audience" },
+        { "U6ENTERPRISEB", "U6-Enterprise" },
+        { "U6ENTERPRISEINWALL", "U6-Enterprise-IW" },
+        { "U6MESH", "U6-Mesh" },
+        { "U6PRO", "U6-Pro" },
+        { "U6LR", "U6-LR" },
+        { "UAP6", "U6-LR" },
+        { "U6LITE", "U6-Lite" },
+        { "U6PLUS", "U6+" },
+        { "U6EXTENDER", "U6-Extender" },
+        { "UAPHD", "UAP-AC-HD" },
+        { "UAPSHD", "UAP-AC-SHD" },
+        { "UAPNANOHD", "UAP-nanoHD" },
+        { "UFLEXHD", "UAP-FlexHD" },
+        { "U7E", "UAP-AC" },
+        { "UAPPRO", "UAP-AC-Pro" },
+        { "UAPLR", "UAP-AC-LR" },
+        { "UAPLITE", "UAP-AC-Lite" },
+        { "UAPM", "UAP-AC-M" },
+        { "UAPMESH", "UAP-AC-M" },
+        { "UAPMESHPRO", "UAP-AC-M-PRO" },
+        { "UAPIW", "UAP-AC-IW" },
+        { "UAPIWPRO", "UAP-AC-IW-Pro" },
+        { "UAPXG", "UAP-XG" },
+        { "UAPBASESTATION", "UAP-XG" },
+        { "BZ2", "UAP" },
+        { "BZ2LR", "UAP-LR" },
+        { "UAP", "UAP" },
+
+        // =====================================================================
+        // OTHER DEVICES
+        // =====================================================================
         { "UNVR", "UNVR" },
         { "UNVR-PRO", "UNVR-Pro" },
         { "U5GMAX", "U5G-Max" },
@@ -562,17 +572,17 @@ public static class UniFiProductDatabase
     };
 
     /// <summary>
-    /// Get the friendly product name for a model code
+    /// Get the friendly product name for an official model code.
     /// </summary>
-    /// <param name="modelCode">The model or shortname from the UniFi API</param>
+    /// <param name="modelCode">The model code from the UniFi API</param>
     /// <returns>Friendly product name, or the original code if not found</returns>
     public static string GetProductName(string? modelCode)
     {
         if (string.IsNullOrEmpty(modelCode))
             return "Unknown";
 
-        // Try direct lookup
-        if (ModelToProductName.TryGetValue(modelCode, out var name))
+        // Official model code lookup only
+        if (OfficialModelCodes.TryGetValue(modelCode, out var name))
             return name;
 
         // Return original if not found - this helps identify new models
@@ -580,20 +590,39 @@ public static class UniFiProductDatabase
     }
 
     /// <summary>
-    /// Get the best available product name from multiple fields
+    /// Get the friendly product name from a shortname using legacy/alternate codes
+    /// </summary>
+    /// <param name="shortname">The shortname from the UniFi API</param>
+    /// <returns>Friendly product name, or the original shortname if not found</returns>
+    public static string GetProductNameFromShortname(string? shortname)
+    {
+        if (string.IsNullOrEmpty(shortname))
+            return "Unknown";
+
+        // Try legacy shortname alias lookup
+        if (LegacyShortnameAliases.TryGetValue(shortname, out var name))
+            return name;
+
+        // Return original if not found
+        return shortname;
+    }
+
+    /// <summary>
+    /// Get the best available product name from multiple fields.
+    /// Checks official model codes first, then legacy shortname aliases.
     /// </summary>
     /// <param name="model">The model field (internal code)</param>
     /// <param name="shortname">The shortname field</param>
     /// <returns>Best available friendly name</returns>
     public static string GetBestProductName(string? model, string? shortname)
     {
-        // Try model lookup first (preferred over shortname)
+        // Try official model code lookup first (preferred)
         var modelLookup = GetProductName(model);
         if (!string.IsNullOrEmpty(model) && modelLookup != model)
             return modelLookup;
 
-        // Try shortname lookup
-        var shortnameLookup = GetProductName(shortname);
+        // Try legacy shortname alias lookup
+        var shortnameLookup = GetProductNameFromShortname(shortname);
         if (!string.IsNullOrEmpty(shortname) && shortnameLookup != shortname)
             return shortnameLookup;
 
