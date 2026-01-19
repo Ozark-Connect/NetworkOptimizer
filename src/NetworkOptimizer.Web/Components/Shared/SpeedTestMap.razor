@@ -515,8 +515,8 @@
                 lng = r.Longitude!.Value,
                 speed = (r.DownloadMbps + r.UploadMbps) / 2,
                 color = GetSpeedColor((r.DownloadMbps + r.UploadMbps) / 2),
-                isExternal = r.PathAnalysis?.Path?.IsValid != true,
-                popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true)
+                isExternal = r.PathAnalysis?.Path?.IsValid != true || r.PathAnalysis?.Path?.IsExternalPath == true,
+                popup = BuildPopup(r, r.PathAnalysis?.Path?.IsValid != true || r.PathAnalysis?.Path?.IsExternalPath == true)
             }).ToArray();
 
             var markersJson = System.Text.Json.JsonSerializer.Serialize(markers);
