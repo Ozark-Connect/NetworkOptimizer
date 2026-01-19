@@ -504,6 +504,12 @@
         margin-right: 0.25rem;
     }
 
+    .badge-vpn-wan {
+        background: rgba(125, 211, 252, 0.2);
+        color: #7dd3fc;
+        margin-right: 0.25rem;
+    }
+
     .code-block {
         background: var(--bg-primary);
         border-radius: var(--border-radius);
@@ -789,8 +795,8 @@
     }
 
     /// <summary>
-    /// Detects VPN type based on client IP and known network subnets.
-    /// Returns "Tailscale", "VPN", "Teleport", or null for LAN/unknown.
+    /// Detects VPN/WAN type based on client IP and known network subnets.
+    /// Returns "Tailscale", "VPN", "Teleport", "WAN", or null for LAN.
     /// </summary>
     // TODO: Consider unifying with SpeedTestMap.DetectVpnType (different signature - this takes Iperf3Result and checks PathAnalysis, that takes IP string directly)
     private string? DetectVpnType(Iperf3Result result)
@@ -824,9 +830,51 @@
             // (Even if path is valid - the device may exist but the IP range is external/VPN)
             if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
                 return "Teleport";
+
+            // If not in any known network and not a private IP range, it's WAN (public internet)
+            if (matchingNetwork == null && !IsPrivateIp(clientIp))
+                return "WAN";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP address is in a private range (RFC 1918 or CGNAT).
+    /// </summary>
+    private static bool IsPrivateIp(string ipAddress)
+    {
+        // 10.0.0.0/8
+        if (ipAddress.StartsWith("10."))
+            return true;
+
+        // 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
+        if (ipAddress.StartsWith("172."))
+        {
+            var parts = ipAddress.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 16 && secondOctet <= 31)
+                    return true;
+            }
+        }
+
+        // 192.168.0.0/16
+        if (ipAddress.StartsWith("192.168."))
+            return true;
+
+        // 100.64.0.0/10 (CGNAT)
+        if (ipAddress.StartsWith("100."))
+        {
+            var parts = ipAddress.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 64 && secondOctet <= 127)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -643,8 +643,8 @@
     }
 
     /// <summary>
-    /// Detects VPN type based on client IP and known network subnets.
-    /// Returns "Tailscale", "Teleport", or null for regular external.
+    /// Detects VPN/WAN type based on client IP and known network subnets.
+    /// Returns "Tailscale", "VPN", "Teleport", "WAN", or null for LAN.
     /// </summary>
     // TODO: Consider unifying with ClientSpeedTest.DetectVpnType (different signature - this takes IP string, that takes Iperf3Result and checks PathAnalysis first)
     private string? DetectVpnType(string? clientIp)
@@ -663,15 +663,62 @@
             }
         }
 
-        // Check for 192.168.x.x not in any known network → Teleport
-        if (clientIp.StartsWith("192.168.") && _networks != null)
+        if (_networks != null)
         {
-            var isInKnownNetwork = _networks.Any(n => IsIpInSubnet(clientIp, n.IpSubnet));
-            if (!isInKnownNetwork)
+            var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
+
+            // If in a UniFi VPN network, label as VPN
+            if (matchingNetwork?.Purpose == "remote-user-vpn")
+                return "VPN";
+
+            // Check for 192.168.x.x not in any known network → Teleport
+            if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
                 return "Teleport";
+
+            // If not in any known network and not a private IP range, it's WAN (public internet)
+            if (matchingNetwork == null && !IsPrivateIp(clientIp))
+                return "WAN";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Checks if an IP address is in a private range (RFC 1918 or CGNAT).
+    /// </summary>
+    private static bool IsPrivateIp(string ipAddress)
+    {
+        // 10.0.0.0/8
+        if (ipAddress.StartsWith("10."))
+            return true;
+
+        // 172.16.0.0/12 (172.16.x.x - 172.31.x.x)
+        if (ipAddress.StartsWith("172."))
+        {
+            var parts = ipAddress.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 16 && secondOctet <= 31)
+                    return true;
+            }
+        }
+
+        // 192.168.0.0/16
+        if (ipAddress.StartsWith("192.168."))
+            return true;
+
+        // 100.64.0.0/10 (CGNAT)
+        if (ipAddress.StartsWith("100."))
+        {
+            var parts = ipAddress.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out int secondOctet))
+            {
+                if (secondOctet >= 64 && secondOctet <= 127)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -991,6 +1038,16 @@
     .map-badge-teleport {
         background: rgba(168, 85, 247, 0.2);
         color: var(--purple-light);
+    }
+
+    .map-badge-vpn {
+        background: rgba(20, 184, 166, 0.2);
+        color: #2dd4bf;
+    }
+
+    .map-badge-wan {
+        background: rgba(125, 211, 252, 0.2);
+        color: #7dd3fc;
     }
 
     .map-popup-footer {
