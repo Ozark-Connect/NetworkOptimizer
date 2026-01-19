@@ -621,6 +621,16 @@
             return;
         }
 
+        if (hop.Type == HopType.Vpn)
+        {
+            builder.OpenElement(0, "img");
+            builder.AddAttribute(1, "src", "/icons/shield-v2.png");
+            builder.AddAttribute(2, "alt", "VPN");
+            builder.AddAttribute(3, "class", "vpn-icon vpn-shield-icon");
+            builder.CloseElement();
+            return;
+        }
+
         var model = hop.DeviceModel;
 
         // Show device icons for any device with a model name - onerror falls back to emoji

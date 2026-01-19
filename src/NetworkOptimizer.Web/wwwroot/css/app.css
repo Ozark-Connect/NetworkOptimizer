@@ -3295,11 +3295,17 @@ select.form-control {
     font-weight: 500;
 }
 
-/* VPN hop icons (Teleport, Tailscale) */
+/* VPN hop icons (Teleport, Tailscale, generic VPN) */
 .vpn-icon {
     color: currentColor;
     vertical-align: middle;
     display: inline-block;
+}
+
+.vpn-shield-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
 }
 
 .path-analysis .path-hop.hop-teleport {
