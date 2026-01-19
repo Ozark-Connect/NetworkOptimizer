@@ -605,12 +605,12 @@
         if (hop.Type == HopType.Tailscale)
         {
             builder.OpenElement(0, "svg");
-            builder.AddAttribute(1, "viewBox", "0 0 24 24");
+            builder.AddAttribute(1, "viewBox", "0 0 20 20");
             builder.AddAttribute(2, "width", "24");
             builder.AddAttribute(3, "height", "24");
             builder.AddAttribute(4, "class", "vpn-icon tailscale-icon");
-            // Tailscale logo - three connected dots
-            builder.AddMarkupContent(5, @"<circle cx=""6"" cy=""12"" r=""2.5"" fill=""currentColor""/><circle cx=""12"" cy=""6"" r=""2.5"" fill=""currentColor""/><circle cx=""12"" cy=""18"" r=""2.5"" fill=""currentColor""/><circle cx=""18"" cy=""12"" r=""2.5"" fill=""currentColor""/><line x1=""8"" y1=""11"" x2=""10"" y2=""7"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""8"" y1=""13"" x2=""10"" y2=""17"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""14"" y1=""7"" x2=""16"" y2=""11"" stroke=""currentColor"" stroke-width=""1.5""/><line x1=""14"" y1=""17"" x2=""16"" y2=""13"" stroke=""currentColor"" stroke-width=""1.5""/>");
+            // Official Tailscale logo - 3x3 dot grid with middle row solid, top/bottom faded
+            builder.AddMarkupContent(5, @"<ellipse cx=""2.45"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""9.79"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse cx=""17.13"" cy=""10.18"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""9.79"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""2.86"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""2.45"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""9.79"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/><ellipse opacity=""0.2"" cx=""17.13"" cy=""17.51"" rx=""2.45"" ry=""2.44"" fill=""currentColor""/>");
             builder.CloseElement();
             return;
         }
