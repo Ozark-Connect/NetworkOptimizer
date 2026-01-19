@@ -821,10 +821,9 @@
             if (matchingNetwork?.Purpose == "remote-user-vpn")
                 return "VPN";
 
-            // If 192.168.x.x not in any known network AND no valid path, label as Teleport
-            // (Only for external clients - if path is valid, it's a known LAN device)
-            if (clientIp.StartsWith("192.168.") && matchingNetwork == null &&
-                result.PathAnalysis?.Path?.IsValid != true)
+            // If 192.168.x.x not in any known network, label as Teleport
+            // (Even if path is valid - the device may exist but the IP range is external/VPN)
+            if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
                 return "Teleport";
         }
 
