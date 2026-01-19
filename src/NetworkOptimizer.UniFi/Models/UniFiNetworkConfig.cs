@@ -4,6 +4,24 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.UniFi.Models;
 
 /// <summary>
+/// WAN provider capabilities (ISP upload/download speeds).
+/// </summary>
+public class WanProviderCapabilities
+{
+    [JsonPropertyName("upload_kilobits_per_second")]
+    public int UploadKilobitsPerSecond { get; set; }
+
+    [JsonPropertyName("download_kilobits_per_second")]
+    public int DownloadKilobitsPerSecond { get; set; }
+
+    /// <summary>Upload speed in Mbps</summary>
+    public int UploadMbps => UploadKilobitsPerSecond / 1000;
+
+    /// <summary>Download speed in Mbps</summary>
+    public int DownloadMbps => DownloadKilobitsPerSecond / 1000;
+}
+
+/// <summary>
 /// JSON converter that handles int values that may come as strings, empty strings, or null.
 /// UniFi API sometimes returns VLAN IDs as strings or empty strings instead of numbers.
 /// </summary>
@@ -195,6 +213,13 @@ public class UniFiNetworkConfig
 
     [JsonPropertyName("wan_smartq_down_rate")]
     public int WanSmartqDownRate { get; set; }
+
+    /// <summary>
+    /// WAN provider capabilities (upload/download speeds).
+    /// Only present on WAN networks with ISP speed configured.
+    /// </summary>
+    [JsonPropertyName("wan_provider_capabilities")]
+    public WanProviderCapabilities? WanProviderCapabilities { get; set; }
 
     // VPN configuration
     [JsonPropertyName("vpn_type")]

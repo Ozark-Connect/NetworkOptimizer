@@ -1174,7 +1174,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         hops.Add(serverHop);
 
         // Check if we need to prepend a VPN hop (Teleport or Tailscale)
-        var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology);
+        var vpnHop = DetectAndCreateVpnHop(path.DestinationHost, topology, rawDevices);
         if (vpnHop != null)
         {
             // VPN hop becomes first (order -1 sorts before 0)
@@ -1192,10 +1192,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// Detects if the client IP is coming through a VPN (Teleport or Tailscale)
     /// and creates an appropriate hop to prepend to the path.
     /// </summary>
-    private NetworkHop? DetectAndCreateVpnHop(string clientIp, NetworkTopology topology)
+    private NetworkHop? DetectAndCreateVpnHop(
+        string clientIp,
+        NetworkTopology topology,
+        Dictionary<string, UniFiDeviceResponse> rawDevices)
     {
         if (string.IsNullOrEmpty(clientIp) || !System.Net.IPAddress.TryParse(clientIp, out _))
             return null;
+
+        // Get WAN speeds for VPN bottleneck calculation
+        // VPN traffic traverses the WAN, so WAN speed is the limiting factor
+        var (wanDownloadMbps, wanUploadMbps) = GetWanSpeed(topology, rawDevices);
 
         // Check for Tailscale CGNAT range: 100.64.0.0/10 (100.64.x.x - 100.127.x.x)
         if (clientIp.StartsWith("100."))
@@ -1210,7 +1217,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         Type = HopType.Tailscale,
                         DeviceName = "Tailscale",
                         DeviceIp = clientIp,
-                        Notes = "Tailscale VPN mesh"
+                        // WAN upload = server can send to client (client download)
+                        // WAN download = server can receive from client (client upload)
+                        IngressSpeedMbps = wanDownloadMbps,
+                        EgressSpeedMbps = wanUploadMbps,
+                        Notes = wanUploadMbps > 0
+                            ? $"Tailscale VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                            : "Tailscale VPN mesh"
                     };
                 }
             }
@@ -1230,12 +1243,53 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     Type = HopType.Teleport,
                     DeviceName = "Teleport",
                     DeviceIp = clientIp,
-                    Notes = "Teleport VPN gateway"
+                    // WAN upload = server can send to client (client download)
+                    // WAN download = server can receive from client (client upload)
+                    IngressSpeedMbps = wanDownloadMbps,
+                    EgressSpeedMbps = wanUploadMbps,
+                    Notes = wanUploadMbps > 0
+                        ? $"Teleport VPN (WAN: {wanDownloadMbps}/{wanUploadMbps} Mbps)"
+                        : "Teleport VPN gateway"
                 };
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Gets WAN speed from provider capabilities, or falls back to WAN interface link speed.
+    /// </summary>
+    private (int downloadMbps, int uploadMbps) GetWanSpeed(
+        NetworkTopology topology,
+        Dictionary<string, UniFiDeviceResponse> rawDevices)
+    {
+        // First try: WAN provider capabilities (ISP speed configuration)
+        var primaryWan = topology.Networks.FirstOrDefault(n => n.IsWan && n.WanDownloadMbps > 0);
+        if (primaryWan != null && primaryWan.WanDownloadMbps > 0)
+        {
+            return (primaryWan.WanDownloadMbps ?? 0, primaryWan.WanUploadMbps ?? 0);
+        }
+
+        // Fallback: WAN interface link speed from gateway's port table
+        var gateway = topology.Devices.FirstOrDefault(d => d.Type == DeviceType.Gateway);
+        if (gateway != null && rawDevices.TryGetValue(gateway.Mac, out var gatewayDevice))
+        {
+            // Find WAN port(s) - look for is_uplink flag or port name containing "WAN"
+            var wanPort = gatewayDevice.PortTable?
+                .Where(p => p.IsUplink || p.Name.Contains("WAN", StringComparison.OrdinalIgnoreCase))
+                .Where(p => p.Up && p.Speed > 0)
+                .OrderByDescending(p => p.Speed)
+                .FirstOrDefault();
+
+            if (wanPort != null)
+            {
+                // Link speed is symmetric for interface rate
+                return (wanPort.Speed, wanPort.Speed);
+            }
+        }
+
+        return (0, 0);
     }
 
     /// <summary>

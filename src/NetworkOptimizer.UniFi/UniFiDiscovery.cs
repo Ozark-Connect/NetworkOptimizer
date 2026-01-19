@@ -274,7 +274,9 @@ public class UniFiDiscovery
                 IsDhcpEnabled = n.DhcpdEnabled,
                 DhcpRange = n.DhcpdEnabled ? $"{n.DhcpdStart} - {n.DhcpdStop}" : null,
                 Gateway = n.DhcpdGateway,
-                IsNat = n.IsNat
+                IsNat = n.IsNat,
+                WanUploadMbps = n.WanProviderCapabilities?.UploadMbps,
+                WanDownloadMbps = n.WanProviderCapabilities?.DownloadMbps
             }).ToList() ?? new List<NetworkInfo>(),
             DiscoveredAt = DateTime.UtcNow
         };
@@ -660,6 +662,15 @@ public class NetworkInfo
     public string? DhcpRange { get; set; }
     public string? Gateway { get; set; }
     public bool IsNat { get; set; }
+
+    /// <summary>WAN upload speed in Mbps (only for WAN networks)</summary>
+    public int? WanUploadMbps { get; set; }
+
+    /// <summary>WAN download speed in Mbps (only for WAN networks)</summary>
+    public int? WanDownloadMbps { get; set; }
+
+    /// <summary>Whether this is a WAN network</summary>
+    public bool IsWan => Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase);
 }
 
 public class FirewallConfiguration
