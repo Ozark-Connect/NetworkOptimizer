@@ -128,4 +128,10 @@ public class NetworkPath
     /// These devices are CPU-bound similar to APs.
     /// </summary>
     public bool TargetIsCellularModem { get; set; }
+
+    /// <summary>
+    /// Whether the path originates from outside the local network (VPN or WAN).
+    /// External paths don't use inter-VLAN routing and shouldn't show gateway warnings.
+    /// </summary>
+    public bool IsExternalPath { get; set; }
 }

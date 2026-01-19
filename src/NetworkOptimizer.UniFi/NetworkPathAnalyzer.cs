@@ -1180,6 +1180,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             // VPN hop becomes first (order -1 sorts before 0)
             vpnHop.Order = -1;
             hops.Add(vpnHop);
+            path.IsExternalPath = true;
             _logger.LogDebug("Prepended {VpnType} hop for client {ClientIp}",
                 vpnHop.Type, path.DestinationHost);
         }

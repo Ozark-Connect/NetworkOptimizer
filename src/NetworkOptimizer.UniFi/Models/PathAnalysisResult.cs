@@ -79,7 +79,8 @@ public class PathAnalysisResult
         Recommendations.Clear();
 
         // Gateway tests have inherent CPU overhead - note this and skip performance warnings
-        if (Path.TargetIsGateway)
+        // But not for external (VPN/WAN) paths where the target isn't really the gateway
+        if (Path.TargetIsGateway && !Path.IsExternalPath)
         {
             Insights.Add("Gateway speed test - results limited by gateway CPU, not network");
             // Skip other performance-based insights for gateway tests

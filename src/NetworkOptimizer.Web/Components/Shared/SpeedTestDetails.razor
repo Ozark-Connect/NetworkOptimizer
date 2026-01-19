@@ -155,7 +155,7 @@
                 </div>
             }
 
-            @if (PathAnalysis.Path.RequiresRouting)
+            @if (PathAnalysis.Path.RequiresRouting && !PathAnalysis.Path.IsExternalPath)
             {
                 <div class="routing-badge">
                     🔀 Inter-VLAN via @(PathAnalysis.Path.GatewayDevice ?? "gateway")
