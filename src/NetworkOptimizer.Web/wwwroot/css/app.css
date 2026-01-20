@@ -3206,7 +3206,7 @@ select.form-control {
 .path-analysis .path-visualization.path-switchback {
     flex-wrap: nowrap;
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 0;
     padding-bottom: 1rem;
 }
@@ -3221,9 +3221,11 @@ select.form-control {
     justify-content: flex-start;
 }
 
-/* Reversed rows align right */
+/* Reversed rows align right within their content width, positioned to align with row above */
 .path-analysis .path-switchback .path-row.reversed {
     justify-content: flex-end;
+    align-self: flex-end;
+    margin-right: 1rem;
 }
 
 /* Left-pointing arrows for reversed rows */
@@ -3247,9 +3249,9 @@ select.form-control {
     position: absolute;
     width: 2px;
     background: #3b82f6;
-    right: 4px;
+    right: -8px;
     top: 0;
-    height: calc(100% + 1.5rem);
+    height: calc(100% + 2.5rem);
 }
 
 /* Horizontal part of the L at the bottom - extends left to meet next row */
@@ -3266,7 +3268,7 @@ select.form-control {
 /* Turn from left side (reversed rows going to next row) */
 .path-analysis .path-connector.path-turn.turn-left .turn-corner {
     right: auto;
-    left: 4px;
+    left: -8px;
 }
 
 .path-analysis .path-connector.path-turn.turn-left .turn-corner::after {

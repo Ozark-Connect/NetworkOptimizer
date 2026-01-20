@@ -368,22 +368,31 @@
 
     // Switchback layout helpers
     private record HopData(NetworkHop Hop, int GlobalIndex);
-    private const int MaxHopsPerRow = 5;
+    private const int MaxHopsPerRow = 6;
+    private const int MaxCharsPerRow = 120; // Approximate character budget per row
 
     private List<List<HopData>> GetHopRows(IList<NetworkHop> hops)
     {
         var rows = new List<List<HopData>>();
         var currentRow = new List<HopData>();
+        var currentRowChars = 0;
 
         for (int i = 0; i < hops.Count; i++)
         {
-            currentRow.Add(new HopData(hops[i], i));
+            var hopChars = (hops[i].DeviceName?.Length ?? 0) + 15; // +15 for padding, icon, connector
 
-            if (currentRow.Count >= MaxHopsPerRow && i < hops.Count - 1)
+            // Start new row if adding this hop would exceed limits (but always add at least one)
+            if (currentRow.Count > 0 &&
+                (currentRow.Count >= MaxHopsPerRow || currentRowChars + hopChars > MaxCharsPerRow) &&
+                i < hops.Count - 1)
             {
                 rows.Add(currentRow);
                 currentRow = new List<HopData>();
+                currentRowChars = 0;
             }
+
+            currentRow.Add(new HopData(hops[i], i));
+            currentRowChars += hopChars;
         }
 
         if (currentRow.Count > 0)
