@@ -2922,6 +2922,10 @@ select.form-control {
     min-width: 180px;
 }
 
+#latest-result .speed-result {
+    background: var(--bg-tertiary);
+}
+
 .speed-result.upload {
     border-left: 4px solid var(--speed-upload-color);
 }
@@ -3045,9 +3049,8 @@ select.form-control {
 }
 
 .history-details .test-details {
-    padding-top: 1rem;
-    margin-top: 0.5rem;
-    border-top: 1px solid var(--border-color);
+    text-align: center;
+    border-top: 1px solid var(--bg-secondary);
 }
 
 .history-details .path-analysis {
