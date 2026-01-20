@@ -3245,12 +3245,12 @@ select.form-control {
 /* Turn connector - L-shaped corner going down then across */
 .path-analysis .path-connector.path-turn {
     position: relative;
-    flex-grow: 1;
+    flex-grow: 0.8;
 }
 
 /* Extend the connector line to the edge for turn connectors */
 .path-analysis .path-connector.path-turn .connector-line {
-    width: 109%;
+    width: calc(101% + 18px);
     min-width: 3rem;
 }
 
@@ -3269,7 +3269,7 @@ select.form-control {
     position: absolute;
     bottom: 0;
     right: 0;
-    width: 2rem;
+    width: 4rem;
     height: 2px;
     background: #3b82f6;
 }
