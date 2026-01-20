@@ -704,7 +704,7 @@
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details style="margin-top: 1.5rem;" open="@modemFormExpanded">
                 <summary style="cursor: pointer; font-weight: 500;" @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
-                <div style="padding-top: 1rem;">
+                <div style="padding-top: 0.5rem;">
                     <p class="form-help" style="margin-bottom: 1rem;">
                         Only use manual entry if auto-discovery doesn't find your modem.
                     </p>
