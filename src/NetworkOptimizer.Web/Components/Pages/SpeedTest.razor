@@ -299,7 +299,7 @@
                             <th class="hide-mobile">Model</th>
                             <th class="show-mobile">Device</th>
                             <th>IP Address</th>
-                            <th>Type</th>
+                            <th class="hide-mobile">Type</th>
                             <th>Status</th>
                             <th>Action</th>
                         </tr>
@@ -317,7 +317,7 @@
                                     <code class="text-muted">@device.FriendlyModelName</code>
                                 </td>
                                 <td><code>@device.IpAddress</code></td>
-                                <td>@device.Type.ToDisplayName()</td>
+                                <td class="hide-mobile">@device.Type.ToDisplayName()</td>
                                 <td>
                                     @if (isOnline)
                                     {
@@ -416,7 +416,7 @@
                             <th class="hide-mobile">Name</th>
                             <th class="hide-mobile">Host</th>
                             <th class="show-mobile">Device</th>
-                            <th>Type</th>
+                            <th class="hide-mobile">Type</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -431,7 +431,7 @@
                                     @device.Name<br />
                                     <code class="text-muted">@device.Host</code>
                                 </td>
-                                <td>@device.DeviceType.ToDisplayName()</td>
+                                <td class="hide-mobile">@device.DeviceType.ToDisplayName()</td>
                                 <td>
                                     @if (device.Enabled)
                                     {
