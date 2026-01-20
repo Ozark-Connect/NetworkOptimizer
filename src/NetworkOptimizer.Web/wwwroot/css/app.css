@@ -3247,7 +3247,7 @@ select.form-control {
 /* Turn connector - L-shaped corner going down then across */
 .path-analysis .path-connector.path-turn {
     position: relative;
-    flex-grow: 0.68;
+    flex-grow: 0.64;
     margin-left: -2px;
 }
 
@@ -3279,7 +3279,7 @@ select.form-control {
 
 /* Turn from left side (reversed rows going to next row) - mirrored */
 .path-analysis .path-connector.path-turn.turn-left {
-    flex-grow: 0.68;
+    flex-grow: 0.64;
     margin-left: 0;
     margin-right: -2px;
 }
