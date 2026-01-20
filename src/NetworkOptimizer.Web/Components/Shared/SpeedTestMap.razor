@@ -961,6 +961,7 @@
         gap: 1rem;
         font-size: 0.8rem;
         color: var(--text-muted);
+        margin-left: 0.75rem;
     }
 
     .legend-item {
@@ -977,12 +978,8 @@
     }
 
     @@media (max-width: 768px) {
-        .speed-test-map-card .card-header {
-            justify-content: center;
-        }
-
         .speed-test-map-card .card-body {
-            padding: 1rem 0;
+            padding: 1rem 0 0.25rem;
         }
 
         .map-filters {
@@ -998,10 +995,26 @@
             justify-content: center;
             gap: 0.8rem;
             font-size: 0.75rem;
+            margin-left: 0;
         }
 
         .map-time-slider {
             order: 1;
+        }
+
+        .map-time-slider input[type="range"] {
+            width: 200px;
+            height: 8px;
+        }
+
+        .map-time-slider input[type="range"]::-webkit-slider-thumb {
+            width: 20px;
+            height: 20px;
+        }
+
+        .map-time-slider input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
         }
     }
 

@@ -2922,6 +2922,10 @@ select.form-control {
     min-width: 180px;
 }
 
+#latest-result .speed-result {
+    background: var(--bg-tertiary);
+}
+
 .speed-result.upload {
     border-left: 4px solid var(--speed-upload-color);
 }
@@ -2979,7 +2983,7 @@ select.form-control {
 .retransmits-info {
     text-align: center;
     color: var(--text-muted);
-    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
     font-size: 0.8rem;
 }
 
@@ -3001,7 +3005,10 @@ select.form-control {
 }
 
 .test-details .delete-action {
-    margin-left: auto;
+    position: absolute;
+    right: 0;
+    padding-top: 1rem;
+    transform: translateY(-50%);
 }
 
 .test-details .btn-link-danger {
@@ -3035,6 +3042,65 @@ select.form-control {
     animation: spin 0.6s linear infinite;
 }
 
+.show-mobile {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    .speed-results {
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .test-details {
+        gap: 0.5rem 1rem;
+    }
+
+    .test-details > span {
+        min-width: 34%;
+        text-align: center;
+    }
+
+    .test-details .delete-action {
+        min-width: 0;
+        padding-top: 1.25rem;
+    }
+
+    .hide-mobile {
+        display: none !important;
+    }
+
+    .show-mobile {
+        display: table-cell !important;
+    }
+
+    .speedtest-container .data-table,
+    .client-speedtest-container .data-table {
+        min-width: 350px;
+    }
+
+    .table-responsive {
+        padding: 0;
+    }
+
+    [class*="badge-vpn-"] {
+        margin-bottom: 0.25rem;
+    }
+
+    .data-table td {
+        padding: 0.75rem 0.5rem;
+    }
+
+    td .btn {
+        margin: 0 auto;
+    }
+
+    td .btn + .btn {
+        margin: 0 auto;
+    }
+}
+
 /* Path Analysis - Redesigned */
 .path-analysis {
     margin-top: 1.25rem;
@@ -3044,7 +3110,13 @@ select.form-control {
     font-size: 0.875rem;
 }
 
+.history-details .test-details {
+    position: relative;
+    border-top: 1px solid var(--bg-card);
+}
+
 .history-details .path-analysis {
+    margin-top: 0.5rem;
     padding-bottom: 0.25rem;
 }
 
@@ -4577,8 +4649,13 @@ select.form-control {
 
 .icon-cell .device-icon {
     display: block;
-    margin: 0 auto;
-    margin-right: -0.5rem;
+    margin: 0 -0.5rem 0 auto;
+}
+
+@media (max-width: 768px) {
+    .icon-cell .device-icon {
+        margin: 0 auto;
+    }
 }
 
 /* ============================================

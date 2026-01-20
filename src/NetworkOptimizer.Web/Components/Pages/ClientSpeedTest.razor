@@ -164,14 +164,14 @@
         <div class="card-body">
             @if (testHistory.Count > 0)
             {
-                <div class="table-responsive">
+                <div class="table-responsive" id="history-table">
                     <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Time</th>
                                 <th>Device</th>
                                 <th>Source</th>
-                                <th>
+                                <th class="hide-mobile">
                                     <span class="tooltip-wrapper tooltip-bottom">
                                         ↓ Mbps
                                         <span class="tooltip-icon">?</span>
@@ -181,7 +181,7 @@
                                         </span>
                                     </span>
                                 </th>
-                                <th>
+                                <th class="hide-mobile">
                                     <span class="tooltip-wrapper tooltip-bottom">
                                         ↑ Mbps
                                         <span class="tooltip-icon">?</span>
@@ -191,7 +191,8 @@
                                         </span>
                                     </span>
                                 </th>
-                                <th>Ping</th>
+                                <th class="show-mobile">Mbps</th>
+                                <th class="hide-mobile">Ping</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -227,7 +228,7 @@
                                             @GetSourceLabel(result.Direction)
                                         </span>
                                     </td>
-                                    <td>
+                                    <td class="hide-mobile">
                                         @if (result.DownloadMbps > 0)
                                         {
                                             <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
@@ -238,7 +239,7 @@
                                             <span>-</span>
                                         }
                                     </td>
-                                    <td>
+                                    <td class="hide-mobile">
                                         @if (result.UploadMbps > 0)
                                         {
                                             <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
@@ -249,7 +250,8 @@
                                             <span>-</span>
                                         }
                                     </td>
-                                    <td>
+                                    <td class="show-mobile">@($"{(result.DownloadMbps > 0 ? $"↓{result.DownloadMbps:F0}" : "")}{(result.DownloadMbps > 0 && result.UploadMbps > 0 ? " " : "")}{(result.UploadMbps > 0 ? $"↑{result.UploadMbps:F0}" : "")}")</td>
+                                    <td class="hide-mobile">
                                         @if (result.PingMs.HasValue)
                                         {
                                             <span>@result.PingMs.Value.ToString("F1") ms</span>
@@ -268,7 +270,7 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" IsInTableRow="true" />
                                                 </div>
                                             </div>
                                         </div>
@@ -281,10 +283,10 @@
 
                 @if (historyTotalPages > 1)
                 {
-                    <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => historyPage--">Prev</button>
+                    <div class="pagination" id="history-pagination">
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
                         <span class="pagination-info">Page @historyPage of @historyTotalPages</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => historyPage++">Next</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next</button>
                     </div>
                 }
             }
@@ -586,33 +588,6 @@
 
     .history-row-expanded {
         background: var(--bg-tertiary);
-    }
-
-    .expand-chevron {
-        text-align: center;
-        color: var(--text-muted);
-        width: 2rem;
-    }
-
-    .history-details-row td {
-        padding: 0 !important;
-        border: none !important;
-    }
-
-    .expand-wrapper {
-        max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.3s ease-out;
-    }
-
-    .expand-wrapper.expanded {
-        max-height: 1000px;
-    }
-
-    .expand-content {
-        padding: 1rem;
-        background: var(--bg-primary);
-        border-top: 1px solid var(--border-color);
     }
 
 </style>
@@ -917,6 +892,21 @@
         }
 
         return true;
+    }
+
+    private async Task ChangePage(int delta)
+    {
+        var hadExpanded = expandedHistoryId.HasValue;
+        expandedHistoryId = null;
+        _collapsingHistoryId = null;
+        historyPage += delta;
+
+        if (hadExpanded)
+        {
+            StateHasChanged();
+            await Task.Delay(50); // Let the DOM update
+            await JS.InvokeVoidAsync("eval", "const container = document.querySelector('.page-content'); document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'end' }); container?.addEventListener('scrollend', () => container.scrollBy({ top: 50, behavior: 'smooth' }), { once: true });");
+        }
     }
 
     private async Task ToggleHistoryExpand(int resultId)
