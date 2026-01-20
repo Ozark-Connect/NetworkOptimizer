@@ -3084,6 +3084,10 @@ select.form-control {
     td .btn {
         margin: 0 auto;
     }
+
+    td .btn + .btn {
+        margin: 0 auto;
+    }
 }
 
 /* Path Analysis - Redesigned */
