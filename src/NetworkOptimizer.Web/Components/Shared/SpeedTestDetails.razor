@@ -175,7 +175,7 @@
                                 var deviceTooltip = GetDeviceTooltip(hop);
 
                                 @* Connector BEFORE hop for reversed rows (between hops, not at the start) *@
-                                @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1 && !isLastHopInRow)
+                                @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
                                     var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
