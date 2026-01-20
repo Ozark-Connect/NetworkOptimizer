@@ -171,7 +171,7 @@
                                 <th>Time</th>
                                 <th>Device</th>
                                 <th>Source</th>
-                                <th>
+                                <th class="hide-mobile">
                                     <span class="tooltip-wrapper tooltip-bottom">
                                         ↓ Mbps
                                         <span class="tooltip-icon">?</span>
@@ -181,7 +181,7 @@
                                         </span>
                                     </span>
                                 </th>
-                                <th>
+                                <th class="hide-mobile">
                                     <span class="tooltip-wrapper tooltip-bottom">
                                         ↑ Mbps
                                         <span class="tooltip-icon">?</span>
@@ -191,7 +191,8 @@
                                         </span>
                                     </span>
                                 </th>
-                                <th>Ping</th>
+                                <th class="show-mobile">Mbps</th>
+                                <th class="hide-mobile">Ping</th>
                                 <th></th>
                             </tr>
                         </thead>
@@ -227,7 +228,7 @@
                                             @GetSourceLabel(result.Direction)
                                         </span>
                                     </td>
-                                    <td>
+                                    <td class="hide-mobile">
                                         @if (result.DownloadMbps > 0)
                                         {
                                             <span class="speed-value">@result.DownloadMbps.ToString("F1")</span>
@@ -238,7 +239,7 @@
                                             <span>-</span>
                                         }
                                     </td>
-                                    <td>
+                                    <td class="hide-mobile">
                                         @if (result.UploadMbps > 0)
                                         {
                                             <span class="speed-value">@result.UploadMbps.ToString("F1")</span>
@@ -249,7 +250,8 @@
                                             <span>-</span>
                                         }
                                     </td>
-                                    <td>
+                                    <td class="show-mobile">↓@result.DownloadMbps.ToString("F0") ↑@result.UploadMbps.ToString("F0")</td>
+                                    <td class="hide-mobile">
                                         @if (result.PingMs.HasValue)
                                         {
                                             <span>@result.PingMs.Value.ToString("F1") ms</span>

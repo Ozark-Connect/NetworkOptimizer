@@ -47,6 +47,10 @@
     <span>Device: @DeviceName (@DeviceHost)</span>
     <span>Duration: @DurationSeconds seconds</span>
     <span>Streams: @ParallelStreams parallel</span>
+    @if (PingMs.HasValue)
+    {
+        <span>Ping: @PingMs.Value.ToString("F1") ms</span>
+    }
     <span>Time: @TestTime.ToLocalTime().ToString("g")</span>
     @if (OnDelete.HasDelegate && Result != null)
     {
@@ -287,6 +291,7 @@
     [Parameter] public int DurationSeconds { get; set; }
     [Parameter] public int ParallelStreams { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
+    [Parameter] public double? PingMs { get; set; }
 
     /// <summary>
     /// Path analysis result (set automatically when using Result parameter)
@@ -335,6 +340,7 @@
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
+            PingMs = Result.PingMs;
 
             // Sync PathAnalysis from Result when Result changes
             // This ensures we don't show stale analysis from a previous test

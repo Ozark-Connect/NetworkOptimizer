@@ -3042,6 +3042,10 @@ select.form-control {
     animation: spin 0.6s linear infinite;
 }
 
+.show-mobile {
+    display: none !important;
+}
+
 @media (max-width: 768px) {
     .speed-results {
         flex-direction: column;
@@ -3054,6 +3058,10 @@ select.form-control {
 
     .hide-mobile {
         display: none !important;
+    }
+
+    .show-mobile {
+        display: table-cell !important;
     }
 
     .speedtest-container .data-table,

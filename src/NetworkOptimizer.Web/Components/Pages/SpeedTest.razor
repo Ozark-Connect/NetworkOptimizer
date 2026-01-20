@@ -655,7 +655,7 @@
                         <tr>
                             <th>Time</th>
                             <th>Device</th>
-                            <th>
+                            <th class="hide-mobile">
                                 <span class="tooltip-wrapper tooltip-bottom">
                                     ↓ Mbps
                                     <span class="tooltip-icon">?</span>
@@ -665,7 +665,7 @@
                                     </span>
                                 </span>
                             </th>
-                            <th>
+                            <th class="hide-mobile">
                                 <span class="tooltip-wrapper tooltip-bottom">
                                     ↑ Mbps
                                     <span class="tooltip-icon">?</span>
@@ -675,6 +675,7 @@
                                     </span>
                                 </span>
                             </th>
+                            <th class="show-mobile">Mbps</th>
                             <th class="hide-mobile">
                                 <span class="tooltip-wrapper tooltip-bottom">
                                     Streams
@@ -697,8 +698,9 @@
                                 @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
-                                <td>@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
-                                <td>@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
+                                <td class="hide-mobile">@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
+                                <td class="hide-mobile">@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
+                                <td class="show-mobile">@(result.Success ? $"↓{result.DownloadMbps:F0} ↑{result.UploadMbps:F0}" : "-")</td>
                                 <td class="hide-mobile">@result.ParallelStreams</td>
                                 <td class="hide-mobile">
                                     @if (result.Success)
