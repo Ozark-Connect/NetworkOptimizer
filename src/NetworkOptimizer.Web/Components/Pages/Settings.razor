@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
+@using NetworkOptimizer.UniFi
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
@@ -703,8 +704,8 @@
             <!-- Manual Add Form (collapsed by default, expands when editing) -->
             <details style="margin-top: 1.5rem;" open="@modemFormExpanded">
                 <summary style="cursor: pointer; font-weight: 500;" @onclick="() => modemFormExpanded = !modemFormExpanded">@(editingModem?.Id > 0 ? "Edit Modem" : "Add Modem Manually")</summary>
-                <div style="padding-top: 1rem;">
-                    <p class="form-help">
+                <div style="padding-top: 0.5rem;">
+                    <p class="form-help" style="margin-bottom: 1rem;">
                         Only use manual entry if auto-discovery doesn't find your modem.
                     </p>
 
@@ -724,7 +725,8 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">QMI Device Path</label>
-                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" required />
+                                <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
@@ -1186,7 +1188,7 @@
 
     // Cellular Modem
     private List<ModemConfiguration> modemConfigs = new();
-    private ModemConfiguration editingModem = new() { Port = 22, Username = "root", QmiDevice = "/dev/wwan0qmi0", PollingIntervalSeconds = 300, Enabled = true };
+    private ModemConfiguration editingModem = new() { Port = 22, Username = "root", QmiDevice = "", PollingIntervalSeconds = 300, Enabled = true };
     private string modemStatus = "Unknown";
     private bool savingModem = false;
     private string modemMessage = "";
@@ -1870,7 +1872,7 @@
                 Port = 22,
                 Username = "root",
                 ModemType = discovered.Model,
-                QmiDevice = "/dev/wwan0qmi0",
+                QmiDevice = UniFiProductDatabase.GetDefaultQmiDevicePath(discovered.Model),
                 PollingIntervalSeconds = 300,
                 Enabled = true
             };
@@ -2150,7 +2152,7 @@
         {
             Port = 22,
             Username = "root",
-            QmiDevice = "/dev/wwan0qmi0",
+            QmiDevice = "",
             PollingIntervalSeconds = 300,
             Enabled = true
         };
@@ -2172,6 +2174,13 @@
         if (string.IsNullOrWhiteSpace(editingModem.Name) || string.IsNullOrWhiteSpace(editingModem.Host))
         {
             modemMessage = "Name and Host are required";
+            modemMessageClass = "danger";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editingModem.QmiDevice))
+        {
+            modemMessage = "QMI Device Path is required";
             modemMessageClass = "danger";
             return;
         }

@@ -1267,4 +1267,91 @@ public class UniFiProductDatabaseTests
     }
 
     #endregion
+
+    #region GetDefaultQmiDevicePath Tests
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void GetDefaultQmiDevicePath_NullOrEmpty_ReturnsDefaultPath(string? model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/wwan0qmi0");
+    }
+
+    [Theory]
+    [InlineData("ULTE")]
+    [InlineData("ULTEPUS")]
+    [InlineData("ULTEPEU")]
+    [InlineData("ULTEPRO")]
+    public void GetDefaultQmiDevicePath_LteModelCodes_ReturnsCdcWdm0(string model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/cdc-wdm0");
+    }
+
+    [Theory]
+    [InlineData("U-LTE")]
+    [InlineData("U-LTE-Backup-Pro")]
+    public void GetDefaultQmiDevicePath_LteProductNames_ReturnsCdcWdm0(string model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/cdc-wdm0");
+    }
+
+    [Theory]
+    [InlineData("ulte")]
+    [InlineData("Ulte")]
+    [InlineData("u-lte")]
+    [InlineData("U-Lte")]
+    public void GetDefaultQmiDevicePath_CaseInsensitive(string model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/cdc-wdm0");
+    }
+
+    [Theory]
+    [InlineData("UMBBE630")]
+    [InlineData("UMBBE631")]
+    [InlineData("U5GMAX")]
+    [InlineData("U5G-Max")]
+    [InlineData("U5G-Max-Outdoor")]
+    [InlineData("UDMA6B9")]      // UDR-5G-Max model code
+    [InlineData("UDR5G")]        // UDR-5G-Max legacy SKU
+    [InlineData("UDR-5G-Max")]   // UDR-5G-Max product name
+    public void GetDefaultQmiDevicePath_5gModems_ReturnsWwan0Qmi0(string model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/wwan0qmi0");
+    }
+
+    [Theory]
+    [InlineData("UNKNOWN-MODEL")]
+    [InlineData("USW-Pro-24")]
+    [InlineData("UDM-Pro")]
+    public void GetDefaultQmiDevicePath_UnknownOrNonModem_ReturnsDefaultPath(string model)
+    {
+        // Act
+        var result = UniFiProductDatabase.GetDefaultQmiDevicePath(model);
+
+        // Assert
+        result.Should().Be("/dev/wwan0qmi0");
+    }
+
+    #endregion
 }
