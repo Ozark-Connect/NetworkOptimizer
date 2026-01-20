@@ -3050,6 +3050,7 @@ select.form-control {
     .speed-results {
         flex-direction: column;
         align-items: center;
+        gap: 1rem;
     }
 
     .test-details {
