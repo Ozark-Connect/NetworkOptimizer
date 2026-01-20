@@ -3373,6 +3373,23 @@ select.form-control {
         border-left-color: var(--warning-color);
     }
 
+    /* Reset turn-left arrow direction on mobile - all arrows point same way (down after rotation) */
+    .path-analysis .path-connector.path-turn.turn-left .connector-line::after {
+        right: 0;
+        left: auto;
+        border-right-color: transparent;
+        border-left-color: #3b82f6;
+    }
+
+    .path-analysis .path-connector.path-turn.turn-left.bottleneck .connector-line::after {
+        border-left-color: var(--warning-color);
+    }
+
+    /* Remove top padding on subsequent rows */
+    .path-analysis .path-switchback .path-row + .path-row {
+        padding-top: 0;
+    }
+
     /* Hide turn connectors on mobile - not needed for vertical layout */
     .path-analysis .path-connector.path-turn .turn-corner {
         display: none;
