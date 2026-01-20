@@ -3312,6 +3312,11 @@ select.form-control {
         width: auto;
     }
 
+    /* Undo server-side reversal on mobile - reverse back to normal order */
+    .path-analysis .path-switchback .path-row.reversed {
+        flex-direction: column-reverse;
+    }
+
     .path-analysis .path-row {
         flex-direction: column;
         align-items: center;
@@ -3321,6 +3326,12 @@ select.form-control {
     .path-analysis .path-connector {
         transform: rotate(90deg);
         margin: 0.25rem 0;
+    }
+
+    /* Fixed width for connector lines on mobile */
+    .path-analysis .path-connector .connector-line,
+    .path-analysis .path-connector.path-turn .connector-line {
+        width: 43px;
     }
 
     /* Hide turn connectors on mobile - not needed for vertical layout */
