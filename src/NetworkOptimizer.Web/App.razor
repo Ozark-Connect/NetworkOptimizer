@@ -96,6 +96,33 @@
             downloadLink.click();
         }
 
+        // Copy text from sibling input element with visual feedback
+        function copyFromInput(button) {
+            const input = button.previousElementSibling;
+            const text = input.value;
+
+            // Try modern API first (requires HTTPS)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                // Fallback for HTTP contexts
+                input.select();
+                input.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+            }
+            input.blur();
+
+            // Visual feedback
+            const icon = button.querySelector('.copy-icon');
+            const check = button.querySelector('.copy-check');
+            icon.style.display = 'none';
+            check.style.display = 'inline';
+            setTimeout(() => {
+                icon.style.display = 'inline';
+                check.style.display = 'none';
+            }, 2000);
+        }
+
         // Initialize Tippy.js tooltips
         function initTooltips() {
             // Find all tooltip icons with content siblings

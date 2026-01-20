@@ -60,7 +60,7 @@
                         </div>
                         <div class="url-copy-row">
                             <input type="text" class="url-display" value="@openSpeedTestUrl" readonly />
-                            <button type="button" class="btn-icon" title="Copy URL" onclick="var input = this.previousElementSibling; input.select(); input.setSelectionRange(0, 99999); document.execCommand('copy'); input.blur(); this.querySelector('.copy-icon').style.display='none'; this.querySelector('.copy-check').style.display='inline'; setTimeout(() => { this.querySelector('.copy-icon').style.display='inline'; this.querySelector('.copy-check').style.display='none'; }, 2000);">
+                            <button type="button" class="btn-icon" title="Copy URL" onclick="copyFromInput(this)">
                                 <span class="copy-icon">📋</span>
                                 <span class="copy-check" style="display:none;">✓</span>
                             </button>
