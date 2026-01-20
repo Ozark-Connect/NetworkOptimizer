@@ -70,9 +70,6 @@
                 <span class="quality-value">@modemStats.SignalQuality%</span>
                 <span class="quality-label">Signal Quality</span>
             </div>
-            <div class="device-icon">
-                <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
-            </div>
             @if (configuredModems.Count > 1)
             {
                 <div class="modem-nav">
@@ -81,6 +78,9 @@
                     <button class="nav-btn" @onclick="NextModem" disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
                 </div>
             }
+            <div class="device-icon">
+                <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
+            </div>
         </div>
 
         <!-- Carrier Info -->
@@ -231,6 +231,7 @@
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        margin-left: auto;
     }
 
     .nav-btn {
