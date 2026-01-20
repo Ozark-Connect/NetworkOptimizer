@@ -796,34 +796,27 @@ Results from both methods are stored in Network Optimizer and visible in the Cli
 
 ### OpenSpeedTest™ (Browser-Based)
 
-Bundled as part of the Docker Compose stack. Access at `http://your-server:3005` (port configurable via `OPENSPEEDTEST_PORT`).
+Bundled as part of the Docker Compose stack. Access at `http://your-server:3005`.
 
-**Configuration:**
-
-Set these environment variables in `.env`:
+**Configuration (in `.env`):**
 
 ```env
-# Server IP for path analysis (only needed if auto-detection fails, e.g., bridge networking)
-HOST_IP=192.168.1.100
+# Main app identity (feel free to omit N/A settings)
+HOST_IP=192.168.1.100               # Optional - for path analysis if auto-detection fails
+HOST_NAME=nas                       # Optional - friendly hostname (requires DNS)
+REVERSE_PROXIED_HOST_NAME=...       # Optional - if main app is behind HTTPS proxy
 
-# Hostname for canonical URL enforcement and friendlier user-facing URLs
-# Requires DNS resolution (can be local DNS via router/Pi-hole)
-HOST_NAME=nas
-
-# If app/API is behind a reverse proxy with HTTPS (takes priority for canonical URL)
-# Only affects app/API URL, not the OpenSpeedTest container URL
-REVERSE_PROXIED_HOST_NAME=optimizer.example.com
+# SpeedTest-specific (feel free to omit N/A settings)
+OPENSPEEDTEST_PORT=3005             # Optional - change if port 3005 conflicts
+OPENSPEEDTEST_HOST=speedtest.local  # Optional - if speedtest uses different hostname than main app
+OPENSPEEDTEST_HTTPS=true            # Optional - if speedtest is behind TLS proxy (for geolocated speed test result map)
+OPENSPEEDTEST_HTTPS_PORT=443        # Optional - HTTPS port if not 443
 ```
 
-These settings enforce a canonical URL via 302 redirect. Priority: `REVERSE_PROXIED_HOST_NAME` > `HOST_NAME` > `HOST_IP`. If none set, any Host header is accepted. `HOST_IP` is only required for speed test path analysis when the server IP can't be auto-detected.
-
-The API URL for result reporting is constructed using this priority:
-1. `REVERSE_PROXIED_HOST_NAME` → `https://hostname/api/public/speedtest/results`
-2. `HOST_NAME` → `http://hostname:8042/api/public/speedtest/results`
-3. `HOST_IP` → `http://ip:8042/api/public/speedtest/results`
+See `.env.example` for full documentation on each setting.
 
 **Usage:**
-1. Open `http://your-server:3005` (or your configured port) from any device on your network
+1. Open `http://your-server:3005` from any device on your network
 2. Run the speed test
 3. Results automatically appear in Network Optimizer's Client Speed Test page
 
