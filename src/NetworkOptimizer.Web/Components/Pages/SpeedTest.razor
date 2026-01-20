@@ -1582,7 +1582,7 @@
         {
             StateHasChanged();
             await Task.Delay(50); // Let the DOM update
-            await JS.InvokeVoidAsync("eval", "document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+            await JS.InvokeVoidAsync("eval", "document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => window.scrollBy({ top: -50, behavior: 'smooth' }), 300);");
         }
     }
 
