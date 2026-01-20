@@ -3044,7 +3044,14 @@ select.form-control {
     font-size: 0.875rem;
 }
 
+.history-details .test-details {
+    padding-top: 1rem;
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
 .history-details .path-analysis {
+    margin-top: 0.5rem;
     padding-bottom: 0.25rem;
 }
 
