@@ -3053,11 +3053,16 @@ select.form-control {
     }
 
     .test-details {
-        gap: 1rem;
+        gap: 0.5rem 1rem;
     }
 
     .test-details > span {
-        min-width: 45%;
+        min-width: 34%;
+        text-align: center;
+    }
+
+    .test-details .delete-action {
+        min-width: 0;
     }
 
     .hide-mobile {
