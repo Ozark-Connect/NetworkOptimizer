@@ -3064,6 +3064,7 @@ select.form-control {
 
     .test-details .delete-action {
         min-width: 0;
+        padding-top: 1.25rem;
     }
 
     .hide-mobile {
