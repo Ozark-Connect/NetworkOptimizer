@@ -3049,8 +3049,16 @@ select.form-control {
 }
 
 .history-details .test-details {
-    text-align: center;
-    border-top: 1px solid var(--bg-secondary);
+    position: relative;
+    border-top: 1px solid var(--bg-card);
+}
+
+.history-details .test-details .delete-action {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0;
 }
 
 .history-details .path-analysis {
