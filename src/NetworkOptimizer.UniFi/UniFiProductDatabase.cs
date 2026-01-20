@@ -692,4 +692,28 @@ public static class UniFiProductDatabase
 
         return false;
     }
+
+    /// <summary>
+    /// Get the default QMI device path for a cellular modem based on its model.
+    /// U-LTE devices use /dev/cdc-wdm0, U5G devices use /dev/wwan0qmi0.
+    /// </summary>
+    /// <param name="model">The model code or product name</param>
+    /// <returns>The default QMI device path for this modem type</returns>
+    public static string GetDefaultQmiDevicePath(string? model)
+    {
+        if (string.IsNullOrEmpty(model))
+            return "/dev/wwan0qmi0";
+
+        // U-LTE devices (including U-LTE-Pro, U-LTE-Backup-Pro) use /dev/cdc-wdm0
+        // Check model codes: ULTE, ULTEPUS, ULTEPEU, ULTEPRO
+        // Also check product names: U-LTE, U-LTE-Backup-Pro
+        if (model.StartsWith("ULTE", StringComparison.OrdinalIgnoreCase) ||
+            model.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase))
+        {
+            return "/dev/cdc-wdm0";
+        }
+
+        // U5G-Max and other 5G modems use /dev/wwan0qmi0
+        return "/dev/wwan0qmi0";
+    }
 }

@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
+@using NetworkOptimizer.UniFi
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
 @inject IAuditRepository AuditRepository
@@ -1870,7 +1871,7 @@
                 Port = 22,
                 Username = "root",
                 ModemType = discovered.Model,
-                QmiDevice = "/dev/wwan0qmi0",
+                QmiDevice = UniFiProductDatabase.GetDefaultQmiDevicePath(discovered.Model),
                 PollingIntervalSeconds = 300,
                 Enabled = true
             };
