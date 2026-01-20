@@ -59,16 +59,10 @@
                             <span class="form-help">Opens in a new tab and auto-starts</span>
                         </div>
                         <div class="url-copy-row">
-                            <code class="url-display">@openSpeedTestUrl</code>
-                            <button class="btn-icon" title="Copy URL" @onclick="CopySpeedTestUrl">
-                                @if (urlCopied)
-                                {
-                                    <span class="copy-check">✓</span>
-                                }
-                                else
-                                {
-                                    <span class="copy-icon">📋</span>
-                                }
+                            <input type="text" class="url-display" value="@openSpeedTestUrl" readonly />
+                            <button type="button" class="btn-icon" title="Copy URL" onclick="var input = this.previousElementSibling; input.select(); input.setSelectionRange(0, 99999); document.execCommand('copy'); this.querySelector('.copy-icon').style.display='none'; this.querySelector('.copy-check').style.display='inline'; setTimeout(() => { this.querySelector('.copy-icon').style.display='inline'; this.querySelector('.copy-check').style.display='none'; }, 2000);">
+                                <span class="copy-icon">📋</span>
+                                <span class="copy-check" style="display:none;">✓</span>
                             </button>
                         </div>
                         <p class="form-help browser-tip">
@@ -440,6 +434,11 @@
         font-size: 0.8125rem;
         color: var(--text-secondary);
         word-break: break-all;
+        background: transparent;
+        border: none;
+        outline: none;
+        font-family: monospace;
+        width: 100%;
     }
 
     .btn-icon {
@@ -619,9 +618,6 @@
     // Expandable rows
     private int? expandedHistoryId = null;
     private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
-
-    // Copy URL state
-    private bool urlCopied = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -991,24 +987,6 @@
                 }}
             }})();
         ");
-    }
-
-    private async Task CopySpeedTestUrl()
-    {
-        if (!string.IsNullOrEmpty(openSpeedTestUrl))
-        {
-            var success = await JS.InvokeAsync<bool>("copyToClipboard", openSpeedTestUrl);
-            if (success)
-            {
-                urlCopied = true;
-                StateHasChanged();
-
-                // Reset after 2 seconds
-                await Task.Delay(2000);
-                urlCopied = false;
-                StateHasChanged();
-            }
-        }
     }
 
     public void Dispose()
