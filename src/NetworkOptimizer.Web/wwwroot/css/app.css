@@ -3315,6 +3315,7 @@ select.form-control {
     /* Undo server-side reversal on mobile - reverse back to normal order */
     .path-analysis .path-switchback .path-row.reversed {
         flex-direction: column-reverse;
+        padding-top: 0;
     }
 
     .path-analysis .path-row {
@@ -3332,6 +3333,18 @@ select.form-control {
     .path-analysis .path-connector .connector-line,
     .path-analysis .path-connector.path-turn .connector-line {
         width: 43px;
+    }
+
+    /* Reset arrow direction on mobile - all arrows point same way (down after rotation) */
+    .path-analysis .path-connector.arrow-left .connector-line::after {
+        right: 0;
+        left: auto;
+        border-right-color: transparent;
+        border-left-color: #3b82f6;
+    }
+
+    .path-analysis .path-connector.arrow-left.bottleneck .connector-line::after {
+        border-left-color: var(--warning-color);
     }
 
     /* Hide turn connectors on mobile - not needed for vertical layout */
