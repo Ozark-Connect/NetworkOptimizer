@@ -71,7 +71,7 @@
                 <span class="quality-label">Signal Quality</span>
             </div>
             <div class="device-icon">
-                <img src="@GetDeviceIconPath()" alt="@modemStats.ModemName" class="device-image" onerror="this.style.display='none'" />
+                <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
             </div>
             @if (configuredModems.Count > 1)
             {
