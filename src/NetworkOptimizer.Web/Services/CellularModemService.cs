@@ -122,7 +122,7 @@ public class CellularModemService : ICellularModemService
     /// Runs signal, serving system, cell location, and band info queries in a single SSH session
     /// (to avoid rate limiting), then delegates parsing to QmicliParser for each section.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(string host, string name, string qmiDevice)
+    private async Task<CellularModemStats?> ExecutePollAsync(string host, string name, string model, string qmiDevice)
     {
         _logger.LogInformation("Polling modem {Name} at {Host}", name, host);
 
@@ -132,6 +132,7 @@ public class CellularModemService : ICellularModemService
             {
                 ModemHost = host,
                 ModemName = name,
+                ModemModel = model,
                 Timestamp = DateTime.UtcNow
             };
 
@@ -211,7 +212,7 @@ public class CellularModemService : ICellularModemService
     {
         try
         {
-            var stats = await ExecutePollAsync(modem.Host, modem.Name, modem.QmiDevice);
+            var stats = await ExecutePollAsync(modem.Host, modem.Name, modem.ModemType, modem.QmiDevice);
 
             if (stats != null)
             {
