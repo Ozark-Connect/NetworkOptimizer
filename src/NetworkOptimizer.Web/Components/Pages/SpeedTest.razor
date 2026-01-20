@@ -743,7 +743,7 @@
                                                         // Use stored path analysis if available, otherwise use result's analysis
                                                         var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
                                                     }
-                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" IsInTableRow="true" />
 
                                                     @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                     {

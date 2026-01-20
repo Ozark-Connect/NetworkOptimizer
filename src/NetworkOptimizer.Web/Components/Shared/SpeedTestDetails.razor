@@ -44,8 +44,14 @@
     </div>
 }
 <div class="test-details">
-    <span class="hide-mobile">Device: @DeviceName (@DeviceHost)</span>
-    <span class="show-mobile">@DeviceName</span>
+    @if (IsInTableRow)
+    {
+        <span class="hide-mobile">@DeviceHost</span>
+    }
+    else
+    {
+        <span>Device: @DeviceName (@DeviceHost)</span>
+    }
     <span class="hide-mobile">Duration: @DurationSeconds seconds</span>
     <span class="show-mobile">Duration: @(DurationSeconds)s</span>
     <span>Streams: @ParallelStreams parallel</span>
@@ -293,6 +299,7 @@
     [Parameter] public string DeviceHost { get; set; } = "";
     [Parameter] public int DurationSeconds { get; set; }
     [Parameter] public int ParallelStreams { get; set; }
+    [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
     [Parameter] public double? PingMs { get; set; }
 
