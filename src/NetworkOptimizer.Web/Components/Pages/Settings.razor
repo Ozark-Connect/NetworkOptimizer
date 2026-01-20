@@ -725,7 +725,8 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">QMI Device Path</label>
-                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="LTE: /dev/cdc-wdm0 | 5G: /dev/wwan0qmi0" />
+                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" />
+                                <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
