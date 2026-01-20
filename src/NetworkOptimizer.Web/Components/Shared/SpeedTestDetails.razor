@@ -45,7 +45,8 @@
 }
 <div class="test-details">
     <span>Device: @DeviceName (@DeviceHost)</span>
-    <span>Duration: @DurationSeconds seconds</span>
+    <span class="hide-mobile">Duration: @DurationSeconds seconds</span>
+    <span class="show-mobile">@(DurationSeconds)s</span>
     <span>Streams: @ParallelStreams parallel</span>
     @if (PingMs.HasValue)
     {
