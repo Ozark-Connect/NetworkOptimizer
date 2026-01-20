@@ -691,10 +691,10 @@
                     <tbody>
                         @foreach (var result in pagedHistory)
                         {
-                            var isExpanded = expandedHistoryId == result.Id;
+                            var isExpanded = expandedHistoryId == result.Id || _collapsingHistoryId == result.Id;
                             <tr id="result-@result.Id"
                                 class="@(result.Success ? "" : "error-row") @(result.Success ? "history-row-clickable" : "") @(isExpanded ? "history-row-expanded" : "")"
-                                @onclick="@(() => { if (result.Success) ToggleHistoryExpand(result.Id); })">
+                                @onclick="@(async () => { if (result.Success) await ToggleHistoryExpand(result.Id); })">
                                 <td>@result.TestTime.ToLocalTime().ToString("MMM dd HH:mm")</td>
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
                                 <td>@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
@@ -1090,6 +1090,7 @@
     private bool clearingHistory = false;
     private bool confirmingClearHistory = false;
     private int? expandedHistoryId = null;
+    private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
 
     // Path analysis for historical results (calculated on demand)
     private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();
@@ -1570,9 +1571,43 @@
         await JS.InvokeVoidAsync("eval", "document.getElementById('latest-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
     }
 
-    private void ToggleHistoryExpand(int resultId)
+    private async Task ToggleHistoryExpand(int resultId)
     {
-        expandedHistoryId = expandedHistoryId == resultId ? null : resultId;
+        if (expandedHistoryId == resultId)
+        {
+            // Clicking same row - just collapse
+            expandedHistoryId = null;
+        }
+        else if (expandedHistoryId.HasValue)
+        {
+            // Switching rows - expand new one first, then collapse old after transition
+            var oldId = expandedHistoryId.Value;
+            _collapsingHistoryId = oldId;
+            expandedHistoryId = resultId;
+            StateHasChanged();
+
+            // Wait for expand animation, then collapse old
+            await Task.Delay(50);
+            _collapsingHistoryId = null;
+
+            // Scroll into view if off-screen
+            await JS.InvokeVoidAsync("eval", $@"
+                setTimeout(() => {{
+                    var el = document.getElementById('result-{resultId}');
+                    if (el) {{
+                        var rect = el.getBoundingClientRect();
+                        if (rect.top < 0 || rect.bottom > window.innerHeight) {{
+                            el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                        }}
+                    }}
+                }}, 260);
+            ");
+        }
+        else
+        {
+            // No row expanded - just expand
+            expandedHistoryId = resultId;
+        }
     }
 
     private async Task ScrollToResult(int resultId)
