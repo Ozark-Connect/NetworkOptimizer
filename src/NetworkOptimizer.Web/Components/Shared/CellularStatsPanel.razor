@@ -562,31 +562,41 @@
         }
     }
 
-    private void PreviousModem()
+    private async Task PreviousModem()
     {
         if (currentModemIndex > 0)
         {
             currentModemIndex--;
-            ShowCachedStatsForCurrentModem();
+            await ShowStatsForCurrentModem();
         }
     }
 
-    private void NextModem()
+    private async Task NextModem()
     {
         if (currentModemIndex < configuredModems.Count - 1)
         {
             currentModemIndex++;
-            ShowCachedStatsForCurrentModem();
+            await ShowStatsForCurrentModem();
         }
     }
 
-    private void ShowCachedStatsForCurrentModem()
+    private async Task ShowStatsForCurrentModem()
     {
         if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
         {
             var modem = configuredModems[currentModemIndex];
-            modemStats = ModemService.GetCachedStats(modem.Id);
-            StateHasChanged();
+            var cached = ModemService.GetCachedStats(modem.Id);
+
+            if (cached != null)
+            {
+                modemStats = cached;
+                StateHasChanged();
+            }
+            else
+            {
+                // No cached stats - poll this modem
+                await RefreshStats();
+            }
         }
     }
 
