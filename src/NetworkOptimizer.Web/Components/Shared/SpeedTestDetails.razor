@@ -388,7 +388,7 @@
 
         for (int i = 0; i < hops.Count; i++)
         {
-            var hopChars = (hops[i].DeviceName?.Length ?? 0) + 10; // +10 for padding, icon, connector (~80px)
+            var hopChars = (hops[i].DeviceName?.Length ?? 0) + 9; // +9 for padding, icon, connector (~80px)
 
             // Start new row if adding this hop would exceed limits
             if (currentRow.Count > 0 &&
