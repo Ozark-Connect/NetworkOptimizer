@@ -3293,6 +3293,10 @@ select.form-control {
     border-right-color: #3b82f6;
 }
 
+.path-analysis .path-connector.path-turn.turn-left.bottleneck .connector-line::after {
+    border-right-color: var(--warning-color);
+}
+
 .path-analysis .path-connector.path-turn.turn-left .turn-corner {
     right: auto;
     left: -8px;
