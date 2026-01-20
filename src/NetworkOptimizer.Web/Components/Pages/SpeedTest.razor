@@ -298,7 +298,8 @@
                             <th class="hide-mobile">Name</th>
                             <th class="hide-mobile">Model</th>
                             <th class="show-mobile">Device</th>
-                            <th>IP Address</th>
+                            <th class="hide-mobile">IP Address</th>
+                            <th class="show-mobile">IP</th>
                             <th class="hide-mobile">Type</th>
                             <th>Status</th>
                             <th>Action</th>
@@ -316,7 +317,8 @@
                                     @device.Name<br />
                                     <code class="text-muted">@device.FriendlyModelName</code>
                                 </td>
-                                <td><code>@device.IpAddress</code></td>
+                                <td class="hide-mobile"><code>@device.IpAddress</code></td>
+                                <td class="show-mobile"><code>@ShortenIp(device.IpAddress)</code></td>
                                 <td class="hide-mobile">@device.Type.ToDisplayName()</td>
                                 <td>
                                     @if (isOnline)
@@ -1865,5 +1867,14 @@
     public void Dispose()
     {
         progressTimer?.Dispose();
+    }
+
+    private static string ShortenIp(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return "";
+        var parts = ip.Split('.');
+        if (parts.Length == 4)
+            return $"...{parts[2]}.{parts[3]}";
+        return ip;
     }
 }

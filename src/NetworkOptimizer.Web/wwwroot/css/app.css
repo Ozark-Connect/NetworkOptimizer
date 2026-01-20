@@ -3077,8 +3077,16 @@ select.form-control {
         margin-bottom: 0.25rem;
     }
 
-    td .btn + .btn {
+    .data-table td {
+        padding: 0.5rem;
+    }
+
+    td .btn {
         margin: 0 auto;
+    }
+
+    .icon-cell .device-icon {
+        margin-right: auto;
     }
 }
 
