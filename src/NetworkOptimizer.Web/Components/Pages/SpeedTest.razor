@@ -700,7 +700,7 @@
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
                                 <td class="hide-mobile">@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
                                 <td class="hide-mobile">@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
-                                <td class="show-mobile">@(result.Success ? $"↓{result.DownloadMbps:F0} ↑{result.UploadMbps:F0}" : "-")</td>
+                                <td class="show-mobile">@(result.Success ? $"{(result.DownloadMbps > 0 ? $"↓{result.DownloadMbps:F0}" : "")}{(result.DownloadMbps > 0 && result.UploadMbps > 0 ? " " : "")}{(result.UploadMbps > 0 ? $"↑{result.UploadMbps:F0}" : "")}" : "-")</td>
                                 <td class="hide-mobile">@result.ParallelStreams</td>
                                 <td class="hide-mobile">
                                     @if (result.Success)

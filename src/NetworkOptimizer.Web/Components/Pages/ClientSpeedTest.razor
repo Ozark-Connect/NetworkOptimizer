@@ -250,7 +250,7 @@
                                             <span>-</span>
                                         }
                                     </td>
-                                    <td class="show-mobile">↓@result.DownloadMbps.ToString("F0") ↑@result.UploadMbps.ToString("F0")</td>
+                                    <td class="show-mobile">@($"{(result.DownloadMbps > 0 ? $"↓{result.DownloadMbps:F0}" : "")}{(result.DownloadMbps > 0 && result.UploadMbps > 0 ? " " : "")}{(result.UploadMbps > 0 ? $"↑{result.UploadMbps:F0}" : "")}")</td>
                                     <td class="hide-mobile">
                                         @if (result.PingMs.HasValue)
                                         {
