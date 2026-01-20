@@ -3371,6 +3371,7 @@ select.form-control {
     }
 
     .path-analysis .path-connector.arrow-left.bottleneck .connector-line::after {
+        border-right-color: transparent;
         border-left-color: var(--warning-color);
     }
 
@@ -3394,6 +3395,21 @@ select.form-control {
     /* Hide turn connectors on mobile - not needed for vertical layout */
     .path-analysis .path-connector.path-turn .turn-corner {
         display: none;
+    }
+
+    /* Rotate speed badges to be readable on mobile */
+    .path-analysis .path-connector .connector-speed {
+        transform: rotate(-90deg);
+        padding-right: 65%;
+    }
+
+    /* Reset turn connector margins on mobile */
+    .path-analysis .path-connector.path-turn {
+        margin-left: 0;
+    }
+
+    .path-analysis .path-connector.path-turn.turn-left {
+        margin-right: 0;
     }
 
 }
