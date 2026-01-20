@@ -3055,6 +3055,11 @@ select.form-control {
     .hide-mobile {
         display: none !important;
     }
+
+    .speedtest-container .data-table,
+    .client-speedtest-container .data-table {
+        min-width: 350px;
+    }
 }
 
 /* Path Analysis - Redesigned */
