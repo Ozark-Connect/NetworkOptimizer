@@ -3120,6 +3120,7 @@ select.form-control {
     border-radius: 4px;
     font-size: 0.8rem;
     white-space: nowrap;
+    min-height: 41px;
 }
 
 .path-analysis .path-hop .hop-icon {
