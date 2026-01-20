@@ -649,7 +649,7 @@
         <div class="card-body">
             @if (testHistory.Count > 0)
             {
-                <div class="table-responsive">
+                <div class="table-responsive" id="history-table">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -763,9 +763,9 @@
                 @if (historyTotalPages > 1)
                 {
                     <div class="pagination">
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => historyPage--">← Prev</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
                         <span class="pagination-info">Page @historyPage of @historyTotalPages (@testHistory.Count total)</span>
-                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => historyPage++">Next →</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
                     </div>
                 }
             }
@@ -1569,6 +1569,21 @@
     private async Task ScrollToLatestResult()
     {
         await JS.InvokeVoidAsync("eval", "document.getElementById('latest-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' })");
+    }
+
+    private async Task ChangePage(int delta)
+    {
+        var hadExpanded = expandedHistoryId.HasValue;
+        expandedHistoryId = null;
+        _collapsingHistoryId = null;
+        historyPage += delta;
+
+        if (hadExpanded)
+        {
+            StateHasChanged();
+            await Task.Delay(50); // Let the DOM update
+            await JS.InvokeVoidAsync("eval", "document.getElementById('history-table')?.scrollIntoView({ behavior: 'smooth', block: 'end' })");
+        }
     }
 
     private async Task ToggleHistoryExpand(int resultId)
