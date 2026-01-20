@@ -281,7 +281,7 @@
 
                 @if (historyTotalPages > 1)
                 {
-                    <div class="pagination">
+                    <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
                         <span class="pagination-info">Page @historyPage of @historyTotalPages</span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next</button>
@@ -903,7 +903,7 @@
         {
             StateHasChanged();
             await Task.Delay(50); // Let the DOM update
-            await JS.InvokeVoidAsync("eval", "document.getElementById('history-table')?.scrollIntoView({ behavior: 'smooth', block: 'end' })");
+            await JS.InvokeVoidAsync("eval", "document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })");
         }
     }
 
