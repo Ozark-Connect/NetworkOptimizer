@@ -997,14 +997,17 @@
     {
         if (!string.IsNullOrEmpty(openSpeedTestUrl))
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", openSpeedTestUrl);
-            urlCopied = true;
-            StateHasChanged();
+            var success = await JS.InvokeAsync<bool>("copyToClipboard", openSpeedTestUrl);
+            if (success)
+            {
+                urlCopied = true;
+                StateHasChanged();
 
-            // Reset after 2 seconds
-            await Task.Delay(2000);
-            urlCopied = false;
-            StateHasChanged();
+                // Reset after 2 seconds
+                await Task.Delay(2000);
+                urlCopied = false;
+                StateHasChanged();
+            }
         }
     }
 
