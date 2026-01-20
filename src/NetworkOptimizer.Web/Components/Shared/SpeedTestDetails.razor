@@ -134,27 +134,25 @@
                                     ? Enumerable.Range(0, row.Count).Reverse().ToList()
                                     : Enumerable.Range(0, row.Count).ToList();
                             }
-                            @foreach (var localIdx in indices)
+
+                            @* Turn connector at START of reversed rows (exit on left side) *@
+                            @if (isReversed && !isLastRow)
                             {
-                                var hopData = row[localIdx];
-                                var hop = hopData.Hop;
-                                var globalIdx = hopData.GlobalIndex;
-                                var isLastHopInRow = isReversed ? localIdx == 0 : localIdx == row.Count - 1;
-                                var isLastHopInPath = globalIdx == hops.Count - 1;
-                                var deviceTooltip = GetDeviceTooltip(hop);
-
-                                @* Turn connector BEFORE first hop in reversed rows (exit on left side) *@
-                                @if (isReversed && localIdx == 0 && !isLastRow && globalIdx < hops.Count - 1)
+                                // Get the last hop in the row (index 0) which connects to next row
+                                var lastHopData = row[0];
+                                var lastHop = lastHopData.Hop;
+                                var lastGlobalIdx = lastHopData.GlobalIndex;
+                                if (lastGlobalIdx < hops.Count - 1)
                                 {
-                                    var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var nextHopGlobal = hops[lastGlobalIdx + 1];
+                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : lastHop.EgressSpeedMbps;
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
-                                    var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
+                                    var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
-                                    <div class="path-connector path-turn turn-left arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
                                         @if (isWirelessLink)
                                         {
-                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            var wifiTooltip = GetWifiTooltip(lastHop, nextHopGlobal);
                                             <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
                                         }
                                         <span class="connector-line"></span>
@@ -165,9 +163,19 @@
                                         <span class="turn-corner"></span>
                                     </div>
                                 }
+                            }
 
-                                @* Connector BEFORE hop for reversed rows (except first in visual order) *@
-                                @if (isReversed && localIdx != row.Count - 1 && localIdx != 0 && globalIdx < hops.Count - 1)
+                            @foreach (var localIdx in indices)
+                            {
+                                var hopData = row[localIdx];
+                                var hop = hopData.Hop;
+                                var globalIdx = hopData.GlobalIndex;
+                                var isLastHopInRow = isReversed ? localIdx == 0 : localIdx == row.Count - 1;
+                                var isLastHopInPath = globalIdx == hops.Count - 1;
+                                var deviceTooltip = GetDeviceTooltip(hop);
+
+                                @* Connector BEFORE hop for reversed rows (between hops, not at the start) *@
+                                @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1 && !isLastHopInRow)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
                                     var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
