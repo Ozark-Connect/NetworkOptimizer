@@ -14,8 +14,6 @@ Download the MSI installer from [GitHub Releases](https://github.com/Ozark-Conne
 
 Test LAN speeds from any device on your network - phones, tablets, laptops - without SSH access. Run browser-based speed tests powered by [OpenSpeedTest™](https://openspeedtest.com) or use iperf3 clients; results are automatically collected and displayed with device identification, network path visualization, and performance metrics. With HTTPS enabled, browser tests can collect location data (with permission) to build a Speed / Coverage Map showing real-world performance across your property.
 
-![Client Speed Test](docs/images/client-speed-test.png)
-
 ![Speed / Coverage Map](docs/images/speed-coverage-map.png)
 
 ---
@@ -48,9 +46,13 @@ Network Optimizer runs iperf3 tests between your gateway and network devices, au
 
 Test history lets you track performance over time with these relevant data in order to identify and characterize any changes to performance.
 
+![LAN Speed Test](docs/images/lan-speed-test.png)
+
 ### Client Speed Testing
 
 Test LAN speeds from any device without SSH access. Open a browser on your phone, tablet, or laptop and run a speed test; results are automatically recorded with device identification. For CLI users, the bundled iperf3 server accepts client connections and logs results. See [Client Speed Testing](docker/DEPLOYMENT.md#client-speed-testing-optional) in the deployment guide.
+
+![Client Speed Test with Network Path](docs/images/client-speed-test-trace.png)
 
 ### Cellular Modem Monitoring
 
