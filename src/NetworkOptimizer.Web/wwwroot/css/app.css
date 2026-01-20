@@ -3051,6 +3051,10 @@ select.form-control {
     .test-details {
         gap: 1rem;
     }
+
+    .hide-mobile {
+        display: none !important;
+    }
 }
 
 /* Path Analysis - Redesigned */

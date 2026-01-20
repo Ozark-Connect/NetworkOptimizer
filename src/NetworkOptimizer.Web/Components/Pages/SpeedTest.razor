@@ -675,7 +675,7 @@
                                     </span>
                                 </span>
                             </th>
-                            <th>
+                            <th class="hide-mobile">
                                 <span class="tooltip-wrapper tooltip-bottom">
                                     Streams
                                     <span class="tooltip-icon">?</span>
@@ -684,7 +684,7 @@
                                     </span>
                                 </span>
                             </th>
-                            <th>Status</th>
+                            <th class="hide-mobile">Status</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -699,8 +699,8 @@
                                 <td>@(result.DeviceName ?? result.DeviceHost)</td>
                                 <td>@(result.Success && result.DownloadMbps > 0 ? result.DownloadMbps.ToString("F1") : "-")</td>
                                 <td>@(result.Success && result.UploadMbps > 0 ? result.UploadMbps.ToString("F1") : "-")</td>
-                                <td>@result.ParallelStreams</td>
-                                <td>
+                                <td class="hide-mobile">@result.ParallelStreams</td>
+                                <td class="hide-mobile">
                                     @if (result.Success)
                                     {
                                         <span class="status-badge status-connected">OK</span>
