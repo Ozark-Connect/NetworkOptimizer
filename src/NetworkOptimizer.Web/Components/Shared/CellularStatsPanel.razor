@@ -99,9 +99,9 @@
 
         <!-- Signal Metrics Grid -->
         <div class="sqm-metrics-grid cellular-metrics">
-            <div class="metric-box metric-5g @(modemStats.Nr5g == null ? "metric-hidden" : "")">
-                @if (modemStats.Nr5g != null)
-                {
+            @if (modemStats.Nr5g != null)
+            {
+                <div class="metric-box metric-5g">
                     <div class="metric-header">5G NR</div>
                     <div class="metric-content">
                         <div class="metric-row">
@@ -117,11 +117,11 @@
                             <span class="metric-value @GetSnrClass(modemStats.Nr5g.Snr)">@modemStats.Nr5g.Snr?.ToString("F1") dB</span>
                         </div>
                     </div>
-                }
-            </div>
-            <div class="metric-box metric-lte @(modemStats.Lte == null ? "metric-hidden" : "")">
-                @if (modemStats.Lte != null)
-                {
+                </div>
+            }
+            @if (modemStats.Lte != null)
+            {
+                <div class="metric-box metric-lte">
                     <div class="metric-header">LTE</div>
                     <div class="metric-content">
                         <div class="metric-row">
@@ -137,8 +137,8 @@
                             <span class="metric-value @GetSnrClass(modemStats.Lte.Snr)">@modemStats.Lte.Snr?.ToString("F1") dB</span>
                         </div>
                     </div>
-                }
-            </div>
+                </div>
+            }
         </div>
 
         <!-- Band and Cell Info -->
@@ -368,10 +368,6 @@
         gap: 0.75rem;
     }
 
-    .metric-hidden {
-        visibility: hidden;
-    }
-
     .metric-box {
         background: var(--card-bg-secondary, #1a1d23);
         border-radius: 8px;
@@ -426,10 +422,6 @@
     @@media (max-width: 768px) {
         .cellular-metrics {
             grid-template-columns: 1fr;
-        }
-
-        .metric-hidden {
-            display: none;
         }
 
         .metric-header {
@@ -490,10 +482,11 @@
         _refreshTimer = new System.Threading.Timer(
             async _ => await InvokeAsync(() =>
             {
-                if (!isRefreshing && !isLoading)
+                if (!isRefreshing && !isLoading && configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
                 {
-                    // Just fetch cached stats - don't force a poll
-                    var newStats = ModemService.GetLastStats();
+                    // Just fetch cached stats for current modem - don't force a poll
+                    var modem = configuredModems[currentModemIndex];
+                    var newStats = ModemService.GetCachedStats(modem.Id);
                     if (newStats != null)
                     {
                         modemStats = newStats;
@@ -521,10 +514,21 @@
                 currentModemIndex = enabledIndex >= 0 ? enabledIndex : 0;
 
                 var modem = configuredModems[currentModemIndex];
-                var (success, _) = await ModemService.PollModemAsync(modem);
-                if (success)
+
+                // Use cached stats if available, otherwise poll
+                var cachedStats = ModemService.GetCachedStats(modem.Id);
+                if (cachedStats != null)
                 {
-                    modemStats = ModemService.GetLastStats();
+                    modemStats = cachedStats;
+                }
+                else
+                {
+                    // No cached stats - do initial poll
+                    var (success, _) = await ModemService.PollModemAsync(modem);
+                    if (success)
+                    {
+                        modemStats = ModemService.GetCachedStats(modem.Id);
+                    }
                 }
             }
         }
@@ -547,7 +551,7 @@
                 var (success, _) = await ModemService.PollModemAsync(modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetLastStats();
+                    modemStats = ModemService.GetCachedStats(modem.Id);
                 }
             }
         }
@@ -558,21 +562,31 @@
         }
     }
 
-    private async Task PreviousModem()
+    private void PreviousModem()
     {
         if (currentModemIndex > 0)
         {
             currentModemIndex--;
-            await RefreshStats();
+            ShowCachedStatsForCurrentModem();
         }
     }
 
-    private async Task NextModem()
+    private void NextModem()
     {
         if (currentModemIndex < configuredModems.Count - 1)
         {
             currentModemIndex++;
-            await RefreshStats();
+            ShowCachedStatsForCurrentModem();
+        }
+    }
+
+    private void ShowCachedStatsForCurrentModem()
+    {
+        if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
+        {
+            var modem = configuredModems[currentModemIndex];
+            modemStats = ModemService.GetCachedStats(modem.Id);
+            StateHasChanged();
         }
     }
 

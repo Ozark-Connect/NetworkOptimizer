@@ -20,6 +20,7 @@ public class CellularModemService : ICellularModemService
     private readonly Timer? _pollingTimer;
     private readonly object _lock = new();
     private CellularModemStats? _lastStats;
+    private readonly Dictionary<int, CellularModemStats> _statsCache = new();
     private bool _isPolling;
 
     // Default QMI device path for U5G-Max
@@ -49,6 +50,18 @@ public class CellularModemService : ICellularModemService
         lock (_lock)
         {
             return _lastStats;
+        }
+    }
+
+    /// <summary>
+    /// Get cached stats for a specific modem without polling.
+    /// Returns null if no cached stats exist for this modem.
+    /// </summary>
+    public CellularModemStats? GetCachedStats(int modemId)
+    {
+        lock (_lock)
+        {
+            return _statsCache.TryGetValue(modemId, out var stats) ? stats : null;
         }
     }
 
@@ -218,6 +231,7 @@ public class CellularModemService : ICellularModemService
                 lock (_lock)
                 {
                     _lastStats = stats;
+                    _statsCache[modem.Id] = stats;
                 }
 
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
