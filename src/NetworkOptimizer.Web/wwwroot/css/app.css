@@ -3222,14 +3222,14 @@ select.form-control {
 /* First row aligns left with margin */
 .path-analysis .path-switchback .path-row:not(.reversed) {
     justify-content: flex-start;
-    margin-left: 3.1rem;
+    margin-left: 0.75rem;
 }
 
 /* Reversed rows start from right, turn exits on left */
 .path-analysis .path-switchback .path-row.reversed {
     justify-content: flex-end;
     align-self: flex-end;
-    margin-right: 3.1rem;
+    margin-right: 0.75rem;
 }
 
 /* Left-pointing arrows for reversed rows */
@@ -3247,7 +3247,7 @@ select.form-control {
 /* Turn connector - L-shaped corner going down then across */
 .path-analysis .path-connector.path-turn {
     position: relative;
-    flex-grow: 0.64;
+    flex-grow: 0.7;
     margin-left: -2px;
 }
 
@@ -3279,7 +3279,7 @@ select.form-control {
 
 /* Turn from left side (reversed rows going to next row) - mirrored */
 .path-analysis .path-connector.path-turn.turn-left {
-    flex-grow: 0.64;
+    flex-grow: 0.7;
     margin-left: 0;
     margin-right: -2px;
 }
