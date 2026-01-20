@@ -1,6 +1,6 @@
 # Network Optimizer for UniFi
 
-> **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.
+> **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.
 
 ## New: macOS Native Installation
 
