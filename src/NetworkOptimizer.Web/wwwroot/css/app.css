@@ -3248,6 +3248,7 @@ select.form-control {
 .path-analysis .path-connector.path-turn {
     position: relative;
     flex-grow: 0.68;
+    margin-left: -2px;
 }
 
 /* Extend the connector line to the edge for turn connectors */
@@ -3279,6 +3280,8 @@ select.form-control {
 /* Turn from left side (reversed rows going to next row) - mirrored */
 .path-analysis .path-connector.path-turn.turn-left {
     flex-grow: 0.68;
+    margin-left: 0;
+    margin-right: -2px;
 }
 
 .path-analysis .path-connector.path-turn.turn-left .connector-line {
