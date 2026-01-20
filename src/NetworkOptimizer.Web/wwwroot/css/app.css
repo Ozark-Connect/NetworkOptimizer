@@ -3194,6 +3194,95 @@ select.form-control {
     cursor: pointer;
 }
 
+/* Switchback layout - snake pattern for multi-row traces */
+.path-analysis .path-visualization.path-switchback {
+    flex-wrap: nowrap;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+.path-analysis .path-switchback .path-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+}
+
+/* Reversed rows flow right-to-left and align right */
+.path-analysis .path-switchback .path-row.reversed {
+    justify-content: flex-end;
+    align-self: flex-end;
+}
+
+/* Left-pointing arrows for reversed rows */
+.path-analysis .path-connector.arrow-left .connector-line::after {
+    right: auto;
+    left: 0;
+    border-left-color: transparent;
+    border-right-color: #3b82f6;
+}
+
+.path-analysis .path-connector.arrow-left.bottleneck .connector-line::after {
+    border-right-color: var(--warning-color);
+}
+
+/* Turn connector - L-shaped corner */
+.path-analysis .path-connector.path-turn {
+    position: relative;
+}
+
+.path-analysis .path-connector.path-turn .turn-corner {
+    position: absolute;
+    width: 2px;
+    background: #3b82f6;
+    right: 0;
+    top: 50%;
+    height: calc(100% + 2rem);
+}
+
+/* Horizontal part of the L at the bottom */
+.path-analysis .path-connector.path-turn .turn-corner::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 1.5rem;
+    height: 2px;
+    background: #3b82f6;
+}
+
+/* Turn from left side (reversed rows) */
+.path-analysis .path-connector.path-turn.turn-left .turn-corner {
+    right: auto;
+    left: 0;
+}
+
+.path-analysis .path-connector.path-turn.turn-left .turn-corner::after {
+    right: auto;
+    left: 0;
+}
+
+.path-analysis .path-connector.path-turn.bottleneck .turn-corner,
+.path-analysis .path-connector.path-turn.bottleneck .turn-corner::after {
+    background: var(--warning-color);
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .path-analysis .path-switchback .path-row {
+        flex-wrap: wrap;
+        justify-content: center !important;
+        align-self: center !important;
+    }
+
+    .path-analysis .path-hop .hop-name {
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
 /* Wi-Fi tooltip styling */
 .wifi-tooltip-header {
     font-weight: 600;
