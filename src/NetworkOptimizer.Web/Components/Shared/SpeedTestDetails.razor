@@ -143,8 +143,31 @@
                                 var isLastHopInPath = globalIdx == hops.Count - 1;
                                 var deviceTooltip = GetDeviceTooltip(hop);
 
+                                @* Turn connector BEFORE first hop in reversed rows (exit on left side) *@
+                                @if (isReversed && localIdx == 0 && !isLastRow && globalIdx < hops.Count - 1)
+                                {
+                                    var nextHopGlobal = hops[globalIdx + 1];
+                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+                                    var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
+
+                                    <div class="path-connector path-turn turn-left arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                        @if (isWirelessLink)
+                                        {
+                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                        }
+                                        <span class="connector-line"></span>
+                                        @if (linkSpeed > 0)
+                                        {
+                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                        }
+                                        <span class="turn-corner"></span>
+                                    </div>
+                                }
+
                                 @* Connector BEFORE hop for reversed rows (except first in visual order) *@
-                                @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
+                                @if (isReversed && localIdx != row.Count - 1 && localIdx != 0 && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
                                     var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
@@ -208,28 +231,6 @@
                                     </div>
                                 }
 
-                                @* Turn connector at end of reversed row *@
-                                @if (isReversed && isLastHopInRow && !isLastRow && globalIdx < hops.Count - 1)
-                                {
-                                    var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
-                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
-                                    var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
-
-                                    <div class="path-connector path-turn turn-left arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
-                                        @if (isWirelessLink)
-                                        {
-                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
-                                            <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
-                                        }
-                                        <span class="connector-line"></span>
-                                        @if (linkSpeed > 0)
-                                        {
-                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
-                                        }
-                                        <span class="turn-corner"></span>
-                                    </div>
-                                }
                             }
                         </div>
                     }
