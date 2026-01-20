@@ -3333,6 +3333,7 @@ select.form-control {
     .path-analysis .path-connector .connector-line,
     .path-analysis .path-connector.path-turn .connector-line {
         width: 43px;
+        min-width: 0;
     }
 
     /* Reset arrow direction on mobile - all arrows point same way (down after rotation) */
