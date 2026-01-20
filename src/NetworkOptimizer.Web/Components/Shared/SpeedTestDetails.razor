@@ -408,10 +408,9 @@
         {
             var hopChars = (hops[i].DeviceName?.Length ?? 0) + 10; // +10 for padding, icon, connector (~80px)
 
-            // Start new row if adding this hop would exceed limits (but always add at least one)
+            // Start new row if adding this hop would exceed limits
             if (currentRow.Count > 0 &&
-                (currentRow.Count >= MaxHopsPerRow || currentRowChars + hopChars > MaxCharsPerRow) &&
-                i < hops.Count - 1)
+                (currentRow.Count >= MaxHopsPerRow || currentRowChars + hopChars > MaxCharsPerRow))
             {
                 rows.Add(currentRow);
                 currentRow = new List<HopData>();
