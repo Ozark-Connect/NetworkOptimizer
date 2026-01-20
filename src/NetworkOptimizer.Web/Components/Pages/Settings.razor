@@ -725,7 +725,7 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">QMI Device Path</label>
-                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="LTE: /dev/cdc-wdm0 | 5G: /dev/wwan0qmi0" />
                             </div>
                             <div class="form-group" style="flex: 1;">
                                 <label class="form-label">Polling Interval (sec)</label>
@@ -1187,7 +1187,7 @@
 
     // Cellular Modem
     private List<ModemConfiguration> modemConfigs = new();
-    private ModemConfiguration editingModem = new() { Port = 22, Username = "root", QmiDevice = "/dev/wwan0qmi0", PollingIntervalSeconds = 300, Enabled = true };
+    private ModemConfiguration editingModem = new() { Port = 22, Username = "root", QmiDevice = "", PollingIntervalSeconds = 300, Enabled = true };
     private string modemStatus = "Unknown";
     private bool savingModem = false;
     private string modemMessage = "";
@@ -2151,7 +2151,7 @@
         {
             Port = 22,
             Username = "root",
-            QmiDevice = "/dev/wwan0qmi0",
+            QmiDevice = "",
             PollingIntervalSeconds = 300,
             Enabled = true
         };
