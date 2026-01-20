@@ -3292,14 +3292,44 @@ select.form-control {
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
+    /* Mobile: simple vertical stack layout */
+    .path-analysis .path-visualization {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .path-analysis .path-visualization.path-switchback {
+        align-items: center;
+    }
+
     .path-analysis .path-switchback .path-row {
-        flex-wrap: wrap;
+        flex-direction: column;
+        align-items: center;
         justify-content: center !important;
         align-self: center !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        width: auto;
+    }
+
+    .path-analysis .path-row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    /* Vertical connectors on mobile */
+    .path-analysis .path-connector {
+        transform: rotate(90deg);
+        margin: 0.25rem 0;
+    }
+
+    /* Hide turn connectors on mobile - not needed for vertical layout */
+    .path-analysis .path-connector.path-turn .turn-corner {
+        display: none;
     }
 
     .path-analysis .path-hop .hop-name {
-        max-width: 80px;
+        max-width: 150px;
         overflow: hidden;
         text-overflow: ellipsis;
     }
