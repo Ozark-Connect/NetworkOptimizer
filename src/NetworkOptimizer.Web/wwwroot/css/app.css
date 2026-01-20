@@ -3353,11 +3353,6 @@ select.form-control {
         display: none;
     }
 
-    .path-analysis .path-hop .hop-name {
-        max-width: 150px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
 }
 
 /* Wi-Fi tooltip styling */
