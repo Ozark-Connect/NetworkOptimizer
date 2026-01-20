@@ -903,7 +903,7 @@
         {
             StateHasChanged();
             await Task.Delay(50); // Let the DOM update
-            await JS.InvokeVoidAsync("eval", "(() => { const el = document.getElementById('history-pagination'); const container = document.querySelector('.main-content'); if (el && container) { const rect = el.getBoundingClientRect(); const containerRect = container.getBoundingClientRect(); const targetScroll = container.scrollTop + rect.top - containerRect.top - (container.clientHeight / 2) - 100; container.scrollTo({ top: targetScroll, behavior: 'smooth' }); } })()");
+            await JS.InvokeVoidAsync("eval", "document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); document.querySelector('.main-content')?.scrollBy({ top: -50, behavior: 'smooth' });");
         }
     }
 
