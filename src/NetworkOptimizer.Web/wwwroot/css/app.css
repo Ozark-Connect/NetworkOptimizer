@@ -3206,7 +3206,7 @@ select.form-control {
 .path-analysis .path-visualization.path-switchback {
     flex-wrap: nowrap;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 0;
     padding-bottom: 1rem;
 }
@@ -3214,18 +3214,19 @@ select.form-control {
 .path-analysis .path-switchback .path-row {
     padding: 0.5rem 0;
     position: relative;
+    width: 100%;
 }
 
-/* First row aligns left */
+/* First row aligns left, content stretches to edge */
 .path-analysis .path-switchback .path-row:not(.reversed) {
     justify-content: flex-start;
 }
 
-/* Reversed rows align right within their content width, positioned to align with row above */
+/* Reversed rows align right, offset to connect with turn */
 .path-analysis .path-switchback .path-row.reversed {
     justify-content: flex-end;
     align-self: flex-end;
-    margin-right: 1rem;
+    margin-right: 3.5rem;
 }
 
 /* Left-pointing arrows for reversed rows */
@@ -3243,6 +3244,13 @@ select.form-control {
 /* Turn connector - L-shaped corner going down then across */
 .path-analysis .path-connector.path-turn {
     position: relative;
+    flex-grow: 1;
+}
+
+/* Extend the connector line to the edge for turn connectors */
+.path-analysis .path-connector.path-turn .connector-line {
+    width: 100%;
+    min-width: 3rem;
 }
 
 .path-analysis .path-connector.path-turn .turn-corner {
@@ -3251,7 +3259,7 @@ select.form-control {
     background: #3b82f6;
     right: -8px;
     top: 0;
-    height: calc(100% + 2.5rem);
+    height: calc(100% + 2.55rem);
 }
 
 /* Horizontal part of the L at the bottom - extends left to meet next row */

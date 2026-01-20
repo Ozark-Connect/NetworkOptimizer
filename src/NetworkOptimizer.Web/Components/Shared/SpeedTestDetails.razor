@@ -369,7 +369,7 @@
     // Switchback layout helpers
     private record HopData(NetworkHop Hop, int GlobalIndex);
     private const int MaxHopsPerRow = 6;
-    private const int MaxCharsPerRow = 120; // Approximate character budget per row
+    private const int MaxCharsPerRow = 160; // Approximate character budget per row
 
     private List<List<HopData>> GetHopRows(IList<NetworkHop> hops)
     {
