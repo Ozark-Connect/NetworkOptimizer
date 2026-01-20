@@ -3121,6 +3121,7 @@ select.form-control {
     font-size: 0.8rem;
     white-space: nowrap;
     min-height: 41px;
+    z-index: 1;
 }
 
 .path-analysis .path-hop .hop-icon {
@@ -3146,10 +3147,11 @@ select.form-control {
 }
 
 .path-analysis .path-connector .connector-line {
-    width: 154%;
+    width: 162%;
     height: 2px;
     background: #3b82f6;
     position: relative;
+    z-index: 0;
 }
 
 .path-analysis .path-connector .connector-line::after {
