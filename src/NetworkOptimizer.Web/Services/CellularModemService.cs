@@ -89,25 +89,6 @@ public class CellularModemService : ICellularModemService
                 }
             }
 
-            // TODO: Remove test devices after verifying LTE QMI path feature
-            discovered.Add(new DiscoveredModem
-            {
-                DeviceId = "test-ulte-001",
-                Name = "Test U-LTE",
-                Model = UniFiProductDatabase.GetBestProductName("ULTE", null),
-                Host = "192.0.2.10",
-                MacAddress = "00:00:00:00:00:01",
-                IsOnline = true
-            });
-            discovered.Add(new DiscoveredModem
-            {
-                DeviceId = "test-ulte-backup-pro-001",
-                Name = "Test U-LTE-Backup-Pro",
-                Model = UniFiProductDatabase.GetBestProductName("ULTEPUS", null),
-                Host = "192.0.2.11",
-                MacAddress = "00:00:00:00:00:02",
-                IsOnline = true
-            });
         }
         catch (Exception ex)
         {

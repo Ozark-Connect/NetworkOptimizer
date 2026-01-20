@@ -70,14 +70,14 @@
                 <span class="quality-value">@modemStats.SignalQuality%</span>
                 <span class="quality-label">Signal Quality</span>
             </div>
-            @if (configuredModems.Count > 1)
-            {
-                <div class="modem-nav">
+            <div class="modem-nav">
+                @if (configuredModems.Count > 1)
+                {
                     <button class="nav-btn" @onclick="PreviousModem" disabled="@(currentModemIndex == 0)">‹</button>
                     <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
                     <button class="nav-btn" @onclick="NextModem" disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
-                </div>
-            }
+                }
+            </div>
             <div class="device-icon">
                 <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
             </div>
@@ -216,7 +216,6 @@
     }
 
     .device-icon {
-        margin-left: auto;
         display: flex;
         align-items: center;
     }
