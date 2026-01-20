@@ -3068,6 +3068,14 @@ select.form-control {
     .client-speedtest-container .data-table {
         min-width: 350px;
     }
+
+    .table-responsive {
+        padding: 0;
+    }
+
+    [class*="badge-vpn-"] {
+        margin-bottom: 0.25rem;
+    }
 }
 
 /* Path Analysis - Redesigned */
