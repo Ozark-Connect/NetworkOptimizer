@@ -44,7 +44,8 @@
     </div>
 }
 <div class="test-details">
-    <span>Device: @DeviceName (@DeviceHost)</span>
+    <span class="hide-mobile">Device: @DeviceName (@DeviceHost)</span>
+    <span class="show-mobile">@DeviceName</span>
     <span class="hide-mobile">Duration: @DurationSeconds seconds</span>
     <span class="show-mobile">@(DurationSeconds)s</span>
     <span>Streams: @ParallelStreams parallel</span>
