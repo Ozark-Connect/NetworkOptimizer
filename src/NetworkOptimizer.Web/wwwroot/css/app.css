@@ -4634,7 +4634,13 @@ select.form-control {
 
 .icon-cell .device-icon {
     display: block;
-    margin: 0 auto;
+    margin: 0 -0.5rem 0 auto;
+}
+
+@media (max-width: 768px) {
+    .icon-cell .device-icon {
+        margin: 0 auto;
+    }
 }
 
 /* ============================================
