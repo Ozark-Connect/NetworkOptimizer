@@ -99,9 +99,9 @@
 
         <!-- Signal Metrics Grid -->
         <div class="sqm-metrics-grid cellular-metrics">
-            @if (modemStats.Nr5g != null)
-            {
-                <div class="metric-box metric-5g">
+            <div class="metric-box metric-5g @(modemStats.Nr5g == null ? "metric-hidden" : "")">
+                @if (modemStats.Nr5g != null)
+                {
                     <div class="metric-header">5G NR</div>
                     <div class="metric-content">
                         <div class="metric-row">
@@ -117,11 +117,11 @@
                             <span class="metric-value @GetSnrClass(modemStats.Nr5g.Snr)">@modemStats.Nr5g.Snr?.ToString("F1") dB</span>
                         </div>
                     </div>
-                </div>
-            }
-            @if (modemStats.Lte != null)
-            {
-                <div class="metric-box metric-lte">
+                }
+            </div>
+            <div class="metric-box metric-lte @(modemStats.Lte == null ? "metric-hidden" : "")">
+                @if (modemStats.Lte != null)
+                {
                     <div class="metric-header">LTE</div>
                     <div class="metric-content">
                         <div class="metric-row">
@@ -137,8 +137,8 @@
                             <span class="metric-value @GetSnrClass(modemStats.Lte.Snr)">@modemStats.Lte.Snr?.ToString("F1") dB</span>
                         </div>
                     </div>
-                </div>
-            }
+                }
+            </div>
         </div>
 
         <!-- Band and Cell Info -->
@@ -364,8 +364,12 @@
 
     .cellular-metrics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
+    }
+
+    .metric-hidden {
+        visibility: hidden;
     }
 
     .metric-box {
@@ -422,6 +426,10 @@
     @@media (max-width: 768px) {
         .cellular-metrics {
             grid-template-columns: 1fr;
+        }
+
+        .metric-hidden {
+            display: none;
         }
 
         .metric-header {
