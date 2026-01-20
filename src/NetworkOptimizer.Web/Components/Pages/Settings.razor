@@ -725,7 +725,7 @@
                         <div class="form-row">
                             <div class="form-group" style="flex: 2;">
                                 <label class="form-label">QMI Device Path</label>
-                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" />
+                                <input type="text" class="form-control" @bind="editingModem.QmiDevice" placeholder="Enter path for your modem type" required />
                                 <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
                             </div>
                             <div class="form-group" style="flex: 1;">
@@ -2174,6 +2174,13 @@
         if (string.IsNullOrWhiteSpace(editingModem.Name) || string.IsNullOrWhiteSpace(editingModem.Host))
         {
             modemMessage = "Name and Host are required";
+            modemMessageClass = "danger";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editingModem.QmiDevice))
+        {
+            modemMessage = "QMI Device Path is required";
             modemMessageClass = "danger";
             return;
         }
