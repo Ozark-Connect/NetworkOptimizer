@@ -3053,7 +3053,7 @@ select.form-control {
     }
 
     .test-details {
-        gap: 0.5rem 1rem;
+        gap: 1rem;
     }
 
     .test-details > span {
