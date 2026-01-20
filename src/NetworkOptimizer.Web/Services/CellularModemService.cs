@@ -150,21 +150,6 @@ public class CellularModemService : ICellularModemService
                 var (lte, nr5g) = QmicliParser.ParseSignalInfo(signalOutput);
                 stats.Lte = lte;
                 stats.Nr5g = nr5g;
-
-                // TODO: Remove test logic after verifying 5G/LTE metric box visibility
-                if (model.Contains("LTE", StringComparison.OrdinalIgnoreCase))
-                {
-                    // LTE modems only show LTE stats
-                    stats.Nr5g = null;
-                }
-                else if (model.Contains("U5G", StringComparison.OrdinalIgnoreCase))
-                {
-                    // U5G-Max: randomly show both, only 5G (SA), or only LTE
-                    var rand = Random.Shared.Next(3);
-                    if (rand == 1) stats.Lte = null;      // 5G SA only
-                    else if (rand == 2) stats.Nr5g = null; // LTE only
-                    // rand == 0: show both (NSA)
-                }
             }
 
             if (sections.TryGetValue("SERVING", out var servingOutput))
