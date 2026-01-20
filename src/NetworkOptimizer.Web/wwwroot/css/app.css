@@ -3285,10 +3285,10 @@ select.form-control {
     width: calc(101% + 18px);
 }
 
-/* Arrow on turn-left points right (into the hops) */
+/* Arrow on turn-left: positioned on left end, pointing right (into the hops) */
 .path-analysis .path-connector.path-turn.turn-left .connector-line::after {
-    right: 0;
-    left: auto;
+    right: auto;
+    left: 0;
     border-right-color: transparent;
     border-left-color: #3b82f6;
 }
