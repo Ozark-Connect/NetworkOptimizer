@@ -3217,9 +3217,10 @@ select.form-control {
     width: 100%;
 }
 
-/* First row aligns left, content stretches to edge */
+/* First row aligns left with margin */
 .path-analysis .path-switchback .path-row:not(.reversed) {
     justify-content: flex-start;
+    margin-left: 3.5rem;
 }
 
 /* Reversed rows align right, offset to connect with turn */
@@ -3249,7 +3250,7 @@ select.form-control {
 
 /* Extend the connector line to the edge for turn connectors */
 .path-analysis .path-connector.path-turn .connector-line {
-    width: 100%;
+    width: 109%;
     min-width: 3rem;
 }
 
