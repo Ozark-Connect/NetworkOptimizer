@@ -3356,7 +3356,8 @@ select.form-control {
 
     /* Fixed width for connector lines on mobile */
     .path-analysis .path-connector .connector-line,
-    .path-analysis .path-connector.path-turn .connector-line {
+    .path-analysis .path-connector.path-turn .connector-line,
+    .path-analysis .path-connector.path-turn.turn-left .connector-line {
         width: 43px;
         min-width: 0;
     }
