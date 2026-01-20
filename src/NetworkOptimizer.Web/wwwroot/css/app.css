@@ -3194,25 +3194,35 @@ select.form-control {
     cursor: pointer;
 }
 
+/* Path row - base styling (always flex) */
+.path-analysis .path-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 /* Switchback layout - snake pattern for multi-row traces */
 .path-analysis .path-visualization.path-switchback {
     flex-wrap: nowrap;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
     gap: 0;
+    padding-bottom: 1rem;
 }
 
 .path-analysis .path-switchback .path-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
+    padding: 0.5rem 0;
+    position: relative;
 }
 
-/* Reversed rows flow right-to-left and align right */
+/* First row aligns left */
+.path-analysis .path-switchback .path-row:not(.reversed) {
+    justify-content: flex-start;
+}
+
+/* Reversed rows align right */
 .path-analysis .path-switchback .path-row.reversed {
     justify-content: flex-end;
-    align-self: flex-end;
 }
 
 /* Left-pointing arrows for reversed rows */
@@ -3227,7 +3237,7 @@ select.form-control {
     border-right-color: var(--warning-color);
 }
 
-/* Turn connector - L-shaped corner */
+/* Turn connector - L-shaped corner going down then across */
 .path-analysis .path-connector.path-turn {
     position: relative;
 }
@@ -3236,26 +3246,26 @@ select.form-control {
     position: absolute;
     width: 2px;
     background: #3b82f6;
-    right: 0;
-    top: 50%;
-    height: calc(100% + 2rem);
+    right: 4px;
+    top: 0;
+    height: calc(100% + 1.5rem);
 }
 
-/* Horizontal part of the L at the bottom */
+/* Horizontal part of the L at the bottom - extends left to meet next row */
 .path-analysis .path-connector.path-turn .turn-corner::after {
     content: '';
     position: absolute;
     bottom: 0;
     right: 0;
-    width: 1.5rem;
+    width: 2rem;
     height: 2px;
     background: #3b82f6;
 }
 
-/* Turn from left side (reversed rows) */
+/* Turn from left side (reversed rows going to next row) */
 .path-analysis .path-connector.path-turn.turn-left .turn-corner {
     right: auto;
-    left: 0;
+    left: 4px;
 }
 
 .path-analysis .path-connector.path-turn.turn-left .turn-corner::after {
