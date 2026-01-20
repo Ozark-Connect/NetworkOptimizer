@@ -99,7 +99,18 @@
 
             @if (PathAnalysis.Path.Hops.Count > 0)
             {
-                var hops = PathAnalysis.Path.Hops;
+                // DEBUG: Add fake hops for testing multi-row switchback (remove after testing)
+                var debugHops = new List<NetworkHop>(PathAnalysis.Path.Hops);
+                for (int i = 0; i < 12; i++)
+                {
+                    debugHops.Add(new NetworkHop
+                    {
+                        DeviceName = $"[Switch] Test-{i + 1}",
+                        Type = HopType.Switch,
+                        EgressSpeedMbps = 1000
+                    });
+                }
+                var hops = (IList<NetworkHop>)debugHops;
                 var rows = GetHopRows(hops);
                 var needsSwitchback = rows.Count > 1;
 

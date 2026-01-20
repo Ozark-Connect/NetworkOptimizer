@@ -3222,7 +3222,7 @@ select.form-control {
 /* First row aligns left with margin */
 .path-analysis .path-switchback .path-row:not(.reversed) {
     justify-content: flex-start;
-    margin-left: 3.5rem;
+    margin-left: 3.1rem;
 }
 
 /* Reversed rows align right, offset to connect with turn */
@@ -3271,7 +3271,7 @@ select.form-control {
     position: absolute;
     bottom: 0;
     right: 0;
-    width: 4rem;
+    width: 4.25rem;
     height: 2px;
     background: #3b82f6;
 }
