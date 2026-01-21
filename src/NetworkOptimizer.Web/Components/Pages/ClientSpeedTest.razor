@@ -802,7 +802,8 @@
 
             // If 192.168.x.x not in any known network, label as Teleport
             // (Even if path is valid - the device may exist but the IP range is external/VPN)
-            if (clientIp.StartsWith("192.168.") && matchingNetwork == null)
+            // Only check if we have networks loaded (otherwise we can't distinguish)
+            if (clientIp.StartsWith("192.168.") && matchingNetwork == null && _networks.Count > 0)
                 return "Teleport";
 
             // If not in any known network and not a private IP range, it's WAN (public internet)
