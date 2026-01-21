@@ -1370,15 +1370,33 @@ window.onload = function() {
       }
       PingRequest();
     }
-    var showSaveNotification = function(message, type) {
+    var savedResultUrl = null;
+    var showSaveNotification = function(message, type, url) {
       var notification = document.getElementById("save-notification");
       if (!notification) return;
       notification.textContent = message;
       notification.className = "save-notification show" + (type ? " " + type : "");
-      if (type === "success" || type === "error") {
+      notification.onclick = null;
+      if (type === "success") {
+        setTimeout(function() {
+          showSaveNotification("View Results →", "clickable", savedResultUrl);
+        }, 2000);
+      } else if (type === "error") {
         setTimeout(function() {
           notification.className = "save-notification";
         }, 3000);
+      } else if (type === "clickable" && url) {
+        notification.onclick = function() {
+          // If spawned by opener (main app), close this window
+          if (window.opener && !window.opener.closed) {
+            window.opener.focus();
+            window.close();
+          } else {
+            // Otherwise open in new tab
+            window.open(url, "_blank");
+            notification.className = "save-notification";
+          }
+        };
       }
     };
     var ServerConnect = function(auth) {
@@ -1411,19 +1429,21 @@ window.onload = function() {
             }, 1500);
           }
           if (auth == 5) {
-            showSaveNotification("Result saved.", "success");
             // Update results link with the saved result ID
             try {
               var response = JSON.parse(return_data);
               if (response.id && typeof clientResultsUrl !== "undefined") {
+                savedResultUrl = clientResultsUrl + "#result-" + response.id;
                 var circleSVG2 = document.getElementById("resultsData");
                 if (circleSVG2) {
-                  circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", clientResultsUrl + "#result-" + response.id);
+                  circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", savedResultUrl);
                 }
               }
             } catch (e) {
-              // Response wasn't JSON, ignore
+              // Response wasn't JSON, use base URL
+              savedResultUrl = typeof clientResultsUrl !== "undefined" ? clientResultsUrl : null;
             }
+            showSaveNotification("Result saved.", "success");
           }
           if (auth == 6) {
             openSpeedTestServerList = JSON.parse(return_data);

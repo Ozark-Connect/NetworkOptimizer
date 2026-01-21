@@ -168,3 +168,18 @@
     background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
     box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
+
+/* Clickable "View Results" - blue with hover effect */
+.save-notification.clickable {
+    border-color: #0559C9;
+    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.save-notification.clickable:hover {
+    background: linear-gradient(135deg, #0369d1 0%, #2563eb 100%);
+    box-shadow: 0 8px 40px rgba(5, 89, 201, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+    transform: translateX(-50%) translateY(-2px);
+}
