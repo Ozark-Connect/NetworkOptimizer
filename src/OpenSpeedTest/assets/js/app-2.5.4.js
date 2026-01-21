@@ -1006,19 +1006,16 @@ window.onload = function() {
         }
         if (Status === "SendR") {
           Show.showStatus("Complete");
-          var dummyElement = document.createElement("div");
-          dummyElement.innerHTML = '<a xlink:href="https://openspeedtest.com?ref=Self-Hosted-Outro&run=5" style="cursor: pointer" target="_blank"></a>';
-          var htmlAnchorElement = dummyElement.querySelector("a");
           Show.oDoLiveSpeed.el.textContent = ost;
-          var circleSVG = document.getElementById("oDoLiveSpeed");
-          htmlAnchorElement.innerHTML = circleSVG.innerHTML;
-          circleSVG.innerHTML = dummyElement.innerHTML;
           if (location.hostname != myname.toLowerCase() + com) {
-            saveTestData = "https://" + myname.toLowerCase() + com + "/results/show.php?" + "&d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
-            saveTestData = encodeURI(saveTestData);
-            var circleSVG2 = document.getElementById("resultsData");
-            circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", saveTestData);
-            circleSVG2.setAttribute("target", "_blank");
+            // Build POST data for saving results
+            saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
+            // Set initial results link to client speed test page (will be updated with result ID after save)
+            if (typeof clientResultsUrl !== "undefined") {
+              var circleSVG2 = document.getElementById("resultsData");
+              circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", clientResultsUrl);
+              circleSVG2.setAttribute("target", "_blank");
+            }
             if (saveData) {
               ServerConnect(5);
             }
@@ -1367,6 +1364,17 @@ window.onload = function() {
       }
       PingRequest();
     }
+    var showSaveNotification = function(message, type) {
+      var notification = document.getElementById("save-notification");
+      if (!notification) return;
+      notification.textContent = message;
+      notification.className = "save-notification show" + (type ? " " + type : "");
+      if (type === "success" || type === "error") {
+        setTimeout(function() {
+          notification.className = "save-notification";
+        }, 3000);
+      }
+    };
     var ServerConnect = function(auth) {
       var Self = this;
       var xhr = new XMLHttpRequest();
@@ -1376,6 +1384,7 @@ window.onload = function() {
       }
       if (auth == 5) {
         url = saveDataURL;
+        showSaveNotification("Please wait...");
       }
       if (auth == 7) {
         url = get_IP;
@@ -1396,6 +1405,21 @@ window.onload = function() {
               location.href = showResult + return_data;
             }, 1500);
           }
+          if (auth == 5) {
+            showSaveNotification("Result saved.", "success");
+            // Update results link with the saved result ID
+            try {
+              var response = JSON.parse(return_data);
+              if (response.id && typeof clientResultsUrl !== "undefined") {
+                var circleSVG2 = document.getElementById("resultsData");
+                if (circleSVG2) {
+                  circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", clientResultsUrl + "#result-" + response.id);
+                }
+              }
+            } catch (e) {
+              // Response wasn't JSON, ignore
+            }
+          }
           if (auth == 6) {
             openSpeedTestServerList = JSON.parse(return_data);
             launch = true;
@@ -1404,6 +1428,9 @@ window.onload = function() {
           if (auth == 7) {
             Show.YourIP.el.textContent = return_data;
           }
+        }
+        if (xhr.readyState == 4 && xhr.status != 200 && auth == 5) {
+          showSaveNotification("Failed to save result.", "error");
         }
       };
       if (auth == 2) {
