@@ -14,8 +14,8 @@ if (saveDataURL === "__DYNAMIC__") {
 }
 
 // URL for viewing client speed test results (derived from saveDataURL)
-// Extract base URL by removing the API path
-var clientResultsUrl = saveDataURL.replace(apiPath, "") + "/client-speedtest";
+// Extract base URL by splitting on /api
+var clientResultsUrl = saveDataURL.split("/api")[0] + "/client-speedtest";
 
 // Fix for missing variable bug in OpenSpeedTest
 var OpenSpeedTestdb = "";
