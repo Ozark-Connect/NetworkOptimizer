@@ -248,7 +248,7 @@
                                     <td class="hide-mobile">
                                         @if (result.PingMs.HasValue)
                                         {
-                                            <span>@(result.PingMs.Value % 1 == 0 ? result.PingMs.Value.ToString("F0") : result.PingMs.Value.ToString("F1")) ms</span>
+                                            <span>@(result.PingMs.Value % 1 == 0 && result.PingMs.Value >= 10 ? result.PingMs.Value.ToString("F0") : result.PingMs.Value.ToString("F1")) ms</span>
                                         }
                                         else
                                         {
