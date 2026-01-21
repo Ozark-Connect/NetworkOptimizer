@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using Moq.Protected;
+using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.UniFi.Models;
@@ -16,6 +17,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
     private readonly DnsSecurityAnalyzer _analyzer;
     private readonly Mock<ILogger<DnsSecurityAnalyzer>> _loggerMock;
     private readonly ThirdPartyDnsDetector _thirdPartyDetector;
+    private readonly FirewallRuleParser _firewallParser;
 
     public DnsSecurityAnalyzerTests()
     {
@@ -24,11 +26,13 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         _loggerMock = new Mock<ILogger<DnsSecurityAnalyzer>>();
         var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+        var parserLoggerMock = new Mock<ILogger<FirewallRuleParser>>();
 
         // Use mock HttpClient that returns 404 immediately (no Pi-hole detected)
         var httpClient = CreateMockHttpClient(HttpStatusCode.NotFound);
         _thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, httpClient);
         _analyzer = new DnsSecurityAnalyzer(_loggerMock.Object, _thirdPartyDetector);
+        _firewallParser = new FirewallRuleParser(parserLoggerMock.Object);
     }
 
     private static HttpClient CreateMockHttpClient(HttpStatusCode statusCode, string content = "")
@@ -46,6 +50,16 @@ public class DnsSecurityAnalyzerTests : IDisposable
                 Content = new StringContent(content)
             });
         return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(1) };
+    }
+
+    /// <summary>
+    /// Parse JSON firewall policies into FirewallRule list for testing.
+    /// This preserves existing test data format while using the new API.
+    /// </summary>
+    private List<FirewallRule> ParseFirewallRules(JsonElement json, List<UniFiFirewallGroup>? groups = null)
+    {
+        _firewallParser.SetFirewallGroups(groups);
+        return _firewallParser.ExtractFirewallPolicies(json);
     }
 
     public void Dispose()
@@ -297,7 +311,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeTrue();
         result.Dns53RuleName.Should().Be("Block DNS");
@@ -315,7 +329,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDotBlockRule.Should().BeTrue();
         result.DotRuleName.Should().Be("Block DoT");
@@ -337,7 +351,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDohBlockRule.Should().BeTrue();
         result.DohBlockedDomains.Should().Contain("dns.google");
@@ -358,7 +372,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDoqBlockRule.Should().BeTrue();
     }
@@ -377,7 +391,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDotBlockRule.Should().BeTrue();
         result.HasDoqBlockRule.Should().BeTrue();
@@ -397,7 +411,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeFalse();
     }
@@ -416,7 +430,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDotBlockRule.Should().BeFalse();
         result.HasDoqBlockRule.Should().BeTrue();
@@ -440,7 +454,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDohBlockRule.Should().BeFalse();
         result.HasDoh3BlockRule.Should().BeTrue();
@@ -464,7 +478,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDohBlockRule.Should().BeTrue();
         result.HasDoh3BlockRule.Should().BeFalse();
@@ -484,7 +498,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeTrue();
         result.HasDotBlockRule.Should().BeTrue();
@@ -504,7 +518,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeFalse();
     }
@@ -521,7 +535,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeFalse();
     }
@@ -538,7 +552,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         result.HasDns53BlockRule.Should().BeTrue();
     }
@@ -571,7 +585,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         };
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
         // Assert
         result.HasDns53BlockRule.Should().BeTrue();
@@ -607,7 +621,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         };
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
         // Assert
         result.HasDotBlockRule.Should().BeTrue();
@@ -643,7 +657,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         };
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
         // Assert
         result.HasDns53BlockRule.Should().BeTrue();
@@ -680,7 +694,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         };
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
         // Assert
         result.HasDns53BlockRule.Should().BeTrue();
@@ -714,7 +728,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         };
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, firewallGroups);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
         // Assert - Should not detect rule since group doesn't exist
         result.HasDns53BlockRule.Should().BeFalse();
@@ -738,7 +752,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - Should NOT detect as DNS block rule (ports are inverted)
         result.HasDns53BlockRule.Should().BeFalse();
@@ -763,7 +777,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - UDP is excluded, so DNS (UDP 53) is NOT blocked
         result.HasDns53BlockRule.Should().BeFalse();
@@ -788,7 +802,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - ICMP is excluded, but UDP is still blocked, so DNS IS blocked
         result.HasDns53BlockRule.Should().BeTrue();
@@ -814,7 +828,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - TCP is excluded, so DoT (TCP 853) is NOT blocked
         // But UDP is blocked, so DNS53 (UDP 53) IS blocked
@@ -841,7 +855,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - TCP is excluded, so DoT is NOT blocked
         // But UDP is blocked, so DoQ IS blocked
@@ -868,7 +882,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
 
         // Assert - Normal blocking works
         result.HasDns53BlockRule.Should().BeTrue();
@@ -896,7 +910,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act - Pass the matching external zone ID
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, null, null, null, null, null, ExternalZoneId);
 
         // Assert - Rule is detected because it targets the external zone
         result.HasDns53BlockRule.Should().BeTrue();
@@ -920,7 +934,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act - Pass the external zone ID (different from rule's destination)
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, null, null, null, null, null, ExternalZoneId);
 
         // Assert - Rule is NOT detected because it doesn't target the external zone
         result.HasDns53BlockRule.Should().BeFalse();
@@ -940,7 +954,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act - Pass external zone ID, but rule doesn't have zone_id (matches any zone)
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, null, null, null, null, null, ExternalZoneId);
 
         // Assert - Rule is detected (no zone_id means it applies to all zones)
         result.HasDns53BlockRule.Should().BeTrue();
@@ -963,7 +977,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act - Don't pass external zone ID (null)
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, null);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, null, null, null, null, null, null);
 
         // Assert - Rule is detected because we can't validate zone (fallback behavior)
         result.HasDns53BlockRule.Should().BeTrue();
@@ -986,7 +1000,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, null, null, null, null, null, null, ExternalZoneId);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, null, null, null, null, null, ExternalZoneId);
 
         // Assert - Not detected because it targets the wrong zone
         result.HasDotBlockRule.Should().BeFalse();
@@ -1650,7 +1664,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             { ""name"": ""Block DoH"", ""enabled"": true, ""action"": ""drop"", ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] } }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(settings, firewall);
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall));
 
         result.HardeningNotes.Should().Contain(n => n.Contains("fully configured"));
     }
@@ -1744,7 +1758,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             }
         ]").RootElement;
 
-        var result = await _analyzer.AnalyzeAsync(settings, firewall);
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall));
 
         result.Issues.Should().NotContain(i => i.Type == "DNS_NO_DOQ_BLOCK");
     }
@@ -1770,7 +1784,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act - analyze with no settings/firewall data to trigger DNS issues
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: null);
 
@@ -1790,7 +1804,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Arrange - no switches provided
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: null,
             networks: null);
 
@@ -1834,7 +1848,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: null);
 
@@ -1863,7 +1877,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: null);
 
@@ -1885,7 +1899,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: null);
 
@@ -1924,7 +1938,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -1958,7 +1972,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -1992,7 +2006,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2024,7 +2038,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2058,7 +2072,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2100,7 +2114,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2134,7 +2148,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2168,7 +2182,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2790,7 +2804,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2834,7 +2848,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2879,7 +2893,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2922,7 +2936,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -2966,7 +2980,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -3011,7 +3025,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -3068,7 +3082,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -3105,7 +3119,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -3140,7 +3154,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks);
 
@@ -3179,7 +3193,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act - With custom port (won't actually probe in tests)
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3247,7 +3261,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(settings, firewall, null, null, deviceData);
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, null, deviceData);
 
         // Assert
         result.DohConfigured.Should().BeTrue();
@@ -3421,7 +3435,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var natRules = CreateDnatNatRules(("net1", "192.168.1.1"));
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks, null, null, natRules);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks, null, null, natRules);
 
         // Assert - Should NOT have DNS_NO_53_BLOCK (firewall handles it)
         result.HasDns53BlockRule.Should().BeTrue();
@@ -3510,7 +3524,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act - No firewall data (port 53 open)
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3549,7 +3563,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act - No firewall block, no DNAT
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3600,7 +3614,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3649,7 +3663,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act - No DNAT, but firewall blocks port 53
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: firewall.RootElement,
+            firewallRules: ParseFirewallRules(firewall.RootElement),
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3697,7 +3711,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: firewall.RootElement,
+            firewallRules: ParseFirewallRules(firewall.RootElement),
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3765,7 +3779,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3823,7 +3837,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3882,7 +3896,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -3927,7 +3941,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4388,7 +4402,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
 
         // Assert - Rule covers LAN and Guest (all except IoT)
         result.HasDns53BlockRule.Should().BeTrue();
@@ -4424,7 +4438,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
 
         // Assert - Only LAN is covered
         result.HasDns53BlockRule.Should().BeTrue();
@@ -4456,7 +4470,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
 
         // Assert - All networks covered
         result.HasDns53BlockRule.Should().BeTrue();
@@ -4502,7 +4516,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(null, firewall, null, networks);
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall), null, networks);
 
         // Assert - All networks covered by combined rules
         result.HasDns53BlockRule.Should().BeTrue();
@@ -4614,7 +4628,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         ]").RootElement;
 
         // Act
-        var result = await _analyzer.AnalyzeAsync(settings, firewall, null, networks, null, null, natRules);
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks, null, null, natRules);
 
         // Assert - DNAT provides full coverage, so no partial coverage issue
         result.HasDns53BlockRule.Should().BeTrue();
@@ -4664,7 +4678,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4720,7 +4734,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4787,7 +4801,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4853,7 +4867,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4912,7 +4926,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -4983,7 +4997,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: settings,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5256,7 +5270,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5314,7 +5328,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5371,7 +5385,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5427,7 +5441,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5483,7 +5497,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,
@@ -5539,7 +5553,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(
             settingsData: null,
-            firewallData: null,
+            firewallRules: null,
             switches: switches,
             networks: networks,
             deviceData: null,

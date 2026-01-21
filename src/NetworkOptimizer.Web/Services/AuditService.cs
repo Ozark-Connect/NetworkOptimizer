@@ -31,6 +31,7 @@ public class AuditService
     private readonly FingerprintDatabaseService _fingerprintService;
     private readonly PdfStorageService _pdfStorageService;
     private readonly IMemoryCache _cache;
+    private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -40,7 +41,8 @@ public class AuditService
         SystemSettingsService settingsService,
         FingerprintDatabaseService fingerprintService,
         PdfStorageService pdfStorageService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        Audit.Analyzers.FirewallRuleParser firewallParser)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -50,6 +52,7 @@ public class AuditService
         _fingerprintService = fingerprintService;
         _pdfStorageService = pdfStorageService;
         _cache = cache;
+        _firewallParser = firewallParser;
     }
 
     // Cache accessors using IMemoryCache
@@ -952,22 +955,6 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch site settings for DNS analysis");
             }
 
-            // Fetch firewall policies for DNS leak prevention analysis
-            System.Text.Json.JsonElement? firewallPoliciesData = null;
-            try
-            {
-                var policiesDoc = await _connectionService.Client.GetFirewallPoliciesRawAsync();
-                if (policiesDoc != null)
-                {
-                    firewallPoliciesData = policiesDoc.RootElement;
-                    _logger.LogInformation("Fetched firewall policies for DNS security analysis");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to fetch firewall policies for DNS analysis");
-            }
-
             // Fetch firewall groups (port lists and IP lists) for flattening group references in rules
             List<NetworkOptimizer.UniFi.Models.UniFiFirewallGroup>? firewallGroups = null;
             try
@@ -981,6 +968,54 @@ public class AuditService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to fetch firewall groups");
+            }
+
+            // Fetch and parse firewall rules into normalized FirewallRule list
+            // Try v2 API first (zone-based), fall back to v1 API (legacy ruleset-based) if unavailable
+            List<Audit.Models.FirewallRule>? firewallRules = null;
+            var usedLegacyApi = false;
+            try
+            {
+                // Set firewall groups for port/IP group resolution during parsing
+                _firewallParser.SetFirewallGroups(firewallGroups);
+
+                // Try v2 firewall policies API first (zone-based, newer controllers)
+                var policiesDoc = await _connectionService.Client.GetFirewallPoliciesRawAsync();
+                var hasV2Data = policiesDoc != null && HasFirewallData(policiesDoc.RootElement);
+
+                if (hasV2Data)
+                {
+                    firewallRules = _firewallParser.ExtractFirewallPolicies(policiesDoc!.RootElement);
+                    _logger.LogInformation("Parsed {Count} firewall rules from v2 policies API", firewallRules.Count);
+                }
+                else
+                {
+                    // Fall back to v1 legacy API (ruleset-based, older controllers)
+                    _logger.LogInformation("v2 firewall policies API returned no data, falling back to legacy API");
+                    var legacyDoc = await _connectionService.Client.GetLegacyFirewallRulesRawAsync();
+
+                    if (legacyDoc != null && legacyDoc.RootElement.TryGetProperty("data", out var legacyData))
+                    {
+                        firewallRules = new List<Audit.Models.FirewallRule>();
+                        foreach (var rule in legacyData.EnumerateArray())
+                        {
+                            var parsed = _firewallParser.ParseFirewallRule(rule);
+                            if (parsed != null)
+                                firewallRules.Add(parsed);
+                        }
+                        usedLegacyApi = true;
+                        _logger.LogInformation("Parsed {Count} firewall rules from legacy v1 API (ruleset-based)", firewallRules.Count);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch/parse firewall rules for DNS analysis");
+            }
+
+            if (usedLegacyApi)
+            {
+                _logger.LogDebug("Using legacy firewall rules with synthetic zone IDs for DNS security analysis");
             }
 
             // Fetch NAT rules for DNAT DNS detection
@@ -1085,7 +1120,7 @@ public class AuditService
                 ClientHistory = clientHistory,
                 FingerprintDb = fingerprintDb,
                 SettingsData = settingsData,
-                FirewallPoliciesData = firewallPoliciesData,
+                FirewallRules = firewallRules,
                 FirewallGroups = firewallGroups,
                 NatRulesData = natRulesData,
                 AllowanceSettings = allowanceSettings,
@@ -1593,6 +1628,30 @@ public class AuditService
                 ids.Add(vlanId);
         }
         return ids.Count > 0 ? ids : null;
+    }
+
+    /// <summary>
+    /// Check if a firewall API response contains actual data.
+    /// Returns false for null, empty arrays, or empty objects.
+    /// </summary>
+    private static bool HasFirewallData(JsonElement element)
+    {
+        // Check for direct array
+        if (element.ValueKind == JsonValueKind.Array)
+            return element.GetArrayLength() > 0;
+
+        // Check for wrapped response with data array
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("data", out var dataArray))
+            {
+                return dataArray.ValueKind == JsonValueKind.Array && dataArray.GetArrayLength() > 0;
+            }
+            // Empty object
+            return false;
+        }
+
+        return false;
     }
 
     private static string GetDefaultRecommendation(string type) => type switch

@@ -12,6 +12,7 @@ using static NetworkOptimizer.Core.Helpers.DisplayFormatters;
 // Disambiguate types that exist in both Audit.Models and Core.Models
 using AuditResult = NetworkOptimizer.Audit.Models.AuditResult;
 using AuditStatistics = NetworkOptimizer.Audit.Models.AuditStatistics;
+using FirewallRule = NetworkOptimizer.Audit.Models.FirewallRule;
 
 namespace NetworkOptimizer.Audit;
 
@@ -40,7 +41,7 @@ public class ConfigAuditEngine
         public required List<UniFiClientResponse>? Clients { get; init; }
         public required List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
         public required JsonElement? SettingsData { get; init; }
-        public required JsonElement? FirewallPoliciesData { get; init; }
+        public required List<FirewallRule>? FirewallRules { get; init; }
         public required List<UniFiFirewallGroup>? FirewallGroups { get; init; }
         public required JsonElement? NatRulesData { get; init; }
         public required string? ClientName { get; init; }
@@ -117,7 +118,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients: null, fingerprintDb: null, settingsData: null, firewallRules: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data for enhanced detection
@@ -127,7 +128,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb: null, settingsData: null, firewallRules: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client data and fingerprint database for enhanced detection
@@ -138,7 +139,7 @@ public class ConfigAuditEngine
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(string deviceDataJson, List<UniFiClientResponse>? clients, UniFiFingerprintDatabase? fingerprintDb, string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallPoliciesData: null, allowanceSettings: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData: null, firewallRules: null, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with all available data sources
@@ -147,7 +148,7 @@ public class ConfigAuditEngine
     /// <param name="clients">Connected clients for device type detection (optional)</param>
     /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
     /// <param name="settingsData">Site settings data including DoH configuration (optional)</param>
-    /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
+    /// <param name="firewallRules">Parsed firewall rules for DNS leak prevention analysis (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
     /// <returns>Complete audit results</returns>
     public Task<AuditResult> RunAuditAsync(
@@ -155,9 +156,9 @@ public class ConfigAuditEngine
         List<UniFiClientResponse>? clients,
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
-        JsonElement? firewallPoliciesData,
+        List<FirewallRule>? firewallRules,
         string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, fingerprintDb, settingsData, firewallRules, allowanceSettings: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with all available data sources and device allowance settings
@@ -167,10 +168,10 @@ public class ConfigAuditEngine
         List<UniFiClientResponse>? clients,
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
-        JsonElement? firewallPoliciesData,
+        List<FirewallRule>? firewallRules,
         DeviceAllowanceSettings? allowanceSettings,
         string? clientName = null)
-        => RunAuditAsync(deviceDataJson, clients, clientHistory: null, fingerprintDb, settingsData, firewallPoliciesData, allowanceSettings, protectCameras: null, clientName);
+        => RunAuditAsync(deviceDataJson, clients, clientHistory: null, fingerprintDb, settingsData, firewallRules, allowanceSettings, protectCameras: null, clientName);
 
     /// <summary>
     /// Run a comprehensive audit on UniFi device data with client history for offline device detection
@@ -180,7 +181,7 @@ public class ConfigAuditEngine
     /// <param name="clientHistory">Historical clients for offline device detection (optional)</param>
     /// <param name="fingerprintDb">UniFi fingerprint database for device name lookups (optional)</param>
     /// <param name="settingsData">Site settings data including DoH configuration (optional)</param>
-    /// <param name="firewallPoliciesData">Firewall policies data for DNS leak prevention analysis (optional)</param>
+    /// <param name="firewallRules">Parsed firewall rules for DNS leak prevention analysis (optional)</param>
     /// <param name="allowanceSettings">Settings for allowing devices on main network (optional)</param>
     /// <param name="protectCameras">UniFi Protect cameras for 100% confidence detection (optional)</param>
     /// <param name="clientName">Optional client/site name for the report</param>
@@ -191,7 +192,7 @@ public class ConfigAuditEngine
         List<UniFiClientHistoryResponse>? clientHistory,
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
-        JsonElement? firewallPoliciesData,
+        List<FirewallRule>? firewallRules,
         DeviceAllowanceSettings? allowanceSettings,
         ProtectCameraCollection? protectCameras,
         string? clientName = null)
@@ -203,7 +204,7 @@ public class ConfigAuditEngine
             ClientHistory = clientHistory,
             FingerprintDb = fingerprintDb,
             SettingsData = settingsData,
-            FirewallPoliciesData = firewallPoliciesData,
+            FirewallRules = firewallRules,
             AllowanceSettings = allowanceSettings,
             ProtectCameras = protectCameras,
             ClientName = clientName
@@ -337,7 +338,7 @@ public class ConfigAuditEngine
             Clients = request.Clients,
             ClientHistory = request.ClientHistory,
             SettingsData = request.SettingsData,
-            FirewallPoliciesData = request.FirewallPoliciesData,
+            FirewallRules = request.FirewallRules,
             FirewallGroups = request.FirewallGroups,
             NatRulesData = request.NatRulesData,
             ClientName = request.ClientName,
@@ -349,31 +350,43 @@ public class ConfigAuditEngine
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
-            ExternalZoneId = DetermineExternalZoneId(request.NetworkConfigs)
+            ExternalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules)
         };
     }
 
     /// <summary>
-    /// Determine the External/WAN firewall zone ID from network configurations.
-    /// Looks for networks with purpose "wan" and extracts their firewall_zone_id.
+    /// Determine the External/WAN firewall zone ID from network configurations or firewall rules.
+    /// First tries to find zone ID from WAN network configs (v2 zone-based).
+    /// Falls back to synthetic legacy zone ID if legacy firewall rules are present.
     /// </summary>
-    private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs)
+    private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules)
     {
-        if (networkConfigs == null || networkConfigs.Count == 0)
-            return null;
-
-        // Find a WAN network and get its firewall zone ID
-        var wanNetwork = networkConfigs.FirstOrDefault(n =>
-            string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
-
-        if (wanNetwork?.FirewallZoneId != null)
+        // Try to find zone ID from network configs first (v2 zone-based systems)
+        if (networkConfigs != null && networkConfigs.Count > 0)
         {
-            _logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
-                wanNetwork.Name, wanNetwork.FirewallZoneId);
-            return wanNetwork.FirewallZoneId;
+            var wanNetwork = networkConfigs.FirstOrDefault(n =>
+                string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
+
+            if (wanNetwork?.FirewallZoneId != null)
+            {
+                _logger.LogDebug("Determined External Zone ID from WAN network '{Name}': {ZoneId}",
+                    wanNetwork.Name, wanNetwork.FirewallZoneId);
+                return wanNetwork.FirewallZoneId;
+            }
+
+            _logger.LogDebug("No WAN network with firewall_zone_id found in {Count} network configs", networkConfigs.Count);
         }
 
-        _logger.LogDebug("No WAN network with firewall_zone_id found in {Count} network configs", networkConfigs.Count);
+        // Fall back to synthetic legacy zone ID if any rules use it
+        // This indicates the rules were parsed from legacy (pre-zone) API
+        if (firewallRules != null && firewallRules.Any(r =>
+                r.DestinationZoneId == FirewallRuleParser.LegacyExternalZoneId ||
+                r.SourceZoneId == FirewallRuleParser.LegacyExternalZoneId))
+        {
+            _logger.LogDebug("Using synthetic legacy External Zone ID from firewall rules");
+            return FirewallRuleParser.LegacyExternalZoneId;
+        }
+
         return null;
     }
 
@@ -735,12 +748,14 @@ public class ConfigAuditEngine
     {
         _logger.LogInformation("Phase 5: Analyzing firewall rules");
 
-        // Set firewall groups for flattening port/IP list references before extracting policies
+        // Use pre-parsed firewall rules from context, adding any rules extracted from device data
         _firewallAnalyzer.SetFirewallGroups(ctx.FirewallGroups);
 
         var firewallRules = _firewallAnalyzer.ExtractFirewallRules(ctx.DeviceData);
-        var policyRules = _firewallAnalyzer.ExtractFirewallPolicies(ctx.FirewallPoliciesData);
-        firewallRules.AddRange(policyRules);
+        if (ctx.FirewallRules != null)
+        {
+            firewallRules.AddRange(ctx.FirewallRules);
+        }
 
         var firewallIssues = firewallRules.Any()
             ? _firewallAnalyzer.AnalyzeFirewallRules(firewallRules, ctx.Networks, ctx.NetworkConfigs, ctx.ExternalZoneId)
@@ -782,10 +797,10 @@ public class ConfigAuditEngine
     {
         _logger.LogInformation("Phase 5b: Analyzing DNS security");
 
-        if (ctx.SettingsData.HasValue || ctx.FirewallPoliciesData.HasValue || ctx.NatRulesData.HasValue)
+        if (ctx.SettingsData.HasValue || ctx.FirewallRules?.Count > 0 || ctx.NatRulesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallPoliciesData, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.FirewallGroups, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

@@ -807,6 +807,44 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET rest/firewallrule - Get all firewall rules as raw JSON (legacy v1 API).
+    /// Use this for parsing rules through FirewallRuleParser when the v2 policies API is unavailable.
+    /// </summary>
+    public async Task<JsonDocument?> GetLegacyFirewallRulesRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching legacy firewall rules (raw) from site {Site}", _site);
+
+        try
+        {
+            var response = await _httpClient!.GetAsync(BuildApiPath("rest/firewallrule"), cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            var doc = JsonDocument.Parse(json);
+
+            // Check for successful API response
+            if (doc.RootElement.TryGetProperty("meta", out var meta) &&
+                meta.TryGetProperty("rc", out var rc) &&
+                rc.GetString() == "ok" &&
+                doc.RootElement.TryGetProperty("data", out var data))
+            {
+                var count = data.ValueKind == JsonValueKind.Array ? data.GetArrayLength() : 0;
+                _logger.LogInformation("Retrieved {Count} legacy firewall rules (raw)", count);
+                return doc;
+            }
+
+            _logger.LogWarning("Legacy firewall rules response did not have expected format");
+            doc.Dispose();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch legacy firewall rules");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// GET rest/firewallgroup - Get all firewall groups (address groups, port groups)
     /// </summary>
     public async Task<List<UniFiFirewallGroup>> GetFirewallGroupsAsync(CancellationToken cancellationToken = default)

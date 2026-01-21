@@ -423,8 +423,9 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
-    public void ExtractFirewallPolicies_MissingId_SkipsRule()
+    public void ExtractFirewallPolicies_MissingId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is missing (for test data compatibility)
         var json = JsonDocument.Parse(@"[{
             ""name"": ""No ID Rule"",
             ""action"": ""drop""
@@ -432,7 +433,9 @@ public class FirewallRuleParserTests
 
         var rules = _parser.ExtractFirewallPolicies(json);
 
-        rules.Should().BeEmpty();
+        rules.Should().ContainSingle();
+        rules[0].Id.Should().NotBeNullOrEmpty();
+        rules[0].Name.Should().Be("No ID Rule");
     }
 
     #endregion
@@ -649,6 +652,204 @@ public class FirewallRuleParserTests
 
     #endregion
 
+    #region Legacy Ruleset Zone Mapping Tests
+
+    [Fact]
+    public void MapRulesetToZones_WAN_OUT_MapsToInternalToExternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("WAN_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_WAN_IN_MapsToExternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("WAN_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_IN_MapsToInternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_OUT_MapsToInternalToNull()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_LOCAL_MapsToInternalToGateway()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_LOCAL");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_IN_MapsToInternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_OUT_MapsToInternalToNull()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_LOCAL_MapsToInternalToGateway()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_LOCAL");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_NullRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones(null);
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_EmptyRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("");
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_UnknownRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("UNKNOWN_RULESET");
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_CaseInsensitive_MapsCorrectly()
+    {
+        var (sourceZone1, destZone1) = FirewallRuleParser.MapRulesetToZones("wan_out");
+        var (sourceZone2, destZone2) = FirewallRuleParser.MapRulesetToZones("Wan_Out");
+        var (sourceZone3, destZone3) = FirewallRuleParser.MapRulesetToZones("WAN_OUT");
+
+        // All should map the same way
+        sourceZone1.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone1.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        sourceZone2.Should().Be(sourceZone1);
+        destZone2.Should().Be(destZone1);
+        sourceZone3.Should().Be(sourceZone1);
+        destZone3.Should().Be(destZone1);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithRuleset_SetsZoneIdsFromMapping()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-wan-out"",
+            ""name"": ""Block External DNS"",
+            ""ruleset"": ""WAN_OUT"",
+            ""action"": ""drop"",
+            ""dst_port"": ""53""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().Be("WAN_OUT");
+        rule.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithWAN_IN_Ruleset_SetsCorrectZones()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-wan-in"",
+            ""ruleset"": ""WAN_IN""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithLAN_LOCAL_Ruleset_SetsGatewayDestination()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-lan-local"",
+            ""ruleset"": ""LAN_LOCAL""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithoutRuleset_ZonesAreNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""no-ruleset"",
+            ""name"": ""Rule without ruleset""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().BeNull();
+        rule.SourceZoneId.Should().BeNull();
+        rule.DestinationZoneId.Should().BeNull();
+    }
+
+    [Fact]
+    public void LegacyZoneIdConstants_HaveCorrectValues()
+    {
+        // Verify the constants have the expected prefix to avoid collisions with real zone IDs
+        FirewallRuleParser.LegacyExternalZoneId.Should().StartWith("__LEGACY_");
+        FirewallRuleParser.LegacyInternalZoneId.Should().StartWith("__LEGACY_");
+        FirewallRuleParser.LegacyGatewayZoneId.Should().StartWith("__LEGACY_");
+
+        // Verify they're distinct
+        FirewallRuleParser.LegacyExternalZoneId.Should().NotBe(FirewallRuleParser.LegacyInternalZoneId);
+        FirewallRuleParser.LegacyExternalZoneId.Should().NotBe(FirewallRuleParser.LegacyGatewayZoneId);
+        FirewallRuleParser.LegacyInternalZoneId.Should().NotBe(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    #endregion
+
     #region ParseFirewallPolicy Tests
 
     [Fact]
@@ -673,20 +874,24 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
-    public void ParseFirewallPolicy_MissingId_ReturnsNull()
+    public void ParseFirewallPolicy_MissingId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is missing (for test data compatibility)
         var json = JsonDocument.Parse(@"{
             ""name"": ""No ID Policy""
         }").RootElement;
 
         var rule = _parser.ParseFirewallPolicy(json);
 
-        rule.Should().BeNull();
+        rule.Should().NotBeNull();
+        rule!.Id.Should().NotBeNullOrEmpty();
+        rule.Name.Should().Be("No ID Policy");
     }
 
     [Fact]
-    public void ParseFirewallPolicy_EmptyId_ReturnsNull()
+    public void ParseFirewallPolicy_EmptyId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is empty (for test data compatibility)
         var json = JsonDocument.Parse(@"{
             ""_id"": """",
             ""name"": ""Empty ID Policy""
@@ -694,7 +899,9 @@ public class FirewallRuleParserTests
 
         var rule = _parser.ParseFirewallPolicy(json);
 
-        rule.Should().BeNull();
+        rule.Should().NotBeNull();
+        rule!.Id.Should().NotBeNullOrEmpty();
+        rule.Name.Should().Be("Empty ID Policy");
     }
 
     [Fact]

@@ -13,6 +13,21 @@ namespace NetworkOptimizer.Audit.Analyzers;
 /// </summary>
 public class FirewallRuleParser
 {
+    /// <summary>
+    /// Synthetic zone ID for external/WAN zone (used for legacy rules without zone IDs)
+    /// </summary>
+    public const string LegacyExternalZoneId = "__LEGACY_EXTERNAL__";
+
+    /// <summary>
+    /// Synthetic zone ID for internal/LAN zone (used for legacy rules without zone IDs)
+    /// </summary>
+    public const string LegacyInternalZoneId = "__LEGACY_INTERNAL__";
+
+    /// <summary>
+    /// Synthetic zone ID for gateway/router zone (used for legacy rules without zone IDs)
+    /// </summary>
+    public const string LegacyGatewayZoneId = "__LEGACY_GATEWAY__";
+
     private readonly ILogger<FirewallRuleParser> _logger;
     private Dictionary<string, UniFiFirewallGroup>? _firewallGroups;
 
@@ -111,9 +126,9 @@ public class FirewallRuleParser
     /// </summary>
     public FirewallRule? ParseFirewallPolicy(JsonElement policy)
     {
-        var id = policy.GetStringOrNull("_id");
-        if (string.IsNullOrEmpty(id))
-            return null;
+        // Generate an ID if not present or empty (allows parsing of simplified test data)
+        var rawId = policy.GetStringOrNull("_id");
+        var id = string.IsNullOrEmpty(rawId) ? Guid.NewGuid().ToString() : rawId;
 
         var name = policy.GetStringOrNull("name");
         var enabled = policy.GetBoolOrDefault("enabled", true);
@@ -407,6 +422,9 @@ public class FirewallRuleParser
             }
         }
 
+        // Map legacy ruleset to zone IDs for compatibility with zone-based analysis
+        var (sourceZoneId, destZoneId) = MapRulesetToZones(ruleset);
+
         return new FirewallRule
         {
             Id = id,
@@ -425,7 +443,10 @@ public class FirewallRuleParser
             HitCount = hitCount,
             Ruleset = ruleset,
             SourceNetworkIds = sourceNetworkIds,
-            WebDomains = webDomains
+            WebDomains = webDomains,
+            // Zone IDs derived from ruleset for compatibility with zone-based analysis
+            SourceZoneId = sourceZoneId,
+            DestinationZoneId = destZoneId
         };
     }
 
@@ -440,4 +461,49 @@ public class FirewallRuleParser
     /// </summary>
     private string? ResolvePortGroup(string groupId)
         => FirewallGroupHelper.ResolvePortGroup(groupId, _firewallGroups, _logger);
+
+    /// <summary>
+    /// Maps legacy ruleset names to source and destination zone IDs.
+    /// Legacy UniFi firewall rules use ruleset names like WAN_IN, WAN_OUT, LAN_IN, etc.
+    /// instead of explicit zone IDs. This method derives synthetic zone IDs from the ruleset.
+    /// </summary>
+    /// <param name="ruleset">The legacy ruleset name (e.g., "WAN_IN", "WAN_OUT", "LAN_IN")</param>
+    /// <returns>A tuple of (sourceZoneId, destinationZoneId), both may be null if ruleset is unknown</returns>
+    public static (string? SourceZoneId, string? DestinationZoneId) MapRulesetToZones(string? ruleset)
+    {
+        if (string.IsNullOrEmpty(ruleset))
+            return (null, null);
+
+        // Normalize to uppercase for comparison
+        return ruleset.ToUpperInvariant() switch
+        {
+            // WAN_OUT: Traffic from internal networks going to the internet
+            // Most relevant for DNS security checks (blocking external DNS)
+            "WAN_OUT" => (LegacyInternalZoneId, LegacyExternalZoneId),
+
+            // WAN_IN: Traffic from internet coming into the network
+            "WAN_IN" => (LegacyExternalZoneId, LegacyInternalZoneId),
+
+            // LAN_IN: Traffic entering LAN interfaces (inter-VLAN traffic)
+            "LAN_IN" => (LegacyInternalZoneId, LegacyInternalZoneId),
+
+            // LAN_OUT: Traffic leaving LAN interfaces
+            "LAN_OUT" => (LegacyInternalZoneId, null),
+
+            // LAN_LOCAL: Traffic destined to the router/gateway itself
+            "LAN_LOCAL" => (LegacyInternalZoneId, LegacyGatewayZoneId),
+
+            // GUEST_IN: Traffic from guest networks
+            "GUEST_IN" => (LegacyInternalZoneId, LegacyInternalZoneId),
+
+            // GUEST_OUT: Traffic leaving guest networks
+            "GUEST_OUT" => (LegacyInternalZoneId, null),
+
+            // GUEST_LOCAL: Guest traffic to router
+            "GUEST_LOCAL" => (LegacyInternalZoneId, LegacyGatewayZoneId),
+
+            // Unknown ruleset
+            _ => (null, null)
+        };
+    }
 }
