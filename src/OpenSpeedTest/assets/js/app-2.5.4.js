@@ -1021,6 +1021,18 @@ window.onload = function() {
               var circleSVG2 = document.getElementById("resultsData");
               circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", clientResultsUrl);
               circleSVG2.setAttribute("target", "_blank");
+              // Add click handler for smart window handling
+              circleSVG2.onclick = function(e) {
+                var url = savedResultUrl || clientResultsUrl;
+                if (window.opener && !window.opener.closed) {
+                  e.preventDefault();
+                  window.opener.focus();
+                  window.close();
+                } else {
+                  e.preventDefault();
+                  window.open(url, "_blank");
+                }
+              };
             }
             if (saveData) {
               ServerConnect(5);
