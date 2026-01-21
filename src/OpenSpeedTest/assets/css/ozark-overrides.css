@@ -149,10 +149,18 @@
     transform: translateX(-50%) translateY(0);
 }
 
+/* Orange for "Please wait..." - matches Ozark accent */
+.save-notification.waiting {
+    border-color: #F97316;
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    box-shadow: 0 8px 32px rgba(249, 115, 22, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+/* Blue for "Result saved." - matches Ozark primary */
 .save-notification.success {
-    border-color: #22c55e;
-    background: linear-gradient(135deg, #166534 0%, #14532d 100%);
-    box-shadow: 0 8px 32px rgba(34, 197, 94, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    border-color: #0559C9;
+    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
 .save-notification.error {

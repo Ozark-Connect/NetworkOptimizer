@@ -1008,6 +1008,10 @@ window.onload = function() {
           Show.showStatus("Complete");
           Show.oDoLiveSpeed.el.textContent = ost;
           if (location.hostname != myname.toLowerCase() + com) {
+            // Show "Please wait..." immediately when saving is enabled
+            if (saveData) {
+              showSaveNotification("Please wait...", "waiting");
+            }
             // Build POST data for saving results
             saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
             // Set initial results link to client speed test page (will be updated with result ID after save)
@@ -1384,7 +1388,6 @@ window.onload = function() {
       }
       if (auth == 5) {
         url = saveDataURL;
-        showSaveNotification("Please wait...");
       }
       if (auth == 7) {
         url = get_IP;
