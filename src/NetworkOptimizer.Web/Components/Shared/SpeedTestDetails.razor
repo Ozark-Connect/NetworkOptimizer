@@ -57,7 +57,7 @@
     <span>Streams: @ParallelStreams parallel</span>
     @if (PingMs.HasValue)
     {
-        <span>Ping: @PingMs.Value.ToString("F1") ms</span>
+        <span>Ping: @(PingMs.Value % 1 == 0 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</span>
     }
     <span class="hide-mobile">Time: @TestTime.ToLocalTime().ToString("g")</span>
     <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
