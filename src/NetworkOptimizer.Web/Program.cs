@@ -269,8 +269,10 @@ if (!string.IsNullOrEmpty(corsOriginsConfig))
 }
 
 // Auto-add origins from HOST_IP and HOST_NAME (OpenSpeedTest port)
-var openSpeedTestPort = builder.Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
-var openSpeedTestHost = builder.Configuration["OPENSPEEDTEST_HOST"] ?? hostName;
+var openSpeedTestPortConfig = builder.Configuration["OPENSPEEDTEST_PORT"];
+var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
+var openSpeedTestHostConfig = builder.Configuration["OPENSPEEDTEST_HOST"];
+var openSpeedTestHost = !string.IsNullOrEmpty(openSpeedTestHostConfig) ? openSpeedTestHostConfig : hostName;
 var openSpeedTestHttps = builder.Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
 var openSpeedTestHttpsPort = builder.Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
 
