@@ -10,12 +10,12 @@ var apiPath = "{{API_PATH}}";
 
 // If __DYNAMIC__, construct URL from browser location (same host, port 8042)
 if (saveDataURL === "__DYNAMIC__") {
-    var baseUrl = window.location.protocol + "//" + window.location.hostname + ":8042";
-    saveDataURL = baseUrl + apiPath;
+    saveDataURL = window.location.protocol + "//" + window.location.hostname + ":8042" + apiPath;
 }
 
-// URL for viewing client speed test results (constructed from same base)
-var clientResultsUrl = (typeof baseUrl !== "undefined" ? baseUrl : window.location.protocol + "//" + window.location.hostname + ":8042") + "/client-speedtest";
+// URL for viewing client speed test results (derived from saveDataURL)
+// Extract base URL by removing the API path
+var clientResultsUrl = saveDataURL.replace(apiPath, "") + "/client-speedtest";
 
 // Fix for missing variable bug in OpenSpeedTest
 var OpenSpeedTestdb = "";
