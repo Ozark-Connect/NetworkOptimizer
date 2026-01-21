@@ -53,7 +53,7 @@
                     @if (openSpeedTestAvailable)
                     {
                         <div class="test-option-actions">
-                            <a href="@(openSpeedTestUrl)?Run" target="_blank" class="btn btn-primary">
+                            <a href="@(openSpeedTestUrl)?Run" target="_blank" rel="opener" class="btn btn-primary">
                                 Run Speed Test
                             </a>
                             <span class="form-help">Opens in a new tab and auto-starts</span>
@@ -248,7 +248,7 @@
                                     <td class="hide-mobile">
                                         @if (result.PingMs.HasValue)
                                         {
-                                            <span>@result.PingMs.Value.ToString("F1") ms</span>
+                                            <span>@(result.PingMs.Value % 1 == 0 && result.PingMs.Value >= 10 ? result.PingMs.Value.ToString("F0") : result.PingMs.Value.ToString("F1")) ms</span>
                                         }
                                         else
                                         {
@@ -631,9 +631,11 @@
         var hostName = Configuration["HOST_NAME"];
         var hostIp = Configuration["HOST_IP"];
         var openSpeedTestHost = Configuration["OPENSPEEDTEST_HOST"];
-        var openSpeedTestPort = Configuration["OPENSPEEDTEST_PORT"] ?? "3005";
+        var openSpeedTestPortConfig = Configuration["OPENSPEEDTEST_PORT"];
+        var openSpeedTestPort = !string.IsNullOrEmpty(openSpeedTestPortConfig) ? openSpeedTestPortConfig : "3005";
         var openSpeedTestHttps = Configuration["OPENSPEEDTEST_HTTPS"]?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
-        var openSpeedTestHttpsPort = Configuration["OPENSPEEDTEST_HTTPS_PORT"] ?? "443";
+        var openSpeedTestHttpsPortConfig = Configuration["OPENSPEEDTEST_HTTPS_PORT"];
+        var openSpeedTestHttpsPort = !string.IsNullOrEmpty(openSpeedTestHttpsPortConfig) ? openSpeedTestHttpsPortConfig : "443";
 
         // OPENSPEEDTEST_HOST defaults to HOST_NAME
         if (string.IsNullOrEmpty(openSpeedTestHost))

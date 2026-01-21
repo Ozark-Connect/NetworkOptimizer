@@ -13,5 +13,9 @@ if (saveDataURL === "__DYNAMIC__") {
     saveDataURL = window.location.protocol + "//" + window.location.hostname + ":8042" + apiPath;
 }
 
+// URL for viewing client speed test results (derived from saveDataURL)
+// Extract base URL by splitting on /api
+var clientResultsUrl = saveDataURL.split("/api")[0] + "/client-speedtest";
+
 // Fix for missing variable bug in OpenSpeedTest
 var OpenSpeedTestdb = "";
