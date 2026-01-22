@@ -1879,7 +1879,7 @@ public class FirewallRuleParserTests
                 GroupMembers = new List<string> { "53" }
             }
         };
-        _parser.SetFirewallGroups(groups);
+        _parser.SetFirewallGroups(groups.Values);
 
         var json = JsonDocument.Parse(@"{
             ""_id"": ""rule1"",
@@ -1919,7 +1919,7 @@ public class FirewallRuleParserTests
                 GroupMembers = new List<string> { "853" }
             }
         };
-        _parser.SetFirewallGroups(groups);
+        _parser.SetFirewallGroups(groups.Values);
 
         var json = JsonDocument.Parse(@"{
             ""_id"": ""rule1"",
@@ -1952,7 +1952,7 @@ public class FirewallRuleParserTests
                 GroupMembers = new List<string> { "53" }
             }
         };
-        _parser.SetFirewallGroups(groups);
+        _parser.SetFirewallGroups(groups.Values);
 
         var json = JsonDocument.Parse(@"{
             ""_id"": ""rule1"",
@@ -1985,7 +1985,7 @@ public class FirewallRuleParserTests
                 GroupMembers = new List<string> { "10.0.0.0/8", "192.168.0.0/16" }
             }
         };
-        _parser.SetFirewallGroups(groups);
+        _parser.SetFirewallGroups(groups.Values);
 
         var json = JsonDocument.Parse(@"{
             ""_id"": ""rule1"",
