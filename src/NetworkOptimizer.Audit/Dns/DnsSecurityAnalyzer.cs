@@ -236,7 +236,10 @@ public class DnsSecurityAnalyzer
             }
         }
 
-        result.DohConfigured = result.ConfiguredServers.Any(s => s.Enabled);
+        // DoH is configured only if state is not off/disabled AND there are enabled servers
+        // UniFi API uses both "disabled" and "off" for the disabled state
+        var isDisabledState = result.DohState == "disabled" || result.DohState == "off";
+        result.DohConfigured = !isDisabledState && result.ConfiguredServers.Any(s => s.Enabled);
     }
 
     private void ParseWanDnsSettings(JsonElement dnsSettings, DnsSecurityResult result)
