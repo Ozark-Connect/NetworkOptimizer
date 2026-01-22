@@ -32,6 +32,16 @@ public class Iperf3ServerService : BackgroundService
     /// </summary>
     public bool IsRunning => _iperf3Process is { HasExited: false };
 
+    /// <summary>
+    /// Whether the iperf3 server was enabled but failed to start (e.g., port conflict)
+    /// </summary>
+    public bool StartupFailed { get; private set; }
+
+    /// <summary>
+    /// Message explaining why startup failed, if applicable
+    /// </summary>
+    public string? FailureMessage { get; private set; }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Check if iperf3 server mode is enabled
@@ -72,6 +82,9 @@ public class Iperf3ServerService : BackgroundService
                         _logger.LogError(
                             "iperf3 server failed to start {Count} consecutive times, giving up. Check if port {Port} is in use.",
                             consecutiveImmediateExits, Iperf3Port);
+                        StartupFailed = true;
+                        FailureMessage = $"Port {Iperf3Port} may already be in use by another iperf3 server. " +
+                            "Stop any existing iperf3 service and restart the container.";
                         break;
                     }
 
