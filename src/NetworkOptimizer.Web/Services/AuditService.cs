@@ -1018,25 +1018,29 @@ public class AuditService
                 _logger.LogDebug("Using legacy firewall rules with synthetic zone IDs for DNS security analysis");
             }
 
-            // Fetch app-based rules from combined traffic API (for DNS app blocking)
-            // These rules use application IDs (e.g., DNS, DoT, DoH) instead of port numbers
-            try
+            // Fetch app-based rules from combined traffic API (legacy only)
+            // On zone-based systems, app_ids are included in firewall-policies destination object.
+            // On legacy systems, app-based rules are in a separate combined-traffic API.
+            if (usedLegacyApi)
             {
-                var combinedDoc = await _connectionService.Client.GetCombinedTrafficFirewallRulesRawAsync();
-                if (combinedDoc != null)
+                try
                 {
-                    var appRules = _firewallParser.ExtractCombinedTrafficRules(combinedDoc.RootElement);
-                    if (appRules.Count > 0)
+                    var combinedDoc = await _connectionService.Client.GetCombinedTrafficFirewallRulesRawAsync();
+                    if (combinedDoc != null)
                     {
-                        firewallRules ??= new List<Audit.Models.FirewallRule>();
-                        firewallRules.AddRange(appRules);
-                        _logger.LogInformation("Parsed {Count} app-based rules from combined traffic API", appRules.Count);
+                        var appRules = _firewallParser.ExtractCombinedTrafficRules(combinedDoc.RootElement);
+                        if (appRules.Count > 0)
+                        {
+                            firewallRules ??= new List<Audit.Models.FirewallRule>();
+                            firewallRules.AddRange(appRules);
+                            _logger.LogInformation("Parsed {Count} app-based rules from combined traffic API", appRules.Count);
+                        }
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to fetch combined traffic firewall rules for app-based DNS analysis");
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch combined traffic firewall rules for app-based DNS analysis");
+                }
             }
 
             // Fetch NAT rules for DNAT DNS detection
