@@ -1556,4 +1556,246 @@ public class FirewallRuleParserTests
     }
 
     #endregion
+
+    #region ParseFirewallPolicy App IDs Tests
+
+    [Fact]
+    public void ParseFirewallPolicy_WithAppIds_ParsesCorrectly()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""app-based-rule"",
+            ""name"": ""Block DNS Apps"",
+            ""action"": ""BLOCK"",
+            ""destination"": {
+                ""app_ids"": [589885, 1310917, 1310919],
+                ""matching_target"": ""APP"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().NotBeNull();
+        rule.AppIds.Should().HaveCount(3);
+        rule.AppIds.Should().Contain(589885);  // DNS
+        rule.AppIds.Should().Contain(1310917); // DoT
+        rule.AppIds.Should().Contain(1310919); // DoH
+        rule.DestinationMatchingTarget.Should().Be("APP");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_WithoutAppIds_AppIdsIsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""port-based-rule"",
+            ""destination"": {
+                ""port"": ""53"",
+                ""matching_target"": ""ANY""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_WithEmptyAppIds_AppIdsIsEmpty()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""empty-app-ids"",
+            ""destination"": {
+                ""app_ids"": [],
+                ""matching_target"": ""APP""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().NotBeNull();
+        rule.AppIds.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Combined Traffic Rules Tests
+
+    [Fact]
+    public void ParseCombinedTrafficRule_WithAppIds_ParsesCorrectly()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885, 1310917, 1310919],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""name"": ""Block DNS Apps"",
+            ""enabled"": true,
+            ""origin_id"": ""test-rule-id"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Id.Should().Be("test-rule-id");
+        rule.Name.Should().Be("Block DNS Apps");
+        rule.Enabled.Should().BeTrue();
+        rule.Action.Should().Be("block");
+        rule.Protocol.Should().Be("all"); // Legacy assumes all protocols
+        rule.AppIds.Should().HaveCount(3);
+        rule.AppIds.Should().Contain(589885);
+        rule.DestinationMatchingTarget.Should().Be("APP");
+        rule.Ruleset.Should().Be("LAN_IN");
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_SetsProtocolToAll()
+    {
+        // Legacy combined traffic rules have no protocol field - should default to "all"
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Protocol.Should().Be("all");
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_MapsRulesetToZones()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""WAN_OUT"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_PrefersIPv4Ruleset()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" },
+                { ""ruleset"": ""LANv6_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().Be("LAN_IN"); // Should prefer IPv4
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NonAppRule_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""domains"": [""test.com""],
+            ""matching_target"": ""DOMAIN"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NoAppIds_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_EmptyAppIds_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_ExtractsOnlyAppRules()
+    {
+        var json = JsonDocument.Parse(@"[
+            {
+                ""app_ids"": [589885],
+                ""matching_target"": ""APP"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""app-rule-1""
+            },
+            {
+                ""domains"": [""test.com""],
+                ""matching_target"": ""DOMAIN"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""domain-rule""
+            },
+            {
+                ""app_ids"": [1310917],
+                ""matching_target"": ""APP"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""app-rule-2""
+            }
+        ]").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().HaveCount(2);
+        rules.Should().OnlyContain(r => r.DestinationMatchingTarget == "APP");
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_EmptyArray_ReturnsEmptyList()
+    {
+        var json = JsonDocument.Parse("[]").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_NotArray_ReturnsEmptyList()
+    {
+        var json = JsonDocument.Parse(@"{ ""data"": [] }").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().BeEmpty();
+    }
+
+    #endregion
 }

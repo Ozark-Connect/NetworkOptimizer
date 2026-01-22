@@ -1346,6 +1346,38 @@ public class UniFiApiClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// GET v2/api/site/{site}/firewall-rules/combined-traffic-firewall-rules?originType=all
+    /// Returns combined traffic/firewall rules including app-based rules.
+    /// This API is used to get app-based DNS blocking rules that use application IDs
+    /// instead of port numbers.
+    /// </summary>
+    public async Task<JsonDocument?> GetCombinedTrafficFirewallRulesRawAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching combined traffic firewall rules from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = BuildV2ApiPath($"site/{_site}/firewall-rules/combined-traffic-firewall-rules?originType=all");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved combined traffic firewall rules ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve combined traffic firewall rules: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
     #endregion
 
     #region Fingerprint Database APIs

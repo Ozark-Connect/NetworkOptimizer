@@ -498,6 +498,74 @@ public class DnsSecurityAnalyzer
                     }
                 }
             }
+
+            // === App-based DNS blocking detection ===
+            // App IDs are port-based under the hood, so app-based rules provide similar coverage to port-based rules
+            // Legacy rules (from combined-traffic API) have no protocol field - assume ALL protocols
+            var appIds = rule.AppIds;
+            var isAppBasedRule = appIds?.Count > 0 && matchingTarget == "APP";
+
+            if (isBlockAction && targetsExternalZone && isAppBasedRule)
+            {
+                // For legacy rules (protocol == "all" or null), assume all protocols blocked
+                var legacyAllProtocols = string.IsNullOrEmpty(protocol) || protocol == "all";
+
+                // DNS app (port 53) - blocks UDP DNS
+                if (appIds!.Any(DnsAppIds.IsDns53App))
+                {
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDns53BlockRule = true;
+                        result.Dns53RuleName ??= name;
+                        _logger.LogDebug("Found app-based DNS53 block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+
+                        // Track network coverage
+                        if (networks != null)
+                        {
+                            AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                        }
+                    }
+                }
+
+                // Port 853 app - covers DoT (TCP) and DoQ (UDP)
+                if (appIds!.Any(DnsAppIds.IsPort853App))
+                {
+                    if (legacyAllProtocols || blocksTcp)
+                    {
+                        result.HasDotBlockRule = true;
+                        result.DotRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoT block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDoqBlockRule = true;
+                        result.DoqRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoQ block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                }
+
+                // Port 443 app - covers DoH (TCP) and DoH3 (UDP/QUIC)
+                if (appIds!.Any(DnsAppIds.IsPort443App))
+                {
+                    if (legacyAllProtocols || blocksTcp)
+                    {
+                        result.HasDohBlockRule = true;
+                        result.DohRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoH block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDoh3BlockRule = true;
+                        result.Doh3RuleName ??= name;
+                        _logger.LogDebug("Found app-based DoH3 block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                }
+            }
         }
 
         // Calculate DNS53 network coverage stats

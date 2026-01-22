@@ -888,6 +888,280 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.HasDns53BlockRule.Should().BeTrue();
     }
 
+    #region App-Based Detection Tests
+
+    [Fact]
+    public async Task Analyze_AppBasedDnsBlock_DetectsDns53()
+    {
+        // App-based rule using DNS app ID (589885) should detect DNS53 blocking
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-dns-rule",
+                Name = "Block DNS App",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.Dns },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block DNS App");
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedPort853Block_DetectsDotAndDoq()
+    {
+        // App-based rule using DoT app ID (1310917) with tcp_udp protocol should detect both DoT and DoQ
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-dot-rule",
+                Name = "Block DoT App",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.DnsOverTls },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDotBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.DotRuleName.Should().Be("Block DoT App");
+        result.DoqRuleName.Should().Be("Block DoT App");
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedPort443Block_DetectsDohAndDoh3()
+    {
+        // App-based rule using DoH app ID (1310919) with tcp_udp protocol should detect both DoH and DoH3
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-doh-rule",
+                Name = "Block DoH App",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
+        result.DohRuleName.Should().Be("Block DoH App");
+        result.Doh3RuleName.Should().Be("Block DoH App");
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedAllApps_DetectsFullCoverage()
+    {
+        // App-based rule with all DNS app IDs should detect all DNS protocols
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-all-dns-rule",
+                Name = "Block All DNS Apps",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedWithTcpOnly_SkipsUdpProtocols()
+    {
+        // App-based rule with TCP-only protocol should only detect TCP-based DNS (DoT, DoH)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-tcp-only",
+                Name = "Block DNS Apps TCP Only",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp",
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        // TCP-only should detect DoT and DoH but NOT DNS53, DoQ, or DoH3 (which require UDP)
+        result.HasDns53BlockRule.Should().BeFalse();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeFalse();
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_LegacyAppRule_AssumesAllProtocols()
+    {
+        // Legacy app-based rule with protocol="all" (no protocol field) should assume all protocols blocked
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "legacy-app-rule",
+                Name = "Legacy Block DNS Apps",
+                Enabled = true,
+                Action = "block",
+                Protocol = "all", // Legacy rules have no protocol - we default to "all"
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        // With protocol="all", all DNS protocols should be detected as blocked
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeTrue();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.HasDohBlockRule.Should().BeTrue();
+        result.HasDoh3BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedWithUdpOnly_SkipsTcpProtocols()
+    {
+        // App-based rule with UDP-only protocol should only detect UDP-based DNS (DNS53, DoQ, DoH3)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-udp-only",
+                Name = "Block DNS Apps UDP Only",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "udp",
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        // UDP-only should detect DNS53, DoQ, and DoH3 but NOT DoT or DoH (which require TCP)
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDoqBlockRule.Should().BeTrue();
+        result.HasDohBlockRule.Should().BeFalse();
+        result.HasDoh3BlockRule.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedNonBlockAction_IgnoresRule()
+    {
+        // App-based rule with accept action should NOT be detected as block rule
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-allow-rule",
+                Name = "Allow DNS Apps",
+                Enabled = true,
+                Action = "accept",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeFalse();
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDohBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedDisabledRule_IgnoresRule()
+    {
+        // Disabled app-based rule should NOT be detected
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-disabled-rule",
+                Name = "Disabled DNS Apps",
+                Enabled = false,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.Dns, DnsAppIds.DnsOverTls, DnsAppIds.DnsOverHttps },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = ExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeFalse();
+        result.HasDotBlockRule.Should().BeFalse();
+        result.HasDohBlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_AppBasedWrongZone_IgnoresRule()
+    {
+        // App-based rule targeting wrong zone should NOT be detected
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "app-wrong-zone",
+                Name = "Block DNS Apps LAN",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp_udp",
+                AppIds = new List<int> { DnsAppIds.Dns },
+                DestinationMatchingTarget = "APP",
+                DestinationZoneId = LanZoneId // Wrong zone
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(null, rules, null, null, null, null, null, null, ExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    #endregion
+
     #region External Zone ID Tests
 
     private const string ExternalZoneId = "external-zone-123";
