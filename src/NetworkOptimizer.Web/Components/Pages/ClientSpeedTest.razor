@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
 @inject UniFiConnectionService ConnectionService
+@inject Iperf3ServerService Iperf3Server
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -98,7 +99,22 @@
                     </div>
                     <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
 
-                    @if (iperf3ServerEnabled)
+                    @if (iperf3ServerEnabled && Iperf3Server.StartupFailed)
+                    {
+                        <div class="alert alert-danger">
+                            <strong>Server Failed to Start:</strong> @Iperf3Server.FailureMessage
+                            <br /><br />
+                            <span class="form-help">
+                                Check if another iperf3 server is already running:
+                                <code>ps aux | grep iperf3</code>
+                                <br />
+                                If so, stop it: <code>systemctl stop iperf3 && systemctl disable iperf3</code>
+                                <br />
+                                Then restart the container: <code>docker restart network-optimizer</code>
+                            </span>
+                        </div>
+                    }
+                    else if (iperf3ServerEnabled)
                     {
                         <div class="code-block">
                             <code>
