@@ -1797,5 +1797,212 @@ public class FirewallRuleParserTests
         rules.Should().BeEmpty();
     }
 
+    [Fact]
+    public void ParseCombinedTrafficRule_TrafficDirectionTo_SetsDestZoneToExternal()
+    {
+        // traffic_direction: "TO" means outbound blocking - destination should be External
+        // regardless of what ruleset says (LAN_IN would normally map to Internal)
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""traffic_direction"": ""TO"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_TrafficDirectionFrom_SetsSourceZoneToExternal()
+    {
+        // traffic_direction: "FROM" means inbound blocking - source should be External
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""traffic_direction"": ""FROM"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NoTrafficDirection_FallsBackToRuleset()
+    {
+        // Without traffic_direction, should use ruleset for zone mapping
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        // LAN_IN maps to Internal → Internal
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    #endregion
+
+    #region Legacy Firewall Rule Port Group Resolution Tests
+
+    [Fact]
+    public void ParseFirewallRule_WithDstFirewallGroupIds_ResolvesPortGroups()
+    {
+        // Setup: Create firewall groups with port 53
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group-id"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group-id",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+        _parser.SetFirewallGroups(groups);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block External DNS"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""udp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""dns-group-id""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("53");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithMultipleDstFirewallGroupIds_CombinesPorts()
+    {
+        // Setup: Create multiple firewall groups
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            },
+            ["dot-group"] = new UniFiFirewallGroup
+            {
+                Id = "dot-group",
+                Name = "DNS-TLS",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "853" }
+            }
+        };
+        _parser.SetFirewallGroups(groups);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block All DNS"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp_udp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""dns-group"", ""dot-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("53,853");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithDstPortSet_IgnoresFirewallGroupIds()
+    {
+        // If dst_port is already set, don't override with group resolution
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+        _parser.SetFirewallGroups(groups);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block Port 80"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": ""80"",
+            ""dst_firewallgroup_ids"": [""dns-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("80");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithAddressGroupInDstFirewallGroupIds_IgnoresNonPortGroups()
+    {
+        // Address groups in dst_firewallgroup_ids should be ignored for port resolution
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["address-group"] = new UniFiFirewallGroup
+            {
+                Id = "address-group",
+                Name = "Local Networks",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "10.0.0.0/8", "192.168.0.0/16" }
+            }
+        };
+        _parser.SetFirewallGroups(groups);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block Local"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""address-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNullOrEmpty();
+    }
+
     #endregion
 }
