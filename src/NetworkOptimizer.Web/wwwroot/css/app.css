@@ -1557,6 +1557,15 @@ select.form-control {
     color: var(--text-secondary);
 }
 
+/* Dark inline code (for use in alerts) */
+.code-dark {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+}
+
 /* Alert with progress bar */
 .alert-progress {
     position: relative;

@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
 @inject UniFiConnectionService ConnectionService
+@inject Iperf3ServerService Iperf3Server
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -98,7 +99,35 @@
                     </div>
                     <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
 
-                    @if (iperf3ServerEnabled)
+                    @if (iperf3ServerEnabled && Iperf3Server.StartupFailed)
+                    {
+                        <div class="alert alert-danger">
+                            <strong>Server Failed to Start:</strong> @Iperf3Server.FailureMessage
+                            <br />
+                            <span class="form-help">
+                                @if (OperatingSystem.IsWindows())
+                                {
+                                    <text>Check Task Manager for iperf3.exe and end the process, then restart the app.</text>
+                                }
+                                else if (OperatingSystem.IsMacOS())
+                                {
+                                    <text>Check for existing iperf3: <code class="code-dark">pkill iperf3</code> or use Activity Monitor
+                                    <br />
+                                    Then restart: <code class="code-dark">launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist && launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist</code></text>
+                                }
+                                else
+                                {
+                                    <text>Check if another iperf3 server is already running:
+                                    <code class="code-dark">ps aux | grep iperf3</code>
+                                    <br />
+                                    If so, stop it: <code class="code-dark">systemctl stop iperf3 && systemctl disable iperf3</code>
+                                    <br />
+                                    Then restart the container: <code class="code-dark">docker restart network-optimizer</code></text>
+                                }
+                            </span>
+                        </div>
+                    }
+                    else if (iperf3ServerEnabled)
                     {
                         <div class="code-block">
                             <code>
