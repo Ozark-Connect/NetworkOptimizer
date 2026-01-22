@@ -393,6 +393,33 @@ public class FirewallRuleParser
             ? dstPortProp.GetString()
             : null;
 
+        // Legacy rules may use dst_firewallgroup_ids for port groups instead of dst_port
+        // Resolve port groups if dst_port is empty and dst_firewallgroup_ids exists
+        if (string.IsNullOrEmpty(destinationPort) &&
+            rule.TryGetProperty("dst_firewallgroup_ids", out var dstGroupIds) &&
+            dstGroupIds.ValueKind == JsonValueKind.Array)
+        {
+            var resolvedPorts = new List<string>();
+            foreach (var groupIdElement in dstGroupIds.EnumerateArray())
+            {
+                var groupId = groupIdElement.GetString();
+                if (!string.IsNullOrEmpty(groupId))
+                {
+                    var resolved = ResolvePortGroup(groupId);
+                    if (!string.IsNullOrEmpty(resolved))
+                    {
+                        resolvedPorts.Add(resolved);
+                    }
+                }
+            }
+
+            if (resolvedPorts.Count > 0)
+            {
+                destinationPort = string.Join(",", resolvedPorts);
+                _logger.LogDebug("Resolved legacy rule destination ports from firewall groups: {Ports}", destinationPort);
+            }
+        }
+
         // Statistics
         var hitCount = rule.TryGetProperty("hit_count", out var hitCountProp) && hitCountProp.ValueKind == JsonValueKind.Number
             ? hitCountProp.GetInt64()
@@ -551,7 +578,11 @@ public class FirewallRuleParser
         var name = rule.GetStringOrNull("name");
         var originId = rule.GetStringOrNull("origin_id") ?? Guid.NewGuid().ToString();
 
-        // Extract ruleset from firewall_rule_details for zone mapping
+        // Extract traffic_direction - this tells us the actual traffic flow direction
+        // "TO" = outbound to external, "FROM" = inbound from external
+        var trafficDirection = rule.GetStringOrNull("traffic_direction")?.ToUpperInvariant();
+
+        // Extract ruleset from firewall_rule_details (for logging/debugging)
         string? ruleset = null;
         if (rule.TryGetProperty("firewall_rule_details", out var details) && details.ValueKind == JsonValueKind.Array)
         {
@@ -572,7 +603,32 @@ public class FirewallRuleParser
             }
         }
 
-        var (sourceZone, destZone) = MapRulesetToZones(ruleset);
+        // For app-based traffic rules, use traffic_direction to determine zones
+        // traffic_direction "TO" means blocking outbound traffic TO external destinations
+        // traffic_direction "FROM" means blocking inbound traffic FROM external sources
+        // This is more accurate than deriving from ruleset (which is often LAN_IN for both)
+        string? sourceZone;
+        string? destZone;
+        if (trafficDirection == "TO")
+        {
+            // Outbound blocking: source is internal, destination is external
+            sourceZone = LegacyInternalZoneId;
+            destZone = LegacyExternalZoneId;
+            _logger.LogDebug("App-based rule '{Name}' has traffic_direction=TO, setting destZone to External", name);
+        }
+        else if (trafficDirection == "FROM")
+        {
+            // Inbound blocking: source is external, destination is internal
+            sourceZone = LegacyExternalZoneId;
+            destZone = LegacyInternalZoneId;
+            _logger.LogDebug("App-based rule '{Name}' has traffic_direction=FROM, setting sourceZone to External", name);
+        }
+        else
+        {
+            // Fallback to ruleset-based mapping if traffic_direction is not set
+            (sourceZone, destZone) = MapRulesetToZones(ruleset);
+            _logger.LogDebug("App-based rule '{Name}' has no traffic_direction, using ruleset '{Ruleset}' for zone mapping", name, ruleset);
+        }
 
         return new FirewallRule
         {

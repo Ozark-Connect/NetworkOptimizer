@@ -224,20 +224,23 @@ public class ConfigAuditEngine
         var ctx = InitializeAuditContext(request);
 
         // Check if external zone could be determined from network configs
+        // This should only trigger if no WAN networks exist at all (very unusual)
         if (ctx.ExternalZoneId == null && ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
         {
             var wanNetworkCount = ctx.NetworkConfigs.Count(n =>
                 string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
 
+            // Only warn if we have network configs but couldn't find any WAN networks
+            // (With our fix, WAN networks should always yield a zone ID - either real or synthetic)
             _logger.LogWarning("Could not determine External Zone ID from {Count} network configs ({WanCount} WAN networks). " +
-                "This may indicate a bug or UniFi API difference. Please report this issue.",
+                "This may indicate an unusual network configuration without any WAN interfaces.",
                 ctx.NetworkConfigs.Count, wanNetworkCount);
 
             ctx.AllIssues.Add(new AuditIssue
             {
                 Type = IssueTypes.ExternalZoneNotDetected,
                 Severity = Models.AuditSeverity.Critical,
-                Message = "Unable to determine External/WAN firewall zone ID. Firewall rule destination zone validation is disabled.",
+                Message = "Unable to determine External/WAN firewall zone ID. No WAN networks detected in network configuration.",
                 Metadata = new Dictionary<string, object>
                 {
                     { "network_config_count", ctx.NetworkConfigs.Count },
@@ -245,8 +248,8 @@ public class ConfigAuditEngine
                 },
                 RuleId = "FW-ZONE-001",
                 ScoreImpact = 5,
-                RecommendedAction = "This may indicate a bug in Network Optimizer or an unexpected UniFi API response. " +
-                    "Please report this issue at https://github.com/Ozark-Connect/NetworkOptimizer/issues with your UniFi controller version."
+                RecommendedAction = "This network appears to have no WAN interfaces configured. " +
+                    "If this is unexpected, please report this issue at https://github.com/Ozark-Connect/NetworkOptimizer/issues with your UniFi controller version."
             });
         }
 
@@ -357,7 +360,7 @@ public class ConfigAuditEngine
     /// <summary>
     /// Determine the External/WAN firewall zone ID from network configurations or firewall rules.
     /// First tries to find zone ID from WAN network configs (v2 zone-based).
-    /// Falls back to synthetic legacy zone ID if legacy firewall rules are present.
+    /// Falls back to synthetic legacy zone ID for legacy systems without zone IDs.
     /// </summary>
     private string? DetermineExternalZoneId(List<UniFiNetworkConfig>? networkConfigs, List<FirewallRule>? firewallRules)
     {
@@ -374,11 +377,20 @@ public class ConfigAuditEngine
                 return wanNetwork.FirewallZoneId;
             }
 
-            _logger.LogDebug("No WAN network with firewall_zone_id found in {Count} network configs", networkConfigs.Count);
+            // WAN network exists but no firewall_zone_id - this is a legacy system
+            // Use synthetic legacy zone ID for firewall rule analysis
+            if (wanNetwork != null)
+            {
+                _logger.LogDebug("WAN network '{Name}' has no firewall_zone_id (legacy system), using synthetic legacy zone ID",
+                    wanNetwork.Name);
+                return FirewallRuleParser.LegacyExternalZoneId;
+            }
+
+            _logger.LogDebug("No WAN network found in {Count} network configs", networkConfigs.Count);
         }
 
-        // Fall back to synthetic legacy zone ID if any rules use it
-        // This indicates the rules were parsed from legacy (pre-zone) API
+        // Fall back to synthetic legacy zone ID if any rules already use it
+        // This handles cases where rules were parsed before network configs
         if (firewallRules != null && firewallRules.Any(r =>
                 r.DestinationZoneId == FirewallRuleParser.LegacyExternalZoneId ||
                 r.SourceZoneId == FirewallRuleParser.LegacyExternalZoneId))

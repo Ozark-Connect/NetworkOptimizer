@@ -402,6 +402,10 @@ public class DnsSecurityAnalyzer
 
             var isBlockAction = rule.ActionType.IsBlockAction();
 
+            // Debug logging for zone matching (helps diagnose DNS detection issues)
+            _logger.LogDebug("Rule '{Name}': action={Action}, isBlock={IsBlock}, destZone={DestZone}, externalZone={ExternalZone}, targetsExternal={TargetsExternal}, matchingTarget={MatchingTarget}",
+                name, rule.Action, isBlockAction, destZoneId ?? "(null)", externalZoneId ?? "(null)", targetsExternalZone, matchingTarget ?? "(null)");
+
             // If match_opposite_ports is true, the rule blocks everything EXCEPT the specified ports
             // So we should NOT count it as blocking those ports
             if (matchOppositePorts)
