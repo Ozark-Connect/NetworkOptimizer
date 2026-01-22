@@ -103,14 +103,14 @@
                     {
                         <div class="alert alert-danger">
                             <strong>Server Failed to Start:</strong> @Iperf3Server.FailureMessage
-                            <br /><br />
+                            <br />
                             <span class="form-help">
                                 Check if another iperf3 server is already running:
-                                <code>ps aux | grep iperf3</code>
+                                <code class="code-dark">ps aux | grep iperf3</code>
                                 <br />
-                                If so, stop it: <code>systemctl stop iperf3 && systemctl disable iperf3</code>
+                                If so, stop it: <code class="code-dark">systemctl stop iperf3 && systemctl disable iperf3</code>
                                 <br />
-                                Then restart the container: <code>docker restart network-optimizer</code>
+                                Then restart the container: <code class="code-dark">docker restart network-optimizer</code>
                             </span>
                         </div>
                     }
