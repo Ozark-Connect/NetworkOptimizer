@@ -31,6 +31,7 @@ public class AuditService
     private readonly FingerprintDatabaseService _fingerprintService;
     private readonly PdfStorageService _pdfStorageService;
     private readonly IMemoryCache _cache;
+    private readonly Audit.Analyzers.FirewallRuleParser _firewallParser;
 
     public AuditService(
         ILogger<AuditService> logger,
@@ -40,7 +41,8 @@ public class AuditService
         SystemSettingsService settingsService,
         FingerprintDatabaseService fingerprintService,
         PdfStorageService pdfStorageService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        Audit.Analyzers.FirewallRuleParser firewallParser)
     {
         _logger = logger;
         _connectionService = connectionService;
@@ -50,6 +52,7 @@ public class AuditService
         _fingerprintService = fingerprintService;
         _pdfStorageService = pdfStorageService;
         _cache = cache;
+        _firewallParser = firewallParser;
     }
 
     // Site-specific cache key builders
@@ -513,9 +516,19 @@ public class AuditService
 
     /// <summary>
     /// Builds a ReportData object from an AuditResult for PDF generation.
+    /// Derives client name from gateway device name if not explicitly provided.
     /// </summary>
-    public Reports.ReportData BuildReportData(AuditResult result, string clientName = "Client")
+    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null)
     {
+        // Derive client name from gateway device if not provided
+        if (string.IsNullOrEmpty(clientName))
+        {
+            var gateway = result.Switches.FirstOrDefault(s => s.IsGateway);
+            clientName = gateway != null
+                ? DisplayFormatters.ExtractNetworkName(gateway.Name)
+                : "Client";
+        }
+
         return new Reports.ReportData
         {
             ClientName = clientName,
@@ -992,6 +1005,79 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch firewall groups for site {SiteId}", siteId);
             }
 
+            // Fetch and parse firewall rules into normalized FirewallRule list
+            // Try v2 API first (zone-based), fall back to v1 API (legacy ruleset-based) if unavailable
+            List<Audit.Models.FirewallRule>? firewallRules = null;
+            var usedLegacyApi = false;
+            try
+            {
+                // Set firewall groups for port/IP group resolution during parsing
+                _firewallParser.SetFirewallGroups(firewallGroups);
+
+                // Try v2 firewall policies API first (zone-based, newer controllers)
+                var policiesDoc = await _connectionService.GetClient(siteId)!.GetFirewallPoliciesRawAsync();
+                var hasV2Data = policiesDoc != null && HasFirewallData(policiesDoc.RootElement);
+
+                if (hasV2Data)
+                {
+                    firewallRules = _firewallParser.ExtractFirewallPolicies(policiesDoc!.RootElement);
+                    _logger.LogInformation("Parsed {Count} firewall rules from v2 policies API", firewallRules.Count);
+                }
+                else
+                {
+                    // Fall back to v1 legacy API (ruleset-based, older controllers)
+                    _logger.LogInformation("v2 firewall policies API returned no data, falling back to legacy API");
+                    var legacyDoc = await _connectionService.GetClient(siteId)!.GetLegacyFirewallRulesRawAsync();
+
+                    if (legacyDoc != null && legacyDoc.RootElement.TryGetProperty("data", out var legacyData))
+                    {
+                        firewallRules = new List<Audit.Models.FirewallRule>();
+                        foreach (var rule in legacyData.EnumerateArray())
+                        {
+                            var parsed = _firewallParser.ParseFirewallRule(rule);
+                            if (parsed != null)
+                                firewallRules.Add(parsed);
+                        }
+                        usedLegacyApi = true;
+                        _logger.LogInformation("Parsed {Count} firewall rules from legacy v1 API (ruleset-based)", firewallRules.Count);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch/parse firewall rules for DNS analysis");
+            }
+
+            if (usedLegacyApi)
+            {
+                _logger.LogDebug("Using legacy firewall rules with synthetic zone IDs for DNS security analysis");
+            }
+
+            // Fetch app-based rules from combined traffic API (legacy only)
+            // On zone-based systems, app_ids are included in firewall-policies destination object.
+            // On legacy systems, app-based rules are in a separate combined-traffic API.
+            if (usedLegacyApi)
+            {
+                try
+                {
+                    var combinedDoc = await _connectionService.GetClient(siteId)!.GetCombinedTrafficFirewallRulesRawAsync();
+                    if (combinedDoc != null)
+                    {
+                        var appRules = _firewallParser.ExtractCombinedTrafficRules(combinedDoc.RootElement);
+                        if (appRules.Count > 0)
+                        {
+                            firewallRules ??= new List<Audit.Models.FirewallRule>();
+                            firewallRules.AddRange(appRules);
+                            _logger.LogInformation("Parsed {Count} app-based rules from combined traffic API", appRules.Count);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch combined traffic firewall rules for app-based DNS analysis");
+                }
+            }
+
             // Fetch NAT rules for DNAT DNS detection
             System.Text.Json.JsonElement? natRulesData = null;
             try
@@ -1094,7 +1180,7 @@ public class AuditService
                 ClientHistory = clientHistory,
                 FingerprintDb = fingerprintDb,
                 SettingsData = settingsData,
-                FirewallPoliciesData = firewallPoliciesData,
+                FirewallRules = firewallRules,
                 FirewallGroups = firewallGroups,
                 NatRulesData = natRulesData,
                 AllowanceSettings = allowanceSettings,
@@ -1508,7 +1594,7 @@ public class AuditService
             Audit.IssueTypes.DnsLeakage => "DNS: Leak Detected",
             Audit.IssueTypes.DnsSharedServers => "DNS: Shared Servers",
             Audit.IssueTypes.DnsNoDoh => "DNS: DoH Not Configured",
-            Audit.IssueTypes.DnsDohAuto => "DNS: DoH Set to Auto Mode",
+            Audit.IssueTypes.DnsDohAuto => "DNS: DoH Using Default Providers",
             Audit.IssueTypes.DnsNo53Block => "DNS: No Leak Prevention",
             Audit.IssueTypes.DnsNoDotBlock => "DNS: DoT Not Blocked",
             Audit.IssueTypes.DnsNoDohBlock => "DNS: DoH Bypass Not Blocked",
@@ -1604,6 +1690,30 @@ public class AuditService
         return ids.Count > 0 ? ids : null;
     }
 
+    /// <summary>
+    /// Check if a firewall API response contains actual data.
+    /// Returns false for null, empty arrays, or empty objects.
+    /// </summary>
+    private static bool HasFirewallData(JsonElement element)
+    {
+        // Check for direct array
+        if (element.ValueKind == JsonValueKind.Array)
+            return element.GetArrayLength() > 0;
+
+        // Check for wrapped response with data array
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty("data", out var dataArray))
+            {
+                return dataArray.ValueKind == JsonValueKind.Array && dataArray.GetArrayLength() > 0;
+            }
+            // Empty object
+            return false;
+        }
+
+        return false;
+    }
+
     private static string GetDefaultRecommendation(string type) => type switch
     {
         Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
@@ -1620,7 +1730,7 @@ public class AuditService
         Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks",
         Audit.IssueTypes.DnsSharedServers => "Use separate DNS for isolated networks to prevent internal hostname resolution",
         Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
-        Audit.IssueTypes.DnsDohAuto => "Set DoH to 'custom' mode with explicit servers for guaranteed encryption",
+        Audit.IssueTypes.DnsDohAuto => "Consider custom DoH servers from privacy-focused providers (NextDNS, Quad9, etc.) if query privacy is important",
         Audit.IssueTypes.DnsNo53Block => "Create firewall rule to block outbound UDP port 53 to Internet for all VLANs",
         Audit.IssueTypes.DnsNoDotBlock => "Create firewall rule to block outbound TCP port 853 to Internet",
         Audit.IssueTypes.DnsNoDohBlock => "Create firewall rule to block HTTPS to known DoH provider domains",

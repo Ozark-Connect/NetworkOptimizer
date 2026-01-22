@@ -423,8 +423,9 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
-    public void ExtractFirewallPolicies_MissingId_SkipsRule()
+    public void ExtractFirewallPolicies_MissingId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is missing (for test data compatibility)
         var json = JsonDocument.Parse(@"[{
             ""name"": ""No ID Rule"",
             ""action"": ""drop""
@@ -432,7 +433,9 @@ public class FirewallRuleParserTests
 
         var rules = _parser.ExtractFirewallPolicies(json);
 
-        rules.Should().BeEmpty();
+        rules.Should().ContainSingle();
+        rules[0].Id.Should().NotBeNullOrEmpty();
+        rules[0].Name.Should().Be("No ID Rule");
     }
 
     #endregion
@@ -649,6 +652,204 @@ public class FirewallRuleParserTests
 
     #endregion
 
+    #region Legacy Ruleset Zone Mapping Tests
+
+    [Fact]
+    public void MapRulesetToZones_WAN_OUT_MapsToInternalToExternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("WAN_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_WAN_IN_MapsToExternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("WAN_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_IN_MapsToInternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_OUT_MapsToInternalToNull()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_LAN_LOCAL_MapsToInternalToGateway()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("LAN_LOCAL");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_IN_MapsToInternalToInternal()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_IN");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_OUT_MapsToInternalToNull()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_OUT");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_GUEST_LOCAL_MapsToInternalToGateway()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("GUEST_LOCAL");
+
+        sourceZone.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void MapRulesetToZones_NullRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones(null);
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_EmptyRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("");
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_UnknownRuleset_ReturnsNulls()
+    {
+        var (sourceZone, destZone) = FirewallRuleParser.MapRulesetToZones("UNKNOWN_RULESET");
+
+        sourceZone.Should().BeNull();
+        destZone.Should().BeNull();
+    }
+
+    [Fact]
+    public void MapRulesetToZones_CaseInsensitive_MapsCorrectly()
+    {
+        var (sourceZone1, destZone1) = FirewallRuleParser.MapRulesetToZones("wan_out");
+        var (sourceZone2, destZone2) = FirewallRuleParser.MapRulesetToZones("Wan_Out");
+        var (sourceZone3, destZone3) = FirewallRuleParser.MapRulesetToZones("WAN_OUT");
+
+        // All should map the same way
+        sourceZone1.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        destZone1.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        sourceZone2.Should().Be(sourceZone1);
+        destZone2.Should().Be(destZone1);
+        sourceZone3.Should().Be(sourceZone1);
+        destZone3.Should().Be(destZone1);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithRuleset_SetsZoneIdsFromMapping()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-wan-out"",
+            ""name"": ""Block External DNS"",
+            ""ruleset"": ""WAN_OUT"",
+            ""action"": ""drop"",
+            ""dst_port"": ""53""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().Be("WAN_OUT");
+        rule.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithWAN_IN_Ruleset_SetsCorrectZones()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-wan-in"",
+            ""ruleset"": ""WAN_IN""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithLAN_LOCAL_Ruleset_SetsGatewayDestination()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""legacy-lan-local"",
+            ""ruleset"": ""LAN_LOCAL""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithoutRuleset_ZonesAreNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""no-ruleset"",
+            ""name"": ""Rule without ruleset""
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().BeNull();
+        rule.SourceZoneId.Should().BeNull();
+        rule.DestinationZoneId.Should().BeNull();
+    }
+
+    [Fact]
+    public void LegacyZoneIdConstants_HaveCorrectValues()
+    {
+        // Verify the constants have the expected prefix to avoid collisions with real zone IDs
+        FirewallRuleParser.LegacyExternalZoneId.Should().StartWith("__LEGACY_");
+        FirewallRuleParser.LegacyInternalZoneId.Should().StartWith("__LEGACY_");
+        FirewallRuleParser.LegacyGatewayZoneId.Should().StartWith("__LEGACY_");
+
+        // Verify they're distinct
+        FirewallRuleParser.LegacyExternalZoneId.Should().NotBe(FirewallRuleParser.LegacyInternalZoneId);
+        FirewallRuleParser.LegacyExternalZoneId.Should().NotBe(FirewallRuleParser.LegacyGatewayZoneId);
+        FirewallRuleParser.LegacyInternalZoneId.Should().NotBe(FirewallRuleParser.LegacyGatewayZoneId);
+    }
+
+    #endregion
+
     #region ParseFirewallPolicy Tests
 
     [Fact]
@@ -673,20 +874,24 @@ public class FirewallRuleParserTests
     }
 
     [Fact]
-    public void ParseFirewallPolicy_MissingId_ReturnsNull()
+    public void ParseFirewallPolicy_MissingId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is missing (for test data compatibility)
         var json = JsonDocument.Parse(@"{
             ""name"": ""No ID Policy""
         }").RootElement;
 
         var rule = _parser.ParseFirewallPolicy(json);
 
-        rule.Should().BeNull();
+        rule.Should().NotBeNull();
+        rule!.Id.Should().NotBeNullOrEmpty();
+        rule.Name.Should().Be("No ID Policy");
     }
 
     [Fact]
-    public void ParseFirewallPolicy_EmptyId_ReturnsNull()
+    public void ParseFirewallPolicy_EmptyId_GeneratesId()
     {
+        // ParseFirewallPolicy generates a GUID when _id is empty (for test data compatibility)
         var json = JsonDocument.Parse(@"{
             ""_id"": """",
             ""name"": ""Empty ID Policy""
@@ -694,7 +899,9 @@ public class FirewallRuleParserTests
 
         var rule = _parser.ParseFirewallPolicy(json);
 
-        rule.Should().BeNull();
+        rule.Should().NotBeNull();
+        rule!.Id.Should().NotBeNullOrEmpty();
+        rule.Name.Should().Be("Empty ID Policy");
     }
 
     [Fact]
@@ -1346,6 +1553,455 @@ public class FirewallRuleParserTests
         // Assert
         rule.Should().NotBeNull();
         rule!.SourceMatchOppositePorts.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region ParseFirewallPolicy App IDs Tests
+
+    [Fact]
+    public void ParseFirewallPolicy_WithAppIds_ParsesCorrectly()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""app-based-rule"",
+            ""name"": ""Block DNS Apps"",
+            ""action"": ""BLOCK"",
+            ""destination"": {
+                ""app_ids"": [589885, 1310917, 1310919],
+                ""matching_target"": ""APP"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().NotBeNull();
+        rule.AppIds.Should().HaveCount(3);
+        rule.AppIds.Should().Contain(589885);  // DNS
+        rule.AppIds.Should().Contain(1310917); // DoT
+        rule.AppIds.Should().Contain(1310919); // DoH
+        rule.DestinationMatchingTarget.Should().Be("APP");
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_WithoutAppIds_AppIdsIsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""port-based-rule"",
+            ""destination"": {
+                ""port"": ""53"",
+                ""matching_target"": ""ANY""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseFirewallPolicy_WithEmptyAppIds_AppIdsIsEmpty()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""empty-app-ids"",
+            ""destination"": {
+                ""app_ids"": [],
+                ""matching_target"": ""APP""
+            }
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallPolicy(json);
+
+        rule.Should().NotBeNull();
+        rule!.AppIds.Should().NotBeNull();
+        rule.AppIds.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Combined Traffic Rules Tests
+
+    [Fact]
+    public void ParseCombinedTrafficRule_WithAppIds_ParsesCorrectly()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885, 1310917, 1310919],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""name"": ""Block DNS Apps"",
+            ""enabled"": true,
+            ""origin_id"": ""test-rule-id"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Id.Should().Be("test-rule-id");
+        rule.Name.Should().Be("Block DNS Apps");
+        rule.Enabled.Should().BeTrue();
+        rule.Action.Should().Be("block");
+        rule.Protocol.Should().Be("all"); // Legacy assumes all protocols
+        rule.AppIds.Should().HaveCount(3);
+        rule.AppIds.Should().Contain(589885);
+        rule.DestinationMatchingTarget.Should().Be("APP");
+        rule.Ruleset.Should().Be("LAN_IN");
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_SetsProtocolToAll()
+    {
+        // Legacy combined traffic rules have no protocol field - should default to "all"
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Protocol.Should().Be("all");
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_MapsRulesetToZones()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""WAN_OUT"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_PrefersIPv4Ruleset()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" },
+                { ""ruleset"": ""LANv6_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.Ruleset.Should().Be("LAN_IN"); // Should prefer IPv4
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NonAppRule_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""domains"": [""test.com""],
+            ""matching_target"": ""DOMAIN"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NoAppIds_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_EmptyAppIds_ReturnsNull()
+    {
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK""
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_ExtractsOnlyAppRules()
+    {
+        var json = JsonDocument.Parse(@"[
+            {
+                ""app_ids"": [589885],
+                ""matching_target"": ""APP"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""app-rule-1""
+            },
+            {
+                ""domains"": [""test.com""],
+                ""matching_target"": ""DOMAIN"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""domain-rule""
+            },
+            {
+                ""app_ids"": [1310917],
+                ""matching_target"": ""APP"",
+                ""traffic_rule_action"": ""BLOCK"",
+                ""origin_id"": ""app-rule-2""
+            }
+        ]").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().HaveCount(2);
+        rules.Should().OnlyContain(r => r.DestinationMatchingTarget == "APP");
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_EmptyArray_ReturnsEmptyList()
+    {
+        var json = JsonDocument.Parse("[]").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExtractCombinedTrafficRules_NotArray_ReturnsEmptyList()
+    {
+        var json = JsonDocument.Parse(@"{ ""data"": [] }").RootElement;
+
+        var rules = _parser.ExtractCombinedTrafficRules(json);
+
+        rules.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_TrafficDirectionTo_SetsDestZoneToExternal()
+    {
+        // traffic_direction: "TO" means outbound blocking - destination should be External
+        // regardless of what ruleset says (LAN_IN would normally map to Internal)
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""traffic_direction"": ""TO"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_TrafficDirectionFrom_SetsSourceZoneToExternal()
+    {
+        // traffic_direction: "FROM" means inbound blocking - source should be External
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""traffic_direction"": ""FROM"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyExternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    [Fact]
+    public void ParseCombinedTrafficRule_NoTrafficDirection_FallsBackToRuleset()
+    {
+        // Without traffic_direction, should use ruleset for zone mapping
+        var json = JsonDocument.Parse(@"{
+            ""app_ids"": [589885],
+            ""matching_target"": ""APP"",
+            ""traffic_rule_action"": ""BLOCK"",
+            ""firewall_rule_details"": [
+                { ""ruleset"": ""LAN_IN"" }
+            ]
+        }").RootElement;
+
+        var rule = _parser.ParseCombinedTrafficRule(json);
+
+        rule.Should().NotBeNull();
+        // LAN_IN maps to Internal → Internal
+        rule!.SourceZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+        rule.DestinationZoneId.Should().Be(FirewallRuleParser.LegacyInternalZoneId);
+    }
+
+    #endregion
+
+    #region Legacy Firewall Rule Port Group Resolution Tests
+
+    [Fact]
+    public void ParseFirewallRule_WithDstFirewallGroupIds_ResolvesPortGroups()
+    {
+        // Setup: Create firewall groups with port 53
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group-id"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group-id",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block External DNS"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""udp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""dns-group-id""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("53");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithMultipleDstFirewallGroupIds_CombinesPorts()
+    {
+        // Setup: Create multiple firewall groups
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            },
+            ["dot-group"] = new UniFiFirewallGroup
+            {
+                Id = "dot-group",
+                Name = "DNS-TLS",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "853" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block All DNS"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp_udp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""dns-group"", ""dot-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("53,853");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithDstPortSet_IgnoresFirewallGroupIds()
+    {
+        // If dst_port is already set, don't override with group resolution
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["dns-group"] = new UniFiFirewallGroup
+            {
+                Id = "dns-group",
+                Name = "DNS-Plain",
+                GroupType = "port-group",
+                GroupMembers = new List<string> { "53" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block Port 80"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": ""80"",
+            ""dst_firewallgroup_ids"": [""dns-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().Be("80");
+    }
+
+    [Fact]
+    public void ParseFirewallRule_WithAddressGroupInDstFirewallGroupIds_IgnoresNonPortGroups()
+    {
+        // Address groups in dst_firewallgroup_ids should be ignored for port resolution
+        var groups = new Dictionary<string, UniFiFirewallGroup>
+        {
+            ["address-group"] = new UniFiFirewallGroup
+            {
+                Id = "address-group",
+                Name = "Local Networks",
+                GroupType = "address-group",
+                GroupMembers = new List<string> { "10.0.0.0/8", "192.168.0.0/16" }
+            }
+        };
+        _parser.SetFirewallGroups(groups.Values);
+
+        var json = JsonDocument.Parse(@"{
+            ""_id"": ""rule1"",
+            ""name"": ""Block Local"",
+            ""action"": ""drop"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""ruleset"": ""WAN_OUT"",
+            ""dst_port"": """",
+            ""dst_firewallgroup_ids"": [""address-group""]
+        }").RootElement;
+
+        var rule = _parser.ParseFirewallRule(json);
+
+        rule.Should().NotBeNull();
+        rule!.DestinationPort.Should().BeNullOrEmpty();
     }
 
     #endregion

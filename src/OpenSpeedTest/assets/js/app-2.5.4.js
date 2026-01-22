@@ -938,6 +938,9 @@ window.onload = function() {
               Show.GaugeProgresstoZero(currentSpeed, "SendR");
               Show.showStatus("Complete");
               Show.Symbol(2);
+              if (saveData) {
+                showSaveNotification("Please wait...", "waiting");
+              }
             } else {
               Show.GaugeProgresstoZero(currentSpeed, "Upload");
             }
@@ -987,6 +990,9 @@ window.onload = function() {
             SendData = undefined;
             Show.showStatus("Complete");
             Show.Symbol(2);
+            if (saveData) {
+              showSaveNotification("Please wait...", "waiting");
+            }
             Status = "busy";
             stop = 0;
           }
@@ -1006,19 +1012,28 @@ window.onload = function() {
         }
         if (Status === "SendR") {
           Show.showStatus("Complete");
-          var dummyElement = document.createElement("div");
-          dummyElement.innerHTML = '<a xlink:href="https://openspeedtest.com?ref=Self-Hosted-Outro&run=5" style="cursor: pointer" target="_blank"></a>';
-          var htmlAnchorElement = dummyElement.querySelector("a");
           Show.oDoLiveSpeed.el.textContent = ost;
-          var circleSVG = document.getElementById("oDoLiveSpeed");
-          htmlAnchorElement.innerHTML = circleSVG.innerHTML;
-          circleSVG.innerHTML = dummyElement.innerHTML;
           if (location.hostname != myname.toLowerCase() + com) {
-            saveTestData = "https://" + myname.toLowerCase() + com + "/results/show.php?" + "&d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
-            saveTestData = encodeURI(saveTestData);
-            var circleSVG2 = document.getElementById("resultsData");
-            circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", saveTestData);
-            circleSVG2.setAttribute("target", "_blank");
+            // Build POST data for saving results
+            saveTestData = "d=" + downloadSpeed.toFixed(3) + "&u=" + uploadSpeed.toFixed(3) + "&p=" + pingEstimate + "&j=" + jitterEstimate + "&dd=" + (dataUsedfordl / 1048576).toFixed(3) + "&ud=" + (dataUsedforul / 1048576).toFixed(3) + "&ua=" + userAgentString;
+            // Set initial results link to client speed test page (will be updated with result ID after save)
+            if (typeof clientResultsUrl !== "undefined") {
+              var circleSVG2 = document.getElementById("resultsData");
+              circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", clientResultsUrl);
+              circleSVG2.setAttribute("target", "_blank");
+              // Add click handler for smart window handling
+              circleSVG2.onclick = function(e) {
+                var url = savedResultUrl || clientResultsUrl;
+                if (window.opener && !window.opener.closed) {
+                  e.preventDefault();
+                  window.opener.focus();
+                  window.close();
+                } else {
+                  e.preventDefault();
+                  window.open(url, "_blank");
+                }
+              };
+            }
             if (saveData) {
               ServerConnect(5);
             }
@@ -1367,6 +1382,35 @@ window.onload = function() {
       }
       PingRequest();
     }
+    var savedResultUrl = null;
+    var showSaveNotification = function(message, type, url) {
+      var notification = document.getElementById("save-notification");
+      if (!notification) return;
+      notification.textContent = message;
+      notification.className = "save-notification show" + (type ? " " + type : "");
+      notification.onclick = null;
+      if (type === "success") {
+        setTimeout(function() {
+          showSaveNotification("View Results →", "clickable", savedResultUrl);
+        }, 2000);
+      } else if (type === "error") {
+        setTimeout(function() {
+          notification.className = "save-notification";
+        }, 3000);
+      } else if (type === "clickable" && url) {
+        notification.onclick = function() {
+          // If spawned by opener (main app), close this window
+          if (window.opener && !window.opener.closed) {
+            window.opener.focus();
+            window.close();
+          } else {
+            // Otherwise open in new tab
+            window.open(url, "_blank");
+            notification.className = "save-notification";
+          }
+        };
+      }
+    };
     var ServerConnect = function(auth) {
       var Self = this;
       var xhr = new XMLHttpRequest();
@@ -1396,6 +1440,23 @@ window.onload = function() {
               location.href = showResult + return_data;
             }, 1500);
           }
+          if (auth == 5) {
+            // Update results link with the saved result ID
+            try {
+              var response = JSON.parse(return_data);
+              if (response.id && typeof clientResultsUrl !== "undefined") {
+                savedResultUrl = clientResultsUrl + "#result-" + response.id;
+                var circleSVG2 = document.getElementById("resultsData");
+                if (circleSVG2) {
+                  circleSVG2.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", savedResultUrl);
+                }
+              }
+            } catch (e) {
+              // Response wasn't JSON, use base URL
+              savedResultUrl = typeof clientResultsUrl !== "undefined" ? clientResultsUrl : null;
+            }
+            showSaveNotification("Result saved.", "success");
+          }
           if (auth == 6) {
             openSpeedTestServerList = JSON.parse(return_data);
             launch = true;
@@ -1404,6 +1465,9 @@ window.onload = function() {
           if (auth == 7) {
             Show.YourIP.el.textContent = return_data;
           }
+        }
+        if (xhr.readyState == 4 && xhr.status != 200 && auth == 5) {
+          showSaveNotification("Failed to save result.", "error");
         }
       };
       if (auth == 2) {

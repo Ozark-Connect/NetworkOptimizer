@@ -36,9 +36,10 @@ public class AuditRequest
     public JsonElement? SettingsData { get; init; }
 
     /// <summary>
-    /// Optional: Firewall policies data from UniFi API
+    /// Optional: Parsed firewall rules (from v2 firewall-policies or v1 firewallrule API).
+    /// Both formats are normalized to FirewallRule objects before passing here.
     /// </summary>
-    public JsonElement? FirewallPoliciesData { get; init; }
+    public List<FirewallRule>? FirewallRules { get; init; }
 
     /// <summary>
     /// Optional: Firewall groups (port groups and address groups) for flattening

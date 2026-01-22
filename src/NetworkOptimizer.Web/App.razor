@@ -13,11 +13,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="@FileVersionProvider.AddFileVersionToPath("/", "css/app.css")" />
     <!-- PWA icons and manifest -->
-    <link rel="icon" type="image/x-icon" href="favicon.ico" />
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#1a2029" />
     <meta name="msapplication-TileColor" content="#1a2029" />
     <meta name="msapplication-TileImage" content="mstile-150x150.png" />
@@ -94,6 +94,33 @@
             downloadLink.href = linkSource;
             downloadLink.download = fileName;
             downloadLink.click();
+        }
+
+        // Copy text from sibling input element with visual feedback
+        function copyFromInput(button) {
+            const input = button.previousElementSibling;
+            const text = input.value;
+
+            // Try modern API first (requires HTTPS)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text);
+            } else {
+                // Fallback for HTTP contexts
+                input.select();
+                input.setSelectionRange(0, 99999);
+                document.execCommand('copy');
+            }
+            input.blur();
+
+            // Visual feedback
+            const icon = button.querySelector('.copy-icon');
+            const check = button.querySelector('.copy-check');
+            icon.style.display = 'none';
+            check.style.display = 'inline';
+            setTimeout(() => {
+                icon.style.display = 'inline';
+                check.style.display = 'none';
+            }, 2000);
         }
 
         // Initialize Tippy.js tooltips

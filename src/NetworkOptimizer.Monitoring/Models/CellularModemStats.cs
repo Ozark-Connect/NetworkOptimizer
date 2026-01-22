@@ -24,6 +24,7 @@ public class CellularModemStats
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     public string ModemHost { get; set; } = "";
     public string ModemName { get; set; } = "";
+    public string ModemModel { get; set; } = "";
 
     // Connection status
     public string RegistrationState { get; set; } = "";

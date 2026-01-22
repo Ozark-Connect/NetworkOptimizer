@@ -1,5 +1,6 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.UniFi
 @inject CellularModemService ModemService
 @inject UniFiConnectionService ConnectionService
 
@@ -172,7 +173,8 @@
                     <div class="form-row">
                         <div class="form-group" style="flex: 2;">
                             <label class="form-label">QMI Device Path</label>
-                            <input type="text" class="form-control" @bind="_editingModem.QmiDevice" placeholder="/dev/wwan0qmi0" />
+                            <input type="text" class="form-control" @bind="_editingModem.QmiDevice" placeholder="Enter path for your modem type" required />
+                            <small class="form-help">LTE modems: <code>/dev/cdc-wdm0</code> · 5G modems: <code>/dev/wwan0qmi0</code></small>
                         </div>
                         <div class="form-group" style="flex: 1;">
                             <label class="form-label">Polling Interval (sec)</label>
@@ -225,7 +227,7 @@
     public bool HasSshCredentials { get; set; }
 
     private List<ModemConfiguration> _modemConfigs = new();
-    private ModemConfiguration _editingModem = new() { Port = 22, Username = "root", QmiDevice = "/dev/wwan0qmi0", PollingIntervalSeconds = 300, Enabled = true };
+    private ModemConfiguration _editingModem = new() { Port = 22, Username = "root", QmiDevice = "", PollingIntervalSeconds = 300, Enabled = true };
     private string _modemStatus = "Unknown";
     private bool _savingModem = false;
     private string _modemMessage = "";
@@ -312,7 +314,7 @@
                 Port = 22,
                 Username = "root",
                 ModemType = discovered.Model,
-                QmiDevice = "/dev/wwan0qmi0",
+                QmiDevice = UniFiProductDatabase.GetDefaultQmiDevicePath(discovered.Model),
                 PollingIntervalSeconds = 300,
                 Enabled = true
             };
@@ -361,7 +363,7 @@
         {
             Port = 22,
             Username = "root",
-            QmiDevice = "/dev/wwan0qmi0",
+            QmiDevice = "",
             PollingIntervalSeconds = 300,
             Enabled = true
         };

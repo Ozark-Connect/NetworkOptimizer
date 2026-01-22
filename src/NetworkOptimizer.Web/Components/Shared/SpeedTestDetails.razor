@@ -44,10 +44,23 @@
     </div>
 }
 <div class="test-details">
-    <span>Device: @DeviceName (@DeviceHost)</span>
-    <span>Duration: @DurationSeconds seconds</span>
+    @if (IsInTableRow)
+    {
+        <span class="hide-mobile">Host: @DeviceHost</span>
+    }
+    else
+    {
+        <span>Device: @DeviceName (@DeviceHost)</span>
+    }
+    <span class="hide-mobile">Duration: @DurationSeconds seconds</span>
+    <span class="show-mobile">Duration: @(DurationSeconds)s</span>
     <span>Streams: @ParallelStreams parallel</span>
-    <span>Time: @TestTime.ToLocalTime().ToString("g")</span>
+    @if (PingMs.HasValue)
+    {
+        <span>Ping: @(PingMs.Value % 1 == 0 && PingMs.Value >= 10 ? PingMs.Value.ToString("F0") : PingMs.Value.ToString("F1")) ms</span>
+    }
+    <span class="hide-mobile">Time: @TestTime.ToLocalTime().ToString("g")</span>
+    <span class="show-mobile">@TimeFormatHelper.FormatRelativeTimeShort(TestTime)</span>
     @if (OnDelete.HasDelegate && Result != null)
     {
         <span class="delete-action">
@@ -99,51 +112,131 @@
 
             @if (PathAnalysis.Path.Hops.Count > 0)
             {
-                <div class="path-visualization">
-                    @for (var i = 0; i < PathAnalysis.Path.Hops.Count; i++)
+                var hops = PathAnalysis.Path.Hops;
+                var rows = GetHopRows(hops);
+                var needsSwitchback = rows.Count > 1;
+
+                <div class="path-visualization @(needsSwitchback ? "path-switchback" : "")">
+                    @for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
                     {
-                        var hop = PathAnalysis.Path.Hops[i];
-                        var deviceTooltip = GetDeviceTooltip(hop);
-                        @* Only add data-tooltip for UniFi devices (those with tooltip content) *@
-                        @if (!string.IsNullOrEmpty(deviceTooltip))
-                        {
-                            <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)" data-tooltip="@deviceTooltip">
-                                <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                <span class="hop-name">@hop.DeviceName</span>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
-                                <span class="hop-icon">@GetHopIconMarkup(hop)</span>
-                                <span class="hop-name">@hop.DeviceName</span>
-                            </div>
-                        }
-                        @if (i < PathAnalysis.Path.Hops.Count - 1)
-                        {
-                            @* Speed goes on the connector (link between devices) *@
-                            @* Use next hop's ingress speed (the link TO the next device) *@
-                            var nextHop = PathAnalysis.Path.Hops[i + 1];
-                            var linkSpeed = nextHop.IngressSpeedMbps > 0 ? nextHop.IngressSpeedMbps : hop.EgressSpeedMbps;
-                            @* Mark as bottleneck if this link's speed equals the path minimum and there's a real bottleneck *@
-                            var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck &&
-                                                   linkSpeed > 0 &&
-                                                   linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
-                            @* Check if this link is wireless (current hop egress or next hop ingress) *@
-                            var isWirelessLink = hop.IsWirelessEgress || nextHop.IsWirelessIngress;
-                            <div class="path-connector @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
-                                @if (isWirelessLink)
+                        var row = rows[rowIndex];
+                        var isReversed = rowIndex % 2 == 1;
+                        var isLastRow = rowIndex == rows.Count - 1;
+
+                        <div class="path-row @(isReversed ? "reversed" : "")">
+                            @{
+                                // For reversed rows, iterate backwards through the row
+                                var indices = isReversed
+                                    ? Enumerable.Range(0, row.Count).Reverse().ToList()
+                                    : Enumerable.Range(0, row.Count).ToList();
+                            }
+
+                            @* Turn connector at START of reversed rows (exit on left side) *@
+                            @if (isReversed && !isLastRow)
+                            {
+                                // Get the last hop in the row (index 0) which connects to next row
+                                var lastHopData = row[0];
+                                var lastHop = lastHopData.Hop;
+                                var lastGlobalIdx = lastHopData.GlobalIndex;
+                                if (lastGlobalIdx < hops.Count - 1)
                                 {
-                                    var wifiTooltip = GetWifiTooltip(hop, nextHop);
-                                    <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                    var nextHopGlobal = hops[lastGlobalIdx + 1];
+                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : lastHop.EgressSpeedMbps;
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+                                    var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
+
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                        @if (isWirelessLink)
+                                        {
+                                            var wifiTooltip = GetWifiTooltip(lastHop, nextHopGlobal);
+                                            <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                        }
+                                        <span class="connector-line"></span>
+                                        @if (linkSpeed > 0)
+                                        {
+                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                        }
+                                        <span class="turn-corner"></span>
+                                    </div>
                                 }
-                                <span class="connector-line"></span>
-                                @if (linkSpeed > 0)
+                            }
+
+                            @foreach (var localIdx in indices)
+                            {
+                                var hopData = row[localIdx];
+                                var hop = hopData.Hop;
+                                var globalIdx = hopData.GlobalIndex;
+                                var isLastHopInRow = isReversed ? localIdx == 0 : localIdx == row.Count - 1;
+                                var isLastHopInPath = globalIdx == hops.Count - 1;
+                                var deviceTooltip = GetDeviceTooltip(hop);
+
+                                @* Connector BEFORE hop for reversed rows (between hops, not at the start) *@
+                                @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
                                 {
-                                    <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                    var nextHopGlobal = hops[globalIdx + 1];
+                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+                                    var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
+
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                        @if (isWirelessLink)
+                                        {
+                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                        }
+                                        <span class="connector-line"></span>
+                                        @if (linkSpeed > 0)
+                                        {
+                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                        }
+                                    </div>
                                 }
-                            </div>
-                        }
+
+                                @* Render the hop *@
+                                @if (!string.IsNullOrEmpty(deviceTooltip))
+                                {
+                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)" data-tooltip="@deviceTooltip">
+                                        <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                        <span class="hop-name">@hop.DeviceName</span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
+                                        <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                        <span class="hop-name">@hop.DeviceName</span>
+                                    </div>
+                                }
+
+                                @* Connector AFTER hop for non-reversed rows *@
+                                @if (!isReversed && globalIdx < hops.Count - 1)
+                                {
+                                    var nextHopGlobal = hops[globalIdx + 1];
+                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
+                                    var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
+                                    var needsTurn = isLastHopInRow && !isLastRow;
+
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                        @if (isWirelessLink)
+                                        {
+                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
+                                        }
+                                        <span class="connector-line"></span>
+                                        @if (linkSpeed > 0)
+                                        {
+                                            <span class="connector-speed">@FormatSpeed(linkSpeed)</span>
+                                        }
+                                        @if (needsTurn)
+                                        {
+                                            <span class="turn-corner"></span>
+                                        }
+                                    </div>
+                                }
+
+                            }
+                        </div>
                     }
                 </div>
             }
@@ -206,7 +299,9 @@
     [Parameter] public string DeviceHost { get; set; } = "";
     [Parameter] public int DurationSeconds { get; set; }
     [Parameter] public int ParallelStreams { get; set; }
+    [Parameter] public bool IsInTableRow { get; set; }
     [Parameter] public DateTime TestTime { get; set; }
+    [Parameter] public double? PingMs { get; set; }
 
     /// <summary>
     /// Path analysis result (set automatically when using Result parameter)
@@ -255,6 +350,7 @@
             DurationSeconds = Result.DurationSeconds;
             ParallelStreams = Result.ParallelStreams;
             TestTime = Result.TestTime;
+            PingMs = Result.PingMs;
 
             // Sync PathAnalysis from Result when Result changes
             // This ensures we don't show stale analysis from a previous test
@@ -293,6 +389,40 @@
         if (bytes < 1024 * 1024 * 1024)
             return $"{bytes / (1024.0 * 1024.0):F1} MB";
         return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+    }
+
+    // Switchback layout helpers
+    private record HopData(NetworkHop Hop, int GlobalIndex);
+    private const int MaxHopsPerRow = 6;
+    private const int MaxCharsPerRow = 142; // Approximate character budget per row
+
+    private List<List<HopData>> GetHopRows(IList<NetworkHop> hops)
+    {
+        var rows = new List<List<HopData>>();
+        var currentRow = new List<HopData>();
+        var currentRowChars = 0;
+
+        for (int i = 0; i < hops.Count; i++)
+        {
+            var hopChars = (hops[i].DeviceName?.Length ?? 0) + 9; // +9 for padding, icon, connector (~80px)
+
+            // Start new row if adding this hop would exceed limits
+            if (currentRow.Count > 0 &&
+                (currentRow.Count >= MaxHopsPerRow || currentRowChars + hopChars > MaxCharsPerRow))
+            {
+                rows.Add(currentRow);
+                currentRow = new List<HopData>();
+                currentRowChars = 0;
+            }
+
+            currentRow.Add(new HopData(hops[i], i));
+            currentRowChars += hopChars;
+        }
+
+        if (currentRow.Count > 0)
+            rows.Add(currentRow);
+
+        return rows;
     }
 
     private string FormatSpeed(int mbps)

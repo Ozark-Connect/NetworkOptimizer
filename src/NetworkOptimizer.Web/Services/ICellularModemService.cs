@@ -18,6 +18,14 @@ public interface ICellularModemService : IDisposable
     CellularModemStats? GetLastStats(int siteId);
 
     /// <summary>
+    /// Get cached stats for a specific modem without polling.
+    /// Returns null if no cached stats exist for this modem.
+    /// </summary>
+    /// <param name="modemId">The modem configuration ID.</param>
+    /// <returns>Cached stats or null.</returns>
+    CellularModemStats? GetCachedStats(int modemId);
+
+    /// <summary>
     /// Auto-discover U5G-Max modems from UniFi device list.
     /// </summary>
     /// <param name="siteId">The site identifier.</param>

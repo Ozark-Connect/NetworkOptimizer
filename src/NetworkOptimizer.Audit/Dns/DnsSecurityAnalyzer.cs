@@ -14,7 +14,6 @@ namespace NetworkOptimizer.Audit.Dns;
 public class DnsSecurityAnalyzer
 {
     private readonly ILogger<DnsSecurityAnalyzer> _logger;
-    private Dictionary<string, UniFiFirewallGroup>? _firewallGroups;
 
     // UniFi settings keys
     private const string SettingsKeyDoh = "doh";
@@ -43,58 +42,39 @@ public class DnsSecurityAnalyzer
     }
 
     /// <summary>
-    /// Analyze DNS security from settings and firewall policies
+    /// Analyze DNS security from settings and firewall rules
     /// </summary>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData)
-        => AnalyzeAsync(settingsData, firewallData, switches: null, networks: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules)
+        => AnalyzeAsync(settingsData, firewallRules, switches: null, networks: null);
 
     /// <summary>
-    /// Analyze DNS security from settings, firewall policies, and device configuration
+    /// Analyze DNS security from settings, firewall rules, and device configuration
     /// </summary>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks)
+        => AnalyzeAsync(settingsData, firewallRules, switches, networks, deviceData: null);
 
     /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
+    /// Analyze DNS security from settings, firewall rules, device configuration, and raw device data
     /// </summary>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData)
+        => AnalyzeAsync(settingsData, firewallRules, switches, networks, deviceData, customDnsManagementPort: null);
 
     /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, and raw device data
+    /// Analyze DNS security from settings, firewall rules, device configuration, and raw device data
     /// </summary>
     /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups: null, natRulesData: null);
+    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort)
+        => AnalyzeAsync(settingsData, firewallRules, switches, networks, deviceData, customDnsManagementPort, natRulesData: null);
 
     /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and firewall groups
+    /// Analyze DNS security from settings, firewall rules, device configuration, raw device data, and NAT rules
     /// </summary>
     /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
-    /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups, natRulesData: null);
-
-    /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, and NAT rules
-    /// </summary>
-    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
-    /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
-    public Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData)
-        => AnalyzeAsync(settingsData, firewallData, switches, networks, deviceData, customDnsManagementPort, firewallGroups: null, natRulesData);
-
-    /// <summary>
-    /// Analyze DNS security from settings, firewall policies, device configuration, raw device data, firewall groups, and NAT rules
-    /// </summary>
-    /// <param name="customDnsManagementPort">Optional custom port for third-party DNS management interface (Pi-hole, AdGuard Home, etc.)</param>
-    /// <param name="firewallGroups">Optional firewall groups for resolving port/IP group references in rules</param>
     /// <param name="natRulesData">Optional NAT rules data for DNAT DNS detection</param>
     /// <param name="dnatExcludedVlanIds">Optional VLAN IDs to exclude from DNAT coverage checks</param>
     /// <param name="externalZoneId">Optional External/WAN zone ID for validating firewall rule destinations</param>
-    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, JsonElement? firewallData, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, List<UniFiFirewallGroup>? firewallGroups, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null)
+    public async Task<DnsSecurityResult> AnalyzeAsync(JsonElement? settingsData, List<FirewallRule>? firewallRules, List<SwitchInfo>? switches, List<NetworkInfo>? networks, JsonElement? deviceData, int? customDnsManagementPort, JsonElement? natRulesData, List<int>? dnatExcludedVlanIds = null, string? externalZoneId = null)
     {
-        // Store firewall groups for resolving port_group_id references
-        _firewallGroups = firewallGroups?.ToDictionary(g => g.Id, g => g);
         var result = new DnsSecurityResult();
 
         // Analyze DoH configuration from settings
@@ -118,13 +98,13 @@ public class DnsSecurityAnalyzer
         }
 
         // Analyze firewall rules
-        if (firewallData.HasValue)
+        if (firewallRules != null && firewallRules.Count > 0)
         {
-            AnalyzeFirewallRules(firewallData.Value, networks, result, externalZoneId);
+            AnalyzeFirewallRules(firewallRules, networks, result, externalZoneId);
         }
         else
         {
-            _logger.LogWarning("No firewall data available for DNS security analysis");
+            _logger.LogWarning("No firewall rules available for DNS security analysis");
         }
 
         // Analyze device DNS configuration - using raw device data to include APs
@@ -256,7 +236,10 @@ public class DnsSecurityAnalyzer
             }
         }
 
-        result.DohConfigured = result.ConfiguredServers.Any(s => s.Enabled);
+        // DoH is configured only if state is not off/disabled AND there are enabled servers
+        // UniFi API uses both "disabled" and "off" for the disabled state
+        var isDisabledState = result.DohState == "disabled" || result.DohState == "off";
+        result.DohConfigured = !isDisabledState && result.ConfiguredServers.Any(s => s.Enabled);
     }
 
     private void ParseWanDnsSettings(JsonElement dnsSettings, DnsSecurityResult result)
@@ -385,78 +368,29 @@ public class DnsSecurityAnalyzer
         }
     }
 
-    private void AnalyzeFirewallRules(JsonElement firewallData, List<NetworkInfo>? networks, DnsSecurityResult result, string? externalZoneId)
+    private void AnalyzeFirewallRules(List<FirewallRule> firewallRules, List<NetworkInfo>? networks, DnsSecurityResult result, string? externalZoneId)
     {
-        // Parse firewall policies to find DNS-related rules
-        foreach (var policy in firewallData.UnwrapDataArray())
+        // Analyze parsed firewall rules to find DNS-related rules
+        foreach (var rule in firewallRules)
         {
-            if (!policy.TryGetProperty("name", out var nameProp))
+            var name = rule.Name ?? "";
+            if (!rule.Enabled)
                 continue;
 
-            var name = nameProp.GetString() ?? "";
-            var enabled = policy.GetBoolOrDefault("enabled", true);
-            var action = policy.GetStringOrNull("action")?.ToLowerInvariant() ?? "";
-            var protocol = policy.GetStringOrNull("protocol")?.ToLowerInvariant() ?? "all";
-            var matchOppositeProtocol = policy.GetBoolOrDefault("match_opposite_protocol", false);
+            var protocol = rule.Protocol?.ToLowerInvariant() ?? "all";
+            var matchOppositeProtocol = rule.MatchOppositeProtocol;
 
-            if (!enabled)
-                continue;
+            // Get source info for coverage tracking
+            var sourceMatchingTarget = rule.SourceMatchingTarget;
+            var sourceNetworkIds = rule.SourceNetworkIds;
+            var sourceMatchOppositeNetworks = rule.SourceMatchOppositeNetworks;
 
-            // Parse source network info for coverage tracking
-            string? sourceMatchingTarget = null;
-            List<string>? sourceNetworkIds = null;
-            bool sourceMatchOppositeNetworks = false;
-
-            if (policy.TryGetProperty("source", out var source))
-            {
-                sourceMatchingTarget = source.GetStringOrNull("matching_target");
-                sourceMatchOppositeNetworks = source.GetBoolOrDefault("match_opposite_networks", false);
-
-                if (source.TryGetProperty("network_ids", out var netIds) && netIds.ValueKind == JsonValueKind.Array)
-                {
-                    sourceNetworkIds = netIds.EnumerateArray()
-                        .Select(n => n.GetString())
-                        .Where(n => !string.IsNullOrEmpty(n))
-                        .Select(n => n!)
-                        .ToList();
-                }
-            }
-
-            // Check destination port, zone, and matching target
-            string? destPort = null;
-            string? destZoneId = null;
-            string? matchingTarget = null;
-            List<string>? webDomains = null;
-            bool matchOppositePorts = false;
-
-            if (policy.TryGetProperty("destination", out var dest))
-            {
-                destPort = dest.GetStringOrNull("port");
-                destZoneId = dest.GetStringOrNull("zone_id");
-                matchingTarget = dest.GetStringOrNull("matching_target");
-                matchOppositePorts = dest.GetBoolOrDefault("match_opposite_ports", false);
-
-                // Resolve port group reference if port_matching_type is OBJECT
-                var portMatchingType = dest.GetStringOrNull("port_matching_type");
-                var portGroupId = dest.GetStringOrNull("port_group_id");
-                if (portMatchingType == "OBJECT" && !string.IsNullOrEmpty(portGroupId))
-                {
-                    destPort = FirewallGroupHelper.ResolvePortGroup(portGroupId, _firewallGroups, _logger);
-                    if (!string.IsNullOrEmpty(destPort))
-                    {
-                        _logger.LogDebug("Resolved port group {GroupId} to '{Ports}' for rule {RuleName}", portGroupId, destPort, name);
-                    }
-                }
-
-                if (dest.TryGetProperty("web_domains", out var domains) && domains.ValueKind == JsonValueKind.Array)
-                {
-                    webDomains = domains.EnumerateArray()
-                        .Select(d => d.GetString())
-                        .Where(d => !string.IsNullOrEmpty(d))
-                        .Select(d => d!)
-                        .ToList();
-                }
-            }
+            // Get destination info (port group resolution already done during parsing)
+            var destPort = rule.DestinationPort;
+            var destZoneId = rule.DestinationZoneId;
+            var matchingTarget = rule.DestinationMatchingTarget;
+            var webDomains = rule.WebDomains;
+            var matchOppositePorts = rule.DestinationMatchOppositePorts;
 
             // DNS leak prevention rules must target the External zone.
             // If we have an External zone ID, validate the destination zone matches.
@@ -466,7 +400,17 @@ public class DnsSecurityAnalyzer
                                       string.IsNullOrEmpty(destZoneId) ||
                                       string.Equals(destZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
 
-            var isBlockAction = FirewallActionExtensions.Parse(action).IsBlockAction();
+            // For legacy systems, LAN_IN rules can also block external traffic (traffic passes through
+            // LAN_IN before reaching WAN_OUT). However, LAN_IN is only acceptable for DoT/DoH blocking,
+            // NOT for UDP 53 - because the gateway's own DNS queries would be blocked by LAN_IN.
+            var ruleset = rule.Ruleset?.ToUpperInvariant();
+            var isLegacyLanIn = ruleset == "LAN_IN";
+
+            var isBlockAction = rule.ActionType.IsBlockAction();
+
+            // Debug logging for zone matching (helps diagnose DNS detection issues)
+            _logger.LogDebug("Rule '{Name}': action={Action}, isBlock={IsBlock}, destZone={DestZone}, externalZone={ExternalZone}, targetsExternal={TargetsExternal}, matchingTarget={MatchingTarget}",
+                name, rule.Action, isBlockAction, destZoneId ?? "(null)", externalZoneId ?? "(null)", targetsExternalZone, matchingTarget ?? "(null)");
 
             // If match_opposite_ports is true, the rule blocks everything EXCEPT the specified ports
             // So we should NOT count it as blocking those ports
@@ -511,7 +455,8 @@ public class DnsSecurityAnalyzer
 
             // Check for DNS over TLS (port 853) blocking - TCP only, must target External zone
             // Check for DNS over QUIC (port 853) blocking - UDP only (RFC 9250), must target External zone
-            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "853"))
+            // For legacy systems, LAN_IN is also acceptable (gateway uses DoH, not DoT/DoQ for upstream)
+            if (isBlockAction && (targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.IncludesPort(destPort, "853"))
             {
                 // DoT = TCP 853
                 if (blocksTcp)
@@ -534,7 +479,8 @@ public class DnsSecurityAnalyzer
 
             // Check for DoH/DoH3 blocking (port 443 with web domains containing DNS providers), must target External zone
             // DoH = TCP 443 (HTTP/2), DoH3 = UDP 443 (HTTP/3 over QUIC)
-            if (isBlockAction && targetsExternalZone && FirewallGroupHelper.IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
+            // For legacy systems, LAN_IN is also acceptable (gateway's DoH goes to configured providers, not blocked IPs)
+            if (isBlockAction && (targetsExternalZone || isLegacyLanIn) && FirewallGroupHelper.IncludesPort(destPort, "443") && matchingTarget == "WEB" && webDomains?.Count > 0)
             {
                 // Check if web domains include DNS providers
                 var dnsProviderDomains = webDomains.Where(d =>
@@ -564,6 +510,74 @@ public class DnsSecurityAnalyzer
                         result.Doh3RuleName = name;
                         _logger.LogDebug("Found DoH3 block rule: {Name} (protocol={Protocol}, opposite={Opposite}, zone={Zone}) with {Count} DNS domains",
                             name, protocol, matchOppositeProtocol, destZoneId ?? "any", dnsProviderDomains.Count);
+                    }
+                }
+            }
+
+            // === App-based DNS blocking detection ===
+            // App IDs are port-based under the hood, so app-based rules provide similar coverage to port-based rules
+            // Legacy rules (from combined-traffic API) have no protocol field - assume ALL protocols
+            var appIds = rule.AppIds;
+            var isAppBasedRule = appIds?.Count > 0 && matchingTarget == "APP";
+
+            if (isBlockAction && targetsExternalZone && isAppBasedRule)
+            {
+                // For legacy rules (protocol == "all" or null), assume all protocols blocked
+                var legacyAllProtocols = string.IsNullOrEmpty(protocol) || protocol == "all";
+
+                // DNS app (port 53) - blocks UDP DNS
+                if (appIds!.Any(DnsAppIds.IsDns53App))
+                {
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDns53BlockRule = true;
+                        result.Dns53RuleName ??= name;
+                        _logger.LogDebug("Found app-based DNS53 block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+
+                        // Track network coverage
+                        if (networks != null)
+                        {
+                            AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                        }
+                    }
+                }
+
+                // Port 853 app - covers DoT (TCP) and DoQ (UDP)
+                if (appIds!.Any(DnsAppIds.IsPort853App))
+                {
+                    if (legacyAllProtocols || blocksTcp)
+                    {
+                        result.HasDotBlockRule = true;
+                        result.DotRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoT block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDoqBlockRule = true;
+                        result.DoqRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoQ block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                }
+
+                // Port 443 app - covers DoH (TCP) and DoH3 (UDP/QUIC)
+                if (appIds!.Any(DnsAppIds.IsPort443App))
+                {
+                    if (legacyAllProtocols || blocksTcp)
+                    {
+                        result.HasDohBlockRule = true;
+                        result.DohRuleName ??= name;
+                        _logger.LogDebug("Found app-based DoH block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
+                    }
+                    if (legacyAllProtocols || blocksUdp)
+                    {
+                        result.HasDoh3BlockRule = true;
+                        result.Doh3RuleName ??= name;
+                        _logger.LogDebug("Found app-based DoH3 block rule: {Name} (appIds={AppIds}, protocol={Protocol})",
+                            name, string.Join(",", appIds!), protocol ?? "all");
                     }
                 }
             }
@@ -746,14 +760,14 @@ public class DnsSecurityAnalyzer
         }
         else if (result.DohState == "auto")
         {
-            // DoH is auto-negotiated, may fall back to unencrypted
+            // DoH auto mode uses default providers whose privacy practices you may not have reviewed
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDohAuto,
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
-                Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
-                RecommendedAction = "Configure DoH with explicit custom servers for guaranteed encryption",
+                Message = "DoH is using default providers whose privacy policies you may not have reviewed. Default providers may log queries and do not guarantee anonymity.",
+                RecommendedAction = "Consider configuring custom DoH servers from privacy-focused providers if DNS query privacy is important",
                 RuleId = "DNS-DOH-002",
                 ScoreImpact = 3
             });

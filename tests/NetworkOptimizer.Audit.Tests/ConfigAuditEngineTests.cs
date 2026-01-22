@@ -487,7 +487,7 @@ public class ConfigAuditEngineTests
             clientHistory: null,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -507,7 +507,7 @@ public class ConfigAuditEngineTests
             clientHistory: new List<UniFiClientHistoryResponse>(),
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -538,7 +538,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -571,7 +571,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -600,7 +600,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -633,7 +633,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -667,7 +667,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -702,7 +702,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -737,7 +737,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -768,7 +768,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -799,7 +799,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -872,7 +872,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
@@ -910,7 +910,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
@@ -947,7 +947,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
@@ -980,7 +980,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: allowanceSettings,
             protectCameras: null);
 
@@ -1015,7 +1015,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -1054,7 +1054,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -1087,7 +1087,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -1124,7 +1124,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 
@@ -1162,7 +1162,7 @@ public class ConfigAuditEngineTests
             clientHistory: clientHistory,
             fingerprintDb: null,
             settingsData: null,
-            firewallPoliciesData: null,
+            firewallRules: null,
             allowanceSettings: null,
             protectCameras: null);
 

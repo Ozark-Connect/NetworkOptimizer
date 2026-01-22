@@ -101,6 +101,12 @@ public class FirewallRule
     public List<string>? WebDomains { get; init; }
 
     /// <summary>
+    /// Application IDs for app-based matching (e.g., 589885 = DNS, 1310917 = DoT, 1310919 = DoH).
+    /// Used when DestinationMatchingTarget is "APP".
+    /// </summary>
+    public List<int>? AppIds { get; init; }
+
+    /// <summary>
     /// Whether this is a predefined/system rule (not user-created)
     /// </summary>
     public bool Predefined { get; init; }

@@ -70,6 +70,17 @@
                 <span class="quality-value">@modemStats.SignalQuality%</span>
                 <span class="quality-label">Signal Quality</span>
             </div>
+            <div class="modem-nav">
+                @if (configuredModems.Count > 1)
+                {
+                    <button class="nav-btn" @onclick="PreviousModem" disabled="@(currentModemIndex == 0)">‹</button>
+                    <span class="modem-counter">@(currentModemIndex + 1)/@configuredModems.Count</span>
+                    <button class="nav-btn" @onclick="NextModem" disabled="@(currentModemIndex >= configuredModems.Count - 1)">›</button>
+                }
+            </div>
+            <div class="device-icon">
+                <img src="@GetDeviceIconPath()" alt="@(modemStats.ModemModel) icon" class="device-image" onerror="this.style.display='none'" />
+            </div>
         </div>
 
         <!-- Carrier Info -->
@@ -204,6 +215,55 @@
         border-radius: 8px;
     }
 
+    .device-icon {
+        display: flex;
+        align-items: center;
+    }
+
+    .device-image {
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+    }
+
+    .modem-nav {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: auto;
+    }
+
+    .nav-btn {
+        background: var(--card-bg, #1e2128);
+        border: 1px solid var(--border-color, #2d3139);
+        color: var(--text-primary, #fff);
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1.2rem;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .nav-btn:hover:not(:disabled) {
+        background: var(--accent-color, #3b82f6);
+    }
+
+    .nav-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .modem-counter {
+        font-size: 0.8rem;
+        color: var(--text-muted, #888);
+        min-width: 30px;
+        text-align: center;
+    }
+
     .signal-bars {
         display: flex;
         align-items: flex-end;
@@ -304,7 +364,7 @@
 
     .cellular-metrics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        grid-template-columns: 1fr 1fr;
         gap: 0.75rem;
     }
 
@@ -413,6 +473,8 @@
     private bool isLoading = true;
     private bool isRefreshing = false;
     private bool hasConfiguredModems = false;
+    private List<NetworkOptimizer.Storage.Models.ModemConfiguration> configuredModems = new();
+    private int currentModemIndex = 0;
     private System.Threading.Timer? _refreshTimer;
 
     protected override async Task OnInitializedAsync()
@@ -423,10 +485,11 @@
         _refreshTimer = new System.Threading.Timer(
             async _ => await InvokeAsync(() =>
             {
-                if (!isRefreshing && !isLoading)
+                if (!isRefreshing && !isLoading && configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
                 {
-                    // Just fetch cached stats - don't force a poll
-                    var newStats = ModemService.GetLastStats(SiteId);
+                    // Just fetch cached stats for current modem - don't force a poll
+                    var modem = configuredModems[currentModemIndex];
+                    var newStats = ModemService.GetCachedStats(modem.Id);
                     if (newStats != null)
                     {
                         modemStats = newStats;
@@ -444,26 +507,32 @@
         isLoading = true;
         try
         {
-            modemStats = ModemService.GetLastStats(SiteId);
+            configuredModems = (await ModemService.GetModemsAsync(SiteId)).ToList();
+            hasConfiguredModems = configuredModems.Any();
 
-            // If no cached stats, try to poll any configured modem (prefer enabled)
-            if (modemStats == null)
+            if (hasConfiguredModems)
             {
-                var modems = await ModemService.GetModemsAsync(SiteId);
-                hasConfiguredModems = modems.Any();
-                var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
-                if (modem != null)
+                // Find index of first enabled modem, or default to first
+                var enabledIndex = configuredModems.FindIndex(m => m.Enabled);
+                currentModemIndex = enabledIndex >= 0 ? enabledIndex : 0;
+
+                var modem = configuredModems[currentModemIndex];
+
+                // Use cached stats if available, otherwise poll
+                var cachedStats = ModemService.GetCachedStats(modem.Id);
+                if (cachedStats != null)
                 {
+                    modemStats = cachedStats;
+                }
+                else
+                {
+                    // No cached stats - do initial poll
                     var (success, _) = await ModemService.PollModemAsync(SiteId, modem);
                     if (success)
                     {
-                        modemStats = ModemService.GetLastStats(SiteId);
+                        modemStats = ModemService.GetCachedStats(modem.Id);
                     }
                 }
-            }
-            else
-            {
-                hasConfiguredModems = true;
             }
         }
         finally
@@ -479,15 +548,13 @@
 
         try
         {
-            var modems = await ModemService.GetModemsAsync(SiteId);
-            // Allow manual refresh of any configured modem, prefer enabled but use any if none enabled
-            var modem = modems.FirstOrDefault(m => m.Enabled) ?? modems.FirstOrDefault();
-            if (modem != null)
+            if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
             {
+                var modem = configuredModems[currentModemIndex];
                 var (success, _) = await ModemService.PollModemAsync(SiteId, modem);
                 if (success)
                 {
-                    modemStats = ModemService.GetLastStats(SiteId);
+                    modemStats = ModemService.GetCachedStats(modem.Id);
                 }
             }
         }
@@ -496,6 +563,56 @@
             isRefreshing = false;
             StateHasChanged();
         }
+    }
+
+    private async Task PreviousModem()
+    {
+        if (currentModemIndex > 0)
+        {
+            currentModemIndex--;
+            await ShowStatsForCurrentModem();
+        }
+    }
+
+    private async Task NextModem()
+    {
+        if (currentModemIndex < configuredModems.Count - 1)
+        {
+            currentModemIndex++;
+            await ShowStatsForCurrentModem();
+        }
+    }
+
+    private async Task ShowStatsForCurrentModem()
+    {
+        if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
+        {
+            var modem = configuredModems[currentModemIndex];
+            var cached = ModemService.GetCachedStats(modem.Id);
+
+            if (cached != null)
+            {
+                modemStats = cached;
+                StateHasChanged();
+            }
+            else
+            {
+                // No cached stats - poll this modem
+                await RefreshStats();
+            }
+        }
+    }
+
+    private string? GetDeviceIconPath()
+    {
+        var model = modemStats?.ModemModel;
+        if (string.IsNullOrEmpty(model))
+        {
+            // Fallback to current config if stats don't have model yet
+            if (configuredModems.Count > 0 && currentModemIndex < configuredModems.Count)
+                model = configuredModems[currentModemIndex].ModemType;
+        }
+        return DeviceIcon.GetIconPath(model) ?? "/images/devices/u5g-max.png";
     }
 
     private string GetConnectionStatus()

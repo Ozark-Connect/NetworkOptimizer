@@ -3,6 +3,7 @@ using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Core.Models;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
+using FirewallRule = NetworkOptimizer.Audit.Models.FirewallRule;
 
 namespace NetworkOptimizer.Audit.Tests.Models;
 
@@ -24,7 +25,7 @@ public class AuditRequestTests
         Assert.Null(request.ClientHistory);
         Assert.Null(request.FingerprintDb);
         Assert.Null(request.SettingsData);
-        Assert.Null(request.FirewallPoliciesData);
+        Assert.Null(request.FirewallRules);
         Assert.Null(request.AllowanceSettings);
         Assert.Null(request.ProtectCameras);
         Assert.Null(request.ClientName);
@@ -98,18 +99,21 @@ public class AuditRequestTests
     }
 
     [Fact]
-    public void AuditRequest_FirewallPoliciesData_CanBeSet()
+    public void AuditRequest_FirewallRules_CanBeSet()
     {
-        var json = JsonDocument.Parse("{\"rules\": []}");
-        var element = json.RootElement;
+        var rules = new List<FirewallRule>
+        {
+            new() { Id = "test-rule", Name = "Test Rule" }
+        };
 
         var request = new AuditRequest
         {
             DeviceDataJson = "{}",
-            FirewallPoliciesData = element
+            FirewallRules = rules
         };
 
-        Assert.NotNull(request.FirewallPoliciesData);
+        Assert.NotNull(request.FirewallRules);
+        Assert.Single(request.FirewallRules);
     }
 
     [Fact]
@@ -159,7 +163,7 @@ public class AuditRequestTests
         var history = new List<UniFiClientHistoryResponse>();
         var db = new UniFiFingerprintDatabase();
         var settings = JsonDocument.Parse("{}").RootElement;
-        var policies = JsonDocument.Parse("{}").RootElement;
+        var firewallRules = new List<FirewallRule> { new() { Id = "rule1" } };
         var allowance = new DeviceAllowanceSettings();
         var cameras = new ProtectCameraCollection();
 
@@ -170,7 +174,7 @@ public class AuditRequestTests
             ClientHistory = history,
             FingerprintDb = db,
             SettingsData = settings,
-            FirewallPoliciesData = policies,
+            FirewallRules = firewallRules,
             AllowanceSettings = allowance,
             ProtectCameras = cameras,
             ClientName = "FullTest"
@@ -180,6 +184,7 @@ public class AuditRequestTests
         Assert.Same(clients, request.Clients);
         Assert.Same(history, request.ClientHistory);
         Assert.Same(db, request.FingerprintDb);
+        Assert.Same(firewallRules, request.FirewallRules);
         Assert.Same(allowance, request.AllowanceSettings);
         Assert.Same(cameras, request.ProtectCameras);
         Assert.Equal("FullTest", request.ClientName);

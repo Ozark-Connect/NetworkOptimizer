@@ -286,6 +286,24 @@ public class NginxHostedService : IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Patches the nginx.conf for Windows compatibility.
+    /// Replaces /dev/null (Unix) with nul (Windows null device).
+    /// </summary>
+    private async Task PatchNginxConfigForWindowsAsync(string confPath)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var content = await File.ReadAllTextAsync(confPath);
+        if (content.Contains("/dev/null"))
+        {
+            var patched = content.Replace("/dev/null", "nul");
+            await File.WriteAllTextAsync(confPath, patched);
+            _logger.LogDebug("Patched nginx.conf: replaced /dev/null with nul for Windows");
+        }
+    }
+
     private async Task StartNginxAsync(string speedTestFolder, string nginxPath, CancellationToken cancellationToken)
     {
         // Stop any existing nginx process first
@@ -296,6 +314,9 @@ public class NginxHostedService : IHostedService, IDisposable
 
         // nginx needs explicit config path and prefix
         var confPath = Path.Combine(speedTestFolder, "conf", "nginx.conf");
+
+        // Patch config for Windows compatibility before starting
+        await PatchNginxConfigForWindowsAsync(confPath);
         var startInfo = new ProcessStartInfo
         {
             FileName = nginxPath,

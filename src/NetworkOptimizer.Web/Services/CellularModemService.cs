@@ -20,6 +20,8 @@ public class CellularModemService : ICellularModemService
     private readonly UniFiConnectionService _connectionService;
     private readonly Timer? _pollingTimer;
     private readonly ConcurrentDictionary<int, CellularModemStats> _lastStatsBySite = new();
+    private readonly object _lock = new();
+    private readonly Dictionary<int, CellularModemStats> _statsCache = new();
     private bool _isPolling;
 
     // Default QMI device path for U5G-Max
@@ -48,6 +50,18 @@ public class CellularModemService : ICellularModemService
     {
         _lastStatsBySite.TryGetValue(siteId, out var stats);
         return stats;
+    }
+
+    /// <summary>
+    /// Get cached stats for a specific modem without polling.
+    /// Returns null if no cached stats exist for this modem.
+    /// </summary>
+    public CellularModemStats? GetCachedStats(int modemId)
+    {
+        lock (_lock)
+        {
+            return _statsCache.TryGetValue(modemId, out var stats) ? stats : null;
+        }
     }
 
     /// <summary>
@@ -86,6 +100,7 @@ public class CellularModemService : ICellularModemService
                         device.Name, displayModel, device.Ip);
                 }
             }
+
         }
         catch (Exception ex)
         {
@@ -100,7 +115,7 @@ public class CellularModemService : ICellularModemService
     /// Runs signal, serving system, cell location, and band info queries in a single SSH session
     /// (to avoid rate limiting), then delegates parsing to QmicliParser for each section.
     /// </summary>
-    private async Task<CellularModemStats?> ExecutePollAsync(int siteId, string host, string name, string qmiDevice)
+    private async Task<CellularModemStats?> ExecutePollAsync(int siteId, string host, string name, string model, string qmiDevice)
     {
         _logger.LogInformation("Polling modem {Name} at {Host} for site {SiteId}", name, host, siteId);
 
@@ -110,6 +125,7 @@ public class CellularModemService : ICellularModemService
             {
                 ModemHost = host,
                 ModemName = name,
+                ModemModel = model,
                 Timestamp = DateTime.UtcNow
             };
 
@@ -186,14 +202,19 @@ public class CellularModemService : ICellularModemService
     {
         try
         {
-            var stats = await ExecutePollAsync(siteId, modem.Host, modem.Name, modem.QmiDevice);
+            var stats = await ExecutePollAsync(siteId, modem.Host, modem.Name, modem.ModemType, modem.QmiDevice);
 
             if (stats != null)
             {
                 // Update LastPolled in database
                 await UpdateModemConfigAsync(siteId, modem.Id, null);
 
+                // Update both caches - by site and by modem ID
                 _lastStatsBySite[siteId] = stats;
+                lock (_lock)
+                {
+                    _statsCache[modem.Id] = stats;
+                }
 
                 return (true, $"Modem polled successfully. RSRP: {stats.Lte?.Rsrp ?? stats.Nr5g?.Rsrp}dBm");
             }

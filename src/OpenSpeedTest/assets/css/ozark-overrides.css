@@ -119,3 +119,67 @@
 #progressStatus-Mob {
     stroke: #60A5FA !important;
 }
+
+/* Save notification snackbar */
+.save-notification {
+    position: fixed;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    padding: 16px 32px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #ffffff;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    z-index: 2000;
+    opacity: 0;
+    transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    min-width: 200px;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+.save-notification.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Orange for "Please wait..." - matches Ozark accent */
+.save-notification.waiting {
+    border-color: #F97316;
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    box-shadow: 0 8px 32px rgba(249, 115, 22, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+/* Blue for "Result saved." - matches Ozark primary */
+.save-notification.success {
+    border-color: #0559C9;
+    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+.save-notification.error {
+    border-color: #ef4444;
+    background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+    box-shadow: 0 8px 32px rgba(239, 68, 68, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+/* Clickable "View Results" - blue with hover effect */
+.save-notification.clickable {
+    border-color: #0559C9;
+    background: linear-gradient(135deg, #0559C9 0%, #1e40af 100%);
+    box-shadow: 0 8px 32px rgba(5, 89, 201, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.save-notification.clickable:hover {
+    background: linear-gradient(135deg, #0369d1 0%, #2563eb 100%);
+    box-shadow: 0 8px 40px rgba(5, 89, 201, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+    transform: translateX(-50%) translateY(-2px);
+}

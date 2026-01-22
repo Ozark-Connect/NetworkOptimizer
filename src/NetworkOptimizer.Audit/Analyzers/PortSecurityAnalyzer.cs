@@ -520,11 +520,11 @@ public class PortSecurityAnalyzer
                 forwardMode = profile.Forward;
             }
 
-            // Use profile's native network ID if port doesn't have one
-            if (string.IsNullOrEmpty(nativeNetworkId) && !string.IsNullOrEmpty(profile.NativeNetworkId))
+            // Use profile's native network ID if set (profile takes precedence over port's base value)
+            if (!string.IsNullOrEmpty(profile.NativeNetworkId))
             {
-                _logger.LogDebug("Port {Switch} port {Port}: resolving native_networkconf_id from profile '{ProfileName}': {ProfileNetworkId}",
-                    switchInfo.Name, portIdx, profile.Name, profile.NativeNetworkId);
+                _logger.LogDebug("Port {Switch} port {Port}: resolving native_networkconf_id from profile '{ProfileName}': {PortValue} -> {ProfileNetworkId}",
+                    switchInfo.Name, portIdx, profile.Name, nativeNetworkId ?? "(none)", profile.NativeNetworkId);
                 nativeNetworkId = profile.NativeNetworkId;
             }
 

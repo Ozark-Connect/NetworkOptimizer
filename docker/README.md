@@ -115,6 +115,8 @@ Browser-based speed testing from any device. Results are automatically sent to N
 
 **Configuration:** Set `HOST_NAME` in `.env` for canonical URL enforcement and friendlier URLs. Set `HOST_IP` if path analysis can't auto-detect the server IP (bridge networking). See [Client Speed Testing](DEPLOYMENT.md#client-speed-testing-optional) for details.
 
+**HTTPS Note:** If serving OpenSpeedTest over HTTPS (`OPENSPEEDTEST_HTTPS=true`), you must also set `REVERSE_PROXIED_HOST_NAME` so the main app is accessible via HTTPS. Browsers block mixed content (HTTPS pages cannot POST to HTTP endpoints). See [HTTPS Configuration Requirements](DEPLOYMENT.md#https-configuration-requirements).
+
 **To disable:** Comment out the `openspeedtest` service in `docker-compose.yml`.
 
 See [Client Speed Testing](DEPLOYMENT.md#client-speed-testing-optional) for full setup details.
