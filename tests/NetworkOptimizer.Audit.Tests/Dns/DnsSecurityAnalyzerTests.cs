@@ -6480,4 +6480,152 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region Legacy LAN_IN DoT/DoH Detection Tests
+
+    [Fact]
+    public async Task Analyze_LegacyLanInRule_DoT853_DetectsAsBlocking()
+    {
+        // LAN_IN rules blocking DoT (TCP 853) should be detected as leak prevention
+        // because gateway uses DoH, not DoT, for upstream queries
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "rule1",
+                Name = "Block DoT on LAN",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp",
+                DestinationPort = "853",
+                Ruleset = "LAN_IN",
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId // LAN_IN maps to Internal
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: firewallRules,
+            switches: null,
+            networks: null,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: FirewallRuleParser.LegacyExternalZoneId);
+
+        result.HasDotBlockRule.Should().BeTrue();
+        result.DotRuleName.Should().Be("Block DoT on LAN");
+    }
+
+    [Fact]
+    public async Task Analyze_LegacyLanInRule_Dns53Udp_NotDetectedAsBlocking()
+    {
+        // LAN_IN rules blocking UDP 53 should NOT be detected as leak prevention
+        // because this would also block the gateway's own DNS queries
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "rule1",
+                Name = "Block DNS on LAN",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "udp",
+                DestinationPort = "53",
+                Ruleset = "LAN_IN",
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: firewallRules,
+            switches: null,
+            networks: null,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: FirewallRuleParser.LegacyExternalZoneId);
+
+        // UDP 53 on LAN_IN should NOT be detected - it would break gateway DNS
+        result.HasDns53BlockRule.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_LegacyWanOutRule_Dns53Udp_DetectedAsBlocking()
+    {
+        // WAN_OUT rules blocking UDP 53 should be detected - this is best practice
+        // Gateway DNS queries don't go through WAN_OUT (they originate from gateway)
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "rule1",
+                Name = "Block DNS to Internet",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "udp",
+                DestinationPort = "53",
+                Ruleset = "WAN_OUT",
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyExternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: firewallRules,
+            switches: null,
+            networks: null,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: FirewallRuleParser.LegacyExternalZoneId);
+
+        result.HasDns53BlockRule.Should().BeTrue();
+        result.Dns53RuleName.Should().Be("Block DNS to Internet");
+    }
+
+    [Fact]
+    public async Task Analyze_LegacyGuestInRule_DoT853_NotDetectedAsBlocking()
+    {
+        // GUEST_IN rules should NOT be accepted for DoT blocking
+        // Guest networks typically use external DNS directly
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "rule1",
+                Name = "Block DoT on Guest",
+                Enabled = true,
+                Action = "drop",
+                Protocol = "tcp",
+                DestinationPort = "853",
+                Ruleset = "GUEST_IN",
+                SourceZoneId = FirewallRuleParser.LegacyInternalZoneId,
+                DestinationZoneId = FirewallRuleParser.LegacyInternalZoneId
+            }
+        };
+
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: firewallRules,
+            switches: null,
+            networks: null,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: FirewallRuleParser.LegacyExternalZoneId);
+
+        // GUEST_IN should NOT be detected - guests use external DNS
+        result.HasDotBlockRule.Should().BeFalse();
+    }
+
+    #endregion
 }
