@@ -27,6 +27,7 @@ public class AuditService
     private readonly UniFiConnectionService _connectionService;
     private readonly ConfigAuditEngine _auditEngine;
     private readonly IAuditRepository _auditRepository;
+    private readonly ISiteRepository _siteRepository;
     private readonly SystemSettingsService _settingsService;
     private readonly FingerprintDatabaseService _fingerprintService;
     private readonly PdfStorageService _pdfStorageService;
@@ -38,6 +39,7 @@ public class AuditService
         UniFiConnectionService connectionService,
         ConfigAuditEngine auditEngine,
         IAuditRepository auditRepository,
+        ISiteRepository siteRepository,
         SystemSettingsService settingsService,
         FingerprintDatabaseService fingerprintService,
         PdfStorageService pdfStorageService,
@@ -48,6 +50,7 @@ public class AuditService
         _connectionService = connectionService;
         _auditEngine = auditEngine;
         _auditRepository = auditRepository;
+        _siteRepository = siteRepository;
         _settingsService = settingsService;
         _fingerprintService = fingerprintService;
         _pdfStorageService = pdfStorageService;
@@ -499,7 +502,8 @@ public class AuditService
             // Generate and save PDF for direct download (avoids JS interop issues on mobile)
             try
             {
-                var pdfReportData = BuildReportData(result);
+                var site = await _siteRepository.GetSiteAsync(siteId);
+                var pdfReportData = BuildReportData(result, siteName: site?.Name);
                 await _pdfStorageService.SavePdfAsync(auditId, pdfReportData);
             }
             catch (Exception pdfEx)
@@ -516,17 +520,26 @@ public class AuditService
 
     /// <summary>
     /// Builds a ReportData object from an AuditResult for PDF generation.
-    /// Derives client name from gateway device name if not explicitly provided.
+    /// Uses site name if it's a meaningful name (not an IP/hostname), otherwise falls back to gateway device name.
     /// </summary>
-    public Reports.ReportData BuildReportData(AuditResult result, string? clientName = null)
+    public Reports.ReportData BuildReportData(AuditResult result, string? siteName = null, string? clientName = null)
     {
-        // Derive client name from gateway device if not provided
+        // Priority: explicit clientName > meaningful siteName > gateway device name
         if (string.IsNullOrEmpty(clientName))
         {
-            var gateway = result.Switches.FirstOrDefault(s => s.IsGateway);
-            clientName = gateway != null
-                ? DisplayFormatters.ExtractNetworkName(gateway.Name)
-                : "Client";
+            // Check if site name is meaningful (not just an IP or hostname)
+            if (!string.IsNullOrEmpty(siteName) && !LooksLikeHostOrIp(siteName))
+            {
+                clientName = siteName;
+            }
+            else
+            {
+                // Fall back to gateway device name
+                var gateway = result.Switches.FirstOrDefault(s => s.IsGateway);
+                clientName = gateway != null
+                    ? DisplayFormatters.ExtractNetworkName(gateway.Name)
+                    : "Client";
+            }
         }
 
         return new Reports.ReportData
@@ -707,6 +720,49 @@ public class AuditService
         };
     }
 
+    /// <summary>
+    /// Checks if a string looks like a hostname or IP address (default site name after migration).
+    /// Used to determine if site name is meaningful for PDF title or should fall back to gateway name.
+    /// </summary>
+    private static bool LooksLikeHostOrIp(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return true;
+
+        // Check for IP address pattern (v4)
+        if (System.Net.IPAddress.TryParse(name, out _))
+            return true;
+
+        // Check for common hostname patterns
+        // e.g., "192.168.1.1", "unifi.local", "udm-pro.localdomain", "10.0.0.1:443"
+        var lowerName = name.ToLowerInvariant();
+
+        // Contains port number
+        if (name.Contains(':') && name.Split(':').Length == 2)
+        {
+            var parts = name.Split(':');
+            if (int.TryParse(parts[1], out _))
+                return true;
+        }
+
+        // Common hostname suffixes that indicate it's a device name, not a business name
+        var hostnameSuffixes = new[] { ".local", ".localdomain", ".lan", ".home", ".internal" };
+        if (hostnameSuffixes.Any(suffix => lowerName.EndsWith(suffix)))
+            return true;
+
+        // Looks like a hostname (single word with dashes/underscores, no spaces)
+        // e.g., "udm-pro", "unifi_controller", "gateway-01"
+        if (!name.Contains(' ') && (name.Contains('-') || name.Contains('_')) && name.Length < 30)
+        {
+            // But allow names like "Acme-Corp" or "My_Business" which have capital letters
+            // Hostnames are typically all lowercase
+            if (name == lowerName)
+                return true;
+        }
+
+        return false;
+    }
+
     private static Reports.AuditIssue MapAuditIssueToReport(AuditIssue issue, Reports.IssueSeverity severity)
     {
         // Extract device name from "ClientName on SwitchName" format
@@ -862,7 +918,8 @@ public class AuditService
             }
 
             // Build ReportData and generate PDF
-            var reportData = BuildReportData(result);
+            var site = await _siteRepository.GetSiteAsync(audit.SiteId);
+            var reportData = BuildReportData(result, siteName: site?.Name);
             var generator = new Reports.PdfReportGenerator();
             var pdfBytes = generator.GenerateReportBytes(reportData);
 
