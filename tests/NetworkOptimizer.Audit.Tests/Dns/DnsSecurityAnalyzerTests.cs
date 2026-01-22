@@ -132,6 +132,39 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_WithDohOff_SetsStateCorrectly()
+    {
+        // UniFi API also uses "off" as a disabled state
+        var settings = JsonDocument.Parse(@"[
+            { ""key"": ""doh"", ""state"": ""off"" }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohState.Should().Be("off");
+        result.DohConfigured.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Analyze_WithDohOff_WithServers_StillNotConfigured()
+    {
+        // Even with server entries, "off" state means DoH is not configured
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""off"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohState.Should().Be("off");
+        result.DohConfigured.Should().BeFalse("DoH should not be configured when state is 'off'");
+        result.ConfiguredServers.Should().NotBeEmpty("servers are still parsed for reference");
+    }
+
+    [Fact]
     public async Task Analyze_WithDohAuto_SetsStateCorrectly()
     {
         var settings = JsonDocument.Parse(@"[
