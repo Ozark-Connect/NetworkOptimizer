@@ -75,7 +75,7 @@ if [ -d "$DATA_DIR" ] || [ -d "$INSTALL_DIR" ]; then
 fi
 
 # Step 1: Install prerequisites
-echo "[1/8] Installing prerequisites..."
+echo "[1/9] Installing prerequisites..."
 if ! command -v brew &> /dev/null; then
     echo "Installing Homebrew..."
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -102,28 +102,41 @@ if [ "$DOTNET_VERSION" -lt 8 ]; then
     brew upgrade dotnet || brew install dotnet
 fi
 
-# Step 2: Build the application
+# Step 2: Clean up old installation files (preserving user config and logs)
 echo ""
-echo "[2/8] Building Network Optimizer for $RUNTIME..."
+echo "[2/9] Cleaning up old installation files..."
+if [ -d "$INSTALL_DIR" ]; then
+    cd "$INSTALL_DIR"
+    # Remove old non-single-file artifacts (DLLs, pdb, runtimes folder, etc.)
+    rm -rf *.dll *.pdb *.json runtimes/ BuildHost-*/ LatoFont/ 2>/dev/null || true
+    # Note: start.sh, logs/, SpeedTest/, wwwroot/, Templates/ are preserved or rebuilt
+fi
+
+# Step 3: Build the application
+echo ""
+echo "[3/9] Building Network Optimizer for $RUNTIME..."
 cd "$REPO_ROOT"
 dotnet publish src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj \
     -c Release \
     -r "$RUNTIME" \
     --self-contained \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
+    -p:EnableCompressionInSingleFile=true \
+    -p:DebugType=None \
     -o "$INSTALL_DIR"
 
-# Step 3: Sign binaries
+# Step 4: Sign binary (single-file executable has native libs embedded)
 echo ""
-echo "[3/8] Signing binaries..."
+echo "[4/9] Signing binary..."
 cd "$INSTALL_DIR"
-find . -name '*.dylib' -exec codesign --force --sign - {} \;
 codesign --force --sign - NetworkOptimizer.Web
 echo "Verifying signature..."
 codesign -v NetworkOptimizer.Web
 
-# Step 4: Create startup script
+# Step 5: Create startup script
 echo ""
-echo "[4/8] Creating startup script..."
+echo "[5/9] Creating startup script..."
 
 # Get local IP address for display purposes (app auto-detects its own IP)
 LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "your-mac-ip")
@@ -160,16 +173,16 @@ if [ -n "${BACKUP_DIR:-}" ] && [ -f "$BACKUP_DIR/start.sh" ]; then
     echo "  ✓ Restored custom startup configuration from backup"
 fi
 
-# Step 5: Create log directory
+# Step 6: Create log directory
 echo ""
-echo "[5/8] Creating directories..."
+echo "[6/9] Creating directories..."
 mkdir -p "$INSTALL_DIR/logs"
 mkdir -p "$DATA_DIR"
 mkdir -p "$LAUNCH_AGENT_DIR"
 
-# Step 6: Set up OpenSpeedTest with nginx
+# Step 7: Set up OpenSpeedTest with nginx
 echo ""
-echo "[6/8] Setting up OpenSpeedTest..."
+echo "[7/9] Setting up OpenSpeedTest..."
 
 SPEEDTEST_DIR="$INSTALL_DIR/SpeedTest"
 mkdir -p "$SPEEDTEST_DIR"/{conf,logs,temp,html/assets/{css,js,fonts,images/icons}}
@@ -263,9 +276,9 @@ else
     SPEEDTEST_AVAILABLE=false
 fi
 
-# Step 7: Create launchd plist for main app
+# Step 8: Create launchd plist for main app
 echo ""
-echo "[7/8] Creating launchd service..."
+echo "[8/9] Creating launchd service..."
 
 cat > "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -292,10 +305,10 @@ cat > "$LAUNCH_AGENT_DIR/$LAUNCH_AGENT_FILE" << EOF
 </plist>
 EOF
 
-# Step 8: Start services
+# Step 9: Start services
 # Note: The app manages nginx and iperf3 internally - no separate launchd services needed
 echo ""
-echo "[8/8] Starting services..."
+echo "[9/9] Starting services..."
 
 # Migrate from old plist name if present
 if [ -f "$LAUNCH_AGENT_DIR/$OLD_LAUNCH_AGENT_FILE" ]; then
