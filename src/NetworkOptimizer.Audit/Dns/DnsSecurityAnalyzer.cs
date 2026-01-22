@@ -752,14 +752,14 @@ public class DnsSecurityAnalyzer
         }
         else if (result.DohState == "auto")
         {
-            // DoH is auto-negotiated, may fall back to unencrypted
+            // DoH auto mode uses default providers whose privacy practices you may not have reviewed
             result.Issues.Add(new AuditIssue
             {
                 Type = IssueTypes.DnsDohAuto,
                 Severity = AuditSeverity.Informational,
                 DeviceName = result.GatewayName,
-                Message = "DoH is set to 'auto' mode which may fall back to unencrypted DNS. Consider setting to 'custom' for guaranteed encryption.",
-                RecommendedAction = "Configure DoH with explicit custom servers for guaranteed encryption",
+                Message = "DoH is using default providers whose privacy policies you may not have reviewed. Default providers may log queries and do not guarantee anonymity.",
+                RecommendedAction = "Consider configuring custom DoH servers from privacy-focused providers if DNS query privacy is important",
                 RuleId = "DNS-DOH-002",
                 ScoreImpact = 3
             });

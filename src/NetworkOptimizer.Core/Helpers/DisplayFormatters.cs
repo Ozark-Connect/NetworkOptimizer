@@ -419,7 +419,7 @@ public static class DisplayFormatters
             return display;
         }
 
-        if (dohState == "auto") return "Auto (may fallback)";
+        if (dohState == "auto") return "Auto (default providers)";
         return "Enabled";
     }
 
