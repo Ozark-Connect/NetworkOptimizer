@@ -1133,6 +1133,21 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch network configs for zone ID detection");
             }
 
+            // Fetch firewall zones for zone validation and DMZ/Hotspot identification
+            List<NetworkOptimizer.UniFi.Models.UniFiFirewallZone>? firewallZones = null;
+            try
+            {
+                firewallZones = await _connectionService.Client.GetFirewallZonesAsync();
+                if (firewallZones.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} firewall zones for zone validation", firewallZones.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch firewall zones for zone validation");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -1166,7 +1181,8 @@ public class AuditService
                 PiholeManagementPort = options.PiholeManagementPort,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
-                NetworkConfigs = networkConfigs
+                NetworkConfigs = networkConfigs,
+                FirewallZones = firewallZones
             });
 
             // Convert audit result to web models

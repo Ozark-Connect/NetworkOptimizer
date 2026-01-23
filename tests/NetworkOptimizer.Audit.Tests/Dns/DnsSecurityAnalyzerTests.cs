@@ -7,6 +7,7 @@ using Moq.Protected;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Dns;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -3184,9 +3185,9 @@ public class DnsSecurityAnalyzerTests : IDisposable
             new NetworkInfo
             {
                 Id = "net2",
-                Name = "Guest",
+                Name = "IoT",
                 VlanId = 50,
-                Purpose = NetworkPurpose.Guest, // Non-Corporate - should be flagged for not using third-party DNS
+                Purpose = NetworkPurpose.IoT, // Non-Corporate - should be flagged for not using third-party DNS
                 DhcpEnabled = true,
                 Gateway = "192.168.50.1",
                 DnsServers = new List<string> { "192.168.50.1" } // Missing third-party DNS
@@ -3205,6 +3206,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             networks: networks);
 
         // Assert - Moderate score impact (5) since inconsistency may be intentional
+        // Note: Guest networks are now exempt and get informational issue instead
         var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
         inconsistentIssue.Should().NotBeNull();
         inconsistentIssue!.ScoreImpact.Should().Be(5);
@@ -6625,6 +6627,563 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         // GUEST_IN should NOT be detected - guests use external DNS
         result.HasDotBlockRule.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region DMZ and Guest Network DNS Consistency Tests
+
+    [Fact]
+    public async Task Analyze_DmzNetworkWithoutThirdPartyDns_GetsInfoIssueNotInconsistentConfig()
+    {
+        // Arrange - Third-party DNS on one network, DMZ network uses gateway DNS
+        // DMZ networks should get an informational issue, not consistency error
+        var dmzZoneId = "zone-dmz-001";
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" },
+            new() { Id = dmzZoneId, ZoneKey = "dmz", Name = "DMZ" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "DMZ Servers",
+                VlanId = 100,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.100.1",
+                DnsServers = new List<string> { "192.168.100.1" }, // Gateway DNS (no Pi-hole)
+                FirewallZoneId = dmzZoneId // This network is in the DMZ zone
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - DMZ network should NOT get consistency issue, should get Info issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var dmzIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsDmzNetworkInfo);
+        dmzIssue.Should().NotBeNull();
+        dmzIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        dmzIssue.Message.Should().Contain("DMZ Servers");
+        dmzIssue.Message.Should().Contain("isolated from the gateway by design");
+    }
+
+    [Fact]
+    public async Task Analyze_GuestNetworkWithoutThirdPartyDns_GetsInfoIssueNotInconsistentConfig()
+    {
+        // Arrange - Third-party DNS on one network, Guest network uses gateway DNS
+        // Guest networks with Purpose=Guest should get an informational issue
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" },
+            new() { Id = "zone-hotspot-001", ZoneKey = "hotspot", Name = "Hotspot" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Guest WiFi",
+                VlanId = 50,
+                Purpose = NetworkPurpose.Guest, // Guest network by purpose
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.50.1" }, // Gateway DNS
+                FirewallZoneId = "zone-hotspot-001"
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Guest network should NOT get consistency issue, should get Info issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var guestIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo);
+        guestIssue.Should().NotBeNull();
+        guestIssue!.Severity.Should().Be(AuditSeverity.Informational);
+        guestIssue.Message.Should().Contain("Guest WiFi");
+        guestIssue.Message.Should().Contain("third-party LAN DNS servers require explicit firewall rules");
+    }
+
+    [Fact]
+    public async Task Analyze_IsUniFiGuestNetworkWithoutThirdPartyDns_GetsInfoIssue()
+    {
+        // Arrange - Guest network identified by IsUniFiGuestNetwork flag
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Hotspot Network",
+                VlanId = 60,
+                Purpose = NetworkPurpose.Home, // Purpose is not Guest
+                IsUniFiGuestNetwork = true, // But this is a UniFi guest network
+                DhcpEnabled = true,
+                Gateway = "192.168.60.1",
+                DnsServers = new List<string> { "192.168.60.1" }, // Gateway DNS
+                FirewallZoneId = "zone-internal-001"
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - IsUniFiGuestNetwork should get Info issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var guestIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo);
+        guestIssue.Should().NotBeNull();
+        guestIssue!.Message.Should().Contain("Hotspot Network");
+    }
+
+    [Fact]
+    public async Task Analyze_RegularNetworkWithoutThirdPartyDns_StillGetsInconsistentConfig()
+    {
+        // Arrange - Regular network (not DMZ, not Guest) should still get consistency issue
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT Network",
+                VlanId = 30,
+                Purpose = NetworkPurpose.IoT,
+                DhcpEnabled = true,
+                Gateway = "192.168.30.1",
+                DnsServers = new List<string> { "192.168.30.1" }, // Not using Pi-hole
+                FirewallZoneId = "zone-internal-001" // Regular internal network
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Regular IoT network SHOULD get consistency issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        inconsistentIssue.Should().NotBeNull();
+        inconsistentIssue!.Message.Should().Contain("IoT Network");
+
+        // Should NOT get DMZ or Guest info issues
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDmzNetworkInfo);
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo);
+    }
+
+    [Fact]
+    public async Task Analyze_WithoutZoneLookup_GuestNetworkByPurposeStillGetsInfoIssue()
+    {
+        // Arrange - Even without zone lookup, Guest networks by Purpose should get Info issue
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Guest",
+                VlanId = 50,
+                Purpose = NetworkPurpose.Guest, // Guest by purpose
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.50.1" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act - No zone lookup provided
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Guest should get Info issue even without zone lookup
+        result.HasThirdPartyDns.Should().BeTrue();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        var guestIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo);
+        guestIssue.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Analyze_DmzNetworkWithoutZoneLookup_NotIdentifiedAsDmz()
+    {
+        // Arrange - Without zone lookup, DMZ networks can't be identified (no FirewallZoneId lookup)
+        // This tests that DMZ detection requires zone lookup
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" } // Pi-hole
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "DMZ Servers",
+                VlanId = 100,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.100.1",
+                DnsServers = new List<string> { "192.168.100.1" },
+                FirewallZoneId = "zone-dmz-001" // Zone ID exists but no lookup to verify it's DMZ
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act - No zone lookup provided
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks);
+
+        // Assert - Without zone lookup, DMZ can't be identified, gets regular inconsistent issue
+        result.HasThirdPartyDns.Should().BeTrue();
+        var inconsistentIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsInconsistentConfig);
+        inconsistentIssue.Should().NotBeNull();
+        inconsistentIssue!.Message.Should().Contain("DMZ Servers");
+
+        // Should NOT get DMZ info issue since we can't identify it without zone lookup
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDmzNetworkInfo);
+    }
+
+    [Fact]
+    public async Task Analyze_DmzInfoIssue_HasZeroScoreImpact()
+    {
+        // Arrange - DMZ issues should be informational with no score impact
+        var dmzZoneId = "zone-dmz-001";
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" },
+            new() { Id = dmzZoneId, ZoneKey = "dmz", Name = "DMZ" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "DMZ",
+                VlanId = 100,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.100.1",
+                DnsServers = new List<string> { "192.168.100.1" },
+                FirewallZoneId = dmzZoneId
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - DMZ info issue has zero score impact
+        var dmzIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsDmzNetworkInfo);
+        dmzIssue.Should().NotBeNull();
+        dmzIssue!.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_GuestInfoIssue_HasZeroScoreImpact()
+    {
+        // Arrange - Guest issues should be informational with no score impact
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Guest",
+                VlanId = 50,
+                Purpose = NetworkPurpose.Guest,
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                DnsServers = new List<string> { "192.168.50.1" }
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Guest info issue has zero score impact
+        var guestIssue = result.Issues.FirstOrDefault(i => i.Type == IssueTypes.DnsGuestThirdPartyInfo);
+        guestIssue.Should().NotBeNull();
+        guestIssue!.ScoreImpact.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Analyze_MultipleDmzNetworks_GroupedInSingleInfoIssue()
+    {
+        // Arrange - Multiple DMZ networks should be grouped in a single info issue
+        var dmzZoneId = "zone-dmz-001";
+        var zones = new List<UniFiFirewallZone>
+        {
+            new() { Id = "zone-internal-001", ZoneKey = "internal", Name = "Internal" },
+            new() { Id = "zone-external-001", ZoneKey = "external", Name = "External" },
+            new() { Id = dmzZoneId, ZoneKey = "dmz", Name = "DMZ" }
+        };
+        var zoneLookup = new FirewallZoneLookup(zones);
+
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole
+                FirewallZoneId = "zone-internal-001"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "DMZ Web",
+                VlanId = 100,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.100.1",
+                DnsServers = new List<string> { "192.168.100.1" },
+                FirewallZoneId = dmzZoneId
+            },
+            new NetworkInfo
+            {
+                Id = "net3",
+                Name = "DMZ Database",
+                VlanId = 101,
+                Purpose = NetworkPurpose.Home,
+                DhcpEnabled = true,
+                Gateway = "192.168.101.1",
+                DnsServers = new List<string> { "192.168.101.1" },
+                FirewallZoneId = dmzZoneId
+            }
+        };
+        var switches = new List<SwitchInfo>
+        {
+            new SwitchInfo { Name = "Gateway", IsGateway = true }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: switches,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Should have single DMZ info issue mentioning both networks
+        var dmzIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsDmzNetworkInfo).ToList();
+        dmzIssues.Should().HaveCount(1);
+        dmzIssues[0].Message.Should().Contain("DMZ Web");
+        dmzIssues[0].Message.Should().Contain("DMZ Database");
     }
 
     #endregion

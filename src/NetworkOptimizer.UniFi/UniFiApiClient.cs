@@ -890,6 +890,50 @@ public class UniFiApiClient : IDisposable
         return new List<UniFiPortForwardRule>();
     }
 
+    /// <summary>
+    /// GET v2/api/site/{site}/firewall/zone - Get all firewall zones.
+    /// Returns the predefined zones (internal, external, gateway, vpn, hotspot, dmz)
+    /// and which networks are assigned to each zone.
+    /// </summary>
+    public async Task<List<UniFiFirewallZone>> GetFirewallZonesAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching firewall zones from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            _logger.LogWarning("Failed to authenticate when fetching firewall zones");
+            return [];
+        }
+
+        try
+        {
+            var url = BuildV2ApiPath($"site/{_site}/firewall/zone");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to retrieve firewall zones: {StatusCode}", response.StatusCode);
+                return [];
+            }
+
+            var zones = await response.Content.ReadFromJsonAsync<List<UniFiFirewallZone>>(cancellationToken: cancellationToken);
+
+            if (zones != null)
+            {
+                _logger.LogInformation("Retrieved {Count} firewall zones", zones.Count);
+                return zones;
+            }
+
+            _logger.LogWarning("Failed to deserialize firewall zones response");
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch firewall zones");
+            return [];
+        }
+    }
+
     #endregion
 
     #region Network Configuration APIs

@@ -75,4 +75,8 @@ public static class IssueTypes
     public const string DnsDnatSingleIp = "DNS_DNAT_SINGLE_IP";
     public const string DnsDnatWrongDestination = "DNS_DNAT_WRONG_DESTINATION";
     public const string DnsDnatRestrictedDestination = "DNS_DNAT_RESTRICTED_DESTINATION";
+
+    // DNS Zone-Specific Info Issues
+    public const string DnsDmzNetworkInfo = "DNS_DMZ_NETWORK_INFO";
+    public const string DnsGuestThirdPartyInfo = "DNS_GUEST_THIRD_PARTY_INFO";
 }
