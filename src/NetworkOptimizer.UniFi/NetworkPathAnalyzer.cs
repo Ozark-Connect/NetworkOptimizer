@@ -840,10 +840,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
-                // Wired client - get port speed from switch
+                // Wired client - get port speed and port info from switch
                 int portSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 hop.EgressSpeedMbps = portSpeed;
                 hop.IngressSpeedMbps = portSpeed;
+                hop.EgressPort = currentPort;
+                hop.IngressPort = currentPort;
+                hop.EgressPortName = GetPortName(rawDevices, currentMac, currentPort);
+                hop.IngressPortName = GetPortName(rawDevices, currentMac, currentPort);
             }
 
             hops.Add(hop);
