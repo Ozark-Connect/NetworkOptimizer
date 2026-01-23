@@ -780,29 +780,66 @@ public class DnsSecurityAnalyzer
         // Issue: Networks using DNS servers outside configured subnets (bypasses local DNS filtering)
         if (result.HasExternalDns)
         {
+            // Build a set of DMZ network names for quick lookup
+            var dmzNetworkNames = (networks ?? Enumerable.Empty<NetworkInfo>())
+                .Where(n => zoneLookup?.IsDmzZone(n.FirewallZoneId) == true)
+                .Select(n => n.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             // Group by public vs private, then by provider
             var publicDns = result.ExternalDnsNetworks.Where(e => e.IsPublicDns).ToList();
             var privateDns = result.ExternalDnsNetworks.Where(e => !e.IsPublicDns).ToList();
 
-            // Public DNS (1.1.1.1, 8.8.8.8, etc.) - group by provider
-            foreach (var group in publicDns.GroupBy(e => e.ProviderName ?? "unknown provider"))
+            // Separate DMZ networks from regular networks for public DNS
+            var publicDnsDmz = publicDns.Where(e => dmzNetworkNames.Contains(e.NetworkName)).ToList();
+            var publicDnsRegular = publicDns.Where(e => !dmzNetworkNames.Contains(e.NetworkName)).ToList();
+
+            // DMZ networks with public DNS - Informational (expected for isolated networks)
+            foreach (var group in publicDnsDmz.GroupBy(e => e.ProviderName ?? "unknown provider"))
             {
-                var networkNames = group.Select(e => e.NetworkName).Distinct().ToList();
+                var netNames = group.Select(e => e.NetworkName).Distinct().ToList();
                 var dnsIps = group.Select(e => e.DnsServerIp).Distinct().ToList();
                 var providerName = group.Key;
 
                 result.Issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.DnsExternalBypass,
-                    Severity = AuditSeverity.Critical,
+                    Severity = AuditSeverity.Informational,
                     DeviceName = result.GatewayName,
-                    Message = $"Network(s) ({string.Join(", ", networkNames)}) configured to use external public DNS ({providerName}: {string.Join(", ", dnsIps)}). This bypasses ALL local DNS filtering including gateway DoH and Pi-hole/AdGuard.",
-                    RecommendedAction = "Remove custom DNS configuration from these networks to use gateway DNS, or point them to your local DNS filtering solution (e.g., Pi-hole, AdGuard Home). If intentional, create DNAT rules to redirect DNS traffic.",
-                    RuleId = "DNS-EXT-BYPASS-001",
-                    ScoreImpact = 15,
+                    Message = $"DMZ network(s) ({string.Join(", ", netNames)}) configured to use external public DNS ({providerName}: {string.Join(", ", dnsIps)}). This is expected for isolated DMZ networks.",
+                    RecommendedAction = "If local DNS filtering is desired for DMZ networks, create firewall rules to allow DNS traffic from DMZ to your internal DNS server.",
+                    RuleId = "DNS-EXT-BYPASS-DMZ",
+                    ScoreImpact = 0,
                     Metadata = new Dictionary<string, object>
                     {
-                        { "affected_networks", networkNames },
+                        { "affected_networks", netNames },
+                        { "external_dns_servers", dnsIps },
+                        { "provider_name", providerName },
+                        { "is_public_dns", true },
+                        { "is_dmz", true }
+                    }
+                });
+            }
+
+            // Regular networks with public DNS - Recommended (likely intentional but bypasses filtering)
+            foreach (var group in publicDnsRegular.GroupBy(e => e.ProviderName ?? "unknown provider"))
+            {
+                var netNames = group.Select(e => e.NetworkName).Distinct().ToList();
+                var dnsIps = group.Select(e => e.DnsServerIp).Distinct().ToList();
+                var providerName = group.Key;
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsExternalBypass,
+                    Severity = AuditSeverity.Recommended,
+                    DeviceName = result.GatewayName,
+                    Message = $"Network(s) ({string.Join(", ", netNames)}) configured to use external public DNS ({providerName}: {string.Join(", ", dnsIps)}). This bypasses local DNS filtering including gateway DoH and Pi-hole/AdGuard.",
+                    RecommendedAction = "Remove custom DNS configuration from these networks to use gateway DNS, or point them to your local DNS filtering solution (e.g., Pi-hole, AdGuard Home). If intentional, create DNAT rules to redirect DNS traffic.",
+                    RuleId = "DNS-EXT-BYPASS-001",
+                    ScoreImpact = 8,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "affected_networks", netNames },
                         { "external_dns_servers", dnsIps },
                         { "provider_name", providerName },
                         { "is_public_dns", true }
@@ -813,7 +850,7 @@ public class DnsSecurityAnalyzer
             // Private DNS outside configured subnets - could be misconfiguration or unconfigured network
             if (privateDns.Any())
             {
-                var networkNames = privateDns.Select(e => e.NetworkName).Distinct().ToList();
+                var netNames = privateDns.Select(e => e.NetworkName).Distinct().ToList();
                 var dnsIps = privateDns.Select(e => e.DnsServerIp).Distinct().ToList();
 
                 result.Issues.Add(new AuditIssue
@@ -821,13 +858,13 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsExternalBypass,
                     Severity = AuditSeverity.Recommended,
                     DeviceName = result.GatewayName,
-                    Message = $"Network(s) ({string.Join(", ", networkNames)}) configured to use private DNS servers outside configured subnets ({string.Join(", ", dnsIps)}). These may be on an unconfigured network or misconfigured.",
+                    Message = $"Network(s) ({string.Join(", ", netNames)}) configured to use private DNS servers outside configured subnets ({string.Join(", ", dnsIps)}). These may be on an unconfigured network or misconfigured.",
                     RecommendedAction = "Verify these DNS servers are intentional. If they're local DNS servers (e.g., Pi-hole), ensure their subnet is configured in the network settings. Otherwise, remove the custom DNS configuration.",
                     RuleId = "DNS-EXT-BYPASS-002",
                     ScoreImpact = 6,
                     Metadata = new Dictionary<string, object>
                     {
-                        { "affected_networks", networkNames },
+                        { "affected_networks", netNames },
                         { "external_dns_servers", dnsIps },
                         { "is_public_dns", false }
                     }
