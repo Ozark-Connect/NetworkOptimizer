@@ -493,6 +493,170 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Detect user-created ALLOW rules that create exceptions to the UniFi-managed "Isolated Networks" rules.
+    /// When a network has NetworkIsolationEnabled, UniFi creates predefined BLOCK rules to enforce isolation.
+    /// User ALLOW rules placed before these rules create exceptions that should be reported as Info issues.
+    /// </summary>
+    /// <param name="rules">Firewall rules to analyze (including predefined rules)</param>
+    /// <param name="networks">Network configurations</param>
+    /// <returns>List of Info-level issues for network isolation exceptions</returns>
+    public List<AuditIssue> DetectNetworkIsolationExceptions(List<FirewallRule> rules, List<NetworkInfo> networks)
+    {
+        var issues = new List<AuditIssue>();
+
+        // Find networks that have isolation enabled (these have predefined "Isolated Networks" rules)
+        var isolatedNetworks = networks.Where(n => n.NetworkIsolationEnabled).ToList();
+
+        if (!isolatedNetworks.Any())
+        {
+            _logger.LogDebug("No networks with isolation enabled found");
+            return issues;
+        }
+
+        // Verify there are predefined "Isolated Networks" rules
+        var isolatedNetworkRules = rules.Where(r =>
+            r.Predefined &&
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            string.Equals(r.Name, "Isolated Networks", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (!isolatedNetworkRules.Any())
+        {
+            _logger.LogDebug("No predefined 'Isolated Networks' rules found");
+            return issues;
+        }
+
+        _logger.LogDebug("Found {Count} networks with isolation enabled and {RuleCount} 'Isolated Networks' rules",
+            isolatedNetworks.Count, isolatedNetworkRules.Count);
+
+        // Build a set of isolated network IDs for quick lookup
+        var isolatedNetworkIds = new HashSet<string>(isolatedNetworks.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
+
+        // Find user-created ALLOW rules that allow traffic involving isolated networks
+        var userAllowRules = rules.Where(r =>
+            !r.Predefined &&
+            r.Enabled &&
+            r.ActionType.IsAllowAction()).ToList();
+
+        foreach (var rule in userAllowRules)
+        {
+            // Check if this rule allows traffic FROM an isolated network
+            var sourceIsolatedNetworks = GetInvolvedIsolatedNetworks(rule, isolatedNetworks, isSource: true);
+
+            // Check if this rule allows traffic TO an isolated network
+            var destIsolatedNetworks = GetInvolvedIsolatedNetworks(rule, isolatedNetworks, isSource: false);
+
+            // If traffic involves isolated networks, it's an exception to the isolation
+            if (sourceIsolatedNetworks.Any() || destIsolatedNetworks.Any())
+            {
+                // Determine the purpose suffix for grouping (similar to Cross-VLAN exceptions)
+                var purposeSuffix = GetIsolationExceptionPurposeSuffix(sourceIsolatedNetworks, destIsolatedNetworks);
+
+                // Build description of what networks are involved
+                var involvedNetworks = sourceIsolatedNetworks.Concat(destIsolatedNetworks).Distinct().ToList();
+                var networkNames = string.Join(", ", involvedNetworks.Select(n => n.Name));
+
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.NetworkIsolationException,
+                    Severity = AuditSeverity.Informational,
+                    Message = $"Allow rule '{rule.Name}' creates an exception to network isolation",
+                    Description = $"Network Isolation Exception{purposeSuffix}",
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "rule_name", rule.Name ?? rule.Id },
+                        { "rule_index", rule.Index },
+                        { "isolated_networks", networkNames },
+                        { "source_networks", string.Join(", ", sourceIsolatedNetworks.Select(n => n.Name)) },
+                        { "dest_networks", string.Join(", ", destIsolatedNetworks.Select(n => n.Name)) },
+                        { "pattern", "isolation_exception" }
+                    },
+                    RuleId = "FW-ISOLATION-EXCEPTION-001",
+                    ScoreImpact = 0,
+                    RecommendedAction = "This appears to be a deliberate exception to network isolation - verify this is intended"
+                });
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Get the isolated networks involved in a firewall rule (as source or destination).
+    /// </summary>
+    private List<NetworkInfo> GetInvolvedIsolatedNetworks(FirewallRule rule, List<NetworkInfo> isolatedNetworks, bool isSource)
+    {
+        var result = new List<NetworkInfo>();
+
+        foreach (var network in isolatedNetworks)
+        {
+            bool isInvolved;
+            if (isSource)
+            {
+                isInvolved = AppliesToSourceNetwork(rule, network.Id);
+            }
+            else
+            {
+                isInvolved = AppliesToDestinationNetwork(rule, network.Id);
+            }
+
+            if (isInvolved)
+            {
+                result.Add(network);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Get a purpose suffix for isolation exception grouping based on the network purposes involved.
+    /// </summary>
+    private static string GetIsolationExceptionPurposeSuffix(List<NetworkInfo> sourceNetworks, List<NetworkInfo> destNetworks)
+    {
+        // Collect unique purposes from all involved networks
+        var purposes = sourceNetworks.Concat(destNetworks)
+            .Select(n => n.Purpose)
+            .Distinct()
+            .ToList();
+
+        if (purposes.Count == 1)
+        {
+            return purposes[0] switch
+            {
+                NetworkPurpose.IoT => " (IoT)",
+                NetworkPurpose.Security => " (Security)",
+                NetworkPurpose.Management => " (Management)",
+                NetworkPurpose.Guest => " (Guest)",
+                NetworkPurpose.Corporate => " (Corporate)",
+                NetworkPurpose.Home => " (Home)",
+                _ => ""
+            };
+        }
+
+        // Multiple purposes - check for common patterns
+        if (purposes.Count == 2)
+        {
+            // Sort for consistent naming
+            var sorted = purposes.OrderBy(p => p.ToString()).ToList();
+
+            // Management exceptions are common
+            if (sorted.Contains(NetworkPurpose.Management))
+            {
+                return " (Management)";
+            }
+
+            // Security/IoT exceptions
+            if (sorted.Contains(NetworkPurpose.Security) && sorted.Contains(NetworkPurpose.IoT))
+            {
+                return " (Security/IoT)";
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>
     /// Helper to find and flag ALLOW rules between networks that should be isolated.
     /// Rules targeting the External zone are skipped - they're for outbound internet access, not inter-VLAN traffic.
     /// </summary>
@@ -857,6 +1021,7 @@ public class FirewallRuleAnalyzer
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
+        issues.AddRange(DetectNetworkIsolationExceptions(rules, networks));
 
         _logger.LogInformation("Found {IssueCount} firewall issues", issues.Count);
 

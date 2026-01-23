@@ -3811,6 +3811,277 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region DetectNetworkIsolationExceptions Tests
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_NoIsolatedNetworks_ReturnsNoIssues()
+    {
+        // Arrange - No networks have isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT to Corp", action: "allow",
+                sourceNetworkIds: new List<string> { networks[0].Id })
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_NoPredefinedIsolatedNetworksRule_ReturnsNoIssues()
+    {
+        // Arrange - Network has isolation enabled but no predefined rule exists
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT Access", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id })
+            // No predefined "Isolated Networks" rule
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleFromIsolatedNetwork_ReturnsIssue()
+    {
+        // Arrange - IoT network has isolation enabled, user created an allow rule FROM it
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule from isolated network
+            CreateFirewallRule("Allow IoT to Printer", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Severity.Should().Be(AuditSeverity.Informational);
+        issues[0].Description.Should().Be("Network Isolation Exception (IoT)");
+        issues[0].Message.Should().Contain("Allow IoT to Printer");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleToIsolatedNetwork_ReturnsIssue()
+    {
+        // Arrange - Security network has isolation enabled, user created an allow rule TO it
+        var securityNetwork = CreateNetwork("Security", NetworkPurpose.Security, id: "sec-123", networkIsolationEnabled: true);
+        var corpNetwork = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-123", networkIsolationEnabled: false);
+        var networks = new List<NetworkInfo> { securityNetwork, corpNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule to isolated network
+            CreateFirewallRuleWithDestination("Allow to Cameras", action: "allow",
+                sourceNetworkIds: new List<string> { corpNetwork.Id },
+                destNetworkIds: new List<string> { securityNetwork.Id }),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(securityNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Description.Should().Be("Network Isolation Exception (Security)");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleBetweenIsolatedNetworks_ReturnsIssue()
+    {
+        // Arrange - Both IoT and Security have isolation, allow rule between them
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var securityNetwork = CreateNetwork("Security", NetworkPurpose.Security, id: "sec-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule between isolated networks
+            CreateFirewallRuleWithDestination("Allow IoT to Cameras", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                destNetworkIds: new List<string> { securityNetwork.Id }),
+            // Predefined rules for both networks
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id),
+            CreatePredefinedIsolatedNetworksRule(securityNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Description.Should().Be("Network Isolation Exception (Security/IoT)");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_PredefinedAllowRule_IsIgnored()
+    {
+        // Arrange - Predefined allow rule should not be flagged
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Predefined allow rule (system-generated) - should be ignored
+            CreateFirewallRule("Allow Return Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                predefined: true),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_DisabledUserAllowRule_IsIgnored()
+    {
+        // Arrange - Disabled allow rule should not be flagged
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Disabled allow rule
+            CreateFirewallRule("Allow IoT Access", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                enabled: false),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementNetwork_HasCorrectPurposeSuffix()
+    {
+        // Arrange - Management network exception should have (Management) suffix
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow SSH to MGMT", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id }),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Description.Should().Be("Network Isolation Exception (Management)");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_MultipleAllowRules_ReturnsMultipleIssues()
+    {
+        // Arrange - Multiple allow rules creating exceptions
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT to Printer", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }, index: 1),
+            CreateFirewallRule("Allow IoT HTTP", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }, index: 2),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(2);
+        issues.Should().AllSatisfy(i => i.Type.Should().Be(IssueTypes.NetworkIsolationException));
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_BlockRule_IsIgnored()
+    {
+        // Arrange - Block rules should not be flagged as exceptions
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block IoT External", action: "block",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    private static FirewallRule CreatePredefinedIsolatedNetworksRule(string originNetworkId)
+    {
+        return new FirewallRule
+        {
+            Id = $"isolated-{originNetworkId}",
+            Name = "Isolated Networks",
+            Action = "block",
+            Enabled = true,
+            Predefined = true,
+            Index = 30000 // High index like real UniFi rules
+        };
+    }
+
+    private static FirewallRule CreateFirewallRuleWithDestination(
+        string name,
+        string action = "allow",
+        List<string>? sourceNetworkIds = null,
+        List<string>? destNetworkIds = null,
+        bool enabled = true,
+        bool predefined = false)
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            Action = action,
+            Enabled = enabled,
+            Predefined = predefined,
+            Index = 1,
+            SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
+            DestinationNetworkIds = destNetworkIds,
+            DestinationMatchingTarget = destNetworkIds?.Any() == true ? "NETWORK" : null
+        };
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -3859,6 +4130,7 @@ public class FirewallRuleAnalyzerTests
             Enabled = enabled,
             Index = index,
             SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
             WebDomains = webDomains,
             DestinationPort = destinationPort ?? destPort,
             SourceType = sourceType,
