@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -165,5 +166,96 @@ public static class NetworkUtilities
                name.StartsWith("veth") || name.StartsWith("cni") ||
                name.StartsWith("gre") || name.StartsWith("ifb") ||
                name.StartsWith("wg");  // WireGuard
+    }
+
+    /// <summary>
+    /// Check if an IP address string is within a given subnet (CIDR notation like "192.168.1.0/24").
+    /// </summary>
+    /// <param name="ipAddress">IP address to check (e.g., "192.168.1.100")</param>
+    /// <param name="cidrSubnet">Subnet in CIDR notation (e.g., "192.168.1.0/24")</param>
+    /// <returns>True if the IP is within the subnet, false otherwise</returns>
+    public static bool IsIpInSubnet(string ipAddress, string? cidrSubnet)
+    {
+        if (string.IsNullOrEmpty(cidrSubnet))
+            return false;
+
+        if (!IPAddress.TryParse(ipAddress, out var ip))
+            return false;
+
+        return IsIpInSubnet(ip, cidrSubnet);
+    }
+
+    /// <summary>
+    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24").
+    /// </summary>
+    /// <param name="ip">Parsed IP address to check</param>
+    /// <param name="cidrSubnet">Subnet in CIDR notation (e.g., "192.168.1.0/24")</param>
+    /// <returns>True if the IP is within the subnet, false otherwise</returns>
+    public static bool IsIpInSubnet(IPAddress ip, string cidrSubnet)
+    {
+        var parts = cidrSubnet.Split('/');
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var prefixLength))
+            return false;
+
+        if (!IPAddress.TryParse(parts[0], out var networkAddress))
+            return false;
+
+        // Only handle IPv4
+        if (ip.AddressFamily != AddressFamily.InterNetwork ||
+            networkAddress.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        var ipBytes = ip.GetAddressBytes();
+        var networkBytes = networkAddress.GetAddressBytes();
+
+        // Create mask from prefix length
+        var maskBytes = new byte[4];
+        var remainingBits = prefixLength;
+        for (int i = 0; i < 4; i++)
+        {
+            if (remainingBits >= 8)
+            {
+                maskBytes[i] = 0xFF;
+                remainingBits -= 8;
+            }
+            else if (remainingBits > 0)
+            {
+                maskBytes[i] = (byte)(0xFF << (8 - remainingBits));
+                remainingBits = 0;
+            }
+            else
+            {
+                maskBytes[i] = 0;
+            }
+        }
+
+        // Check if masked IP equals masked network
+        for (int i = 0; i < 4; i++)
+        {
+            if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Check if an IP address is within any of the given subnets.
+    /// </summary>
+    /// <param name="ipAddress">IP address to check</param>
+    /// <param name="cidrSubnets">Collection of subnets in CIDR notation</param>
+    /// <returns>True if the IP is within any subnet, false otherwise</returns>
+    public static bool IsIpInAnySubnet(string ipAddress, IEnumerable<string> cidrSubnets)
+    {
+        if (!IPAddress.TryParse(ipAddress, out var ip))
+            return false;
+
+        foreach (var subnet in cidrSubnets)
+        {
+            if (!string.IsNullOrEmpty(subnet) && IsIpInSubnet(ip, subnet))
+                return true;
+        }
+
+        return false;
     }
 }

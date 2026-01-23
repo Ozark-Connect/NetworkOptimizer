@@ -2,6 +2,7 @@
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Core.Helpers
 @using Microsoft.JSInterop
 @implements IDisposable
 @inject IJSRuntime JS
@@ -665,7 +666,7 @@
 
         if (_networks != null)
         {
-            var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
+            var matchingNetwork = _networks.FirstOrDefault(n => NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             // If in a UniFi VPN network, label as VPN
             if (matchingNetwork?.Purpose == "remote-user-vpn")
@@ -719,47 +720,6 @@
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a CIDR subnet.
-    /// </summary>
-    // TODO: Extract to shared utility (duplicated in ClientSpeedTest.razor, VlanAnalyzer.cs)
-    private static bool IsIpInSubnet(string ipAddress, string? cidr)
-    {
-        if (string.IsNullOrEmpty(cidr))
-            return false;
-
-        var parts = cidr.Split('/');
-        if (parts.Length != 2 ||
-            !System.Net.IPAddress.TryParse(ipAddress, out var ip) ||
-            !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-            !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var subnetBytes = subnetIp.GetAddressBytes();
-
-        if (ipBytes.Length != subnetBytes.Length)
-            return false;
-
-        int fullBytes = prefixLength / 8;
-        int remainingBits = prefixLength % 8;
-
-        for (int i = 0; i < fullBytes && i < ipBytes.Length; i++)
-        {
-            if (ipBytes[i] != subnetBytes[i])
-                return false;
-        }
-
-        if (fullBytes < ipBytes.Length && remainingBits > 0)
-        {
-            byte mask = (byte)(0xFF << (8 - remainingBits));
-            if ((ipBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
-                return false;
-        }
-
-        return true;
     }
 
     private string BuildPopup(Iperf3Result result, bool isExternal)

@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Dns;
 
@@ -194,7 +195,7 @@ public class ThirdPartyDnsDetector
                     continue;
 
                 // Skip if DNS server is within any configured internal network subnet
-                if (IsIpInAnySubnet(dnsServer, internalSubnets))
+                if (NetworkUtilities.IsIpInAnySubnet(dnsServer, internalSubnets))
                     continue;
 
                 // This is an external DNS server (not within any internal subnet)
@@ -213,73 +214,6 @@ public class ThirdPartyDnsDetector
         }
 
         return results;
-    }
-
-    /// <summary>
-    /// Check if an IP address falls within any of the given subnets
-    /// </summary>
-    private bool IsIpInAnySubnet(string ipAddress, List<string> subnets)
-    {
-        if (!IPAddress.TryParse(ipAddress, out var ip))
-            return false;
-
-        foreach (var subnet in subnets)
-        {
-            if (IsIpInSubnet(ip, subnet))
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24")
-    /// </summary>
-    private bool IsIpInSubnet(IPAddress ip, string subnet)
-    {
-        var parts = subnet.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        if (!IPAddress.TryParse(parts[0], out var networkAddress))
-            return false;
-
-        // Only handle IPv4
-        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
-            networkAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var networkBytes = networkAddress.GetAddressBytes();
-
-        // Create mask from prefix length
-        var maskBytes = new byte[4];
-        for (int i = 0; i < 4; i++)
-        {
-            if (prefixLength >= 8)
-            {
-                maskBytes[i] = 0xFF;
-                prefixLength -= 8;
-            }
-            else if (prefixLength > 0)
-            {
-                maskBytes[i] = (byte)(0xFF << (8 - prefixLength));
-                prefixLength = 0;
-            }
-            else
-            {
-                maskBytes[i] = 0;
-            }
-        }
-
-        // Check if masked IP equals masked network
-        for (int i = 0; i < 4; i++)
-        {
-            if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>

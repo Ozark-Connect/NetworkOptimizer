@@ -981,60 +981,10 @@ public class VlanAnalyzer
             if (string.IsNullOrEmpty(network.Subnet))
                 continue;
 
-            if (IsIpInSubnet(ipAddress, network.Subnet))
+            if (NetworkUtilities.IsIpInSubnet(ipAddress, network.Subnet))
                 return network;
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24").
-    /// </summary>
-    private static bool IsIpInSubnet(System.Net.IPAddress ip, string subnet)
-    {
-        var parts = subnet.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        if (!System.Net.IPAddress.TryParse(parts[0], out var networkAddress))
-            return false;
-
-        // Only handle IPv4
-        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
-            networkAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var networkBytes = networkAddress.GetAddressBytes();
-
-        // Create mask from prefix length
-        var maskBytes = new byte[4];
-        for (int i = 0; i < 4; i++)
-        {
-            if (prefixLength >= 8)
-            {
-                maskBytes[i] = 0xFF;
-                prefixLength -= 8;
-            }
-            else if (prefixLength > 0)
-            {
-                maskBytes[i] = (byte)(0xFF << (8 - prefixLength));
-                prefixLength = 0;
-            }
-            else
-            {
-                maskBytes[i] = 0;
-            }
-        }
-
-        // Check if masked IP equals masked network
-        for (int i = 0; i < 4; i++)
-        {
-            if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                return false;
-        }
-
-        return true;
     }
 }
