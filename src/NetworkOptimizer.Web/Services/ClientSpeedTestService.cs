@@ -372,14 +372,13 @@ public class ClientSpeedTestService
     /// <summary>
     /// Analyze network path for the speed test result using the site-specific UniFi connection.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
-    /// Retry logic is built into CalculatePathAsync.
     /// </summary>
-    private async Task AnalyzePathAsync(int siteId, Iperf3Result result, bool isRetry = false)
+    private async Task AnalyzePathAsync(int siteId, Iperf3Result result)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path for site {SiteId} to {Client} from {Server}{Retry}",
-                siteId, result.DeviceHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
+            _logger.LogDebug("Analyzing network path for site {SiteId} to {Client} from {Server}",
+                siteId, result.DeviceHost, result.LocalIp ?? "auto");
 
             // Get the site-specific path analyzer
             var pathAnalyzer = GetPathAnalyzer(siteId);
@@ -405,23 +404,7 @@ public class ClientSpeedTestService
             }
             else
             {
-                // If target not found or data stale and this isn't already a retry, invalidate cache and try again
-                var errorMsg = analysis.Path.ErrorMessage ?? "";
-                var shouldRetry = !isRetry && (
-                    errorMsg.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                    errorMsg.Contains("not yet available", StringComparison.OrdinalIgnoreCase));
-
-                if (shouldRetry)
-                {
-                    _logger.LogDebug("Path invalid ({Reason}), invalidating topology cache and retrying",
-                        errorMsg.Contains("not yet") ? "stale data" : "target not found");
-                    pathAnalyzer.InvalidateTopologyCache();
-                    await AnalyzePathAsync(siteId, result, isRetry: true);
-                }
-                else
-                {
-                    _logger.LogDebug("Path analysis: path not found or invalid");
-                }
+                _logger.LogDebug("Path analysis: path not found or invalid");
             }
         }
         catch (Exception ex)
