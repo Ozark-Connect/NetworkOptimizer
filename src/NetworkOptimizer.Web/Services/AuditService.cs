@@ -1539,6 +1539,7 @@ public class AuditService
             Audit.IssueTypes.MissingIsolation => "Firewall: Missing VLAN Isolation",
             Audit.IssueTypes.IsolationBypassed => "Firewall: VLAN Isolation Bypassed",
             Audit.IssueTypes.NetworkIsolationException => "Firewall: Isolation Exception",
+            Audit.IssueTypes.InternetBlockBypassed => "Firewall: Internet Block Bypassed",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 

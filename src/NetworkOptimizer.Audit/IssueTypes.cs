@@ -17,6 +17,7 @@ public static class IssueTypes
     public const string IsolationBypassed = "ISOLATION_BYPASSED";
     public const string FwAnyAny = "FW_ANY_ANY";
     public const string NetworkIsolationException = "NETWORK_ISOLATION_EXCEPTION";
+    public const string InternetBlockBypassed = "INTERNET_BLOCK_BYPASSED";
     public const string MgmtMissingUnifiAccess = "MGMT_MISSING_UNIFI_ACCESS";
     public const string MgmtMissingAfcAccess = "MGMT_MISSING_AFC_ACCESS";
     public const string MgmtMissingNtpAccess = "MGMT_MISSING_NTP_ACCESS";

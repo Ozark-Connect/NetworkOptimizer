@@ -503,7 +503,15 @@ public class FirewallRuleAnalyzer
     /// <param name="rules">Firewall rules to analyze (including predefined rules)</param>
     /// <param name="networks">Network configurations</param>
     /// <returns>List of Info-level issues for network isolation exceptions</returns>
-    public List<AuditIssue> DetectNetworkIsolationExceptions(List<FirewallRule> rules, List<NetworkInfo> networks)
+    /// <summary>
+    /// Detect user-created rules that create exceptions to the predefined "Isolated Networks" rules.
+    /// Only flags rules allowing traffic FROM isolated networks TO other internal networks (inter-VLAN).
+    /// Rules allowing traffic to external/internet are NOT flagged as they don't violate isolation.
+    /// </summary>
+    /// <param name="rules">Firewall rules to analyze</param>
+    /// <param name="networks">Network configurations</param>
+    /// <param name="externalZoneId">External zone ID - rules targeting this zone are internet access, not isolation exceptions</param>
+    public List<AuditIssue> DetectNetworkIsolationExceptions(List<FirewallRule> rules, List<NetworkInfo> networks, string? externalZoneId = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -533,12 +541,14 @@ public class FirewallRuleAnalyzer
             isolatedNetworks.Count, isolatedNetworkRules.Count);
 
         // Find user-created ALLOW rules that allow traffic FROM isolated networks
-        // The predefined "Isolated Networks" rules block traffic FROM isolated networks,
-        // so only ALLOW rules with isolated networks as SOURCE create exceptions
+        // The predefined "Isolated Networks" rules block traffic FROM isolated networks TO other VLANs,
+        // so only ALLOW rules with isolated networks as SOURCE that target INTERNAL networks are exceptions.
+        // Rules targeting the external zone (internet) are NOT isolation exceptions.
         var userAllowRules = rules.Where(r =>
             !r.Predefined &&
             r.Enabled &&
-            r.ActionType.IsAllowAction()).ToList();
+            r.ActionType.IsAllowAction() &&
+            !IsExternalZoneRule(r, externalZoneId)).ToList(); // Exclude internet-bound rules
 
         foreach (var rule in userAllowRules)
         {
@@ -896,7 +906,7 @@ public class FirewallRuleAnalyzer
                 var accessType = GetBroadAccessDescription(rule, externalZoneId);
                 issues.Add(new AuditIssue
                 {
-                    Type = "INTERNET_BLOCK_BYPASSED",
+                    Type = IssueTypes.InternetBlockBypassed,
                     Severity = AuditSeverity.Recommended,
                     Message = $"Network '{network.Name}' has internet disabled but rule '{rule.Name}' allows {accessType}. " +
                               "This firewall rule circumvents the network's internet access restriction.",
@@ -1095,7 +1105,7 @@ public class FirewallRuleAnalyzer
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
-        issues.AddRange(DetectNetworkIsolationExceptions(rules, networks));
+        issues.AddRange(DetectNetworkIsolationExceptions(rules, networks, externalZoneId));
 
         _logger.LogInformation("Found {IssueCount} firewall issues", issues.Count);
 

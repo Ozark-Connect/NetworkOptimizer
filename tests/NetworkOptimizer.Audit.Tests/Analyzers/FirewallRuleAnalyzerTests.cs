@@ -4132,6 +4132,102 @@ public class FirewallRuleAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ExternalDestinationRule_ReturnsNoIssue()
+    {
+        // Arrange - rule allows traffic from isolated network to EXTERNAL zone (internet)
+        // This is NOT an isolation exception because "Isolated Networks" rules block inter-VLAN traffic, not internet
+        var mgmtNetwork = new NetworkInfo
+        {
+            Id = "mgmt-1",
+            Name = "Management",
+            VlanId = 99,
+            Subnet = "192.168.99.0/24",
+            NetworkIsolationEnabled = true,
+            Purpose = NetworkPurpose.Management
+        };
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+
+        var externalZoneId = "external-zone-1";
+        var rules = new List<FirewallRule>
+        {
+            // Rule allowing Management network to access internet (HTTP/HTTPS)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow Management HTTP",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetwork.Id },
+                DestinationZoneId = externalZoneId, // Targets external/internet zone
+                DestinationMatchingTarget = "ANY"
+            },
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks, externalZoneId);
+
+        // Assert - no issue because it's external access, not inter-VLAN
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_InternalDestinationRule_ReturnsIssue()
+    {
+        // Arrange - rule allows traffic from isolated network to INTERNAL network (another VLAN)
+        // This IS an isolation exception
+        var mgmtNetwork = new NetworkInfo
+        {
+            Id = "mgmt-1",
+            Name = "Management",
+            VlanId = 99,
+            Subnet = "192.168.99.0/24",
+            NetworkIsolationEnabled = true,
+            Purpose = NetworkPurpose.Management
+        };
+        var homeNetwork = new NetworkInfo
+        {
+            Id = "home-1",
+            Name = "Home",
+            VlanId = 1,
+            Subnet = "192.168.1.0/24",
+            NetworkIsolationEnabled = false,
+            Purpose = NetworkPurpose.Home
+        };
+        var networks = new List<NetworkInfo> { mgmtNetwork, homeNetwork };
+
+        var externalZoneId = "external-zone-1";
+        var internalZoneId = "internal-zone-1";
+        var rules = new List<FirewallRule>
+        {
+            // Rule allowing Management network to access Home network (inter-VLAN)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow Management to Home",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetwork.Id },
+                DestinationZoneId = internalZoneId, // Internal zone, not external
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { homeNetwork.Id }
+            },
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks, externalZoneId);
+
+        // Assert - issue because it's inter-VLAN access
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+    }
+
     private static FirewallRule CreateFirewallRuleWithSourceCidr(
         string name,
         string action = "allow",
