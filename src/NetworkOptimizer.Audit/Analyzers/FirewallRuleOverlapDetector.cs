@@ -255,26 +255,31 @@ public static class FirewallRuleOverlapDetector
             var nonAppRule = rule1HasApps ? rule2 : rule1;
             var nonAppTarget = rule1HasApps ? target2 : target1;
 
-            // App rules overlap with ANY destination
+            // App rules only overlap with ANY destination
             if (nonAppTarget == "ANY")
                 return true;
 
-            // App rules overlap with broad zone-based rules (no specific IPs/networks/domains)
-            // If the non-app rule targets a zone without specific restrictions, apps could match
-            if (nonAppRule.DestinationIps?.Count == 0 || nonAppRule.DestinationIps == null)
+            // Specific destination types don't overlap with app-based rules:
+            // - REGION: Geographic region (e.g., Asia, Europe) for cloud services
+            // - WEB: Specific domains
+            // - IP: Specific IP addresses
+            // - NETWORK: Specific network IDs
+            // - INTERNET_CATEGORY: Internet content category
+            // - CLIENT: Specific client MACs
+            // These are all specific enough that app-based rules targeting different apps won't overlap
+            if (nonAppTarget is "REGION" or "WEB" or "IP" or "NETWORK" or "INTERNET_CATEGORY" or "CLIENT")
+                return false;
+
+            // For any other target types, check if the rule has specific restrictions
+            if (nonAppRule.DestinationIps?.Count > 0 ||
+                nonAppRule.DestinationNetworkIds?.Count > 0 ||
+                nonAppRule.WebDomains?.Count > 0)
             {
-                if (nonAppRule.DestinationNetworkIds?.Count == 0 || nonAppRule.DestinationNetworkIds == null)
-                {
-                    if (nonAppRule.WebDomains?.Count == 0 || nonAppRule.WebDomains == null)
-                    {
-                        // Non-app rule has no specific destination restrictions - potential overlap
-                        return true;
-                    }
-                }
+                return false;
             }
 
-            // Non-app rule has specific destinations that apps might not match
-            return false;
+            // Unknown target type with no specific restrictions - conservatively assume overlap
+            return true;
         }
 
         // ANY matches everything

@@ -1864,6 +1864,53 @@ public class FirewallRuleOverlapDetectorTests
         FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeTrue();
     }
 
+    [Fact]
+    public void RulesOverlap_AppRuleVsRegionRule_ReturnsFalse()
+    {
+        // App-based DNS block should NOT overlap with REGION-based allow rule
+        // This is the actual bug case: "[TEST] DNS App Block" vs "Allow Dehumidifier App Traffic"
+        // The dehumidifier rule targets a geographic REGION (not an app), so they don't overlap
+        var appRule = CreateRule(
+            protocol: "tcp_udp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 589885, 1310919, 1310917 }); // DNS apps
+
+        var regionRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "iot-network" },
+            destMatchingTarget: "REGION"); // Geographic region like Asia for cloud services
+
+        FirewallRuleOverlapDetector.RulesOverlap(appRule, regionRule).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_AppVsRegion_ReturnsFalse()
+    {
+        // REGION destination is a specific type (geographic region) - not broad
+        var appRule = CreateRule(
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 533 });
+        var regionRule = CreateRule(
+            destMatchingTarget: "REGION");
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(appRule, regionRule).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_AppVsAny_ReturnsTrue()
+    {
+        // ANY destination IS broad and should overlap with app rules
+        var appRule = CreateRule(
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 533 });
+        var anyRule = CreateRule(
+            destMatchingTarget: "ANY");
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(appRule, anyRule).Should().BeTrue();
+    }
+
     #endregion
 
     #region Helper Methods
