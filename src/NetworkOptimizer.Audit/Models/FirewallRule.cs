@@ -107,6 +107,12 @@ public class FirewallRule
     public List<int>? AppIds { get; init; }
 
     /// <summary>
+    /// Application category IDs for category-based matching (e.g., 13 = Web Services, 19 = Network Protocols).
+    /// Used when matching entire categories of applications.
+    /// </summary>
+    public List<int>? AppCategoryIds { get; init; }
+
+    /// <summary>
     /// Whether this is a predefined/system rule (not user-created)
     /// </summary>
     public bool Predefined { get; init; }

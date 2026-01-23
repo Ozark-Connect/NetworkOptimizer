@@ -270,6 +270,8 @@ public class InputSanitizerTests
     [Theory]
     [InlineData("eth0")]
     [InlineData("ppp0")]
+    [InlineData("ppp3")]
+    [InlineData("pppoe-wan")]
     [InlineData("br0")]
     [InlineData("eth4.832")]
     [InlineData("wlan0")]

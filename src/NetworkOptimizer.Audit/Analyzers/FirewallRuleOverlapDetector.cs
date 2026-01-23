@@ -233,6 +233,48 @@ public static class FirewallRuleOverlapDetector
         var target1 = rule1.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
         var target2 = rule2.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
 
+        // Check for app-based rules (AppIds or AppCategoryIds)
+        // App-based rules use DPI to match traffic regardless of destination
+        var rule1HasApps = rule1.AppIds?.Count > 0 || rule1.AppCategoryIds?.Count > 0;
+        var rule2HasApps = rule2.AppIds?.Count > 0 || rule2.AppCategoryIds?.Count > 0;
+
+        if (rule1HasApps || rule2HasApps)
+        {
+            // If both rules have apps, check for app overlap
+            if (rule1HasApps && rule2HasApps)
+            {
+                return AppsOverlap(rule1, rule2);
+            }
+
+            // One rule has apps, one doesn't - they overlap if the non-app rule is broad
+            // App-based rules can match traffic to any destination, so they overlap with:
+            // - ANY destination rules
+            // - Zone-based rules (destination zone matches external/internet)
+            var nonAppRule = rule1HasApps ? rule2 : rule1;
+            var nonAppTarget = rule1HasApps ? target2 : target1;
+
+            // App rules overlap with ANY destination
+            if (nonAppTarget == "ANY")
+                return true;
+
+            // App rules overlap with broad zone-based rules (no specific IPs/networks/domains)
+            // If the non-app rule targets a zone without specific restrictions, apps could match
+            if (nonAppRule.DestinationIps?.Count == 0 || nonAppRule.DestinationIps == null)
+            {
+                if (nonAppRule.DestinationNetworkIds?.Count == 0 || nonAppRule.DestinationNetworkIds == null)
+                {
+                    if (nonAppRule.WebDomains?.Count == 0 || nonAppRule.WebDomains == null)
+                    {
+                        // Non-app rule has no specific destination restrictions - potential overlap
+                        return true;
+                    }
+                }
+            }
+
+            // Non-app rule has specific destinations that apps might not match
+            return false;
+        }
+
         // ANY matches everything
         if (target1 == "ANY" || target2 == "ANY")
             return true;
@@ -285,6 +327,32 @@ public static class FirewallRuleOverlapDetector
             var domains2 = rule2.WebDomains ?? new List<string>();
             return DomainsOverlap(domains1, domains2);
         }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if two rules have overlapping app IDs or app category IDs.
+    /// </summary>
+    public static bool AppsOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        // Check for overlapping app IDs
+        var apps1 = rule1.AppIds ?? new List<int>();
+        var apps2 = rule2.AppIds ?? new List<int>();
+        if (apps1.Intersect(apps2).Any())
+            return true;
+
+        // Check for overlapping app category IDs
+        var cats1 = rule1.AppCategoryIds ?? new List<int>();
+        var cats2 = rule2.AppCategoryIds ?? new List<int>();
+        if (cats1.Intersect(cats2).Any())
+            return true;
+
+        // If one rule has specific apps and the other has categories that include those apps,
+        // they could overlap - but we can't determine this without a full app->category mapping.
+        // For safety, assume they might overlap if one has apps and the other has categories.
+        if ((apps1.Count > 0 && cats2.Count > 0) || (apps2.Count > 0 && cats1.Count > 0))
+            return true;
 
         return false;
     }
@@ -631,6 +699,33 @@ public static class FirewallRuleOverlapDetector
     private static int GetDestinationScopeScore(FirewallRule rule)
     {
         var target = rule.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
+
+        // If DestinationMatchingTarget is null/ANY but WebDomains is populated, treat as WEB
+        // This handles rules where the target type field isn't set but domains are specified
+        if ((target == "ANY" || string.IsNullOrEmpty(rule.DestinationMatchingTarget)) &&
+            rule.WebDomains?.Count > 0)
+        {
+            target = "WEB";
+        }
+
+        // Check for app-based rules
+        // App rules (HTTP, HTTPS, etc.) are medium-broad - they match all traffic for those apps
+        // They're broader than specific IPs/domains but narrower than ANY
+        if (target == "APP" || rule.AppIds?.Count > 0)
+        {
+            var appCount = rule.AppIds?.Count ?? 0;
+            // Base score 6 (medium-broad), increases slightly with more apps
+            var baseAppScore = 6 + GetListSizeBonus(appCount);
+            return Math.Max(1, baseAppScore - GetPortSpecificityPenalty(rule.DestinationPort));
+        }
+
+        if (target == "APP_CATEGORY" || rule.AppCategoryIds?.Count > 0)
+        {
+            var catCount = rule.AppCategoryIds?.Count ?? 0;
+            // Categories are very broad (e.g., "Web Services" = all web traffic)
+            var baseCatScore = 8 + GetListSizeBonus(catCount);
+            return Math.Max(1, baseCatScore - GetPortSpecificityPenalty(rule.DestinationPort));
+        }
 
         var baseScore = target switch
         {

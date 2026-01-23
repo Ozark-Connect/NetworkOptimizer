@@ -299,7 +299,12 @@ public class SqmService : ISqmService
                 .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup))
                 .ToDictionary(w => w.WanNetworkgroup!, w => w.Name, StringComparer.OrdinalIgnoreCase);
 
-            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName);
+            // Build lookup by wan_networkgroup for WAN type (dhcp, static, pppoe)
+            var networkGroupToWanType = wanConfigs
+                .Where(w => !string.IsNullOrEmpty(w.WanNetworkgroup) && !string.IsNullOrEmpty(w.WanType))
+                .ToDictionary(w => w.WanNetworkgroup!, w => w.WanType!, StringComparer.OrdinalIgnoreCase);
+
+            result = ExtractWanInterfacesFromDeviceData(deviceJson, ipToName, networkGroupToSmartq, networkGroupToName, networkGroupToWanType);
 
             _logger.LogInformation("Found {Count} WAN interfaces from device data for site {SiteId}", result.Count, siteId);
         }
@@ -313,13 +318,16 @@ public class SqmService : ISqmService
 
     /// <summary>
     /// Extract WAN interfaces from device data (wan1, wan2, wan3 with uplink_ifname)
-    /// Uses ethernet_overrides to map interface -> networkgroup, then looks up SmartQ status
+    /// Uses ethernet_overrides to map interface -> networkgroup, then looks up SmartQ status.
+    /// For PPPoE connections, uses the physical interface (ifname) for networkgroup lookup
+    /// but the tunnel interface (uplink_ifname, e.g., ppp3) for the actual SQM interface.
     /// </summary>
     private List<WanInterfaceInfo> ExtractWanInterfacesFromDeviceData(
         string deviceJson,
         Dictionary<string, string> ipToName,
         Dictionary<string, bool> networkGroupToSmartq,
-        Dictionary<string, string> networkGroupToName)
+        Dictionary<string, string> networkGroupToName,
+        Dictionary<string, string> networkGroupToWanType)
     {
         var result = new List<WanInterfaceInfo>();
 
@@ -362,13 +370,22 @@ public class SqmService : ISqmService
                     var wanKey = $"wan{i}";
                     if (device.TryGetProperty(wanKey, out var wanObj))
                     {
-                        // Get interface name from uplink_ifname
-                        string? ifname = null;
+                        // Get the uplink interface name (this is the actual interface we configure SQM on)
+                        // For PPPoE, this will be "ppp3" (the tunnel), not "eth6" (the physical port)
+                        string? uplinkIfname = null;
                         if (wanObj.TryGetProperty("uplink_ifname", out var uplinkProp))
-                            ifname = uplinkProp.GetString();
+                            uplinkIfname = uplinkProp.GetString();
 
-                        if (string.IsNullOrEmpty(ifname))
+                        if (string.IsNullOrEmpty(uplinkIfname))
                             continue;
+
+                        // Get the physical interface name (used for networkgroup lookup in ethernet_overrides)
+                        // For PPPoE on eth6, uplink_ifname="ppp3" but ifname="eth6"
+                        string? physicalIfname = null;
+                        if (wanObj.TryGetProperty("ifname", out var ifnameProp))
+                            physicalIfname = ifnameProp.GetString();
+                        if (string.IsNullOrEmpty(physicalIfname) && wanObj.TryGetProperty("name", out var nameProp))
+                            physicalIfname = nameProp.GetString();
 
                         // Get WAN IP to correlate with network config name
                         string? wanIp = null;
@@ -376,8 +393,10 @@ public class SqmService : ISqmService
                             wanIp = ipProp.GetString();
 
                         // Get networkgroup for this interface from ethernet_overrides
+                        // Use physical interface for lookup (e.g., "eth6" not "ppp3" for PPPoE)
                         string? networkGroup = null;
-                        if (ifnameToNetworkGroup.TryGetValue(ifname, out var ng))
+                        var lookupIfname = physicalIfname ?? uplinkIfname;
+                        if (ifnameToNetworkGroup.TryGetValue(lookupIfname, out var ng))
                             networkGroup = ng;
 
                         // Try to get friendly name: first from networkgroup lookup, then IP lookup, then fallback
@@ -422,26 +441,34 @@ public class SqmService : ISqmService
                         }
 
                         // TC monitor uses "ifb" + interface name format
-                        var tcInterface = $"ifb{ifname}";
+                        var tcInterface = $"ifb{uplinkIfname}";
 
                         // Check if Smart Queues is enabled via networkgroup lookup
                         var smartqEnabled = !string.IsNullOrEmpty(networkGroup) &&
                             networkGroupToSmartq.TryGetValue(networkGroup, out var sqEnabled) && sqEnabled;
 
+                        // Get the actual WAN type from network config (dhcp, static, pppoe)
+                        var wanType = "dhcp"; // default
+                        if (!string.IsNullOrEmpty(networkGroup) &&
+                            networkGroupToWanType.TryGetValue(networkGroup, out var wt))
+                        {
+                            wanType = wt;
+                        }
+
                         result.Add(new WanInterfaceInfo
                         {
                             Name = friendlyName,
-                            Interface = ifname,
+                            Interface = uplinkIfname,
                             TcInterface = tcInterface,
-                            WanType = "dhcp",
+                            WanType = wanType,
                             LoadBalanceType = null,
                             LoadBalanceWeight = null,
                             SuggestedPingIp = suggestedPingIp,
                             SmartqEnabled = smartqEnabled
                         });
 
-                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ})",
-                            wanKey, ifname, friendlyName, networkGroup, smartqEnabled);
+                        _logger.LogDebug("Found {WanKey}: {Interface} -> {Name} (NetworkGroup: {NG}, SmartQ: {SQ}, WanType: {WT})",
+                            wanKey, uplinkIfname, friendlyName, networkGroup, smartqEnabled, wanType);
                     }
                 }
 

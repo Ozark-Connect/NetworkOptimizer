@@ -1905,6 +1905,7 @@
         deploymentSteps.Clear();
         deploymentWarnings.Clear();
         statusMessage = null;
+        adjustmentMessage = null;
         StateHasChanged();
 
         try
@@ -2098,6 +2099,7 @@
     {
         isDeploying = true;
         statusMessage = null;
+        adjustmentMessage = null;
         deploymentSteps.Clear();
         deploymentWarnings.Clear();
         deploymentSteps.Add("Removing SQM and SQM Monitor...");

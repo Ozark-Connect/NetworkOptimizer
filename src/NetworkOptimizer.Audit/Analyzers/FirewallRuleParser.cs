@@ -218,6 +218,7 @@ public class FirewallRuleParser
         List<string>? destNetworkIds = null;
         List<string>? destIps = null;
         List<int>? appIds = null;
+        List<int>? appCategoryIds = null;
         string? destZoneId = null;
         bool destMatchOppositeIps = false;
         bool destMatchOppositeNetworks = false;
@@ -264,6 +265,15 @@ public class FirewallRuleParser
                     .ToList();
             }
 
+            // Extract app category IDs for category-based matching (e.g., 13 = Web Services)
+            if (dest.TryGetProperty("app_category_ids", out var appCategoryIdsArray) && appCategoryIdsArray.ValueKind == JsonValueKind.Array)
+            {
+                appCategoryIds = appCategoryIdsArray.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.Number)
+                    .Select(e => e.GetInt32())
+                    .ToList();
+            }
+
             // Flatten IP group reference (matching_target_type == "OBJECT" with ip_group_id)
             var matchingTargetType = dest.GetStringOrNull("matching_target_type");
             var ipGroupId = dest.GetStringOrNull("ip_group_id");
@@ -289,6 +299,11 @@ public class FirewallRuleParser
                     destPort = groupPorts;
                     _logger.LogDebug("Flattened destination port group {GroupId} to '{Ports}' for rule {RuleName}",
                         portGroupId, groupPorts, name);
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to resolve destination port group {GroupId} for rule {RuleName} - group not found in {GroupCount} loaded groups",
+                        portGroupId, name, _firewallGroups?.Count ?? 0);
                 }
             }
         }
@@ -316,6 +331,7 @@ public class FirewallRuleParser
             DestinationIps = destIps,
             DestinationNetworkIds = destNetworkIds,
             AppIds = appIds,
+            AppCategoryIds = appCategoryIds,
             IcmpTypename = icmpTypename,
             // Zone and match opposite flags
             SourceZoneId = sourceZoneId,
