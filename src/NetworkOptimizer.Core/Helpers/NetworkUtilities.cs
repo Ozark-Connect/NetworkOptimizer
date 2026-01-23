@@ -396,6 +396,34 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Check if any CIDR in a list covers the given subnet.
+    /// </summary>
+    /// <param name="cidrs">List of CIDRs to check</param>
+    /// <param name="subnet">The subnet to check coverage for</param>
+    /// <returns>True if any CIDR in the list covers the subnet</returns>
+    public static bool AnyCidrCoversSubnet(IEnumerable<string>? cidrs, string? subnet)
+    {
+        if (cidrs == null || string.IsNullOrEmpty(subnet))
+            return false;
+
+        foreach (var cidr in cidrs)
+        {
+            if (string.IsNullOrEmpty(cidr))
+                continue;
+
+            // Check if this CIDR covers the network subnet
+            if (CidrCoversSubnet(cidr, subnet))
+                return true;
+
+            // Also check if they're the same subnet
+            if (string.Equals(cidr, subnet, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Parse an IP address or IP range into a list of individual IPs.
     /// Supports formats: "192.168.1.1" (single) or "192.168.1.1-192.168.1.5" (range).
     /// For ranges, all IPs must be in the same /24 subnet and the range must be reasonable (max 256 IPs).

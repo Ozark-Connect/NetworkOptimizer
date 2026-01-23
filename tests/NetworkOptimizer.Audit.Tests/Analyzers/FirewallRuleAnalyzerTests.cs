@@ -3386,6 +3386,84 @@ public class FirewallRuleAnalyzerTests
         issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
     }
 
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_SourceCidrCoversNetwork_ReturnsIssue()
+    {
+        // Rule with IP-based source CIDR that covers the network's subnet should trigger
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "iot-net",
+                Name = "IoT Devices",
+                Purpose = NetworkPurpose.IoT,
+                VlanId = 99,
+                Subnet = "192.168.99.0/24",
+                InternetAccessEnabled = false
+            }
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http-cidr",
+                Name = "Allow HTTP from CIDR",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.0/24" }, // Covers the IoT subnet
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80,443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("IoT Devices");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_SourceCidrDoesNotCoverNetwork_NoIssue()
+    {
+        // Rule with IP-based source CIDR that does NOT cover the network's subnet should NOT trigger
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "iot-net",
+                Name = "IoT Devices",
+                Purpose = NetworkPurpose.IoT,
+                VlanId = 99,
+                Subnet = "192.168.99.0/24",
+                InternetAccessEnabled = false
+            }
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http-cidr",
+                Name = "Allow HTTP from Different CIDR",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.50.0/24" }, // Different subnet
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80,443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        // Should NOT be flagged because the CIDR doesn't cover the IoT network
+        issues.Should().BeEmpty();
+    }
+
     #endregion
 
     #region AnalyzeFirewallRules Tests

@@ -644,27 +644,7 @@ public class FirewallRuleAnalyzer
             return false;
         }
 
-        // Check each source IP/CIDR
-        var sourceIps = rule.SourceIps ?? new List<string>();
-        foreach (var sourceCidr in sourceIps)
-        {
-            if (string.IsNullOrEmpty(sourceCidr))
-                continue;
-
-            // Check if this source CIDR covers the network subnet
-            if (NetworkUtilities.CidrCoversSubnet(sourceCidr, networkSubnet))
-            {
-                return true;
-            }
-
-            // Also check if they're the same subnet
-            if (string.Equals(sourceCidr, networkSubnet, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return NetworkUtilities.AnyCidrCoversSubnet(rule.SourceIps, networkSubnet);
     }
 
     /// <summary>
@@ -757,18 +737,19 @@ public class FirewallRuleAnalyzer
 
         // Find all ALLOW rules between these two networks (either direction)
         // Skip rules that explicitly target the External zone - they're for outbound internet, not inter-VLAN
+        // Also checks if IP-based source/destination CIDRs cover the network's subnet
         var allowRules = rules.Where(r =>
             r.Enabled &&
             !r.Predefined &&
             r.ActionType.IsAllowAction() &&
             !IsExternalZoneRule(r, externalZoneId) &&
-            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)))
+            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)))
             .ToList();
 
         foreach (var rule in allowRules)
         {
             // Determine direction for the message
-            var isForward = HasNetworkPair(rule, network1.Id, network2.Id);
+            var isForward = HasNetworkPair(rule, network1, network2);
             var sourceNet = isForward ? network1 : network2;
             var destNet = isForward ? network2 : network1;
 
@@ -807,10 +788,11 @@ public class FirewallRuleAnalyzer
         if (network1.Id == network2.Id)
             return;
 
+        // Check for isolation rules using both network IDs and CIDR coverage
         var hasIsolationRule = rules.Any(r =>
             r.Enabled &&
             r.ActionType.IsBlockAction() &&
-            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)));
+            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)));
 
         if (!hasIsolationRule)
         {
@@ -929,6 +911,7 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Determines if a rule applies to a specific network (as source).
     /// Handles SourceMatchOppositeNetworks which inverts the matching.
+    /// Also checks if IP-based sources cover the network's subnet.
     /// </summary>
     private static bool RuleAppliesToNetwork(FirewallRule rule, NetworkInfo network)
     {
@@ -949,6 +932,12 @@ public class FirewallRuleAnalyzer
 
             // Normal case: rule applies to networks IN the list
             return isInList;
+        }
+
+        // IP source - check if CIDRs cover the network's subnet
+        if (sourceTarget == "IP" && !string.IsNullOrEmpty(network.Subnet))
+        {
+            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
         }
 
         return false;
@@ -1450,12 +1439,75 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Check if a firewall rule applies to traffic from a specific source network.
+    /// Also checks if IP-based sources cover the network's subnet.
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="network">The network to check against</param>
+    /// <returns>True if the rule applies to traffic from the specified network</returns>
+    private static bool AppliesToSourceNetwork(FirewallRule rule, NetworkInfo network)
+    {
+        // First check network ID
+        if (AppliesToSourceNetwork(rule, network.Id))
+            return true;
+
+        // Also check if IP-based source covers the network's subnet
+        if (!string.IsNullOrEmpty(network.Subnet) &&
+            rule.SourceMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a firewall rule applies to traffic to a specific destination network.
+    /// Also checks if IP-based destinations cover the network's subnet.
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="network">The network to check against</param>
+    /// <returns>True if the rule applies to traffic to the specified network</returns>
+    private static bool AppliesToDestinationNetwork(FirewallRule rule, NetworkInfo network)
+    {
+        // First check network ID
+        if (AppliesToDestinationNetwork(rule, network.Id))
+            return true;
+
+        // Also check if IP-based destination covers the network's subnet
+        if (!string.IsNullOrEmpty(network.Subnet) &&
+            rule.DestinationMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return DestinationCidrsCoversNetworkSubnet(rule, network.Subnet);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a rule's destination IP/CIDRs cover a network's subnet.
+    /// </summary>
+    private static bool DestinationCidrsCoversNetworkSubnet(FirewallRule rule, string networkSubnet)
+    {
+        return NetworkUtilities.AnyCidrCoversSubnet(rule.DestinationIps, networkSubnet);
+    }
+
+    /// <summary>
     /// Check if a firewall rule matches a specific source->destination network pair.
     /// Handles both v2 API format (with Match Opposite support) and legacy format.
     /// </summary>
     private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
     {
         return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
+    }
+
+    /// <summary>
+    /// Check if a firewall rule matches a specific source->destination network pair.
+    /// Also checks if IP-based source/destination CIDRs cover the network's subnet.
+    /// </summary>
+    private static bool HasNetworkPair(FirewallRule rule, NetworkInfo sourceNetwork, NetworkInfo destNetwork)
+    {
+        return AppliesToSourceNetwork(rule, sourceNetwork) && AppliesToDestinationNetwork(rule, destNetwork);
     }
 
     /// <summary>
