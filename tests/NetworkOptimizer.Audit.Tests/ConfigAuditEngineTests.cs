@@ -1173,6 +1173,227 @@ public class ConfigAuditEngineTests
 
     #endregion
 
+    #region DNS Security Integration Tests
+
+    [Fact]
+    public async Task RunAudit_WithDohSettings_PopulatesDnsSecurityInfo()
+    {
+        var deviceJson = CreateDeviceJsonWithDoh();
+        var settingsData = CreateSettingsDataWithDoh();
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Verify DnsSecurity is populated
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.DohEnabled.Should().BeTrue();
+        result.DnsSecurity.DohProviders.Should().Contain("Cloudflare");
+    }
+
+    [Fact]
+    public async Task RunAudit_WithDohAndWanDns_PopulatesWanDnsInfo()
+    {
+        var deviceJson = CreateDeviceJsonWithDohAndWanDns();
+        var settingsData = CreateSettingsDataWithDoh();
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.WanDnsServers.Should().Contain("1.1.1.1");
+        result.DnsSecurity.ExpectedDnsProvider.Should().Be("Cloudflare");
+    }
+
+    [Fact]
+    public async Task RunAudit_WithThirdPartyDns_PopulatesThirdPartyInfo()
+    {
+        // Device JSON with networks using third-party LAN DNS (Pi-hole)
+        // Using RFC1918 private IPs (10.x.x.x) for proper detection
+        // Note: dhcpd_dns_enabled must be true for DNS servers to be extracted
+        var deviceJson = """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "10.0.1.1/24",
+                        "dhcpd_dns_enabled": true,
+                        "dhcpd_dns_1": "10.0.1.5"
+                    }
+                ]
+            }
+        ]
+        """;
+
+        // Need settings data to trigger DNS analysis
+        var settingsData = System.Text.Json.JsonDocument.Parse("[]").RootElement;
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.HasThirdPartyDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithEmptySettings_DnsSecurityShowsNotEnabled()
+    {
+        var deviceJson = "[]";
+        // Empty settings array - DNS analysis will run but find nothing configured
+        var settingsData = System.Text.Json.JsonDocument.Parse("[]").RootElement;
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.DohEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithNoSettingsOrFirewallRules_DnsSecurityIsNull()
+    {
+        // When no settings, firewall rules, or NAT rules are provided, DNS analysis is skipped
+        var deviceJson = "[]";
+
+        var result = await _engine.RunAuditAsync(deviceJson);
+
+        // This is expected behavior - no data to analyze
+        result.DnsSecurity.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithDns53BlockRule_ShowsDnsLeakProtection()
+    {
+        var deviceJson = CreateDeviceJsonWithDoh();
+        var settingsData = CreateSettingsDataWithDoh();
+        var firewallRules = new List<Audit.Models.FirewallRule>
+        {
+            new()
+            {
+                Id = "rule-block-dns",
+                Name = "Block DNS Bypass",
+                Action = "drop",
+                DestinationPort = "53",
+                Enabled = true
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: firewallRules,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.HasDns53BlockRule.Should().BeTrue();
+        result.DnsSecurity.DnsLeakProtection.Should().BeTrue();
+    }
+
+    private static string CreateDeviceJsonWithDoh()
+    {
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    private static string CreateDeviceJsonWithDohAndWanDns()
+    {
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "port_table": [
+                    {
+                        "network_name": "wan",
+                        "name": "WAN",
+                        "up": true,
+                        "dns": ["1.1.1.1", "1.0.0.1"]
+                    }
+                ],
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    private static System.Text.Json.JsonElement CreateSettingsDataWithDoh()
+    {
+        return System.Text.Json.JsonDocument.Parse("""
+        [
+            {
+                "key": "doh",
+                "state": "custom",
+                "server_names": ["cloudflare"]
+            }
+        ]
+        """).RootElement;
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static AuditResult CreateMinimalAuditResult(string? clientName = null)

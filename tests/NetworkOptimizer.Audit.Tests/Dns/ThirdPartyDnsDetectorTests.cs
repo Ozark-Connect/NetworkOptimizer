@@ -1287,4 +1287,291 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     }
 
     #endregion
+
+    #region DetectExternalDns Tests
+
+    [Fact]
+    public void DetectExternalDns_EmptyNetworks_ReturnsEmptyList()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>();
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_NetworkWithGatewayAsDns_ReturnsEmptyList()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.1.1" } // Gateway as DNS
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_NetworkWithInternalDns_ReturnsEmptyList()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.1.5" } // Internal DNS (Pi-hole)
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_NetworkWithPublicDns_ReturnsExternalDns()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "1.1.1.1" } // Cloudflare
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(1);
+        result[0].DnsServerIp.Should().Be("1.1.1.1");
+        result[0].NetworkName.Should().Be("Home");
+        result[0].IsPublicDns.Should().BeTrue();
+        result[0].ProviderName.Should().Be("Cloudflare");
+    }
+
+    [Fact]
+    public void DetectExternalDns_NetworkWithGoogleDns_ReturnsProviderName()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Office",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "10.0.0.1",
+                Subnet = "10.0.0.0/24",
+                DnsServers = new List<string> { "8.8.8.8", "8.8.4.4" }
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(2);
+        result.Should().AllSatisfy(r =>
+        {
+            r.IsPublicDns.Should().BeTrue();
+            r.ProviderName.Should().Be("Google");
+        });
+    }
+
+    [Fact]
+    public void DetectExternalDns_PrivateDnsOutsideSubnets_ReturnsWithIsPublicFalse()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.3.254" } // Private but different subnet
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(1);
+        result[0].DnsServerIp.Should().Be("192.168.3.254");
+        result[0].IsPublicDns.Should().BeFalse();
+        result[0].ProviderName.Should().BeNull();
+    }
+
+    [Fact]
+    public void DetectExternalDns_DnsInAnotherConfiguredSubnet_ReturnsEmptyList()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.10.5" } // DNS in IoT subnet
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "IoT",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.10.1",
+                Subnet = "192.168.10.0/24",
+                DnsServers = new List<string> { "192.168.10.1" }
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        // 192.168.10.5 is in the IoT subnet, so it's internal
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectExternalDns_MultipleNetworksWithExternalDns_ReturnsAll()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "1.1.1.1" }
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Printing",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                Subnet = "192.168.20.0/24",
+                DnsServers = new List<string> { "8.8.8.8" }
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(2);
+        result.Should().Contain(r => r.NetworkName == "Home" && r.ProviderName == "Cloudflare");
+        result.Should().Contain(r => r.NetworkName == "Printing" && r.ProviderName == "Google");
+    }
+
+    [Fact]
+    public void DetectExternalDns_NetworkWithoutDhcp_Skipped()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Static",
+                VlanId = 99,
+                DhcpEnabled = false,
+                Gateway = "10.0.0.1",
+                Subnet = "10.0.0.0/24",
+                DnsServers = new List<string> { "1.1.1.1" }
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("9.9.9.9", "Quad9")]
+    [InlineData("208.67.222.222", "OpenDNS")]
+    [InlineData("94.140.14.14", "AdGuard DNS")]
+    public void DetectExternalDns_KnownProviders_ReturnsCorrectProviderName(string dnsIp, string expectedProvider)
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Test",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { dnsIp }
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(1);
+        result[0].ProviderName.Should().Be(expectedProvider);
+        result[0].IsPublicDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DetectExternalDns_UnknownPublicDns_ReturnsNullProviderName()
+    {
+        var detector = CreateDetector();
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Test",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "4.4.4.4" } // Some random public IP
+            }
+        };
+
+        var result = detector.DetectExternalDns(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPublicDns.Should().BeTrue();
+        result[0].ProviderName.Should().BeNull();
+    }
+
+    #endregion
 }

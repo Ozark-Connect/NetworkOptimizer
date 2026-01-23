@@ -7187,4 +7187,509 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region External DNS Bypass Issue Tests
+
+    [Fact]
+    public async Task Analyze_RegularNetworkWithPublicDns_CreatesRecommendedSeverityIssue()
+    {
+        // Arrange - Regular network with Cloudflare DNS
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Printing",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                Subnet = "192.168.20.0/24",
+                DnsServers = new List<string> { "1.1.1.1" },
+                FirewallZoneId = "zone-internal"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: null);
+
+        // Assert
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().HaveCount(1);
+        externalDnsIssues[0].Severity.Should().Be(AuditSeverity.Recommended);
+        externalDnsIssues[0].Message.Should().Contain("Printing");
+        externalDnsIssues[0].Message.Should().Contain("Cloudflare");
+        externalDnsIssues[0].Message.Should().Contain("external public DNS");
+    }
+
+    [Fact]
+    public async Task Analyze_DmzNetworkWithPublicDns_CreatesInformationalSeverityIssue()
+    {
+        // Arrange - DMZ network with Cloudflare DNS
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "DMZ Test",
+                VlanId = 50,
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                Subnet = "192.168.50.0/24",
+                DnsServers = new List<string> { "1.1.1.1" },
+                FirewallZoneId = "zone-dmz"
+            }
+        };
+
+        var zoneLookup = new FirewallZoneLookup(new List<UniFiFirewallZone>
+        {
+            new UniFiFirewallZone { Id = "zone-dmz", Name = "DMZ", ZoneKey = "dmz" }
+        });
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().HaveCount(1);
+        externalDnsIssues[0].Severity.Should().Be(AuditSeverity.Informational);
+        externalDnsIssues[0].Message.Should().Contain("DMZ Test");
+        externalDnsIssues[0].Message.Should().Contain("expected for isolated DMZ");
+    }
+
+    [Fact]
+    public async Task Analyze_MixedDmzAndRegularWithPublicDns_CreatesSeparateIssues()
+    {
+        // Arrange - One DMZ network and one regular network, both with public DNS
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "DMZ Test",
+                VlanId = 50,
+                DhcpEnabled = true,
+                Gateway = "192.168.50.1",
+                Subnet = "192.168.50.0/24",
+                DnsServers = new List<string> { "1.1.1.1" },
+                FirewallZoneId = "zone-dmz"
+            },
+            new NetworkInfo
+            {
+                Id = "net2",
+                Name = "Printing",
+                VlanId = 20,
+                DhcpEnabled = true,
+                Gateway = "192.168.20.1",
+                Subnet = "192.168.20.0/24",
+                DnsServers = new List<string> { "1.1.1.1" },
+                FirewallZoneId = "zone-internal"
+            }
+        };
+
+        var zoneLookup = new FirewallZoneLookup(new List<UniFiFirewallZone>
+        {
+            new UniFiFirewallZone { Id = "zone-dmz", Name = "DMZ", ZoneKey = "dmz" },
+            new UniFiFirewallZone { Id = "zone-internal", Name = "Internal", ZoneKey = "internal" }
+        });
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: zoneLookup);
+
+        // Assert - Should have 2 separate issues
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().HaveCount(2);
+
+        // DMZ network should have Informational severity
+        var dmzIssue = externalDnsIssues.FirstOrDefault(i => i.Message.Contains("DMZ Test"));
+        dmzIssue.Should().NotBeNull();
+        dmzIssue!.Severity.Should().Be(AuditSeverity.Informational);
+
+        // Regular network should have Recommended severity
+        var regularIssue = externalDnsIssues.FirstOrDefault(i => i.Message.Contains("Printing"));
+        regularIssue.Should().NotBeNull();
+        regularIssue!.Severity.Should().Be(AuditSeverity.Recommended);
+    }
+
+    [Fact]
+    public async Task Analyze_PrivateDnsOutsideSubnets_CreatesRecommendedSeverityIssue()
+    {
+        // Arrange - Network with private DNS that's not in any configured subnet
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "TJ Work",
+                VlanId = 30,
+                DhcpEnabled = true,
+                Gateway = "192.168.30.1",
+                Subnet = "192.168.30.0/24",
+                DnsServers = new List<string> { "192.168.3.254" }, // Private but outside configured subnets
+                FirewallZoneId = "zone-internal"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: null);
+
+        // Assert
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().HaveCount(1);
+        externalDnsIssues[0].Severity.Should().Be(AuditSeverity.Recommended);
+        externalDnsIssues[0].Message.Should().Contain("TJ Work");
+        externalDnsIssues[0].Message.Should().Contain("private DNS servers outside configured subnets");
+        externalDnsIssues[0].Message.Should().Contain("192.168.3.254");
+    }
+
+    [Fact]
+    public async Task Analyze_NetworkWithInternalDns_NoExternalDnsIssue()
+    {
+        // Arrange - Network with DNS that's in a configured subnet
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.1.5" }, // Pi-hole in same subnet
+                FirewallZoneId = "zone-internal"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: null);
+
+        // Assert - No external DNS bypass issue
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Analyze_NetworkWithGatewayAsDns_NoExternalDnsIssue()
+    {
+        // Arrange - Network using gateway as DNS (normal config)
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Home",
+                VlanId = 1,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                Subnet = "192.168.1.0/24",
+                DnsServers = new List<string> { "192.168.1.1" }, // Gateway
+                FirewallZoneId = "zone-internal"
+            }
+        };
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(
+            settingsData: null,
+            firewallRules: null,
+            switches: null,
+            networks: networks,
+            deviceData: null,
+            customDnsManagementPort: null,
+            natRulesData: null,
+            dnatExcludedVlanIds: null,
+            externalZoneId: null,
+            zoneLookup: null);
+
+        // Assert - No external DNS bypass issue
+        var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
+        externalDnsIssues.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region IdentifyExpectedDnsProvider Tests
+
+    [Fact]
+    public async Task Analyze_WithSdnsStamp_IdentifiesProviderFromStampHostname()
+    {
+        // Arrange - DoH configured with actual SDNS stamp that decodes to cloudflare hostname
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {
+                        ""enabled"": true,
+                        ""server_name"": ""my-custom-cloudflare"",
+                        ""sdns_stamp"": ""sdns://AgcAAAAAAAAABzEuMC4wLjEAEmRucy5jbG91ZGZsYXJlLmNvbQovZG5zLXF1ZXJ5""
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""1.1.1.1"", ""1.0.0.1""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Provider should be identified from stamp hostname (dns.cloudflare.com)
+        result.DohConfigured.Should().BeTrue();
+        result.ExpectedDnsProvider.Should().Be("Cloudflare");
+    }
+
+    [Fact]
+    public async Task Analyze_WithGoogleSdnsStamp_IdentifiesProviderFromStampHostname()
+    {
+        // Arrange - DoH with Google SDNS stamp
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {
+                        ""enabled"": true,
+                        ""server_name"": ""custom-dns-server"",
+                        ""sdns_stamp"": ""sdns://AgUAAAAAAAAAAAAKZG5zLmdvb2dsZQovZG5zLXF1ZXJ5""
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""8.8.8.8"", ""8.8.4.4""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Provider should be identified from stamp hostname (dns.google)
+        result.DohConfigured.Should().BeTrue();
+        result.ExpectedDnsProvider.Should().Be("Google");
+        result.WanDnsMatchesDoH.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithNoEnabledServers_DoesNotIdentifyProvider()
+    {
+        // Arrange - DoH configured but all custom servers disabled (need stamps for custom_servers to be parsed)
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {
+                        ""enabled"": false,
+                        ""server_name"": ""cloudflare"",
+                        ""sdns_stamp"": ""sdns://AgcAAAAAAAAABzEuMC4wLjEAEmRucy5jbG91ZGZsYXJlLmNvbQovZG5zLXF1ZXJ5""
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""1.1.1.1""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Server is disabled so DohConfigured is false (no enabled servers)
+        result.DohConfigured.Should().BeFalse();
+        result.ExpectedDnsProvider.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Analyze_WithUnrecognizedServerName_DoesNotIdentifyProvider()
+    {
+        // Arrange - DoH with server_names containing an unrecognized name
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""my-unknown-dns-provider""]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""10.0.0.53""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Unrecognized server name means no provider identified
+        result.DohConfigured.Should().BeTrue();
+        result.ExpectedDnsProvider.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Analyze_WithMixedEnabledAndDisabledServers_UsesFirstEnabled()
+    {
+        // Arrange - Multiple custom servers with stamps, first disabled, second enabled
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {
+                        ""enabled"": false,
+                        ""server_name"": ""google"",
+                        ""sdns_stamp"": ""sdns://AgUAAAAAAAAAAAAKZG5zLmdvb2dsZQovZG5zLXF1ZXJ5""
+                    },
+                    {
+                        ""enabled"": true,
+                        ""server_name"": ""cloudflare"",
+                        ""sdns_stamp"": ""sdns://AgcAAAAAAAAABzEuMC4wLjEAEmRucy5jbG91ZGZsYXJlLmNvbQovZG5zLXF1ZXJ5""
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""1.1.1.1""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Should use cloudflare (first enabled), not google (disabled)
+        result.ExpectedDnsProvider.Should().Be("Cloudflare");
+    }
+
+    [Fact]
+    public async Task Analyze_WithNextDnsServerName_IdentifiesNextDns()
+    {
+        // Arrange - DoH with NextDNS server name format (includes profile ID)
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-abc123""]
+            }
+        ]").RootElement;
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN"",
+                        ""up"": true,
+                        ""dns"": [""45.90.28.0""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, null, deviceData);
+
+        // Assert - Should identify NextDNS from server name prefix
+        result.ExpectedDnsProvider.Should().Be("NextDNS");
+    }
+
+    #endregion
 }
