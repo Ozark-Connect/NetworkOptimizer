@@ -341,4 +341,136 @@ public static class NetworkUtilities
 
         return !IsPrivateIpAddress(ip);
     }
+
+    /// <summary>
+    /// Check if a CIDR block completely covers another subnet.
+    /// Supports both IPv4 and IPv6.
+    /// </summary>
+    /// <param name="outerCidr">The outer/larger CIDR (e.g., "192.168.0.0/16" or "2001:db8::/32")</param>
+    /// <param name="innerSubnet">The inner/smaller subnet (e.g., "192.168.1.0/24" or "2001:db8:abcd::/48")</param>
+    /// <returns>True if outerCidr completely covers innerSubnet</returns>
+    public static bool CidrCoversSubnet(string outerCidr, string innerSubnet)
+    {
+        try
+        {
+            var (outerNetwork, outerPrefixLength) = ParseCidr(outerCidr);
+            var (innerNetwork, innerPrefixLength) = ParseCidr(innerSubnet);
+
+            if (outerNetwork == null || innerNetwork == null)
+                return false;
+
+            // Outer must have same or shorter prefix (larger network) to cover inner
+            if (outerPrefixLength > innerPrefixLength)
+                return false;
+
+            // Must be same address family
+            var outerBytes = outerNetwork.GetAddressBytes();
+            var innerBytes = innerNetwork.GetAddressBytes();
+
+            if (outerBytes.Length != innerBytes.Length)
+                return false;
+
+            // Compare network addresses masked by outer's prefix length
+            var fullBytes = outerPrefixLength / 8;
+            var remainingBits = outerPrefixLength % 8;
+
+            for (int i = 0; i < fullBytes; i++)
+            {
+                if (outerBytes[i] != innerBytes[i])
+                    return false;
+            }
+
+            if (remainingBits > 0 && fullBytes < outerBytes.Length)
+            {
+                var mask = (byte)(0xFF << (8 - remainingBits));
+                if ((outerBytes[fullBytes] & mask) != (innerBytes[fullBytes] & mask))
+                    return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Parse an IP address or IP range into a list of individual IPs.
+    /// Supports formats: "192.168.1.1" (single) or "192.168.1.1-192.168.1.5" (range).
+    /// For ranges, all IPs must be in the same /24 subnet and the range must be reasonable (max 256 IPs).
+    /// </summary>
+    /// <param name="ipOrRange">Single IP or IP range (e.g., "192.168.1.10-192.168.1.20")</param>
+    /// <returns>List of individual IP addresses. Returns original value if parsing fails.</returns>
+    public static List<string> ExpandIpRange(string? ipOrRange)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(ipOrRange))
+            return result;
+
+        var hyphenIndex = ipOrRange.IndexOf('-');
+        if (hyphenIndex > 0 && hyphenIndex < ipOrRange.Length - 1)
+        {
+            var startIp = ipOrRange[..hyphenIndex];
+            var endIp = ipOrRange[(hyphenIndex + 1)..];
+
+            if (!IPAddress.TryParse(startIp, out var startAddr) ||
+                !IPAddress.TryParse(endIp, out var endAddr))
+            {
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            var startBytes = startAddr.GetAddressBytes();
+            var endBytes = endAddr.GetAddressBytes();
+
+            // Only support IPv4 ranges in the same /24 subnet
+            if (startBytes.Length != 4 || endBytes.Length != 4 ||
+                startBytes[0] != endBytes[0] || startBytes[1] != endBytes[1] || startBytes[2] != endBytes[2])
+            {
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            var startOctet = startBytes[3];
+            var endOctet = endBytes[3];
+
+            if (startOctet > endOctet || endOctet - startOctet > 255)
+            {
+                result.Add(ipOrRange);
+                return result;
+            }
+
+            for (var i = startOctet; i <= endOctet; i++)
+            {
+                result.Add($"{startBytes[0]}.{startBytes[1]}.{startBytes[2]}.{i}");
+            }
+        }
+        else
+        {
+            result.Add(ipOrRange);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Parse CIDR notation into network address and prefix length.
+    /// </summary>
+    /// <param name="cidr">CIDR string (e.g., "192.168.1.0/24" or "2001:db8::/32")</param>
+    /// <returns>Tuple of (network address, prefix length). Network is null if parsing fails.</returns>
+    public static (IPAddress? Network, int PrefixLength) ParseCidr(string cidr)
+    {
+        var parts = cidr.Split('/');
+        if (parts.Length != 2)
+            return (null, 0);
+
+        if (!IPAddress.TryParse(parts[0], out var address))
+            return (null, 0);
+
+        if (!int.TryParse(parts[1], out var prefixLength))
+            return (null, 0);
+
+        return (address, prefixLength);
+    }
 }

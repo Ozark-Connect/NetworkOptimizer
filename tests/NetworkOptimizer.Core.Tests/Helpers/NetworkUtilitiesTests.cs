@@ -284,4 +284,140 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region CidrCoversSubnet Tests
+
+    [Theory]
+    [InlineData("192.168.1.0/24", "192.168.1.0/24", true)]   // Exact match
+    [InlineData("192.168.0.0/16", "192.168.1.0/24", true)]   // Larger covers smaller
+    [InlineData("10.0.0.0/8", "10.1.2.0/24", true)]          // Class A covers /24
+    [InlineData("192.168.1.0/24", "192.168.0.0/16", false)]  // Smaller doesn't cover larger
+    [InlineData("192.168.1.0/24", "192.168.2.0/24", false)]  // Different network
+    [InlineData("0.0.0.0/0", "192.168.1.0/24", true)]        // /0 covers everything
+    public void CidrCoversSubnet_IPv4_ValidCases(string outer, string inner, bool expected)
+    {
+        NetworkUtilities.CidrCoversSubnet(outer, inner).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("2001:db8::/32", "2001:db8:abcd::/48", true)]   // IPv6 larger covers smaller
+    [InlineData("2001:db8:abcd::/48", "2001:db8:abcd:1234::/64", true)]
+    [InlineData("2001:db8:abcd:1234::/64", "2001:db8:abcd::/48", false)]
+    [InlineData("::/0", "2001:db8::/32", true)]  // /0 covers everything
+    public void CidrCoversSubnet_IPv6_ValidCases(string outer, string inner, bool expected)
+    {
+        NetworkUtilities.CidrCoversSubnet(outer, inner).Should().Be(expected);
+    }
+
+    [Fact]
+    public void CidrCoversSubnet_MixedFamilies_ReturnsFalse()
+    {
+        NetworkUtilities.CidrCoversSubnet("192.168.0.0/16", "2001:db8::/32").Should().BeFalse();
+        NetworkUtilities.CidrCoversSubnet("2001:db8::/32", "192.168.1.0/24").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("invalid", "192.168.1.0/24")]
+    [InlineData("192.168.1.0/24", "invalid")]
+    [InlineData("", "192.168.1.0/24")]
+    [InlineData("192.168.1.0", "192.168.1.0/24")]  // Missing prefix
+    public void CidrCoversSubnet_InvalidInput_ReturnsFalse(string outer, string inner)
+    {
+        NetworkUtilities.CidrCoversSubnet(outer, inner).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region ExpandIpRange Tests
+
+    [Fact]
+    public void ExpandIpRange_SingleIp_ReturnsSingleIp()
+    {
+        var result = NetworkUtilities.ExpandIpRange("192.168.1.1");
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.1");
+    }
+
+    [Fact]
+    public void ExpandIpRange_NullOrEmpty_ReturnsEmptyList()
+    {
+        NetworkUtilities.ExpandIpRange(null).Should().BeEmpty();
+        NetworkUtilities.ExpandIpRange("").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ExpandIpRange_ValidRange_ReturnsAllIps()
+    {
+        var result = NetworkUtilities.ExpandIpRange("192.168.1.10-192.168.1.12");
+        result.Should().HaveCount(3);
+        result.Should().Contain("192.168.1.10");
+        result.Should().Contain("192.168.1.11");
+        result.Should().Contain("192.168.1.12");
+    }
+
+    [Fact]
+    public void ExpandIpRange_TwoIpRange_ReturnsBothIps()
+    {
+        var result = NetworkUtilities.ExpandIpRange("172.16.1.253-172.16.1.254");
+        result.Should().HaveCount(2);
+        result.Should().BeEquivalentTo(new[] { "172.16.1.253", "172.16.1.254" });
+    }
+
+    [Fact]
+    public void ExpandIpRange_CrossSubnetRange_ReturnsSingleValue()
+    {
+        // Cross-subnet ranges are not expanded
+        var result = NetworkUtilities.ExpandIpRange("192.168.1.1-192.168.2.1");
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.1-192.168.2.1");
+    }
+
+    [Fact]
+    public void ExpandIpRange_ReversedRange_ReturnsSingleValue()
+    {
+        // Reversed ranges (start > end) are not expanded
+        var result = NetworkUtilities.ExpandIpRange("192.168.1.10-192.168.1.5");
+        result.Should().ContainSingle().Which.Should().Be("192.168.1.10-192.168.1.5");
+    }
+
+    [Fact]
+    public void ExpandIpRange_InvalidIp_ReturnsSingleValue()
+    {
+        var result = NetworkUtilities.ExpandIpRange("not-an-ip");
+        result.Should().ContainSingle().Which.Should().Be("not-an-ip");
+    }
+
+    #endregion
+
+    #region ParseCidr Tests
+
+    [Fact]
+    public void ParseCidr_ValidIPv4_ReturnsNetworkAndPrefix()
+    {
+        var (network, prefix) = NetworkUtilities.ParseCidr("192.168.1.0/24");
+        network.Should().NotBeNull();
+        network!.ToString().Should().Be("192.168.1.0");
+        prefix.Should().Be(24);
+    }
+
+    [Fact]
+    public void ParseCidr_ValidIPv6_ReturnsNetworkAndPrefix()
+    {
+        var (network, prefix) = NetworkUtilities.ParseCidr("2001:db8::/32");
+        network.Should().NotBeNull();
+        network!.ToString().Should().Be("2001:db8::");
+        prefix.Should().Be(32);
+    }
+
+    [Theory]
+    [InlineData("192.168.1.0")]      // Missing prefix
+    [InlineData("192.168.1.0/")]     // Empty prefix
+    [InlineData("/24")]              // Missing network
+    [InlineData("invalid/24")]       // Invalid IP
+    [InlineData("192.168.1.0/abc")]  // Non-numeric prefix
+    public void ParseCidr_InvalidInput_ReturnsNull(string cidr)
+    {
+        var (network, _) = NetworkUtilities.ParseCidr(cidr);
+        network.Should().BeNull();
+    }
+
+    #endregion
 }

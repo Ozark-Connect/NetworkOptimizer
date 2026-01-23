@@ -2225,67 +2225,10 @@ public class DnsSecurityAnalyzer
 
     /// <summary>
     /// Parse an IP address or IP range into a list of individual IPs.
-    /// Supports formats: "192.168.1.1" (single) or "192.168.1.1-192.168.1.5" (range).
-    /// For ranges, all IPs must be in the same /24 subnet and the range must be reasonable (max 256 IPs).
+    /// Delegates to NetworkUtilities.ExpandIpRange.
     /// </summary>
     public static List<string> ParseIpOrRange(string? ipOrRange)
-    {
-        var result = new List<string>();
-        if (string.IsNullOrEmpty(ipOrRange))
-            return result;
-
-        // Check if it's a range (contains hyphen but not in valid single IP format)
-        var hyphenIndex = ipOrRange.IndexOf('-');
-        if (hyphenIndex > 0 && hyphenIndex < ipOrRange.Length - 1)
-        {
-            var startIp = ipOrRange[..hyphenIndex];
-            var endIp = ipOrRange[(hyphenIndex + 1)..];
-
-            // Parse both IPs
-            if (!System.Net.IPAddress.TryParse(startIp, out var startAddr) ||
-                !System.Net.IPAddress.TryParse(endIp, out var endAddr))
-            {
-                // Invalid range format, treat as single value
-                result.Add(ipOrRange);
-                return result;
-            }
-
-            var startBytes = startAddr.GetAddressBytes();
-            var endBytes = endAddr.GetAddressBytes();
-
-            // Only support IPv4 ranges in the same /24 subnet
-            if (startBytes.Length != 4 || endBytes.Length != 4 ||
-                startBytes[0] != endBytes[0] || startBytes[1] != endBytes[1] || startBytes[2] != endBytes[2])
-            {
-                // Cross-subnet range, treat as single value
-                result.Add(ipOrRange);
-                return result;
-            }
-
-            var startOctet = startBytes[3];
-            var endOctet = endBytes[3];
-
-            // Ensure start <= end and range is reasonable
-            if (startOctet > endOctet || endOctet - startOctet > 255)
-            {
-                result.Add(ipOrRange);
-                return result;
-            }
-
-            // Generate all IPs in the range
-            for (var i = startOctet; i <= endOctet; i++)
-            {
-                result.Add($"{startBytes[0]}.{startBytes[1]}.{startBytes[2]}.{i}");
-            }
-        }
-        else
-        {
-            // Single IP
-            result.Add(ipOrRange);
-        }
-
-        return result;
-    }
+        => NetworkUtilities.ExpandIpRange(ipOrRange);
 
     /// <summary>
     /// Check if a redirect IP (which may be a range) is valid against the set of expected destinations.
