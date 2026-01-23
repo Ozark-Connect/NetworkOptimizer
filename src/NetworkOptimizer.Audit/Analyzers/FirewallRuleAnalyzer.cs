@@ -548,6 +548,14 @@ public class FirewallRuleAnalyzer
 
             if (sourceIsolatedNetworks.Any())
             {
+                // Skip required management access rules (NTP, UniFi, AFC, 5G) - these are expected
+                var mgmtNetworks = sourceIsolatedNetworks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
+                if (mgmtNetworks.Any() && IsRequiredManagementAccessRule(rule))
+                {
+                    _logger.LogDebug("Skipping required management access rule '{RuleName}'", rule.Name);
+                    continue;
+                }
+
                 // Determine the purpose suffix for grouping (similar to Cross-VLAN exceptions)
                 var purposeSuffix = GetIsolationExceptionPurposeSuffix(sourceIsolatedNetworks);
 
@@ -694,6 +702,32 @@ public class FirewallRuleAnalyzer
         }
 
         return "";
+    }
+
+    /// <summary>
+    /// Check if a rule is a required management access rule (NTP, UniFi, AFC, 5G).
+    /// These are expected rules for isolated management networks and should not be flagged.
+    /// </summary>
+    private static bool IsRequiredManagementAccessRule(FirewallRule rule)
+    {
+        // Check for UniFi cloud access (ui.com)
+        if (rule.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true)
+            return true;
+
+        // Check for AFC access (qcs.qualcomm.com)
+        if (rule.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true)
+            return true;
+
+        // Check for NTP access (UDP port 123)
+        if (FirewallGroupHelper.RuleAllowsPortAndProtocol(rule, "123", "udp"))
+            return true;
+
+        // Check for 5G/LTE carrier domains
+        var carrierDomains = new[] { "trafficmanager.net", "t-mobile.com", "gsma.com" };
+        if (rule.WebDomains?.Any(d => carrierDomains.Any(cd => d.Contains(cd, StringComparison.OrdinalIgnoreCase))) == true)
+            return true;
+
+        return false;
     }
 
     /// <summary>

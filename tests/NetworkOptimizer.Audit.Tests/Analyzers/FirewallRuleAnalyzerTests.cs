@@ -4002,6 +4002,48 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementNtpRule_IsExcluded()
+    {
+        // Arrange - NTP access rule from management network should NOT be flagged
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRuleWithPort("Allow NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id },
+                destPort: "123", protocol: "udp"),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - NTP rule should be excluded
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementUniFiRule_IsExcluded()
+    {
+        // Arrange - UniFi access rule from management network should NOT be flagged
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow UniFi", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id },
+                webDomains: new List<string> { "ui.com" }),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - UniFi rule should be excluded
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void DetectNetworkIsolationExceptions_MultipleAllowRules_ReturnsMultipleIssues()
     {
         // Arrange - Multiple allow rules creating exceptions
@@ -4105,6 +4147,28 @@ public class FirewallRuleAnalyzerTests
             Index = 1,
             SourceMatchingTarget = "IP",
             SourceIps = sourceCidrs
+        };
+    }
+
+    private static FirewallRule CreateFirewallRuleWithPort(
+        string name,
+        string action = "allow",
+        List<string>? sourceNetworkIds = null,
+        string? destPort = null,
+        string? protocol = null,
+        bool enabled = true)
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            Action = action,
+            Enabled = enabled,
+            Index = 1,
+            SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
+            DestinationPort = destPort,
+            Protocol = protocol
         };
     }
 
