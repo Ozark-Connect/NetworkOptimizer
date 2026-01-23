@@ -774,9 +774,13 @@ public class ConfigAuditEngine
             : new List<AuditIssue>();
 
         // Check if there's a 5G/LTE device on the network
-        var has5GDevice = ctx.Switches.Any(s =>
-            s.Model?.StartsWith("U5G", StringComparison.OrdinalIgnoreCase) == true ||
-            s.Model?.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase) == true);
+        // Check all raw devices since 5G modems may not have port tables (not in Switches)
+        var has5GDevice = ctx.DeviceData.ValueKind is JsonValueKind.Array or JsonValueKind.Object &&
+            ctx.DeviceData.UnwrapDataArray().Any(d =>
+                UniFi.UniFiProductDatabase.IsCellularModem(
+                    d.GetStringOrNull("model"),
+                    d.GetStringOrNull("shortname"),
+                    d.GetStringOrNull("type")));
 
         var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice, ctx.ExternalZoneId);
 
