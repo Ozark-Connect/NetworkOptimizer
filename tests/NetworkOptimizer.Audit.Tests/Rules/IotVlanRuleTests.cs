@@ -1232,7 +1232,7 @@ public class IotVlanRuleTests
             {
                 Mac = "00:17:88:11:22:33",
                 Name = string.Empty, // No name
-                Hostname = null,
+                Hostname = null!,
                 Oui = "Philips Lighting",
                 IsWired = true,
                 NetworkId = corpNetwork.Id
@@ -1267,8 +1267,8 @@ public class IotVlanRuleTests
             {
                 Mac = "00:17:88:11:22:33",
                 Name = string.Empty,
-                Hostname = null,
-                Oui = null, // No OUI
+                Hostname = null!,
+                Oui = null!, // No OUI
                 IsWired = true,
                 NetworkId = corpNetwork.Id
             }

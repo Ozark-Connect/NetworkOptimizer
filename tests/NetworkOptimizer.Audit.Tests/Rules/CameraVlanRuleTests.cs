@@ -419,7 +419,7 @@ public class CameraVlanRuleTests
             Mac = "EC:71:DB:11:22:33", // Reolink MAC prefix
             Name = null!,       // No name
             Hostname = null!,   // No hostname
-            Oui = null,         // No OUI set - testing vendor fallback
+            Oui = null!,        // No OUI set - testing vendor fallback
             IsWired = true,
             NetworkId = corpNetwork.Id
         };
@@ -458,7 +458,7 @@ public class CameraVlanRuleTests
             Mac = "AA:BB:CC:DD:EE:FF",
             Name = null!,
             Hostname = null!,
-            Oui = null,
+            Oui = null!,
             IsWired = true,
             NetworkId = corpNetwork.Id
         };

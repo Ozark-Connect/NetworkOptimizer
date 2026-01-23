@@ -1422,55 +1422,50 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
-    #region IpMatchesCidr - IPv6 Tests (KNOWN BUG: IPv6 only checks first 4 bytes)
-
-    // BUG: IpMatchesCidr only works correctly for IPv4 addresses.
-    // The implementation uses hardcoded 4-byte arrays and loops, but IPv6 has 16 bytes.
-    // This causes IPv6 addresses to only compare the first 32 bits instead of all 128.
-    // See FirewallRuleOverlapDetector.cs lines 549-562.
-    // Impact: IPv6 firewall rule overlap detection is unreliable.
+    #region IpMatchesCidr - IPv6 Tests
 
     [Fact]
     public void IpMatchesCidr_IPv6Address_InCidr_ReturnsTrue()
     {
-        // IPv6 address in a /32 subnet - happens to work because /32 = first 4 bytes
         var result = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::1", "2001:db8::/32");
 
-        // This works because /32 only needs first 4 bytes (which is all the code checks)
         result.Should().BeTrue();
     }
 
     [Fact]
     public void IpMatchesCidr_IPv6Address_OutsideCidr_ReturnsFalse()
     {
-        // IPv6 address outside the /32 subnet - different first 4 bytes
         var result = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db9::1", "2001:db8::/32");
 
         result.Should().BeFalse();
     }
 
-    [Fact(Skip = "KNOWN BUG: IPv6 only checks first 4 bytes. Address outside /64 incorrectly returns true.")]
-    public void IpMatchesCidr_IPv6_Slash64_BoundaryCheck_KNOWN_BUG()
+    [Fact]
+    public void IpMatchesCidr_IPv6_Slash64_BoundaryCheck()
     {
-        // BUG: This test demonstrates the IPv6 bug.
-        // The /64 prefix requires checking 8 bytes, but only 4 are checked.
         var inRange = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8:abcd:1234::ffff", "2001:db8:abcd:1234::/64");
         var outOfRange = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8:abcd:1235::1", "2001:db8:abcd:1234::/64");
 
         inRange.Should().BeTrue("address within /64 prefix should match");
-        // BUG: This returns TRUE when it should be FALSE because only first 4 bytes are compared
         outOfRange.Should().BeFalse("address outside /64 prefix should not match");
     }
 
     [Fact]
-    public void IpMatchesCidr_IPv6_BugDemonstration_OutOfRangeMatchesIncorrectly()
+    public void IpMatchesCidr_IPv6_Slash128_ExactMatch()
     {
-        // This test DOCUMENTS the bug - an out-of-range IPv6 address incorrectly matches
-        // because only the first 4 bytes (32 bits) are compared
-        var outOfRange = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8:abcd:1235::1", "2001:db8:abcd:1234::/64");
+        var exactMatch = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::1", "2001:db8::1/128");
+        var noMatch = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::2", "2001:db8::1/128");
 
-        // BUG: This should be false but returns true due to only checking 4 bytes
-        outOfRange.Should().BeTrue("BUG: only first 4 bytes are compared, so this incorrectly matches");
+        exactMatch.Should().BeTrue();
+        noMatch.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpMatchesCidr_MixedAddressFamilies_ReturnsFalse()
+    {
+        var result = FirewallRuleOverlapDetector.IpMatchesCidr("192.168.1.1", "2001:db8::/32");
+
+        result.Should().BeFalse("different address families should not match");
     }
 
     #endregion

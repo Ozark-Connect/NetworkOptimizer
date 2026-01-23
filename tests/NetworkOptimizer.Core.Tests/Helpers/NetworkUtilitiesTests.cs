@@ -94,6 +94,66 @@ public class NetworkUtilitiesTests
 
     #endregion
 
+    #region IsIpInSubnet - IPv6 Tests
+
+    [Theory]
+    [InlineData("2001:db8::1", "2001:db8::/32", true)]
+    [InlineData("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", "2001:db8::/32", true)]
+    [InlineData("2001:db9::1", "2001:db8::/32", false)]
+    [InlineData("2001:db8:abcd:1234::1", "2001:db8:abcd:1234::/64", true)]
+    [InlineData("2001:db8:abcd:1234:ffff:ffff:ffff:ffff", "2001:db8:abcd:1234::/64", true)]
+    [InlineData("2001:db8:abcd:1235::1", "2001:db8:abcd:1234::/64", false)]
+    public void IsIpInSubnet_IPv6_ValidCases(string ip, string subnet, bool expected)
+    {
+        NetworkUtilities.IsIpInSubnet(ip, subnet).Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsIpInSubnet_IPv6_Slash128_ExactMatch()
+    {
+        // /128 means exact IPv6 address match only
+        NetworkUtilities.IsIpInSubnet("2001:db8::1", "2001:db8::1/128").Should().BeTrue();
+        NetworkUtilities.IsIpInSubnet("2001:db8::2", "2001:db8::1/128").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsIpInSubnet_IPv6_SlashZero_MatchesAll()
+    {
+        // /0 means all IPv6 addresses match
+        NetworkUtilities.IsIpInSubnet("2001:db8::1", "::/0").Should().BeTrue();
+        NetworkUtilities.IsIpInSubnet("fe80::1", "::/0").Should().BeTrue();
+    }
+
+    [Fact]
+    public void IsIpInSubnet_MixedAddressFamilies_ReturnsFalse()
+    {
+        // IPv4 address against IPv6 subnet
+        NetworkUtilities.IsIpInSubnet("192.168.1.1", "2001:db8::/32").Should().BeFalse();
+
+        // IPv6 address against IPv4 subnet
+        NetworkUtilities.IsIpInSubnet("2001:db8::1", "192.168.1.0/24").Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsIpInSubnet_IPv6_LinkLocal()
+    {
+        // Link-local addresses (fe80::/10)
+        NetworkUtilities.IsIpInSubnet("fe80::1", "fe80::/10").Should().BeTrue();
+        NetworkUtilities.IsIpInSubnet("fe80::abcd:1234:5678:9abc", "fe80::/10").Should().BeTrue();
+        NetworkUtilities.IsIpInSubnet("2001:db8::1", "fe80::/10").Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("2001:db8::1", "2001:db8::/48", true)]
+    [InlineData("2001:db8:0:ffff::1", "2001:db8::/48", true)]
+    [InlineData("2001:db8:1::1", "2001:db8::/48", false)]
+    public void IsIpInSubnet_IPv6_Slash48(string ip, string subnet, bool expected)
+    {
+        NetworkUtilities.IsIpInSubnet(ip, subnet).Should().Be(expected);
+    }
+
+    #endregion
+
     #region IsIpInAnySubnet Tests
 
     [Fact]

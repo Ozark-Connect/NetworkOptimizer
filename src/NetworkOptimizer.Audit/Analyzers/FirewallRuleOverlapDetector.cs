@@ -1,4 +1,6 @@
+using System.Net;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -527,6 +529,7 @@ public static class FirewallRuleOverlapDetector
 
     /// <summary>
     /// Check if an IP address or smaller CIDR falls within a larger CIDR.
+    /// Supports both IPv4 and IPv6 addresses.
     /// </summary>
     public static bool IpMatchesCidr(string ip, string cidr)
     {
@@ -535,33 +538,13 @@ public static class FirewallRuleOverlapDetector
 
         try
         {
-            var parts = cidr.Split('/');
-            var networkAddress = parts[0];
-            var prefixLength = int.Parse(parts[1]);
-
             // Extract the IP part (without CIDR suffix if present)
             var ipPart = ip.Contains('/') ? ip.Split('/')[0] : ip;
 
-            // Parse both addresses
-            var ipBytes = System.Net.IPAddress.Parse(ipPart).GetAddressBytes();
-            var networkBytes = System.Net.IPAddress.Parse(networkAddress).GetAddressBytes();
+            if (!IPAddress.TryParse(ipPart, out var ipAddress))
+                return false;
 
-            // Create mask
-            var maskBytes = new byte[4];
-            for (int i = 0; i < 4; i++)
-            {
-                int bitsInThisByte = Math.Max(0, Math.Min(8, prefixLength - (i * 8)));
-                maskBytes[i] = (byte)(0xFF << (8 - bitsInThisByte));
-            }
-
-            // Check if masked addresses match
-            for (int i = 0; i < 4; i++)
-            {
-                if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                    return false;
-            }
-
-            return true;
+            return NetworkUtilities.IsIpInSubnet(ipAddress, cidr);
         }
         catch
         {

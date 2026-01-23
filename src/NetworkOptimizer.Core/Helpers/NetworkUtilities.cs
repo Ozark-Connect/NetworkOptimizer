@@ -186,10 +186,11 @@ public static class NetworkUtilities
     }
 
     /// <summary>
-    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24").
+    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24" or "2001:db8::/32").
+    /// Supports both IPv4 and IPv6 addresses.
     /// </summary>
     /// <param name="ip">Parsed IP address to check</param>
-    /// <param name="cidrSubnet">Subnet in CIDR notation (e.g., "192.168.1.0/24")</param>
+    /// <param name="cidrSubnet">Subnet in CIDR notation (e.g., "192.168.1.0/24" or "2001:db8::/32")</param>
     /// <returns>True if the IP is within the subnet, false otherwise</returns>
     public static bool IsIpInSubnet(IPAddress ip, string cidrSubnet)
     {
@@ -200,18 +201,18 @@ public static class NetworkUtilities
         if (!IPAddress.TryParse(parts[0], out var networkAddress))
             return false;
 
-        // Only handle IPv4
-        if (ip.AddressFamily != AddressFamily.InterNetwork ||
-            networkAddress.AddressFamily != AddressFamily.InterNetwork)
+        // Addresses must be same family (both IPv4 or both IPv6)
+        if (ip.AddressFamily != networkAddress.AddressFamily)
             return false;
 
         var ipBytes = ip.GetAddressBytes();
         var networkBytes = networkAddress.GetAddressBytes();
+        var byteCount = ipBytes.Length; // 4 for IPv4, 16 for IPv6
 
-        // Create mask from prefix length
-        var maskBytes = new byte[4];
+        // Create mask from prefix length for the appropriate address length
+        var maskBytes = new byte[byteCount];
         var remainingBits = prefixLength;
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < byteCount; i++)
         {
             if (remainingBits >= 8)
             {
@@ -230,7 +231,7 @@ public static class NetworkUtilities
         }
 
         // Check if masked IP equals masked network
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < byteCount; i++)
         {
             if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
                 return false;
