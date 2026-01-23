@@ -777,6 +777,38 @@ public class DnsSecurityAnalyzer
         // Validate WAN DNS against DoH provider (uses PTR lookup)
         await ValidateWanDnsConfigurationAsync(result);
 
+        // Issue: Networks using external public DNS (bypasses ALL local DNS filtering)
+        if (result.HasExternalDns)
+        {
+            var networksByProvider = result.ExternalDnsNetworks
+                .GroupBy(e => e.ProviderName ?? "unknown provider")
+                .ToList();
+
+            foreach (var group in networksByProvider)
+            {
+                var networkNames = group.Select(e => e.NetworkName).Distinct().ToList();
+                var dnsIps = group.Select(e => e.DnsServerIp).Distinct().ToList();
+                var providerName = group.Key;
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsExternalBypass,
+                    Severity = AuditSeverity.Critical,
+                    DeviceName = result.GatewayName,
+                    Message = $"Network(s) ({string.Join(", ", networkNames)}) configured to use external public DNS ({providerName}: {string.Join(", ", dnsIps)}). This bypasses ALL local DNS filtering including gateway DoH and Pi-hole/AdGuard.",
+                    RecommendedAction = "Remove custom DNS configuration from these networks to use gateway DNS, or point them to your local DNS filtering solution (e.g., Pi-hole, AdGuard Home). If intentional, create DNAT rules to redirect DNS traffic.",
+                    RuleId = "DNS-EXT-BYPASS-001",
+                    ScoreImpact = 15,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "affected_networks", networkNames },
+                        { "external_dns_servers", dnsIps },
+                        { "provider_name", providerName }
+                    }
+                });
+            }
+        }
+
         // Issue: No DNS port 53 blocking (DNS leak prevention)
         // DNAT rules can be an alternative when DoH or third-party DNS is configured
         // and the redirect destination is correct
@@ -1697,6 +1729,17 @@ public class DnsSecurityAnalyzer
                 _logger.LogInformation("Third-party DNS only on Corporate networks - treating as specialized internal DNS, not site-wide");
             }
         }
+
+        // Detect networks using external public DNS (bypasses all local DNS filtering)
+        var externalDnsResults = _thirdPartyDetector.DetectExternalDns(networks);
+        if (externalDnsResults.Any())
+        {
+            result.HasExternalDns = true;
+            result.ExternalDnsNetworks.AddRange(externalDnsResults);
+            _logger.LogWarning("Found {Count} network(s) using external public DNS (bypasses local filtering): {Networks}",
+                externalDnsResults.Count,
+                string.Join(", ", externalDnsResults.Select(e => $"{e.NetworkName} ({e.DnsServerIp})")));
+        }
     }
 
     /// <summary>
@@ -2279,6 +2322,10 @@ public class DnsSecurityResult
     /// The IPs of the site-wide third-party DNS servers (only populated if IsSiteWideThirdPartyDns is true)
     /// </summary>
     public List<string> SiteWideDnsServerIps { get; } = new();
+
+    // External Public DNS Detection
+    public bool HasExternalDns { get; set; }
+    public List<ThirdPartyDnsDetector.ExternalDnsInfo> ExternalDnsNetworks { get; } = new();
 
     // DNAT DNS Coverage
     public bool HasDnatDnsRules { get; set; }

@@ -79,4 +79,7 @@ public static class IssueTypes
     // DNS Zone-Specific Info Issues
     public const string DnsDmzNetworkInfo = "DNS_DMZ_NETWORK_INFO";
     public const string DnsGuestThirdPartyInfo = "DNS_GUEST_THIRD_PARTY_INFO";
+
+    // DNS Bypass Issues
+    public const string DnsExternalBypass = "DNS_EXTERNAL_BYPASS";
 }

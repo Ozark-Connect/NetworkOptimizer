@@ -36,6 +36,17 @@ public class ThirdPartyDnsDetector
     }
 
     /// <summary>
+    /// Detection result for a network using external public DNS
+    /// </summary>
+    public class ExternalDnsInfo
+    {
+        public required string DnsServerIp { get; init; }
+        public required string NetworkName { get; init; }
+        public int NetworkVlanId { get; init; }
+        public string? ProviderName { get; init; }
+    }
+
+    /// <summary>
     /// Detect third-party LAN DNS servers across all networks
     /// </summary>
     /// <param name="networks">List of networks to check</param>
@@ -147,6 +158,71 @@ public class ThirdPartyDnsDetector
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Detect networks configured to use external public DNS servers (e.g., 1.1.1.1, 8.8.8.8).
+    /// These networks bypass all local DNS filtering (gateway DoH, Pi-hole, etc.).
+    /// </summary>
+    public List<ExternalDnsInfo> DetectExternalDns(List<NetworkInfo> networks)
+    {
+        var results = new List<ExternalDnsInfo>();
+
+        foreach (var network in networks)
+        {
+            // Skip networks without DHCP or without custom DNS servers
+            if (!network.DhcpEnabled || network.DnsServers == null || !network.DnsServers.Any())
+                continue;
+
+            var gatewayIp = network.Gateway;
+
+            foreach (var dnsServer in network.DnsServers)
+            {
+                if (string.IsNullOrEmpty(dnsServer))
+                    continue;
+
+                // Skip if this DNS server is the gateway
+                if (dnsServer == gatewayIp)
+                    continue;
+
+                // Skip if this is a LAN IP (RFC1918) - handled by third-party DNS detection
+                if (IsRfc1918Address(dnsServer))
+                    continue;
+
+                // This is an external public DNS server
+                var providerName = GetPublicDnsProviderName(dnsServer);
+                _logger.LogInformation("Network {Network} uses external public DNS: {DnsServer} ({Provider})",
+                    network.Name, dnsServer, providerName ?? "unknown provider");
+
+                results.Add(new ExternalDnsInfo
+                {
+                    DnsServerIp = dnsServer,
+                    NetworkName = network.Name,
+                    NetworkVlanId = network.VlanId,
+                    ProviderName = providerName
+                });
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Get the provider name for well-known public DNS servers
+    /// </summary>
+    private static string? GetPublicDnsProviderName(string ipAddress)
+    {
+        return ipAddress switch
+        {
+            "1.1.1.1" or "1.0.0.1" => "Cloudflare",
+            "8.8.8.8" or "8.8.4.4" => "Google",
+            "9.9.9.9" or "149.112.112.112" => "Quad9",
+            "208.67.222.222" or "208.67.220.220" => "OpenDNS",
+            "94.140.14.14" or "94.140.15.15" => "AdGuard DNS",
+            "76.76.2.0" or "76.76.10.0" => "Control D",
+            "185.228.168.9" or "185.228.169.9" => "CleanBrowsing",
+            _ => null
+        };
     }
 
     /// <summary>

@@ -443,7 +443,7 @@ public class ConfigAuditEngine
     private void ExecutePhase1_ExtractNetworks(AuditContext ctx)
     {
         _logger.LogInformation("Phase 1: Extracting network topology");
-        ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData);
+        ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
     }
 
