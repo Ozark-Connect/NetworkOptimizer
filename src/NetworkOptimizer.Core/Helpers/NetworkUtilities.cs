@@ -258,4 +258,86 @@ public static class NetworkUtilities
 
         return false;
     }
+
+    /// <summary>
+    /// Check if an IP address is a private/non-routable address.
+    /// Includes RFC1918, loopback, link-local, and CGNAT ranges.
+    /// </summary>
+    /// <param name="ipAddress">IP address string to check</param>
+    /// <returns>True if the IP is private/non-routable, false if public or invalid</returns>
+    public static bool IsPrivateIpAddress(string ipAddress)
+    {
+        if (!IPAddress.TryParse(ipAddress, out var ip))
+            return false;
+
+        return IsPrivateIpAddress(ip);
+    }
+
+    /// <summary>
+    /// Check if an IP address is a private/non-routable address.
+    /// Includes RFC1918, loopback, link-local, and CGNAT ranges.
+    /// </summary>
+    /// <param name="ip">Parsed IP address to check</param>
+    /// <returns>True if the IP is private/non-routable, false if public</returns>
+    public static bool IsPrivateIpAddress(IPAddress ip)
+    {
+        // Only handle IPv4
+        if (ip.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        var bytes = ip.GetAddressBytes();
+
+        // 10.0.0.0/8 (RFC1918)
+        if (bytes[0] == 10)
+            return true;
+
+        // 172.16.0.0/12 (RFC1918)
+        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+            return true;
+
+        // 192.168.0.0/16 (RFC1918)
+        if (bytes[0] == 192 && bytes[1] == 168)
+            return true;
+
+        // 127.0.0.0/8 (Loopback)
+        if (bytes[0] == 127)
+            return true;
+
+        // 169.254.0.0/16 (Link-local)
+        if (bytes[0] == 169 && bytes[1] == 254)
+            return true;
+
+        // 100.64.0.0/10 (CGNAT / Carrier-grade NAT)
+        if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if an IP address is a public/routable address.
+    /// </summary>
+    /// <param name="ipAddress">IP address string to check</param>
+    /// <returns>True if the IP is public/routable, false if private or invalid</returns>
+    public static bool IsPublicIpAddress(string ipAddress)
+    {
+        if (!IPAddress.TryParse(ipAddress, out var ip))
+            return false;
+
+        return IsPublicIpAddress(ip);
+    }
+
+    /// <summary>
+    /// Check if an IP address is a public/routable address.
+    /// </summary>
+    /// <param name="ip">Parsed IP address to check</param>
+    /// <returns>True if the IP is public/routable, false if private</returns>
+    public static bool IsPublicIpAddress(IPAddress ip)
+    {
+        // Only handle IPv4
+        if (ip.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        return !IsPrivateIpAddress(ip);
+    }
 }

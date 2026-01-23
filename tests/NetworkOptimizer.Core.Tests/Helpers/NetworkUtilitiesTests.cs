@@ -160,4 +160,68 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region IsPrivateIpAddress Tests
+
+    [Theory]
+    [InlineData("10.0.0.1", true)]        // RFC1918 Class A
+    [InlineData("10.255.255.255", true)]  // RFC1918 Class A edge
+    [InlineData("172.16.0.1", true)]      // RFC1918 Class B start
+    [InlineData("172.31.255.255", true)]  // RFC1918 Class B end
+    [InlineData("192.168.0.1", true)]     // RFC1918 Class C
+    [InlineData("192.168.255.255", true)] // RFC1918 Class C edge
+    [InlineData("127.0.0.1", true)]       // Loopback
+    [InlineData("169.254.1.1", true)]     // Link-local
+    [InlineData("100.64.0.1", true)]      // CGNAT start
+    [InlineData("100.127.255.255", true)] // CGNAT end
+    public void IsPrivateIpAddress_PrivateIps_ReturnsTrue(string ip, bool expected)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("1.1.1.1")]       // Cloudflare
+    [InlineData("8.8.8.8")]       // Google
+    [InlineData("9.9.9.9")]       // Quad9
+    [InlineData("172.15.0.1")]    // Just before RFC1918 Class B
+    [InlineData("172.32.0.1")]    // Just after RFC1918 Class B
+    [InlineData("100.63.255.255")] // Just before CGNAT
+    [InlineData("100.128.0.0")]   // Just after CGNAT
+    [InlineData("11.0.0.1")]      // Just after Class A private
+    public void IsPrivateIpAddress_PublicIps_ReturnsFalse(string ip)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("")]
+    [InlineData("256.256.256.256")]
+    public void IsPrivateIpAddress_InvalidIp_ReturnsFalse(string ip)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().BeFalse();
+    }
+
+    #endregion
+
+    #region IsPublicIpAddress Tests
+
+    [Theory]
+    [InlineData("1.1.1.1", true)]         // Cloudflare
+    [InlineData("8.8.8.8", true)]         // Google
+    [InlineData("192.168.1.1", false)]    // Private
+    [InlineData("10.0.0.1", false)]       // Private
+    [InlineData("127.0.0.1", false)]      // Loopback
+    public void IsPublicIpAddress_ValidCases(string ip, bool expected)
+    {
+        NetworkUtilities.IsPublicIpAddress(ip).Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsPublicIpAddress_InvalidIp_ReturnsFalse()
+    {
+        NetworkUtilities.IsPublicIpAddress("invalid").Should().BeFalse();
+    }
+
+    #endregion
 }

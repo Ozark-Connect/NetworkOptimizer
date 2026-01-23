@@ -37,7 +37,7 @@ public class ThirdPartyDnsDetector
     }
 
     /// <summary>
-    /// Detection result for a network using external public DNS
+    /// Detection result for a network using DNS outside configured subnets
     /// </summary>
     public class ExternalDnsInfo
     {
@@ -45,6 +45,11 @@ public class ThirdPartyDnsDetector
         public required string NetworkName { get; init; }
         public int NetworkVlanId { get; init; }
         public string? ProviderName { get; init; }
+        /// <summary>
+        /// True if the DNS IP is a public/routable address (e.g., 1.1.1.1, 8.8.8.8).
+        /// False if it's a private IP outside configured subnets.
+        /// </summary>
+        public bool IsPublicDns { get; init; }
     }
 
     /// <summary>
@@ -90,10 +95,10 @@ public class ThirdPartyDnsDetector
                     continue;
                 }
 
-                // Check if this is a LAN IP (RFC1918 private address)
-                if (!IsRfc1918Address(dnsServer))
+                // Check if this is a LAN IP (private address)
+                if (!NetworkUtilities.IsPrivateIpAddress(dnsServer))
                 {
-                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is not RFC1918, skipping", network.Name, dnsServer);
+                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is not private, skipping", network.Name, dnsServer);
                     continue;
                 }
 
@@ -198,17 +203,20 @@ public class ThirdPartyDnsDetector
                 if (NetworkUtilities.IsIpInAnySubnet(dnsServer, internalSubnets))
                     continue;
 
-                // This is an external DNS server (not within any internal subnet)
-                var providerName = GetPublicDnsProviderName(dnsServer);
-                _logger.LogInformation("Network {Network} uses external DNS: {DnsServer} ({Provider}) - not within any internal subnet",
-                    network.Name, dnsServer, providerName ?? "unknown provider");
+                // This is a DNS server not within any internal subnet
+                var isPublic = NetworkUtilities.IsPublicIpAddress(dnsServer);
+                var providerName = isPublic ? GetPublicDnsProviderName(dnsServer) : null;
+                var dnsType = isPublic ? "public" : "private (outside configured subnets)";
+                _logger.LogInformation("Network {Network} uses external DNS: {DnsServer} ({DnsType}, {Provider})",
+                    network.Name, dnsServer, dnsType, providerName ?? "unknown provider");
 
                 results.Add(new ExternalDnsInfo
                 {
                     DnsServerIp = dnsServer,
                     NetworkName = network.Name,
                     NetworkVlanId = network.VlanId,
-                    ProviderName = providerName
+                    ProviderName = providerName,
+                    IsPublicDns = isPublic
                 });
             }
         }
@@ -232,33 +240,6 @@ public class ThirdPartyDnsDetector
             "185.228.168.9" or "185.228.169.9" => "CleanBrowsing",
             _ => null
         };
-    }
-
-    /// <summary>
-    /// Check if an IP address is an RFC1918 private address
-    /// </summary>
-    public static bool IsRfc1918Address(string ipAddress)
-    {
-        if (!IPAddress.TryParse(ipAddress, out var ip))
-            return false;
-
-        var bytes = ip.GetAddressBytes();
-        if (bytes.Length != 4)
-            return false; // IPv6 not supported
-
-        // 10.0.0.0 - 10.255.255.255
-        if (bytes[0] == 10)
-            return true;
-
-        // 172.16.0.0 - 172.31.255.255
-        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-            return true;
-
-        // 192.168.0.0 - 192.168.255.255
-        if (bytes[0] == 192 && bytes[1] == 168)
-            return true;
-
-        return false;
     }
 
     /// <summary>

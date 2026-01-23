@@ -167,58 +167,7 @@ public class ThirdPartyDnsDetectorTests : IDisposable
         return new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
     }
 
-    #region IsRfc1918Address Tests
-
-    [Theory]
-    [InlineData("10.0.0.1", true)]
-    [InlineData("10.255.255.255", true)]
-    [InlineData("10.1.2.3", true)]
-    [InlineData("172.16.0.1", true)]
-    [InlineData("172.31.255.255", true)]
-    [InlineData("172.20.1.1", true)]
-    [InlineData("192.168.0.1", true)]
-    [InlineData("192.168.255.255", true)]
-    [InlineData("192.168.1.100", true)]
-    public void IsRfc1918Address_PrivateIp_ReturnsTrue(string ip, bool expected)
-    {
-        var result = ThirdPartyDnsDetector.IsRfc1918Address(ip);
-        result.Should().Be(expected);
-    }
-
-    [Theory]
-    [InlineData("8.8.8.8")]
-    [InlineData("1.1.1.1")]
-    [InlineData("172.15.0.1")]  // Just below 172.16.x.x range
-    [InlineData("172.32.0.1")]  // Just above 172.31.x.x range
-    [InlineData("192.167.1.1")] // Not 192.168.x.x
-    [InlineData("11.0.0.1")]    // Not 10.x.x.x
-    [InlineData("0.0.0.0")]
-    [InlineData("255.255.255.255")]
-    public void IsRfc1918Address_PublicIp_ReturnsFalse(string ip)
-    {
-        var result = ThirdPartyDnsDetector.IsRfc1918Address(ip);
-        result.Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("invalid")]
-    [InlineData("192.168.1.1.1")]
-    [InlineData("abc.def.ghi.jkl")]
-    public void IsRfc1918Address_InvalidIp_ReturnsFalse(string ip)
-    {
-        var result = ThirdPartyDnsDetector.IsRfc1918Address(ip);
-        result.Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsRfc1918Address_Ipv6_ReturnsFalse()
-    {
-        var result = ThirdPartyDnsDetector.IsRfc1918Address("::1");
-        result.Should().BeFalse();
-    }
-
-    #endregion
+    // Note: IsRfc1918Address tests moved to NetworkUtilitiesTests.cs (IsPrivateIpAddress)
 
     #region DetectThirdPartyDnsAsync - Basic Tests
 

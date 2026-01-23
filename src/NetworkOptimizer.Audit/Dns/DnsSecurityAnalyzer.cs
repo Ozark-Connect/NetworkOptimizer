@@ -777,14 +777,15 @@ public class DnsSecurityAnalyzer
         // Validate WAN DNS against DoH provider (uses PTR lookup)
         await ValidateWanDnsConfigurationAsync(result);
 
-        // Issue: Networks using external public DNS (bypasses ALL local DNS filtering)
+        // Issue: Networks using DNS servers outside configured subnets (bypasses local DNS filtering)
         if (result.HasExternalDns)
         {
-            var networksByProvider = result.ExternalDnsNetworks
-                .GroupBy(e => e.ProviderName ?? "unknown provider")
-                .ToList();
+            // Group by public vs private, then by provider
+            var publicDns = result.ExternalDnsNetworks.Where(e => e.IsPublicDns).ToList();
+            var privateDns = result.ExternalDnsNetworks.Where(e => !e.IsPublicDns).ToList();
 
-            foreach (var group in networksByProvider)
+            // Public DNS (1.1.1.1, 8.8.8.8, etc.) - group by provider
+            foreach (var group in publicDns.GroupBy(e => e.ProviderName ?? "unknown provider"))
             {
                 var networkNames = group.Select(e => e.NetworkName).Distinct().ToList();
                 var dnsIps = group.Select(e => e.DnsServerIp).Distinct().ToList();
@@ -803,7 +804,32 @@ public class DnsSecurityAnalyzer
                     {
                         { "affected_networks", networkNames },
                         { "external_dns_servers", dnsIps },
-                        { "provider_name", providerName }
+                        { "provider_name", providerName },
+                        { "is_public_dns", true }
+                    }
+                });
+            }
+
+            // Private DNS outside configured subnets - could be misconfiguration or unconfigured network
+            if (privateDns.Any())
+            {
+                var networkNames = privateDns.Select(e => e.NetworkName).Distinct().ToList();
+                var dnsIps = privateDns.Select(e => e.DnsServerIp).Distinct().ToList();
+
+                result.Issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.DnsExternalBypass,
+                    Severity = AuditSeverity.Recommended,
+                    DeviceName = result.GatewayName,
+                    Message = $"Network(s) ({string.Join(", ", networkNames)}) configured to use private DNS servers outside configured subnets ({string.Join(", ", dnsIps)}). These may be on an unconfigured network or misconfigured.",
+                    RecommendedAction = "Verify these DNS servers are intentional. If they're local DNS servers (e.g., Pi-hole), ensure their subnet is configured in the network settings. Otherwise, remove the custom DNS configuration.",
+                    RuleId = "DNS-EXT-BYPASS-002",
+                    ScoreImpact = 6,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "affected_networks", networkNames },
+                        { "external_dns_servers", dnsIps },
+                        { "is_public_dns", false }
                     }
                 });
             }
