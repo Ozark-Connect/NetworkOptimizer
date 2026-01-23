@@ -1008,7 +1008,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { "home-network-1" },
                 DestinationMatchingTarget = "IP",
-                DestinationIps = new List<string> { "192.168.20.100" },
+                DestinationIps = new List<string> { "192.168.20.100" }, // IP in IoT subnet (vlan 20)
                 DestinationPort = "631"
             },
             new FirewallRule
@@ -1027,16 +1027,16 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId),
-            CreateNetwork("Home", NetworkPurpose.Home, id: "home-network-1")
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, vlanId: 20), // subnet 192.168.20.0/24
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-network-1", vlanId: 1)
         };
 
         var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should include IoT purpose suffix
-        issue!.Description.Should().Be("IoT");
+        // Should include Source -> Destination format
+        issue!.Description.Should().Be("Home -> IoT");
     }
 
     [Fact]
@@ -1056,7 +1056,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "CLIENT",
                 SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
                 DestinationMatchingTarget = "IP",
-                DestinationIps = new List<string> { "192.168.30.0/24" },
+                DestinationIps = new List<string> { "192.168.30.100" }, // IP in Security subnet (vlan 30)
                 DestinationPort = "443"
             },
             new FirewallRule
@@ -1074,15 +1074,15 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: securityNetworkId)
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: securityNetworkId, vlanId: 30) // subnet 192.168.30.0/24
         };
 
         var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should include Security purpose suffix
-        issue!.Description.Should().Be("Security");
+        // Source is CLIENT (no network), destination is Security - should be "-> Security Cameras"
+        issue!.Description.Should().Be("-> Security Cameras");
     }
 
     [Fact]
@@ -1119,6 +1119,7 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net", vlanId: 1), // subnet 192.168.1.0/24
             CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", vlanId: 20),
             new NetworkInfo
             {
@@ -1136,8 +1137,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should determine Security purpose from destination IP falling within Security network subnet
-        issue!.Description.Should().Be("Security");
+        // Should determine both source (Home from IP) and destination (Security from IP)
+        issue!.Description.Should().Be("Home -> Security Cameras");
     }
 
     [Fact]
@@ -3877,7 +3878,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
         issues[0].Severity.Should().Be(AuditSeverity.Informational);
-        issues[0].Description.Should().Be("IoT");
+        issues[0].Description.Should().Be("IoT ->");
         issues[0].Message.Should().Contain("Allow IoT to Printer");
     }
 
@@ -3931,7 +3932,7 @@ public class FirewallRuleAnalyzerTests
         // Assert - Only source (IoT) is flagged, not destination
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
-        issues[0].Description.Should().Be("IoT");
+        issues[0].Description.Should().Be("IoT -> Security");
     }
 
     [Fact]
@@ -3998,7 +3999,7 @@ public class FirewallRuleAnalyzerTests
 
         // Assert
         issues.Should().HaveCount(1);
-        issues[0].Description.Should().Be("Management");
+        issues[0].Description.Should().Be("Management ->");
     }
 
     [Fact]
@@ -4107,7 +4108,7 @@ public class FirewallRuleAnalyzerTests
         // Assert
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
-        issues[0].Description.Should().Be("IoT");
+        issues[0].Description.Should().Be("IoT ->");
     }
 
     [Fact]

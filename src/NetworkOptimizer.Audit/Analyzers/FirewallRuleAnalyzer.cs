@@ -566,8 +566,8 @@ public class FirewallRuleAnalyzer
                     continue;
                 }
 
-                // Determine the purpose suffix for grouping (similar to Cross-VLAN exceptions)
-                var purposeSuffix = GetIsolationExceptionPurposeSuffix(sourceIsolatedNetworks);
+                // Use "Source -> Destination" format for consistent grouping with AllowExceptionPattern
+                var description = GetSourceToDestinationDescription(rule, networks);
 
                 var networkNames = string.Join(", ", sourceIsolatedNetworks.Select(n => n.Name));
 
@@ -576,7 +576,7 @@ public class FirewallRuleAnalyzer
                     Type = IssueTypes.NetworkIsolationException,
                     Severity = AuditSeverity.Informational,
                     Message = $"Allow rule '{rule.Name}' creates an exception to network isolation for: {networkNames}",
-                    Description = purposeSuffix.TrimStart(' ', '(').TrimEnd(')'),
+                    Description = description,
                     Metadata = new Dictionary<string, object>
                     {
                         { "rule_name", rule.Name ?? rule.Id },
@@ -586,7 +586,7 @@ public class FirewallRuleAnalyzer
                     },
                     RuleId = "FW-ISOLATION-EXCEPTION-001",
                     ScoreImpact = 0,
-                    RecommendedAction = "This appears to be a deliberate exception to network isolation - verify this is intended"
+                    RecommendedAction = "This appears to be a deliberate exception pattern - no action required"
                 });
             }
         }
@@ -1595,23 +1595,98 @@ public class FirewallRuleAnalyzer
         }
 
         // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
-        // Group by the ALLOW rule's destination network purpose (more specific than deny rule)
+        // Use "Source -> Destination" format for clear direction indication
         if (destTarget == "NETWORK" || srcTarget == "NETWORK")
         {
-            // Try to get purpose from the allow rule's destination first (more specific)
-            var purposeSuffix = GetDestinationNetworkPurposeSuffix(allowRule, networks);
-            // Fall back to deny rule if allow rule doesn't have network destinations
-            if (string.IsNullOrEmpty(purposeSuffix))
-            {
-                purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
-            }
-            // Return just the purpose name without parentheses (e.g., "Management", "IoT")
-            // The title mapping will format it properly
-            return purposeSuffix.TrimStart(' ', '(').TrimEnd(')');
+            return GetSourceToDestinationDescription(allowRule, networks);
         }
 
         // Default for other patterns (including Gateway zone blocks)
         return "";
+    }
+
+    /// <summary>
+    /// Gets a "Source -> Destination" description for a firewall rule.
+    /// Returns format like "Main Network -> Management" for grouping and display.
+    /// </summary>
+    private static string GetSourceToDestinationDescription(FirewallRule rule, List<NetworkInfo>? networks)
+    {
+        if (networks == null || networks.Count == 0)
+            return "";
+
+        var sourceName = GetNetworkNameFromRule(rule, networks, isSource: true);
+        var destName = GetNetworkNameFromRule(rule, networks, isSource: false);
+
+        // If we have both, format as "Source -> Dest"
+        if (!string.IsNullOrEmpty(sourceName) && !string.IsNullOrEmpty(destName))
+            return $"{sourceName} -> {destName}";
+
+        // If we only have source
+        if (!string.IsNullOrEmpty(sourceName))
+            return $"{sourceName} ->";
+
+        // If we only have destination
+        if (!string.IsNullOrEmpty(destName))
+            return $"-> {destName}";
+
+        return "";
+    }
+
+    /// <summary>
+    /// Gets the network name from a rule's source or destination.
+    /// </summary>
+    private static string? GetNetworkNameFromRule(FirewallRule rule, List<NetworkInfo> networks, bool isSource)
+    {
+        var target = isSource ? rule.SourceMatchingTarget : rule.DestinationMatchingTarget;
+        var networkIds = isSource ? rule.SourceNetworkIds : rule.DestinationNetworkIds;
+        var ips = isSource ? rule.SourceIps : rule.DestinationIps;
+
+        // Check for ANY - represents all networks
+        if (string.Equals(target, "ANY", StringComparison.OrdinalIgnoreCase))
+            return null; // Don't include "Any" in the description
+
+        // Check for NETWORK target with network IDs
+        if (string.Equals(target, "NETWORK", StringComparison.OrdinalIgnoreCase) &&
+            networkIds != null && networkIds.Count > 0)
+        {
+            var names = new List<string>();
+            foreach (var networkId in networkIds)
+            {
+                var network = networks.FirstOrDefault(n =>
+                    string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+                if (network != null)
+                    names.Add(network.Name);
+            }
+            if (names.Count > 0)
+                return names.Count == 1 ? names[0] : string.Join(", ", names);
+        }
+
+        // Check for IP target - find which network the IP belongs to
+        if (string.Equals(target, "IP", StringComparison.OrdinalIgnoreCase) &&
+            ips != null && ips.Count > 0)
+        {
+            var foundNetworks = new HashSet<string>();
+            foreach (var ipEntry in ips)
+            {
+                var ip = ipEntry.Contains('-') ? ipEntry.Split('-')[0] : ipEntry;
+                if (ip.Contains('/'))
+                    ip = ip.Split('/')[0];
+
+                foreach (var network in networks)
+                {
+                    if (!string.IsNullOrEmpty(network.Subnet) &&
+                        FirewallRuleOverlapDetector.IpMatchesCidr(ip, network.Subnet))
+                    {
+                        foundNetworks.Add(network.Name);
+                        break;
+                    }
+                }
+            }
+            if (foundNetworks.Count > 0)
+                return foundNetworks.Count == 1 ? foundNetworks.First() : string.Join(", ", foundNetworks);
+        }
+
+        return null;
     }
 
     /// <summary>
