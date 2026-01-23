@@ -660,6 +660,40 @@ public class CameraVlanRuleTests
 
     #endregion
 
+    #region Cloud Camera Tests
+
+    [Fact]
+    public void Evaluate_CloudCameraOnCorporateVlan_ReturnsNull()
+    {
+        // Arrange - Cloud cameras (Ring, Nest, etc.) are handled by IoT rules, not camera rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Ring Camera", deviceCategory: ClientDeviceCategory.CloudCamera, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_CloudSecuritySystemOnCorporateVlan_ReturnsNull()
+    {
+        // Arrange - Cloud security systems are handled by IoT rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "SimpliSafe Base", deviceCategory: ClientDeviceCategory.CloudSecuritySystem, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static PortInfo CreatePort(
@@ -724,6 +758,9 @@ public class CameraVlanRuleTests
         return category switch
         {
             ClientDeviceCategory.Camera => "Security Camera",
+            ClientDeviceCategory.CloudCamera => "Ring Camera",
+            ClientDeviceCategory.CloudSecuritySystem => "SimpliSafe Hub",
+            ClientDeviceCategory.SecuritySystem => "Security System",
             ClientDeviceCategory.SmartPlug => "Smart Plug",
             ClientDeviceCategory.Desktop => "Desktop PC",
             ClientDeviceCategory.Server => "Server",

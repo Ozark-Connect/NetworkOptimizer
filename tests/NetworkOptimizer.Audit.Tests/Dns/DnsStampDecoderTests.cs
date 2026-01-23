@@ -213,4 +213,86 @@ public class DnsStampDecoderTests
     }
 
     #endregion
+
+    #region GetDisplaySummary - Additional Cases
+
+    [Fact]
+    public void GetDisplaySummary_WithNoLogging_IncludesNoLogFeature()
+    {
+        // Create a stamp info with NoLogging enabled
+        var info = new DnsStampInfo
+        {
+            Protocol = DnsStampDecoder.DnsProtocol.DoH,
+            ProtocolName = "DNS-over-HTTPS",
+            Hostname = "test.example.com",
+            NoLogging = true,
+            RawStamp = "test"
+        };
+
+        var summary = info.GetDisplaySummary();
+        summary.Should().Contain("No-Log");
+    }
+
+    [Fact]
+    public void GetDisplaySummary_WithFiltering_IncludesFilteredFeature()
+    {
+        // Create a stamp info with filtering (NoFiltering=false and provider supports filtering)
+        var info = new DnsStampInfo
+        {
+            Protocol = DnsStampDecoder.DnsProtocol.DoH,
+            ProtocolName = "DNS-over-HTTPS",
+            Hostname = "test.example.com",
+            NoFiltering = false,
+            ProviderInfo = new DohProviderInfo
+            {
+                Name = "Test Provider",
+                StampPrefix = "test",
+                Hostnames = new[] { "test.example.com" },
+                DnsIps = new[] { "1.2.3.4" },
+                SupportsFiltering = true,
+                HasCustomConfig = false,
+                Description = "Test provider"
+            },
+            RawStamp = "test"
+        };
+
+        var summary = info.GetDisplaySummary();
+        summary.Should().Contain("Filtered");
+    }
+
+    [Fact]
+    public void GetDisplaySummary_NoProvider_UsesHostname()
+    {
+        // Create a stamp info without provider
+        var info = new DnsStampInfo
+        {
+            Protocol = DnsStampDecoder.DnsProtocol.DoH,
+            ProtocolName = "DNS-over-HTTPS",
+            Hostname = "custom.dns.server",
+            ProviderInfo = null,
+            RawStamp = "test"
+        };
+
+        var summary = info.GetDisplaySummary();
+        summary.Should().Contain("custom.dns.server");
+    }
+
+    [Fact]
+    public void GetDisplaySummary_NoHostnameNoProvider_UsesUnknown()
+    {
+        // Create a stamp info without hostname or provider
+        var info = new DnsStampInfo
+        {
+            Protocol = DnsStampDecoder.DnsProtocol.DoH,
+            ProtocolName = "DNS-over-HTTPS",
+            Hostname = null,
+            ProviderInfo = null,
+            RawStamp = "test"
+        };
+
+        var summary = info.GetDisplaySummary();
+        summary.Should().Contain("Unknown");
+    }
+
+    #endregion
 }

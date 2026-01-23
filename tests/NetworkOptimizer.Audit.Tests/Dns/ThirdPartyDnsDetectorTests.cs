@@ -1574,4 +1574,192 @@ public class ThirdPartyDnsDetectorTests : IDisposable
     }
 
     #endregion
+
+    #region Pi-hole Detection Edge Cases
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_PiholeWithDnsFalse_NotDetectedAsPihole()
+    {
+        // Pi-hole response where dns property is false
+        var piholeResponse = @"{""dns"":false,""https_port"":443}";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, piholeResponse);
+
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeFalse(); // dns: false means not active Pi-hole
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_PiholeMalformedJsonWithDnsString_StillDetected()
+    {
+        // Malformed JSON that contains "dns" string - should trigger catch block with true
+        var malformedResponse = @"{""dns"":true, this is invalid json}";
+        var httpClient = CreateMockHttpClient(HttpStatusCode.OK, malformedResponse);
+
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeTrue(); // Fallback detection from "dns" string
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_CustomPortTriedBeforeDefaultPorts()
+    {
+        // Custom port 8888 succeeds, should not try default port 80
+        var piholeResponse = @"{""dns"":true}";
+
+        var callOrder = new List<int>();
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var port = request.RequestUri?.Port ?? 0;
+                callOrder.Add(port);
+
+                if (port == 8888)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(piholeResponse)
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+        var httpClient = new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
+
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks, customPort: 8888);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeTrue();
+        // Custom port 8888 should be tried first (HTTP then HTTPS)
+        callOrder.First().Should().Be(8888);
+        // Should stop after finding Pi-hole, not try default ports
+        callOrder.Should().NotContain(80);
+        callOrder.Should().NotContain(443);
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_HttpRequestException_TreatsAsNonPihole()
+    {
+        // HttpRequestException (connection refused, etc.)
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var httpClient = new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
+
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeFalse();
+        result[0].IsAdGuardHome.Should().BeFalse();
+        result[0].DnsProviderName.Should().Be("Third-Party LAN DNS");
+    }
+
+    [Fact]
+    public async Task DetectThirdPartyDnsAsync_GenericException_TreatsAsNonPihole()
+    {
+        // Generic exception (e.g., socket error)
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Unexpected error"));
+
+        var httpClient = new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(3) };
+
+        var detector = CreateDetector(httpClient);
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1",
+                Name = "Corporate",
+                VlanId = 10,
+                DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "192.168.1.5" }
+            }
+        };
+
+        var result = await detector.DetectThirdPartyDnsAsync(networks);
+
+        result.Should().HaveCount(1);
+        result[0].IsPihole.Should().BeFalse();
+        result[0].IsAdGuardHome.Should().BeFalse();
+    }
+
+    #endregion
 }
