@@ -859,7 +859,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle();
         var issue = issues.First();
         issue.Type.Should().Be("DENY_SHADOWS_ALLOW");
-        issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
         issue.Message.Should().Contain("Allow Device Screen Streaming");
         issue.Message.Should().Contain("Block Access to Isolated VLANs");
     }
@@ -902,14 +902,14 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        issue!.Description.Should().Be("External Access Exception");
+        issue!.Description.Should().Be("External Access");
     }
 
     [Fact]
-    public void DetectShadowedRules_ExceptionToGatewayBlock_SetsFirewallExceptionDescription()
+    public void DetectShadowedRules_ExceptionToGatewayBlock_SetsEmptyDescription()
     {
         // Allow rule before deny rule that blocks Gateway zone access (NOT external)
-        // Gateway zone blocks should NOT be categorized as "External Access Exception"
+        // Gateway zone blocks should NOT be categorized as "External Access"
         // Using IP/ANY sources to avoid triggering "Cross-VLAN" categorization
         var rules = new List<FirewallRule>
         {
@@ -945,12 +945,12 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Gateway zone blocks should fall back to generic "Firewall Exception" (not "External Access Exception")
-        issue!.Description.Should().Be("Firewall Exception");
+        // Gateway zone blocks should have empty description (not "External Access")
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
-    public void DetectShadowedRules_ExceptionToNetworkBlock_SetsCrossVlanDescription()
+    public void DetectShadowedRules_ExceptionToNetworkBlock_SetsEmptyDescription()
     {
         // Allow rule before deny rule that blocks network-to-network traffic
         // Both rules use network source for proper overlap detection
@@ -987,8 +987,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Without networks info, no purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception");
+        // Without networks info, description is empty (no purpose can be determined)
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
@@ -1036,7 +1036,7 @@ public class FirewallRuleAnalyzerTests
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
         // Should include IoT purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (IoT)");
+        issue!.Description.Should().Be("IoT");
     }
 
     [Fact]
@@ -1082,7 +1082,7 @@ public class FirewallRuleAnalyzerTests
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
         // Should include Security purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
+        issue!.Description.Should().Be("Security");
     }
 
     [Fact]
@@ -1137,7 +1137,7 @@ public class FirewallRuleAnalyzerTests
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
         // Should determine Security purpose from destination IP falling within Security network subnet
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
+        issue!.Description.Should().Be("Security");
     }
 
     [Fact]
@@ -1177,7 +1177,7 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        issue!.Description.Should().Be("Firewall Exception");
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
@@ -3877,7 +3877,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
         issues[0].Severity.Should().Be(AuditSeverity.Informational);
-        issues[0].Description.Should().Be("Network Isolation Exception (IoT)");
+        issues[0].Description.Should().Be("IoT");
         issues[0].Message.Should().Contain("Allow IoT to Printer");
     }
 
@@ -3931,7 +3931,7 @@ public class FirewallRuleAnalyzerTests
         // Assert - Only source (IoT) is flagged, not destination
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
-        issues[0].Description.Should().Be("Network Isolation Exception (IoT)");
+        issues[0].Description.Should().Be("IoT");
     }
 
     [Fact]
@@ -3998,7 +3998,7 @@ public class FirewallRuleAnalyzerTests
 
         // Assert
         issues.Should().HaveCount(1);
-        issues[0].Description.Should().Be("Network Isolation Exception (Management)");
+        issues[0].Description.Should().Be("Management");
     }
 
     [Fact]
@@ -4107,7 +4107,7 @@ public class FirewallRuleAnalyzerTests
         // Assert
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
-        issues[0].Description.Should().Be("Network Isolation Exception (IoT)");
+        issues[0].Description.Should().Be("IoT");
     }
 
     [Fact]

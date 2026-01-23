@@ -187,7 +187,7 @@ public class FirewallRuleAnalyzer
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.DenyShadowsAllow,
-                                Severity = AuditSeverity.Informational,
+                                Severity = AuditSeverity.Recommended,
                                 Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
                                 Metadata = new Dictionary<string, object>
                                 {
@@ -576,7 +576,7 @@ public class FirewallRuleAnalyzer
                     Type = IssueTypes.NetworkIsolationException,
                     Severity = AuditSeverity.Informational,
                     Message = $"Allow rule '{rule.Name}' creates an exception to network isolation for: {networkNames}",
-                    Description = $"Network Isolation Exception{purposeSuffix}",
+                    Description = purposeSuffix.TrimStart(' ', '(').TrimEnd(')'),
                     Metadata = new Dictionary<string, object>
                     {
                         { "rule_name", rule.Name ?? rule.Id },
@@ -1591,7 +1591,7 @@ public class FirewallRuleAnalyzer
         if (!string.IsNullOrEmpty(externalZoneId) &&
             string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
         {
-            return "External Access Exception";
+            return "External Access";
         }
 
         // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
@@ -1605,11 +1605,13 @@ public class FirewallRuleAnalyzer
             {
                 purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
             }
-            return $"Cross-VLAN Access Exception{purposeSuffix}";
+            // Return just the purpose name without parentheses (e.g., "Management", "IoT")
+            // The title mapping will format it properly
+            return purposeSuffix.TrimStart(' ', '(').TrimEnd(')');
         }
 
         // Default for other patterns (including Gateway zone blocks)
-        return "Firewall Exception";
+        return "";
     }
 
     /// <summary>
