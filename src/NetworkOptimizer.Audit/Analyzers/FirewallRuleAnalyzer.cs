@@ -1614,8 +1614,8 @@ public class FirewallRuleAnalyzer
         if (networks == null || networks.Count == 0)
             return "";
 
-        var sourceName = GetNetworkNameFromRule(rule, networks, isSource: true);
-        var destName = GetNetworkNameFromRule(rule, networks, isSource: false);
+        var sourceName = GetNetworkPurposeFromRule(rule, networks, isSource: true);
+        var destName = GetNetworkPurposeFromRule(rule, networks, isSource: false);
 
         // If we have both, format as "Source -> Dest"
         if (!string.IsNullOrEmpty(sourceName) && !string.IsNullOrEmpty(destName))
@@ -1625,17 +1625,18 @@ public class FirewallRuleAnalyzer
         if (!string.IsNullOrEmpty(sourceName))
             return $"{sourceName} ->";
 
-        // If we only have destination
+        // If we only have destination, use "Device(s)" for unknown source
         if (!string.IsNullOrEmpty(destName))
-            return $"-> {destName}";
+            return $"Device(s) -> {destName}";
 
         return "";
     }
 
     /// <summary>
-    /// Gets the network name from a rule's source or destination.
+    /// Gets the network purpose(s) from a rule's source or destination.
+    /// Returns purpose names like "IoT", "Security", "Management" for grouping.
     /// </summary>
-    private static string? GetNetworkNameFromRule(FirewallRule rule, List<NetworkInfo> networks, bool isSource)
+    private static string? GetNetworkPurposeFromRule(FirewallRule rule, List<NetworkInfo> networks, bool isSource)
     {
         var target = isSource ? rule.SourceMatchingTarget : rule.DestinationMatchingTarget;
         var networkIds = isSource ? rule.SourceNetworkIds : rule.DestinationNetworkIds;
@@ -1645,27 +1646,25 @@ public class FirewallRuleAnalyzer
         if (string.Equals(target, "ANY", StringComparison.OrdinalIgnoreCase))
             return null; // Don't include "Any" in the description
 
+        var purposes = new HashSet<NetworkPurpose>();
+
         // Check for NETWORK target with network IDs
         if (string.Equals(target, "NETWORK", StringComparison.OrdinalIgnoreCase) &&
             networkIds != null && networkIds.Count > 0)
         {
-            var names = new List<string>();
             foreach (var networkId in networkIds)
             {
                 var network = networks.FirstOrDefault(n =>
                     string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
                 if (network != null)
-                    names.Add(network.Name);
+                    purposes.Add(network.Purpose);
             }
-            if (names.Count > 0)
-                return names.Count == 1 ? names[0] : string.Join(", ", names);
         }
 
         // Check for IP target - find which network the IP belongs to
         if (string.Equals(target, "IP", StringComparison.OrdinalIgnoreCase) &&
             ips != null && ips.Count > 0)
         {
-            var foundNetworks = new HashSet<string>();
             foreach (var ipEntry in ips)
             {
                 var ip = ipEntry.Contains('-') ? ipEntry.Split('-')[0] : ipEntry;
@@ -1677,16 +1676,32 @@ public class FirewallRuleAnalyzer
                     if (!string.IsNullOrEmpty(network.Subnet) &&
                         FirewallRuleOverlapDetector.IpMatchesCidr(ip, network.Subnet))
                     {
-                        foundNetworks.Add(network.Name);
+                        purposes.Add(network.Purpose);
                         break;
                     }
                 }
             }
-            if (foundNetworks.Count > 0)
-                return foundNetworks.Count == 1 ? foundNetworks.First() : string.Join(", ", foundNetworks);
         }
 
-        return null;
+        if (purposes.Count == 0)
+            return null;
+
+        // Convert purposes to display names, sorted for consistency
+        var purposeNames = purposes
+            .OrderBy(p => p)
+            .Select(p => p switch
+            {
+                NetworkPurpose.IoT => "IoT",
+                NetworkPurpose.Security => "Security",
+                NetworkPurpose.Management => "Management",
+                NetworkPurpose.Home => "Home",
+                NetworkPurpose.Corporate => "Corporate",
+                NetworkPurpose.Guest => "Guest",
+                _ => p.ToString()
+            })
+            .ToList();
+
+        return purposeNames.Count == 1 ? purposeNames[0] : string.Join(", ", purposeNames);
     }
 
     /// <summary>

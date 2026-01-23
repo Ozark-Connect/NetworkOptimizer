@@ -1081,8 +1081,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Source is CLIENT (no network), destination is Security - should be "-> Security Cameras"
-        issue!.Description.Should().Be("-> Security Cameras");
+        // Source is CLIENT (no network), destination is Security - should use "Device(s)" for unknown source
+        issue!.Description.Should().Be("Device(s) -> Security");
     }
 
     [Fact]
@@ -1137,8 +1137,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should determine both source (Home from IP) and destination (Security from IP)
-        issue!.Description.Should().Be("Home -> Security Cameras");
+        // Should determine both source (Home from IP) and destination (Security from IP) using purpose names
+        issue!.Description.Should().Be("Home -> Security");
     }
 
     [Fact]
