@@ -795,7 +795,6 @@ public class DnsSecurityAnalyzer
                     Type = IssueTypes.DnsExternalBypass,
                     Severity = AuditSeverity.Critical,
                     DeviceName = result.GatewayName,
-                    Description = "External DNS Bypass",
                     Message = $"Network(s) ({string.Join(", ", networkNames)}) configured to use external public DNS ({providerName}: {string.Join(", ", dnsIps)}). This bypasses ALL local DNS filtering including gateway DoH and Pi-hole/AdGuard.",
                     RecommendedAction = "Remove custom DNS configuration from these networks to use gateway DNS, or point them to your local DNS filtering solution (e.g., Pi-hole, AdGuard Home). If intentional, create DNAT rules to redirect DNS traffic.",
                     RuleId = "DNS-EXT-BYPASS-001",

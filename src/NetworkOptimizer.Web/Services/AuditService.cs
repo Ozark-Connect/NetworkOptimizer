@@ -1602,6 +1602,9 @@ public class AuditService
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
             Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Translated IP",
             Audit.IssueTypes.DnsDnatRestrictedDestination => "DNS: Restricted DNAT Destination",
+            Audit.IssueTypes.DnsDmzNetworkInfo => "DNS: DMZ Network Info",
+            Audit.IssueTypes.DnsGuestThirdPartyInfo => "DNS: Guest Network Info",
+            Audit.IssueTypes.DnsExternalBypass => "DNS: External DNS Bypass",
 
             // UPnP security
             Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",
