@@ -335,26 +335,50 @@ public static class FirewallRuleOverlapDetector
 
     /// <summary>
     /// Check if two rules have overlapping app IDs or app category IDs.
+    /// App-based rules use DPI signatures to identify traffic, so two rules with
+    /// different specific apps don't overlap even if both have empty ports.
     /// </summary>
     public static bool AppsOverlap(FirewallRule rule1, FirewallRule rule2)
     {
-        // Check for overlapping app IDs
         var apps1 = rule1.AppIds ?? new List<int>();
         var apps2 = rule2.AppIds ?? new List<int>();
+        var cats1 = rule1.AppCategoryIds ?? new List<int>();
+        var cats2 = rule2.AppCategoryIds ?? new List<int>();
+
+        // Check for overlapping app IDs
         if (apps1.Intersect(apps2).Any())
             return true;
 
         // Check for overlapping app category IDs
-        var cats1 = rule1.AppCategoryIds ?? new List<int>();
-        var cats2 = rule2.AppCategoryIds ?? new List<int>();
         if (cats1.Intersect(cats2).Any())
             return true;
 
-        // If one rule has specific apps and the other has categories that include those apps,
-        // they could overlap - but we can't determine this without a full app->category mapping.
-        // For safety, assume they might overlap if one has apps and the other has categories.
+        // If both rules have specific AppIds (no categories), compare directly.
+        // Different apps = no overlap (e.g., DNS app vs Dehumidifier app)
+        if (apps1.Count > 0 && apps2.Count > 0 && cats1.Count == 0 && cats2.Count == 0)
+            return false;
+
+        // If both rules have specific categories (no apps), compare directly.
+        // Different categories = no overlap
+        if (cats1.Count > 0 && cats2.Count > 0 && apps1.Count == 0 && apps2.Count == 0)
+            return false;
+
+        // If one has apps and one has categories, only assume overlap if:
+        // - The category is "All" or another catch-all category (typically ID 0 or 1)
+        // - Otherwise, different apps/categories are unlikely to overlap
+        // This reduces false positives for unrelated apps (e.g., DNS vs smart home devices)
         if ((apps1.Count > 0 && cats2.Count > 0) || (apps2.Count > 0 && cats1.Count > 0))
-            return true;
+        {
+            // Known broad categories that could contain any app
+            // UniFi category IDs: 0 and 1 are typically "All" or catch-all
+            var broadCategories = new HashSet<int> { 0, 1 };
+            if (cats1.Any(broadCategories.Contains) || cats2.Any(broadCategories.Contains))
+                return true;
+
+            // For specific categories (like "Streaming", "Gaming", "Network Infrastructure"),
+            // don't assume they contain unrelated apps
+            return false;
+        }
 
         return false;
     }

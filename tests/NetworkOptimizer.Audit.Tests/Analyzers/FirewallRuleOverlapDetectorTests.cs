@@ -1720,6 +1720,152 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
+    #region AppsOverlap Tests
+
+    [Fact]
+    public void AppsOverlap_SameAppIds_ReturnsTrue()
+    {
+        // Both rules target the same app (e.g., DNS)
+        var rule1 = CreateRule(appIds: new List<int> { 533 });
+        var rule2 = CreateRule(appIds: new List<int> { 533 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_DifferentAppIds_ReturnsFalse()
+    {
+        // Two completely different apps (DNS vs some IoT app)
+        // This is the key fix: different apps should NOT overlap
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appIds: new List<int> { 12345 }); // Some IoT app
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_SameCategoryIds_ReturnsTrue()
+    {
+        // Both rules target the same category
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 13 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_DifferentCategoryIds_ReturnsFalse()
+    {
+        // Different categories should NOT overlap
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 25 }); // Gaming
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_AppsWithBroadCategory_ReturnsTrue()
+    {
+        // If one rule has an app and the other has a catch-all category (0 or 1),
+        // assume they could overlap
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 0 }); // All category
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_AppsWithSpecificCategory_ReturnsFalse()
+    {
+        // DNS app should NOT be assumed to overlap with "Gaming" category
+        // This is the key fix for false positives like DNS vs Dehumidifier
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 25 }); // Gaming category
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_CategoryWithSpecificApp_ReturnsFalse()
+    {
+        // Reverse of above: category rule should not overlap with unrelated app
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appIds: new List<int> { 99999 }); // Some random IoT app
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_PartialAppIdOverlap_ReturnsTrue()
+    {
+        // Multiple apps, one overlapping
+        var rule1 = CreateRule(appIds: new List<int> { 100, 200, 300 });
+        var rule2 = CreateRule(appIds: new List<int> { 200, 400, 500 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_NoAppsOrCategories_ReturnsFalse()
+    {
+        // Rules without any app/category specifications don't overlap via apps
+        var rule1 = CreateRule();
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_OneHasAppOneHasNothing_ReturnsFalse()
+    {
+        // One app-based rule, one non-app rule
+        var rule1 = CreateRule(appIds: new List<int> { 533 });
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_DifferentAppRules_ReturnsFalse()
+    {
+        // Integration test: Two app-based rules targeting different apps should NOT overlap
+        // This is the actual bug case: "Allow Dehumidifier App" vs "Block DNS App"
+        var allowDehumidifier = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 12345 }); // Dehumidifier IoT app
+
+        var blockDns = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS app
+
+        FirewallRuleOverlapDetector.RulesOverlap(allowDehumidifier, blockDns).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_SameAppRules_ReturnsTrue()
+    {
+        // Two rules targeting the same app should overlap
+        var rule1 = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS
+
+        var rule2 = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static FirewallRule CreateRule(
@@ -1740,7 +1886,9 @@ public class FirewallRuleOverlapDetectorTests
         bool destMatchOppositePorts = false,
         string? icmpTypename = null,
         string? sourceZoneId = null,
-        string? destZoneId = null)
+        string? destZoneId = null,
+        List<int>? appIds = null,
+        List<int>? appCategoryIds = null)
     {
         return new FirewallRule
         {
@@ -1764,7 +1912,9 @@ public class FirewallRuleOverlapDetectorTests
             DestinationMatchOppositePorts = destMatchOppositePorts,
             IcmpTypename = icmpTypename,
             SourceZoneId = sourceZoneId,
-            DestinationZoneId = destZoneId
+            DestinationZoneId = destZoneId,
+            AppIds = appIds,
+            AppCategoryIds = appCategoryIds
         };
     }
 
