@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -494,8 +495,10 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Detect user-created ALLOW rules that create exceptions to the UniFi-managed "Isolated Networks" rules.
-    /// When a network has NetworkIsolationEnabled, UniFi creates predefined BLOCK rules to enforce isolation.
-    /// User ALLOW rules placed before these rules create exceptions that should be reported as Info issues.
+    /// When a network has NetworkIsolationEnabled, UniFi creates predefined BLOCK rules that block traffic
+    /// FROM isolated networks to other destinations. User ALLOW rules that allow traffic FROM these
+    /// isolated networks create exceptions that should be reported as Info issues.
+    /// Note: Traffic TO isolated networks is not blocked by the predefined rules, so we only check source.
     /// </summary>
     /// <param name="rules">Firewall rules to analyze (including predefined rules)</param>
     /// <param name="networks">Network configurations</param>
@@ -529,10 +532,9 @@ public class FirewallRuleAnalyzer
         _logger.LogDebug("Found {Count} networks with isolation enabled and {RuleCount} 'Isolated Networks' rules",
             isolatedNetworks.Count, isolatedNetworkRules.Count);
 
-        // Build a set of isolated network IDs for quick lookup
-        var isolatedNetworkIds = new HashSet<string>(isolatedNetworks.Select(n => n.Id), StringComparer.OrdinalIgnoreCase);
-
-        // Find user-created ALLOW rules that allow traffic involving isolated networks
+        // Find user-created ALLOW rules that allow traffic FROM isolated networks
+        // The predefined "Isolated Networks" rules block traffic FROM isolated networks,
+        // so only ALLOW rules with isolated networks as SOURCE create exceptions
         var userAllowRules = rules.Where(r =>
             !r.Predefined &&
             r.Enabled &&
@@ -540,35 +542,28 @@ public class FirewallRuleAnalyzer
 
         foreach (var rule in userAllowRules)
         {
-            // Check if this rule allows traffic FROM an isolated network
+            // Check if this rule allows traffic FROM an isolated network (source only)
+            // Traffic TO isolated networks is implicitly allowed, so we don't check destination
             var sourceIsolatedNetworks = GetInvolvedIsolatedNetworks(rule, isolatedNetworks, isSource: true);
 
-            // Check if this rule allows traffic TO an isolated network
-            var destIsolatedNetworks = GetInvolvedIsolatedNetworks(rule, isolatedNetworks, isSource: false);
-
-            // If traffic involves isolated networks, it's an exception to the isolation
-            if (sourceIsolatedNetworks.Any() || destIsolatedNetworks.Any())
+            if (sourceIsolatedNetworks.Any())
             {
                 // Determine the purpose suffix for grouping (similar to Cross-VLAN exceptions)
-                var purposeSuffix = GetIsolationExceptionPurposeSuffix(sourceIsolatedNetworks, destIsolatedNetworks);
+                var purposeSuffix = GetIsolationExceptionPurposeSuffix(sourceIsolatedNetworks);
 
-                // Build description of what networks are involved
-                var involvedNetworks = sourceIsolatedNetworks.Concat(destIsolatedNetworks).Distinct().ToList();
-                var networkNames = string.Join(", ", involvedNetworks.Select(n => n.Name));
+                var networkNames = string.Join(", ", sourceIsolatedNetworks.Select(n => n.Name));
 
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.NetworkIsolationException,
                     Severity = AuditSeverity.Informational,
-                    Message = $"Allow rule '{rule.Name}' creates an exception to network isolation",
+                    Message = $"Allow rule '{rule.Name}' creates an exception to network isolation for: {networkNames}",
                     Description = $"Network Isolation Exception{purposeSuffix}",
                     Metadata = new Dictionary<string, object>
                     {
                         { "rule_name", rule.Name ?? rule.Id },
                         { "rule_index", rule.Index },
                         { "isolated_networks", networkNames },
-                        { "source_networks", string.Join(", ", sourceIsolatedNetworks.Select(n => n.Name)) },
-                        { "dest_networks", string.Join(", ", destIsolatedNetworks.Select(n => n.Name)) },
                         { "pattern", "isolation_exception" }
                     },
                     RuleId = "FW-ISOLATION-EXCEPTION-001",
@@ -582,7 +577,8 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
-    /// Get the isolated networks involved in a firewall rule (as source or destination).
+    /// Get the isolated networks involved in a firewall rule as source.
+    /// Checks both network ID references AND IP/CIDR-based sources that cover the network's subnet.
     /// </summary>
     private List<NetworkInfo> GetInvolvedIsolatedNetworks(FirewallRule rule, List<NetworkInfo> isolatedNetworks, bool isSource)
     {
@@ -590,10 +586,18 @@ public class FirewallRuleAnalyzer
 
         foreach (var network in isolatedNetworks)
         {
-            bool isInvolved;
+            bool isInvolved = false;
+
             if (isSource)
             {
+                // First check network ID reference
                 isInvolved = AppliesToSourceNetwork(rule, network.Id);
+
+                // Also check if rule source is IP/CIDR that covers the network's subnet
+                if (!isInvolved && !string.IsNullOrEmpty(network.Subnet))
+                {
+                    isInvolved = SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
+                }
             }
             else
             {
@@ -610,12 +614,48 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Check if a rule's source IP/CIDRs cover a network's subnet.
+    /// This catches rules that use IP-based source matching instead of network references.
+    /// </summary>
+    private static bool SourceCidrsCoversNetworkSubnet(FirewallRule rule, string networkSubnet)
+    {
+        // Check if source matching type is IP-based
+        if (string.IsNullOrEmpty(rule.SourceMatchingTarget) ||
+            !rule.SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Check each source IP/CIDR
+        var sourceIps = rule.SourceIps ?? new List<string>();
+        foreach (var sourceCidr in sourceIps)
+        {
+            if (string.IsNullOrEmpty(sourceCidr))
+                continue;
+
+            // Check if this source CIDR covers the network subnet
+            if (NetworkUtilities.CidrCoversSubnet(sourceCidr, networkSubnet))
+            {
+                return true;
+            }
+
+            // Also check if they're the same subnet
+            if (string.Equals(sourceCidr, networkSubnet, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Get a purpose suffix for isolation exception grouping based on the network purposes involved.
     /// </summary>
-    private static string GetIsolationExceptionPurposeSuffix(List<NetworkInfo> sourceNetworks, List<NetworkInfo> destNetworks)
+    private static string GetIsolationExceptionPurposeSuffix(List<NetworkInfo> sourceNetworks)
     {
-        // Collect unique purposes from all involved networks
-        var purposes = sourceNetworks.Concat(destNetworks)
+        // Collect unique purposes from source networks
+        var purposes = sourceNetworks
             .Select(n => n.Purpose)
             .Distinct()
             .ToList();
