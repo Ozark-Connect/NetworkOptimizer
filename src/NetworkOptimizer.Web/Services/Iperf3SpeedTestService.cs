@@ -483,7 +483,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
     /// <summary>
     /// Get recent speed test results.
-    /// Retries path analysis for results missing valid paths.
+    /// Retries path analysis for results missing valid paths (within last 30 min).
     /// </summary>
     public async Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int hours = 0)
     {
@@ -492,11 +492,9 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         var results = await repository.GetRecentIperf3ResultsAsync(count, hours);
 
         // Retry path analysis for recent results (last 30 min) without a valid path
-        // Skip IPs that will never be in UniFi topology (Tailscale, external VPNs, etc.)
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
-            !IsNonRoutableIp(r.DeviceHost) &&
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
@@ -709,14 +707,14 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
     /// <summary>
     /// Analyze the network path and grade the speed test result.
-    /// If target not found, invalidates topology cache and retries once.
+    /// Retry logic is built into CalculatePathAsync.
     /// </summary>
-    private async Task AnalyzePathAsync(Iperf3Result result, string targetHost, bool isRetry = false)
+    private async Task AnalyzePathAsync(Iperf3Result result, string targetHost)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}{Retry}",
-                targetHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
+            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}",
+                targetHost, result.LocalIp ?? "auto");
 
             var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
@@ -743,23 +741,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             }
             else
             {
-                // If target not found or data stale and this isn't already a retry, invalidate cache and try again
-                var errorMsg = analysis.Path.ErrorMessage ?? "";
-                var shouldRetry = !isRetry && (
-                    errorMsg.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                    errorMsg.Contains("not yet available", StringComparison.OrdinalIgnoreCase));
-
-                if (shouldRetry)
-                {
-                    _logger.LogDebug("Path invalid ({Reason}), invalidating topology cache and retrying",
-                        errorMsg.Contains("not yet") ? "stale data" : "target not found");
-                    _pathAnalyzer.InvalidateTopologyCache();
-                    await AnalyzePathAsync(result, targetHost, isRetry: true);
-                }
-                else
-                {
-                    _logger.LogDebug("Path analysis incomplete: {Error}", analysis.Path.ErrorMessage);
-                }
+                _logger.LogDebug("Path analysis incomplete: {Error}", analysis.Path.ErrorMessage);
             }
         }
         catch (Exception ex)
@@ -767,29 +749,6 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
             _logger.LogWarning(ex, "Failed to analyze network path to {Host}", targetHost);
             // Don't fail the test - path analysis is optional
         }
-    }
-
-    /// <summary>
-    /// Checks if an IP is non-routable through local UniFi infrastructure.
-    /// These IPs will never appear in UniFi topology so path analysis should not be retried.
-    /// </summary>
-    private static bool IsNonRoutableIp(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip))
-            return true;
-
-        // Tailscale/CGNAT range: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
-        // Tailscale uses this for its virtual IPs
-        if (ip.StartsWith("100."))
-        {
-            if (int.TryParse(ip.Split('.')[1], out int secondOctet))
-            {
-                if (secondOctet >= 64 && secondOctet <= 127)
-                    return true;
-            }
-        }
-
-        return false;
     }
 
 }

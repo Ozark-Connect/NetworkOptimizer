@@ -227,11 +227,9 @@ public class ClientSpeedTestService
         var results = await query.ToListAsync();
 
         // Retry path analysis for recent results (last 30 min) without a valid path
-        // Skip IPs that will never be in UniFi topology (Tailscale, external VPNs, etc.)
         var retryWindow = DateTime.UtcNow.AddMinutes(-30);
         var needsRetry = results.Where(r =>
             r.TestTime > retryWindow &&
-            !IsNonRoutableIp(r.DeviceHost) &&
             (r.PathAnalysis == null ||
              r.PathAnalysis.Path == null ||
              !r.PathAnalysis.Path.IsValid))
@@ -248,29 +246,6 @@ public class ClientSpeedTestService
         }
 
         return results;
-    }
-
-    /// <summary>
-    /// Checks if an IP is non-routable through local UniFi infrastructure.
-    /// These IPs will never appear in UniFi topology so path analysis should not be retried.
-    /// </summary>
-    private static bool IsNonRoutableIp(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip))
-            return true;
-
-        // Tailscale/CGNAT range: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
-        // Tailscale uses this for its virtual IPs
-        if (ip.StartsWith("100."))
-        {
-            if (int.TryParse(ip.Split('.')[1], out int secondOctet))
-            {
-                if (secondOctet >= 64 && secondOctet <= 127)
-                    return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -325,14 +300,14 @@ public class ClientSpeedTestService
     /// <summary>
     /// Analyze network path for the speed test result.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
-    /// If target not found, invalidates topology cache and retries once.
+    /// Retry logic is built into CalculatePathAsync.
     /// </summary>
-    private async Task AnalyzePathAsync(Iperf3Result result, bool isRetry = false)
+    private async Task AnalyzePathAsync(Iperf3Result result)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Client} from {Server}{Retry}",
-                result.DeviceHost, result.LocalIp ?? "auto", isRetry ? " (retry)" : "");
+            _logger.LogDebug("Analyzing network path to {Client} from {Server}",
+                result.DeviceHost, result.LocalIp ?? "auto");
 
             // Calculate path from server to client
             var path = await _pathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
@@ -351,28 +326,11 @@ public class ClientSpeedTestService
 
             if (analysis.Path.IsValid)
             {
-                _logger.LogDebug("Path analysis complete: {Hops} hops",
-                    analysis.Path.Hops.Count);
+                _logger.LogDebug("Path analysis complete: {Hops} hops", analysis.Path.Hops.Count);
             }
             else
             {
-                // If target not found or data stale and this isn't already a retry, invalidate cache and try again
-                var errorMsg = analysis.Path.ErrorMessage ?? "";
-                var shouldRetry = !isRetry && (
-                    errorMsg.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                    errorMsg.Contains("not yet available", StringComparison.OrdinalIgnoreCase));
-
-                if (shouldRetry)
-                {
-                    _logger.LogDebug("Path invalid ({Reason}), invalidating topology cache and retrying",
-                        errorMsg.Contains("not yet") ? "stale data" : "target not found");
-                    _pathAnalyzer.InvalidateTopologyCache();
-                    await AnalyzePathAsync(result, isRetry: true);
-                }
-                else
-                {
-                    _logger.LogDebug("Path analysis: path not found or invalid");
-                }
+                _logger.LogDebug("Path analysis: path not found or invalid");
             }
         }
         catch (Exception ex)
