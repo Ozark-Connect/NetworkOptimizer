@@ -85,6 +85,15 @@ public interface IIperf3SpeedTestService
     Task<List<Iperf3Result>> GetRecentResultsAsync(int count = 50, int days = 0);
 
     /// <summary>
+    /// Searches speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    /// <param name="filter">Search filter (matches device name, host, client MAC, or hop names/MACs in path)</param>
+    /// <param name="count">The maximum number of results to return (0 = no limit, default 50).</param>
+    /// <param name="hours">Filter to results within the last N hours (0 = all time).</param>
+    /// <returns>Matching results ordered by time descending.</returns>
+    Task<List<Iperf3Result>> SearchResultsAsync(string filter, int count = 50, int hours = 0);
+
+    /// <summary>
     /// Gets speed test results for a specific device.
     /// </summary>
     /// <param name="deviceHost">The hostname or IP of the device.</param>

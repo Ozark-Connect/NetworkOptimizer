@@ -170,6 +170,130 @@ public class SpeedTestRepository : ISpeedTestRepository
     }
 
     /// <summary>
+    /// Searches speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    /// <remarks>
+    /// SCALABILITY NOTE: This implementation uses in-memory filtering after loading results.
+    /// This is efficient for typical usage (hundreds to low thousands of results) but can be
+    /// migrated to server-side SQLite JSON filtering if needed:
+    ///
+    /// SQLite approach (for future optimization):
+    /// <code>
+    /// // Filter top-level columns server-side
+    /// query = query.Where(r =>
+    ///     EF.Functions.Like(r.DeviceHost, $"%{filter}%") ||
+    ///     EF.Functions.Like(r.DeviceName, $"%{filter}%") ||
+    ///     EF.Functions.Like(r.ClientMac, $"%{filter}%"));
+    ///
+    /// // For JSON path filtering, use raw SQL with json_each():
+    /// // SELECT * FROM Iperf3Results WHERE EXISTS (
+    /// //   SELECT 1 FROM json_each(json_extract(PathAnalysisJson, '$.Path.Hops'))
+    /// //   WHERE json_extract(value, '$.DeviceName') LIKE '%filter%'
+    /// // )
+    /// </code>
+    ///
+    /// Migration triggers:
+    /// - Query time exceeds 500ms consistently
+    /// - Users report slow search with 5000+ results
+    /// - Memory pressure observed in monitoring
+    /// </remarks>
+    public async Task<List<Iperf3Result>> SearchIperf3ResultsAsync(string filter, int count = 50, int hours = 0, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(filter))
+            {
+                return await GetRecentIperf3ResultsAsync(count, hours, cancellationToken);
+            }
+
+            var normalizedFilter = filter.Trim().ToLowerInvariant();
+
+            var query = _context.Iperf3Results.AsNoTracking();
+
+            // Apply date filter server-side (always efficient)
+            if (hours > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-hours);
+                query = query.Where(r => r.TestTime >= cutoff);
+            }
+
+            // FUTURE: Move top-level column filtering to server-side when scaling:
+            // query = query.Where(r =>
+            //     EF.Functions.Like(r.DeviceHost, $"%{normalizedFilter}%") ||
+            //     EF.Functions.Like(r.DeviceName, $"%{normalizedFilter}%") ||
+            //     EF.Functions.Like(r.ClientMac, $"%{normalizedFilter}%"));
+
+            // Load results and filter in memory (PathAnalysisJson requires deserialization)
+            // This is fine for typical usage - see scalability note above for migration path
+            var results = await query
+                .OrderByDescending(r => r.TestTime)
+                .ToListAsync(cancellationToken);
+
+            // Filter by device properties or path hops
+            var filtered = results.Where(r => MatchesFilter(r, normalizedFilter)).ToList();
+
+            // Apply count limit after filtering
+            if (count > 0)
+            {
+                filtered = filtered.Take(count).ToList();
+            }
+
+            return filtered;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search iperf3 results with filter {Filter}", filter);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Checks if a result matches the search filter (case-insensitive partial match).
+    /// </summary>
+    /// <remarks>
+    /// FUTURE: This logic can be expressed as SQL for server-side filtering:
+    /// - DeviceHost, DeviceName, ClientMac: Simple LIKE queries
+    /// - PathAnalysis hops: SQLite json_each() + json_extract()
+    /// Keep this method in sync with any future SQL implementation.
+    /// </remarks>
+    private static bool MatchesFilter(Iperf3Result result, string normalizedFilter)
+    {
+        // Check device host (top-level column - easy to move to SQL)
+        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check device name (top-level column - easy to move to SQL)
+        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check client MAC (top-level column - easy to move to SQL)
+        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check path analysis hops (JSON column - requires json_each() in SQL)
+        var pathAnalysis = result.PathAnalysis;
+        if (pathAnalysis?.Path?.Hops != null)
+        {
+            foreach (var hop in pathAnalysis.Path.Hops)
+            {
+                // Check hop device name
+                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+
+                // Check hop device MAC
+                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+
+                // Check hop device IP
+                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Deletes a single iperf3 test result by ID.
     /// </summary>
     /// <param name="id">The ID of the result to delete.</param>

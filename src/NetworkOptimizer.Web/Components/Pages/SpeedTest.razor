@@ -632,7 +632,7 @@
             <h2 class="card-title">Test History</h2>
             <div class="header-actions">
                 <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
-                @if (testHistory.Count > 0)
+                @if (testHistory.Count > 0 || !string.IsNullOrEmpty(historySearchFilter))
                 {
                     @if (confirmingClearHistory)
                     {
@@ -659,6 +659,39 @@
             </div>
         </div>
         <div class="card-body">
+            <!-- Search Filter -->
+            <div class="history-search">
+                <div class="search-input-wrapper">
+                    <input type="text"
+                           class="form-control search-input"
+                           placeholder="Search by device, MAC, or network path..."
+                           @bind="historySearchInput"
+                           @bind:event="oninput"
+                           @onkeyup="OnSearchKeyUp" />
+                    @if (!string.IsNullOrEmpty(historySearchInput))
+                    {
+                        <button class="search-clear-btn" @onclick="ClearSearch" type="button">×</button>
+                    }
+                </div>
+                @if (!string.IsNullOrEmpty(historySearchFilter))
+                {
+                    <div class="search-status">
+                        @if (historySearching)
+                        {
+                            <span class="spinner-sm"></span>
+                            <span>Searching...</span>
+                        }
+                        else if (testHistory.Count == 0)
+                        {
+                            <span class="search-no-results">No results matching "@historySearchFilter"</span>
+                        }
+                        else
+                        {
+                            <span class="search-results-count">@testHistory.Count result@(testHistory.Count == 1 ? "" : "s") matching "@historySearchFilter"</span>
+                        }
+                    </div>
+                }
+            </div>
             @if (testHistory.Count > 0)
             {
                 <div class="table-responsive" id="history-table">
@@ -1061,6 +1094,70 @@
         background: transparent;
         cursor: not-allowed;
     }
+
+    /* History search */
+    .history-search {
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .search-input-wrapper {
+        position: relative;
+        max-width: 400px;
+    }
+
+    .search-input {
+        padding-right: 2rem;
+    }
+
+    .search-clear-btn {
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.25rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 50%;
+        width: 1.5rem;
+        height: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .search-clear-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .search-status {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .search-no-results {
+        color: var(--warning-color);
+    }
+
+    .search-results-count {
+        color: var(--text-secondary);
+    }
+
+    @@media (max-width: 768px) {
+        .search-input-wrapper {
+            max-width: none;
+        }
+    }
 </style>
 
 @code {
@@ -1105,6 +1202,14 @@
     private bool confirmingClearHistory = false;
     private int? expandedHistoryId = null;
     private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
+
+    // Search state
+    // NOTE: Search uses in-memory filtering for now, structured for future SQL-side JSON filtering.
+    // See SpeedTestRepository.SearchIperf3ResultsAsync for scalability notes.
+    private string historySearchInput = "";      // Raw input (updated on every keystroke)
+    private string historySearchFilter = "";     // Applied filter (updated after debounce)
+    private bool historySearching = false;
+    private System.Timers.Timer? searchDebounceTimer;
 
     // Path analysis for historical results (calculated on demand)
     private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();
@@ -1867,6 +1972,69 @@
     public void Dispose()
     {
         progressTimer?.Dispose();
+        searchDebounceTimer?.Dispose();
+    }
+
+    // Search handling with debounce
+    private void OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        // Reset debounce timer on each keystroke
+        searchDebounceTimer?.Stop();
+        searchDebounceTimer?.Dispose();
+
+        searchDebounceTimer = new System.Timers.Timer(300);
+        searchDebounceTimer.AutoReset = false;
+        searchDebounceTimer.Elapsed += async (s, e) => await ExecuteSearch();
+        searchDebounceTimer.Start();
+    }
+
+    private async Task ExecuteSearch()
+    {
+        var newFilter = historySearchInput?.Trim() ?? "";
+
+        // Skip if filter hasn't changed
+        if (newFilter == historySearchFilter)
+            return;
+
+        historySearchFilter = newFilter;
+        historySearching = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            if (string.IsNullOrEmpty(historySearchFilter))
+            {
+                // No filter - load all results
+                testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
+            }
+            else
+            {
+                // Apply search filter
+                testHistory = await SpeedTestService.SearchResultsAsync(historySearchFilter, count: 0);
+            }
+
+            historyPage = 1; // Reset to first page on search
+            expandedHistoryId = null; // Collapse any expanded row
+        }
+        catch (Exception ex)
+        {
+            // Log but don't show error for search - just show empty results
+            _ = ex;
+            testHistory = new List<Iperf3Result>();
+        }
+        finally
+        {
+            historySearching = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        historySearchInput = "";
+        historySearchFilter = "";
+        searchDebounceTimer?.Stop();
+        await LoadHistory();
     }
 
     private static string ShortenIp(string? ip)

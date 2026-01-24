@@ -516,6 +516,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
+    /// Search speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    public async Task<List<Iperf3Result>> SearchResultsAsync(string filter, int count = 50, int hours = 0)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.SearchIperf3ResultsAsync(filter, count, hours);
+    }
+
+    /// <summary>
     /// Get speed test results for a specific device
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsForDeviceAsync(string deviceHost, int count = 20)
