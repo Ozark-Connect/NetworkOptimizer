@@ -748,6 +748,39 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET v2/api/site/{site}/clients/active - Get currently active clients with full details
+    /// This endpoint returns IP addresses even for UX/UX7 connected clients (unlike stat/sta)
+    /// </summary>
+    public async Task<List<UniFiClientHistoryResponse>> GetActiveClientsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching active clients from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return new List<UniFiClientHistoryResponse>();
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var url = BuildV2ApiPath($"site/{_site}/clients/active");
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientHistoryResponse>>(
+                    cancellationToken: cancellationToken);
+
+                _logger.LogDebug("Retrieved {Count} active clients", clients?.Count ?? 0);
+                return clients ?? new List<UniFiClientHistoryResponse>();
+            }
+
+            _logger.LogWarning("Failed to retrieve active clients: {StatusCode}", response.StatusCode);
+            return new List<UniFiClientHistoryResponse>();
+        });
+    }
+
+    /// <summary>
     /// GET v2/api/site/{site}/clients/history - Get client history (includes offline devices)
     /// </summary>
     /// <param name="withinHours">How far back to look (default 720 = 30 days)</param>

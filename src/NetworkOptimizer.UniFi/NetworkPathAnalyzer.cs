@@ -319,12 +319,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 if (targetDevice == null)
                 {
-                    // Diagnostic: log all client IPs to help debug missing clients (e.g., UX mesh AP clients)
-                    var clientIps = topology.Clients
-                        .Select(c => string.IsNullOrEmpty(c.IpAddress) ? $"{c.Mac}(no-ip)" : c.IpAddress)
-                        .ToList();
-                    _logger.LogDebug("Target {Host} not found. Topology has {Count} clients: [{Ips}]",
-                        targetHost, topology.Clients.Count, string.Join(", ", clientIps));
+                    _logger.LogDebug("Target {Host} not found in topology ({ClientCount} clients, {DeviceCount} devices)",
+                        targetHost, topology.Clients.Count, topology.Devices.Count);
 
                     path.IsValid = false;
                     path.ErrorMessage = $"Target '{targetHost}' not found in network topology";

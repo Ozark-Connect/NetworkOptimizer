@@ -166,6 +166,17 @@ public class UniFiDiscovery
 
         _logger.LogInformation("Discovered {Count} connected clients", clients.Count);
 
+        // Check if any clients are missing IPs after trying BestIp fallback (ip > last_ip > fixed_ip)
+        var clientsMissingIps = clients.Where(c => string.IsNullOrEmpty(c.BestIp)).ToList();
+        var macToIp = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (clientsMissingIps.Count > 0)
+        {
+            _logger.LogDebug("{Count} clients missing IPs (after stat/sta fallbacks), fetching from active clients endpoint", clientsMissingIps.Count);
+            var activeClients = await GetActiveClientsForEnrichmentAsync(cancellationToken);
+            macToIp = ClientIpEnricher.BuildMacToIpLookup(activeClients);
+        }
+
         // Log any MLO clients found
         var mloClients = clients.Where(c => c.IsMlo == true).ToList();
         if (mloClients.Any())
@@ -180,13 +191,22 @@ public class UniFiDiscovery
             }
         }
 
-        var discoveredClients = clients.Select(c => new DiscoveredClient
+        var discoveredClients = clients.Select(c =>
         {
-            Id = c.Id,
-            Mac = c.Mac,
-            Hostname = c.Hostname,
-            Name = c.Name,
-            IpAddress = c.Ip,
+            // Use stat/sta BestIp (ip > last_ip > fixed_ip), then active clients endpoint (UX/UX7 bug workaround)
+            var ipAddress = ClientIpEnricher.GetEnrichedIp(c.BestIp, c.Mac, macToIp);
+            if (string.IsNullOrEmpty(c.BestIp) && !string.IsNullOrEmpty(ipAddress))
+            {
+                _logger.LogDebug("Enriched IP for {Mac} from active clients: {Ip}", c.Mac, ipAddress);
+            }
+
+            return new DiscoveredClient
+            {
+                Id = c.Id,
+                Mac = c.Mac,
+                Hostname = c.Hostname,
+                Name = c.Name,
+                IpAddress = ipAddress ?? string.Empty,
             Network = c.Network,
             NetworkId = c.NetworkId,
             VirtualNetworkOverrideEnabled = c.VirtualNetworkOverrideEnabled,
@@ -236,9 +256,28 @@ public class UniFiDiscovery
             FixedIp = c.FixedIp,
             Note = c.Note,
             Oui = c.Oui
+        };
         }).ToList();
 
         return discoveredClients;
+    }
+
+    /// <summary>
+    /// Fetches active clients for IP enrichment.
+    /// Used to get IPs for UX/UX7 connected clients that are missing IPs in stat/sta.
+    /// Gracefully returns empty list if the API fails.
+    /// </summary>
+    private async Task<List<Models.UniFiClientHistoryResponse>> GetActiveClientsForEnrichmentAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _apiClient.GetActiveClientsAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to fetch active clients for IP enrichment, continuing without enrichment");
+            return new List<Models.UniFiClientHistoryResponse>();
+        }
     }
 
     /// <summary>

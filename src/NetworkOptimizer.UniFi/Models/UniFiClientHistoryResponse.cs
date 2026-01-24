@@ -48,11 +48,20 @@ public class UniFiClientHistoryResponse
     public bool Blocked { get; set; }
 
     // IP addresses
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
     [JsonPropertyName("last_ip")]
     public string? LastIp { get; set; }
 
     [JsonPropertyName("fixed_ip")]
     public string? FixedIp { get; set; }
+
+    /// <summary>
+    /// Gets the best available IP address (ip > last_ip > fixed_ip)
+    /// </summary>
+    [JsonIgnore]
+    public string? BestIp => Ip ?? LastIp ?? FixedIp;
 
     [JsonPropertyName("use_fixedip")]
     public bool UseFixedIp { get; set; }

@@ -71,6 +71,18 @@ public class UniFiClientResponse
     [JsonPropertyName("fixed_ip")]
     public string? FixedIp { get; set; }
 
+    [JsonPropertyName("last_ip")]
+    public string? LastIp { get; set; }
+
+    /// <summary>
+    /// Gets the best available IP address (ip > last_ip > fixed_ip)
+    /// </summary>
+    [JsonIgnore]
+    public string? BestIp =>
+        !string.IsNullOrEmpty(Ip) ? Ip :
+        !string.IsNullOrEmpty(LastIp) ? LastIp :
+        FixedIp;
+
     // Connection info
     [JsonPropertyName("ap_mac")]
     public string? ApMac { get; set; }
