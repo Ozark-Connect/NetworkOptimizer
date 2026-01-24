@@ -319,6 +319,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 if (targetDevice == null)
                 {
+                    _logger.LogDebug("Target {Host} not found in topology ({ClientCount} clients, {DeviceCount} devices)",
+                        targetHost, topology.Clients.Count, topology.Devices.Count);
+
                     path.IsValid = false;
                     path.ErrorMessage = $"Target '{targetHost}' not found in network topology";
 

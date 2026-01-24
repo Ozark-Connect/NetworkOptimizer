@@ -145,7 +145,7 @@ public class PortSecurityAnalyzer
     /// <param name="networks">Network configuration list</param>
     /// <param name="clients">Connected clients for port correlation (optional)</param>
     /// <param name="clientHistory">Historical clients for offline port correlation (optional)</param>
-    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientHistoryResponse>? clientHistory)
+    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientDetailResponse>? clientHistory)
         => ExtractSwitches(deviceData, networks, clients, clientHistory, portProfiles: null);
 
     /// <summary>
@@ -156,7 +156,7 @@ public class PortSecurityAnalyzer
     /// <param name="clients">Connected clients for port correlation (optional)</param>
     /// <param name="clientHistory">Historical clients for offline port correlation (optional)</param>
     /// <param name="portProfiles">Port profiles for resolving portconf_id settings (optional)</param>
-    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientHistoryResponse>? clientHistory, List<UniFiPortProfile>? portProfiles)
+    public List<SwitchInfo> ExtractSwitches(JsonElement deviceData, List<NetworkInfo> networks, List<UniFiClientResponse>? clients, List<UniFiClientDetailResponse>? clientHistory, List<UniFiPortProfile>? portProfiles)
     {
         // Build port profile lookup by ID
         var profilesById = portProfiles?.ToDictionary(p => p.Id, StringComparer.OrdinalIgnoreCase)
@@ -286,9 +286,9 @@ public class PortSecurityAnalyzer
     /// Note: We check for LastUplinkRemotePort, not IsWired, because some devices
     /// that connected via switch have is_wired=false (e.g., devices capable of both).
     /// </summary>
-    private Dictionary<(string, int), UniFiClientHistoryResponse> BuildClientHistoryPortLookup(List<UniFiClientHistoryResponse>? clientHistory)
+    private Dictionary<(string, int), UniFiClientDetailResponse> BuildClientHistoryPortLookup(List<UniFiClientDetailResponse>? clientHistory)
     {
-        var lookup = new Dictionary<(string, int), UniFiClientHistoryResponse>();
+        var lookup = new Dictionary<(string, int), UniFiClientDetailResponse>();
 
         if (clientHistory == null)
             return lookup;
@@ -328,12 +328,12 @@ public class PortSecurityAnalyzer
     /// Parse a single switch from JSON
     /// </summary>
     private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort)
-        => ParseSwitch(device, networks, clientsByPort, new Dictionary<(string, int), UniFiClientHistoryResponse>());
+        => ParseSwitch(device, networks, clientsByPort, new Dictionary<(string, int), UniFiClientDetailResponse>());
 
     /// <summary>
     /// Parse a single switch from JSON with client history
     /// </summary>
-    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort)
+    private SwitchInfo? ParseSwitch(JsonElement device, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientDetailResponse> historyByPort)
         => ParseSwitch(device, networks, clientsByPort, historyByPort, new Dictionary<string, UniFiPortProfile>(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
@@ -343,7 +343,7 @@ public class PortSecurityAnalyzer
         JsonElement device,
         List<NetworkInfo> networks,
         Dictionary<(string, int), UniFiClientResponse> clientsByPort,
-        Dictionary<(string, int), UniFiClientHistoryResponse> historyByPort,
+        Dictionary<(string, int), UniFiClientDetailResponse> historyByPort,
         Dictionary<string, UniFiPortProfile> portProfiles,
         HashSet<string>? allDeviceMacs = null,
         Dictionary<(string, int), string>? deviceUplinkLookup = null)
@@ -480,7 +480,7 @@ public class PortSecurityAnalyzer
     /// <summary>
     /// Parse a single port from JSON
     /// </summary>
-    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort = null)
+    private PortInfo? ParsePort(JsonElement port, SwitchInfo switchInfo, List<NetworkInfo> networks, Dictionary<(string, int), UniFiClientResponse> clientsByPort, Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort = null)
         => ParsePort(port, switchInfo, networks, clientsByPort, historyByPort, portProfiles: null, deviceUplinkLookup: null);
 
     /// <summary>
@@ -491,7 +491,7 @@ public class PortSecurityAnalyzer
         SwitchInfo switchInfo,
         List<NetworkInfo> networks,
         Dictionary<(string, int), UniFiClientResponse> clientsByPort,
-        Dictionary<(string, int), UniFiClientHistoryResponse>? historyByPort,
+        Dictionary<(string, int), UniFiClientDetailResponse>? historyByPort,
         Dictionary<string, UniFiPortProfile>? portProfiles,
         Dictionary<(string, int), string>? deviceUplinkLookup)
     {
@@ -572,7 +572,7 @@ public class PortSecurityAnalyzer
 
         // Look up connected client for this port
         UniFiClientResponse? connectedClient = null;
-        UniFiClientHistoryResponse? historicalClient = null;
+        UniFiClientDetailResponse? historicalClient = null;
         if (!string.IsNullOrEmpty(switchInfo.MacAddress))
         {
             var key = (switchInfo.MacAddress.ToLowerInvariant(), portIdx);

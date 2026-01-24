@@ -935,7 +935,7 @@ public class AuditService
             _logger.LogInformation("Fetched {ClientCount} connected clients for device detection", clients?.Count ?? 0);
 
             // Fetch client history for offline device detection (30 days)
-            List<NetworkOptimizer.UniFi.Models.UniFiClientHistoryResponse>? clientHistory = null;
+            List<NetworkOptimizer.UniFi.Models.UniFiClientDetailResponse>? clientHistory = null;
             try
             {
                 clientHistory = await _connectionService.Client.GetClientHistoryAsync(withinHours: 720);

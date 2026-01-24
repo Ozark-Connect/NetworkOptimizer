@@ -23,7 +23,7 @@ public class AuditRequest
     /// <summary>
     /// Optional: Historical client data for offline device analysis
     /// </summary>
-    public List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
+    public List<UniFiClientDetailResponse>? ClientHistory { get; init; }
 
     /// <summary>
     /// Optional: UniFi fingerprint database for device detection

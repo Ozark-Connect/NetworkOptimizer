@@ -76,7 +76,7 @@ public class AuditRuleBaseTests
         var port = CreatePort(
             portName: "Port 1",
             switchName: "Test Switch",
-            historicalClient: new UniFiClientHistoryResponse { DisplayName = "Camera Front" });
+            historicalClient: new UniFiClientDetailResponse { DisplayName = "Camera Front" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -92,7 +92,7 @@ public class AuditRuleBaseTests
         var port = CreatePort(
             portName: "Port 1",
             switchName: "Test Switch",
-            historicalClient: new UniFiClientHistoryResponse { Name = "Historical Device" });
+            historicalClient: new UniFiClientDetailResponse { Name = "Historical Device" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -108,7 +108,7 @@ public class AuditRuleBaseTests
         var port = CreatePort(
             portName: "Port 1",
             switchName: "Test Switch",
-            historicalClient: new UniFiClientHistoryResponse { Hostname = "hist-host" });
+            historicalClient: new UniFiClientDetailResponse { Hostname = "hist-host" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -125,7 +125,7 @@ public class AuditRuleBaseTests
             portName: "Custom Name",
             switchName: "Test Switch",
             connectedClient: new UniFiClientResponse { Name = "Connected Device" },
-            historicalClient: new UniFiClientHistoryResponse { DisplayName = "Historical Device" });
+            historicalClient: new UniFiClientDetailResponse { DisplayName = "Historical Device" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -141,7 +141,7 @@ public class AuditRuleBaseTests
         var port = CreatePort(
             portName: "Camera Porch",
             switchName: "Test Switch",
-            historicalClient: new UniFiClientHistoryResponse { DisplayName = "Historical Camera" });
+            historicalClient: new UniFiClientDetailResponse { DisplayName = "Historical Camera" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -390,7 +390,7 @@ public class AuditRuleBaseTests
             portName: "Custom Port",
             switchName: "Test Switch",
             connectedClient: new UniFiClientResponse { Name = "", Hostname = "" },
-            historicalClient: new UniFiClientHistoryResponse { DisplayName = "Historical Name" });
+            historicalClient: new UniFiClientDetailResponse { DisplayName = "Historical Name" });
 
         // Act
         var issue = _rule.TestCreateIssue("Test message", port);
@@ -408,7 +408,7 @@ public class AuditRuleBaseTests
         int portIndex = 1,
         string switchName = "Test Switch",
         UniFiClientResponse? connectedClient = null,
-        UniFiClientHistoryResponse? historicalClient = null)
+        UniFiClientDetailResponse? historicalClient = null)
     {
         var switchInfo = new SwitchInfo { Name = switchName };
 

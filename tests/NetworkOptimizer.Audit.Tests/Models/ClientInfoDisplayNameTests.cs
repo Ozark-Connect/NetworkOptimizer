@@ -386,13 +386,13 @@ public class ClientInfoDisplayNameTests
         };
     }
 
-    private static UniFiClientHistoryResponse CreateHistoryClient(
+    private static UniFiClientDetailResponse CreateHistoryClient(
         string displayName,
         string name,
         string hostname,
         string mac)
     {
-        return new UniFiClientHistoryResponse
+        return new UniFiClientDetailResponse
         {
             DisplayName = displayName,
             Name = name,
@@ -403,7 +403,7 @@ public class ClientInfoDisplayNameTests
     }
 
     private static OfflineClientInfo CreateOfflineClientInfo(
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         string? productName,
         ClientDeviceCategory category)
     {

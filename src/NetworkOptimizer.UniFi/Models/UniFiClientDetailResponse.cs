@@ -3,10 +3,10 @@ using System.Text.Json.Serialization;
 namespace NetworkOptimizer.UniFi.Models;
 
 /// <summary>
-/// Response from GET /proxy/network/v2/api/site/{site}/clients/history
-/// Represents a client with historical data (including offline devices)
+/// Response from V2 client APIs: /clients/active and /clients/history
+/// Used for both active clients (with current IP) and historical clients (with last_ip)
 /// </summary>
-public class UniFiClientHistoryResponse
+public class UniFiClientDetailResponse
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;
@@ -48,16 +48,32 @@ public class UniFiClientHistoryResponse
     public bool Blocked { get; set; }
 
     // IP addresses
+    [JsonPropertyName("ip")]
+    public string? Ip { get; set; }
+
     [JsonPropertyName("last_ip")]
     public string? LastIp { get; set; }
 
     [JsonPropertyName("fixed_ip")]
     public string? FixedIp { get; set; }
 
+    /// <summary>
+    /// Gets the best available IP address (ip > last_ip > fixed_ip)
+    /// </summary>
+    [JsonIgnore]
+    public string? BestIp => Ip ?? LastIp ?? FixedIp;
+
     [JsonPropertyName("use_fixedip")]
     public bool UseFixedIp { get; set; }
 
-    // Last connection info
+    // Network info (active clients use network_id/network_name, history uses last_connection_*)
+    [JsonPropertyName("network_id")]
+    public string? NetworkId { get; set; }
+
+    [JsonPropertyName("network_name")]
+    public string? NetworkName { get; set; }
+
+    // Last connection info (history clients)
     [JsonPropertyName("last_uplink_mac")]
     public string? LastUplinkMac { get; set; }
 

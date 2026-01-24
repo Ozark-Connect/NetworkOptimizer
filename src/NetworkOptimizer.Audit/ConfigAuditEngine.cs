@@ -39,7 +39,7 @@ public class ConfigAuditEngine
     {
         public required JsonElement DeviceData { get; init; }
         public required List<UniFiClientResponse>? Clients { get; init; }
-        public required List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
+        public required List<UniFiClientDetailResponse>? ClientHistory { get; init; }
         public required JsonElement? SettingsData { get; init; }
         public required List<FirewallRule>? FirewallRules { get; init; }
         public required List<UniFiFirewallGroup>? FirewallGroups { get; init; }
@@ -201,7 +201,7 @@ public class ConfigAuditEngine
     public Task<AuditResult> RunAuditAsync(
         string deviceDataJson,
         List<UniFiClientResponse>? clients,
-        List<UniFiClientHistoryResponse>? clientHistory,
+        List<UniFiClientDetailResponse>? clientHistory,
         UniFiFingerprintDatabase? fingerprintDb,
         JsonElement? settingsData,
         List<FirewallRule>? firewallRules,
@@ -535,7 +535,7 @@ public class ConfigAuditEngine
         return macs;
     }
 
-    private static bool ShouldSkipOfflineClient(UniFiClientHistoryResponse client, HashSet<string> onlineMacs)
+    private static bool ShouldSkipOfflineClient(UniFiClientDetailResponse client, HashSet<string> onlineMacs)
     {
         // Skip if currently online
         if (!string.IsNullOrEmpty(client.Mac) && onlineMacs.Contains(client.Mac))
@@ -545,7 +545,7 @@ public class ConfigAuditEngine
     }
 
     private static DeviceDetectionResult DetectOfflineClientType(
-        UniFiClientHistoryResponse client,
+        UniFiClientDetailResponse client,
         DeviceTypeDetectionService detectionService)
     {
         var detection = detectionService.DetectFromMac(client.Mac ?? "");
@@ -563,7 +563,7 @@ public class ConfigAuditEngine
 
     private void AddOfflineClientInfo(
         AuditContext ctx,
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection)
     {
@@ -582,7 +582,7 @@ public class ConfigAuditEngine
 
     private void CheckOfflineClientPlacement(
         AuditContext ctx,
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection,
         long twoWeeksAgo)
@@ -601,7 +601,7 @@ public class ConfigAuditEngine
 
     private void CheckOfflineIoTPlacement(
         AuditContext ctx,
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection,
         long twoWeeksAgo)
@@ -648,7 +648,7 @@ public class ConfigAuditEngine
 
     private void CheckOfflineCameraPlacement(
         AuditContext ctx,
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection,
         long twoWeeksAgo)
@@ -684,7 +684,7 @@ public class ConfigAuditEngine
 
     private void CheckOfflinePrinterPlacement(
         AuditContext ctx,
-        UniFiClientHistoryResponse historyClient,
+        UniFiClientDetailResponse historyClient,
         NetworkInfo lastNetwork,
         DeviceDetectionResult detection,
         long twoWeeksAgo)
