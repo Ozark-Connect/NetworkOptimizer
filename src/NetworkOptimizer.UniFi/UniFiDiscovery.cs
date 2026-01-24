@@ -267,7 +267,7 @@ public class UniFiDiscovery
     /// Used to get IPs for UX/UX7 connected clients that are missing IPs in stat/sta.
     /// Gracefully returns empty list if the API fails.
     /// </summary>
-    private async Task<List<Models.UniFiClientHistoryResponse>> GetActiveClientsForEnrichmentAsync(CancellationToken cancellationToken)
+    private async Task<List<Models.UniFiClientDetailResponse>> GetActiveClientsForEnrichmentAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -276,7 +276,7 @@ public class UniFiDiscovery
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to fetch active clients for IP enrichment, continuing without enrichment");
-            return new List<Models.UniFiClientHistoryResponse>();
+            return new List<Models.UniFiClientDetailResponse>();
         }
     }
 

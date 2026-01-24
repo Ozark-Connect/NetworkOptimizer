@@ -114,7 +114,7 @@ public class PortInfo
     /// Historical client that was last seen on this port.
     /// Populated from client history by matching switch MAC and port number.
     /// </summary>
-    public UniFi.Models.UniFiClientHistoryResponse? HistoricalClient { get; init; }
+    public UniFi.Models.UniFiClientDetailResponse? HistoricalClient { get; init; }
 
     /// <summary>
     /// Type of UniFi device connected to this port (e.g., "uap" for AP, "usw" for switch).

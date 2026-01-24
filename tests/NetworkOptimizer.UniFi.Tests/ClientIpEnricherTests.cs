@@ -16,7 +16,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_WithActiveClients_UsesIpField()
     {
         // Arrange - /clients/active returns 'ip' field
-        var clients = new List<UniFiClientHistoryResponse>
+        var clients = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:f1", Ip = "10.0.0.101" },
             new() { Mac = "aa:bb:cc:dd:ee:f2", Ip = "10.0.0.102" },
@@ -37,7 +37,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_WithHistoryClients_UsesLastIpField()
     {
         // Arrange - /clients/history returns 'last_ip' field
-        var clients = new List<UniFiClientHistoryResponse>
+        var clients = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:f1", LastIp = "10.0.0.101" },
             new() { Mac = "aa:bb:cc:dd:ee:f2", LastIp = "10.0.0.102" }
@@ -55,7 +55,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_PrefersIpOverLastIp()
     {
         // Arrange - BestIp should prefer 'ip' over 'last_ip'
-        var clients = new List<UniFiClientHistoryResponse>
+        var clients = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:ff", Ip = "10.0.0.100", LastIp = "10.0.0.200" }
         };
@@ -71,7 +71,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_IsCaseInsensitive()
     {
         // Arrange
-        var clients = new List<UniFiClientHistoryResponse>
+        var clients = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "AA:BB:CC:DD:EE:FF", Ip = "10.0.0.100" }
         };
@@ -99,7 +99,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_WithEmptyHistory_ReturnsEmptyLookup()
     {
         // Arrange
-        var history = new List<UniFiClientHistoryResponse>();
+        var history = new List<UniFiClientDetailResponse>();
 
         // Act
         var lookup = ClientIpEnricher.BuildMacToIpLookup(history);
@@ -112,7 +112,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_SkipsEntriesWithNullMac()
     {
         // Arrange
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = null!, Ip = "10.0.0.100" },
             new() { Mac = "aa:bb:cc:dd:ee:ff", Ip = "10.0.0.101" }
@@ -130,7 +130,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_SkipsEntriesWithEmptyMac()
     {
         // Arrange
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "", Ip = "10.0.0.100" },
             new() { Mac = "aa:bb:cc:dd:ee:ff", Ip = "10.0.0.101" }
@@ -147,7 +147,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_SkipsEntriesWithNullLastIp()
     {
         // Arrange
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:f1", Ip = null },
             new() { Mac = "aa:bb:cc:dd:ee:f2", Ip = "10.0.0.102" }
@@ -165,7 +165,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_SkipsEntriesWithEmptyLastIp()
     {
         // Arrange
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:f1", Ip = "" },
             new() { Mac = "aa:bb:cc:dd:ee:f2", Ip = "10.0.0.102" }
@@ -182,7 +182,7 @@ public class ClientIpEnricherTests
     public void BuildMacToIpLookup_WithDuplicateMacs_UsesFirst()
     {
         // Arrange - same MAC with different IPs (maybe IP changed)
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:ff", Ip = "10.0.0.100" },
             new() { Mac = "aa:bb:cc:dd:ee:ff", Ip = "10.0.0.101" }
@@ -321,7 +321,7 @@ public class ClientIpEnricherTests
     {
         // Arrange - simulates the exact scenario from GitHub issue #141
         // UX/UX7 connected client has MAC but no IP in stat/sta response
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             // This client is connected via UX and has IP in history but not in stat/sta
             new()
@@ -356,7 +356,7 @@ public class ClientIpEnricherTests
     public void MultipleUxClientsWithoutIps_AllGetEnrichedFromHistory()
     {
         // Arrange - multiple clients connected via UX
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "00:11:22:33:44:01", Ip = "10.0.0.101" },
             new() { Mac = "00:11:22:33:44:02", Ip = "10.0.0.102" },
@@ -380,7 +380,7 @@ public class ClientIpEnricherTests
     public void MixedClients_SomeWithIpsSomeWithout()
     {
         // Arrange - realistic scenario with mixed clients
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             // UX clients
             new() { Mac = "ux:cl:ie:nt:00:01", Ip = "10.0.0.50" },
@@ -412,7 +412,7 @@ public class ClientIpEnricherTests
     public void ClientNotInHistory_ReturnsNullWhenNoStatStaIp()
     {
         // Arrange - brand new client not yet in history
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "ex:is:ti:ng:cl:01", Ip = "10.0.0.100" }
         };

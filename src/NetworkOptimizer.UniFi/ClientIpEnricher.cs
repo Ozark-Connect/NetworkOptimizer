@@ -14,7 +14,7 @@ public static class ClientIpEnricher
     /// </summary>
     /// <param name="clients">Client entries from the UniFi API (active or history)</param>
     /// <returns>Dictionary mapping MAC addresses to their best available IP</returns>
-    public static Dictionary<string, string> BuildMacToIpLookup(IEnumerable<UniFiClientHistoryResponse> clients)
+    public static Dictionary<string, string> BuildMacToIpLookup(IEnumerable<UniFiClientDetailResponse> clients)
     {
         if (clients == null)
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

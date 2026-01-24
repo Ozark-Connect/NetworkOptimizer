@@ -1304,7 +1304,7 @@ public class IotVlanRuleTests
             Switch = switchInfo,
             LastConnectionMac = "00:17:88:11:22:33",
             LastConnectionSeen = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds(),
-            HistoricalClient = new UniFiClientHistoryResponse
+            HistoricalClient = new UniFiClientDetailResponse
             {
                 Mac = "00:17:88:11:22:33",
                 DisplayName = "Living Room Hue Bridge",
@@ -1339,7 +1339,7 @@ public class IotVlanRuleTests
             Switch = switchInfo,
             LastConnectionMac = "00:17:88:11:22:33",
             LastConnectionSeen = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds(),
-            HistoricalClient = new UniFiClientHistoryResponse
+            HistoricalClient = new UniFiClientDetailResponse
             {
                 Mac = "00:17:88:11:22:33",
                 DisplayName = null,

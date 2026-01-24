@@ -21,7 +21,7 @@ public class DeviceTypeDetectionService
     private readonly NamePatternDetector _namePatternDetector;
 
     // Client history lookup for enhanced offline device detection
-    private Dictionary<string, UniFiClientHistoryResponse>? _clientHistoryByMac;
+    private Dictionary<string, UniFiClientDetailResponse>? _clientHistoryByMac;
 
     // UniFi Protect cameras (highest priority detection)
     private ProtectCameraCollection? _protectCameras;
@@ -44,7 +44,7 @@ public class DeviceTypeDetectionService
     /// When detecting devices by MAC, we'll first check if the MAC exists in client history
     /// to get fingerprint data, then fall back to IEEE OUI lookup.
     /// </summary>
-    public void SetClientHistory(List<UniFiClientHistoryResponse>? clientHistory)
+    public void SetClientHistory(List<UniFiClientDetailResponse>? clientHistory)
     {
         if (clientHistory == null || clientHistory.Count == 0)
         {

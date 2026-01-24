@@ -681,7 +681,7 @@ public class DeviceTypeDetectionServiceTests
     public void SetClientHistory_WithValidList_PopulatesLookup()
     {
         // Arrange - DevCat 9 = "IP Network Camera" in UniFi fingerprint database
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -703,7 +703,7 @@ public class DeviceTypeDetectionServiceTests
     public void SetClientHistory_WithNull_ClearsLookup()
     {
         // Arrange - first set some history with valid DevCat 9 (IP Network Camera)
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -726,7 +726,7 @@ public class DeviceTypeDetectionServiceTests
     public void SetClientHistory_WithEmptyList_ClearsLookup()
     {
         // Arrange - first set some history with valid DevCat 9 (IP Network Camera)
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -738,7 +738,7 @@ public class DeviceTypeDetectionServiceTests
         _service.SetClientHistory(history);
 
         // Act - set empty list
-        _service.SetClientHistory(new List<UniFiClientHistoryResponse>());
+        _service.SetClientHistory(new List<UniFiClientDetailResponse>());
 
         // Assert - should now fall back to OUI detection
         var result = _service.DetectFromMac("aa:bb:cc:dd:ee:ff");
@@ -750,7 +750,7 @@ public class DeviceTypeDetectionServiceTests
     {
         // Arrange - history with camera fingerprint
         // DevCat 9 = "IP Network Camera" in UniFi fingerprint database
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -774,7 +774,7 @@ public class DeviceTypeDetectionServiceTests
     {
         // Arrange - history without fingerprint but with recognizable name
         // Note: Sonos devices are classified as MediaPlayer, not SmartSpeaker
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -811,7 +811,7 @@ public class DeviceTypeDetectionServiceTests
     public void DetectFromMac_CaseInsensitiveLookup_FindsMatch()
     {
         // Arrange - DevCat 9 = "IP Network Camera"
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -853,7 +853,7 @@ public class DeviceTypeDetectionServiceTests
     public void DetectFromMac_HistoryUsesDisplayName_WhenNameNull()
     {
         // Arrange - history with DisplayName but no Name
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -877,7 +877,7 @@ public class DeviceTypeDetectionServiceTests
     {
         // Arrange - history with some empty MACs
         // DevCat 9 = "IP Network Camera"
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "", Name = "Empty MAC" },
             new() { Mac = "aa:bb:cc:dd:ee:ff", Name = "Valid Camera", Fingerprint = new ClientFingerprintData { DevCat = 9 } },
@@ -904,7 +904,7 @@ public class DeviceTypeDetectionServiceTests
     public void DetectFromMac_HistoryCameraFingerprint_WithCloudVendor_ReturnsCloudCamera(string vendor, ClientDeviceCategory expected)
     {
         // Arrange - history with camera fingerprint (DevCat 9) and cloud vendor via OUI
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -929,7 +929,7 @@ public class DeviceTypeDetectionServiceTests
     public void DetectFromMac_HistorySecuritySystemFingerprint_WithCloudVendor_ReturnsCloudSecuritySystem(string vendor, ClientDeviceCategory expected)
     {
         // Arrange - history with security system fingerprint (DevCat 80 = Smart Home Security System) and cloud vendor via OUI
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -953,7 +953,7 @@ public class DeviceTypeDetectionServiceTests
     public void DetectFromMac_HistoryCameraFingerprint_WithLocalVendor_ReturnsCamera()
     {
         // Arrange - history with camera fingerprint (DevCat 9) and non-cloud vendor
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new()
             {

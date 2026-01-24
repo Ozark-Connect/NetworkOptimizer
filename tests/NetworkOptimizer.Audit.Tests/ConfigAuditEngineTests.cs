@@ -504,7 +504,7 @@ public class ConfigAuditEngineTests
         var result = await _engine.RunAuditAsync(
             deviceJson,
             clients: null,
-            clientHistory: new List<UniFiClientHistoryResponse>(),
+            clientHistory: new List<UniFiClientDetailResponse>(),
             fingerprintDb: null,
             settingsData: null,
             firewallRules: null,
@@ -519,7 +519,7 @@ public class ConfigAuditEngineTests
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Roku MAC prefix (known IoT device)
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -552,7 +552,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineIoTOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -582,7 +582,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineWiredDevice_Skipped()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -615,7 +615,7 @@ public class ConfigAuditEngineTests
         {
             new() { Mac = "D8:31:34:11:22:33" }
         };
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -648,7 +648,7 @@ public class ConfigAuditEngineTests
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Client last seen more than 14 days ago
         var staleTimestamp = DateTimeOffset.UtcNow.AddDays(-30).ToUnixTimeSeconds();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -683,7 +683,7 @@ public class ConfigAuditEngineTests
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Client last seen within 14 days
         var recentTimestamp = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -718,7 +718,7 @@ public class ConfigAuditEngineTests
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Unknown MAC but name indicates IoT device
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -749,7 +749,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineUnknownDevice_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -781,7 +781,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineClientNoNetwork_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -850,7 +850,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnIoTVlan_StrictMode_CreatesIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -888,7 +888,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnIoTVlan_LenientMode_CreatesInformationalIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -926,7 +926,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnPrinterVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -959,7 +959,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_StaleOfflinePrinter_GetsInformationalSeverity()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -996,7 +996,7 @@ public class ConfigAuditEngineTests
         // Bug fix test: Offline cloud cameras (Nest, Ring, etc.) should recommend
         // IoT VLAN, not Security VLAN. Only self-hosted cameras go on Security.
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1035,7 +1035,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineCloudCameraOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1068,7 +1068,7 @@ public class ConfigAuditEngineTests
     {
         // Self-hosted cameras (UniFi, Reolink) should still recommend Security VLAN
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1105,7 +1105,7 @@ public class ConfigAuditEngineTests
     {
         // Cloud security systems (SimpliSafe) need internet access, should recommend IoT VLAN
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1143,7 +1143,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineCloudSecuritySystemOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {

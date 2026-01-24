@@ -751,14 +751,14 @@ public class UniFiApiClient : IDisposable
     /// GET v2/api/site/{site}/clients/active - Get currently active clients with full details
     /// This endpoint returns IP addresses even for UX/UX7 connected clients (unlike stat/sta)
     /// </summary>
-    public async Task<List<UniFiClientHistoryResponse>> GetActiveClientsAsync(
+    public async Task<List<UniFiClientDetailResponse>> GetActiveClientsAsync(
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Fetching active clients from site {Site}", _site);
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
-            return new List<UniFiClientHistoryResponse>();
+            return new List<UniFiClientDetailResponse>();
         }
 
         return await _retryPolicy.ExecuteAsync(async () =>
@@ -768,15 +768,15 @@ public class UniFiApiClient : IDisposable
 
             if (response.IsSuccessStatusCode)
             {
-                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientHistoryResponse>>(
+                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientDetailResponse>>(
                     cancellationToken: cancellationToken);
 
                 _logger.LogDebug("Retrieved {Count} active clients", clients?.Count ?? 0);
-                return clients ?? new List<UniFiClientHistoryResponse>();
+                return clients ?? new List<UniFiClientDetailResponse>();
             }
 
             _logger.LogWarning("Failed to retrieve active clients: {StatusCode}", response.StatusCode);
-            return new List<UniFiClientHistoryResponse>();
+            return new List<UniFiClientDetailResponse>();
         });
     }
 
@@ -784,7 +784,7 @@ public class UniFiApiClient : IDisposable
     /// GET v2/api/site/{site}/clients/history - Get client history (includes offline devices)
     /// </summary>
     /// <param name="withinHours">How far back to look (default 720 = 30 days)</param>
-    public async Task<List<UniFiClientHistoryResponse>> GetClientHistoryAsync(
+    public async Task<List<UniFiClientDetailResponse>> GetClientHistoryAsync(
         int withinHours = 720,
         CancellationToken cancellationToken = default)
     {
@@ -792,7 +792,7 @@ public class UniFiApiClient : IDisposable
 
         if (!await EnsureAuthenticatedAsync(cancellationToken))
         {
-            return new List<UniFiClientHistoryResponse>();
+            return new List<UniFiClientDetailResponse>();
         }
 
         return await _retryPolicy.ExecuteAsync(async () =>
@@ -802,15 +802,15 @@ public class UniFiApiClient : IDisposable
 
             if (response.IsSuccessStatusCode)
             {
-                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientHistoryResponse>>(
+                var clients = await response.Content.ReadFromJsonAsync<List<UniFiClientDetailResponse>>(
                     cancellationToken: cancellationToken);
 
                 _logger.LogInformation("Retrieved {Count} historical clients", clients?.Count ?? 0);
-                return clients ?? new List<UniFiClientHistoryResponse>();
+                return clients ?? new List<UniFiClientDetailResponse>();
             }
 
             _logger.LogWarning("Failed to retrieve client history: {StatusCode}", response.StatusCode);
-            return new List<UniFiClientHistoryResponse>();
+            return new List<UniFiClientDetailResponse>();
         });
     }
 
