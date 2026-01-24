@@ -318,7 +318,7 @@ public class UpnpSecurityAnalyzerTests
         // Assert - Should be Warning (Recommended) with source IP recommendation
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
-        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.ScoreImpact.Should().Be(8);
         privIssue.RecommendedAction.Should().Contain("source IP");
         privIssue.Metadata!["unrestricted"].Should().Be(true);
     }
@@ -386,7 +386,7 @@ public class UpnpSecurityAnalyzerTests
         // Assert - Should be Warning because limiting is disabled (orphaned config)
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
-        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.ScoreImpact.Should().Be(8);
         privIssue.Metadata!["unrestricted"].Should().Be(true);
     }
 
@@ -407,7 +407,7 @@ public class UpnpSecurityAnalyzerTests
         // Assert - Should be Warning because no valid group ID
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
-        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.ScoreImpact.Should().Be(8);
     }
 
     [Fact]
@@ -427,7 +427,7 @@ public class UpnpSecurityAnalyzerTests
         // Assert - Should be Warning because no valid src IP
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
-        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.ScoreImpact.Should().Be(8);
     }
 
     [Fact]
@@ -491,7 +491,7 @@ public class UpnpSecurityAnalyzerTests
         // Assert - Should be Warning because at least one is unrestricted
         var privIssue = result.Issues.First(i => i.Type == IssueTypes.StaticPrivilegedPort);
         privIssue.Severity.Should().Be(AuditSeverity.Recommended);
-        privIssue.ScoreImpact.Should().Be(5);
+        privIssue.ScoreImpact.Should().Be(8);
         privIssue.Metadata!["unrestricted_count"].Should().Be(1);
     }
 

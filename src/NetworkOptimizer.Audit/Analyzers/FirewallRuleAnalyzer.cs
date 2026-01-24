@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -186,7 +187,7 @@ public class FirewallRuleAnalyzer
                             issues.Add(new AuditIssue
                             {
                                 Type = IssueTypes.DenyShadowsAllow,
-                                Severity = AuditSeverity.Informational,
+                                Severity = AuditSeverity.Recommended,
                                 Message = $"Allow rule '{laterRule.Name}' may be ineffective due to earlier deny rule '{earlierRule.Name}'",
                                 Metadata = new Dictionary<string, object>
                                 {
@@ -493,6 +494,233 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Detect user-created ALLOW rules that create exceptions to the UniFi-managed "Isolated Networks" rules.
+    /// When a network has NetworkIsolationEnabled, UniFi creates predefined BLOCK rules that block traffic
+    /// FROM isolated networks to other destinations. User ALLOW rules that allow traffic FROM these
+    /// isolated networks create exceptions that should be reported as Info issues.
+    /// Note: Traffic TO isolated networks is not blocked by the predefined rules, so we only check source.
+    /// </summary>
+    /// <param name="rules">Firewall rules to analyze (including predefined rules)</param>
+    /// <param name="networks">Network configurations</param>
+    /// <returns>List of Info-level issues for network isolation exceptions</returns>
+    /// <summary>
+    /// Detect user-created rules that create exceptions to the predefined "Isolated Networks" rules.
+    /// Only flags rules allowing traffic FROM isolated networks TO other internal networks (inter-VLAN).
+    /// Rules allowing traffic to external/internet are NOT flagged as they don't violate isolation.
+    /// </summary>
+    /// <param name="rules">Firewall rules to analyze</param>
+    /// <param name="networks">Network configurations</param>
+    /// <param name="externalZoneId">External zone ID - rules targeting this zone are internet access, not isolation exceptions</param>
+    public List<AuditIssue> DetectNetworkIsolationExceptions(List<FirewallRule> rules, List<NetworkInfo> networks, string? externalZoneId = null)
+    {
+        var issues = new List<AuditIssue>();
+
+        // Find networks that have isolation enabled (these have predefined "Isolated Networks" rules)
+        var isolatedNetworks = networks.Where(n => n.NetworkIsolationEnabled).ToList();
+
+        if (!isolatedNetworks.Any())
+        {
+            _logger.LogDebug("No networks with isolation enabled found");
+            return issues;
+        }
+
+        // Verify there are predefined "Isolated Networks" rules
+        var isolatedNetworkRules = rules.Where(r =>
+            r.Predefined &&
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            string.Equals(r.Name, "Isolated Networks", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (!isolatedNetworkRules.Any())
+        {
+            _logger.LogDebug("No predefined 'Isolated Networks' rules found");
+            return issues;
+        }
+
+        _logger.LogDebug("Found {Count} networks with isolation enabled and {RuleCount} 'Isolated Networks' rules",
+            isolatedNetworks.Count, isolatedNetworkRules.Count);
+
+        // Find user-created ALLOW rules that allow traffic FROM isolated networks
+        // The predefined "Isolated Networks" rules block traffic FROM isolated networks TO other VLANs,
+        // so only ALLOW rules with isolated networks as SOURCE that target INTERNAL networks are exceptions.
+        // Rules targeting the external zone (internet) are NOT isolation exceptions.
+        var userAllowRules = rules.Where(r =>
+            !r.Predefined &&
+            r.Enabled &&
+            r.ActionType.IsAllowAction() &&
+            !IsExternalZoneRule(r, externalZoneId)).ToList(); // Exclude internet-bound rules
+
+        foreach (var rule in userAllowRules)
+        {
+            // Check if this rule allows traffic FROM an isolated network (source only)
+            // Traffic TO isolated networks is implicitly allowed, so we don't check destination
+            var sourceIsolatedNetworks = GetInvolvedIsolatedNetworks(rule, isolatedNetworks, isSource: true);
+
+            if (sourceIsolatedNetworks.Any())
+            {
+                // Skip required management access rules (NTP, UniFi, AFC, 5G) - these are expected
+                var mgmtNetworks = sourceIsolatedNetworks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
+                if (mgmtNetworks.Any() && IsRequiredManagementAccessRule(rule))
+                {
+                    _logger.LogDebug("Skipping required management access rule '{RuleName}'", rule.Name);
+                    continue;
+                }
+
+                // Use "Source -> Destination" format for consistent grouping with AllowExceptionPattern
+                var description = GetSourceToDestinationDescription(rule, networks);
+
+                var networkNames = string.Join(", ", sourceIsolatedNetworks.Select(n => n.Name));
+
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.NetworkIsolationException,
+                    Severity = AuditSeverity.Informational,
+                    Message = $"Allow rule '{rule.Name}' creates an exception to network isolation for: {networkNames}",
+                    Description = description,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        { "rule_name", rule.Name ?? rule.Id },
+                        { "rule_index", rule.Index },
+                        { "isolated_networks", networkNames },
+                        { "pattern", "isolation_exception" }
+                    },
+                    RuleId = "FW-ISOLATION-EXCEPTION-001",
+                    ScoreImpact = 0,
+                    RecommendedAction = "This appears to be a deliberate exception pattern - no action required"
+                });
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>
+    /// Get the isolated networks involved in a firewall rule as source.
+    /// Checks both network ID references AND IP/CIDR-based sources that cover the network's subnet.
+    /// </summary>
+    private List<NetworkInfo> GetInvolvedIsolatedNetworks(FirewallRule rule, List<NetworkInfo> isolatedNetworks, bool isSource)
+    {
+        var result = new List<NetworkInfo>();
+
+        foreach (var network in isolatedNetworks)
+        {
+            bool isInvolved = false;
+
+            if (isSource)
+            {
+                // First check network ID reference
+                isInvolved = AppliesToSourceNetwork(rule, network.Id);
+
+                // Also check if rule source is IP/CIDR that covers the network's subnet
+                if (!isInvolved && !string.IsNullOrEmpty(network.Subnet))
+                {
+                    isInvolved = SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
+                }
+            }
+            else
+            {
+                isInvolved = AppliesToDestinationNetwork(rule, network.Id);
+            }
+
+            if (isInvolved)
+            {
+                result.Add(network);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Check if a rule's source IP/CIDRs cover a network's subnet.
+    /// This catches rules that use IP-based source matching instead of network references.
+    /// </summary>
+    private static bool SourceCidrsCoversNetworkSubnet(FirewallRule rule, string networkSubnet)
+    {
+        // Check if source matching type is IP-based
+        if (string.IsNullOrEmpty(rule.SourceMatchingTarget) ||
+            !rule.SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return NetworkUtilities.AnyCidrCoversSubnet(rule.SourceIps, networkSubnet);
+    }
+
+    /// <summary>
+    /// Get a purpose suffix for isolation exception grouping based on the network purposes involved.
+    /// </summary>
+    private static string GetIsolationExceptionPurposeSuffix(List<NetworkInfo> sourceNetworks)
+    {
+        // Collect unique purposes from source networks
+        var purposes = sourceNetworks
+            .Select(n => n.Purpose)
+            .Distinct()
+            .ToList();
+
+        if (purposes.Count == 1)
+        {
+            return purposes[0] switch
+            {
+                NetworkPurpose.IoT => " (IoT)",
+                NetworkPurpose.Security => " (Security)",
+                NetworkPurpose.Management => " (Management)",
+                NetworkPurpose.Guest => " (Guest)",
+                NetworkPurpose.Corporate => " (Corporate)",
+                NetworkPurpose.Home => " (Home)",
+                _ => ""
+            };
+        }
+
+        // Multiple purposes - check for common patterns
+        if (purposes.Count == 2)
+        {
+            // Sort for consistent naming
+            var sorted = purposes.OrderBy(p => p.ToString()).ToList();
+
+            // Management exceptions are common
+            if (sorted.Contains(NetworkPurpose.Management))
+            {
+                return " (Management)";
+            }
+
+            // Security/IoT exceptions
+            if (sorted.Contains(NetworkPurpose.Security) && sorted.Contains(NetworkPurpose.IoT))
+            {
+                return " (Security/IoT)";
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Check if a rule is a required management access rule (NTP, UniFi, AFC, 5G).
+    /// These are expected rules for isolated management networks and should not be flagged.
+    /// </summary>
+    private static bool IsRequiredManagementAccessRule(FirewallRule rule)
+    {
+        // Check for UniFi cloud access (ui.com)
+        if (rule.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true)
+            return true;
+
+        // Check for AFC access (qcs.qualcomm.com)
+        if (rule.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true)
+            return true;
+
+        // Check for NTP access (UDP port 123)
+        if (FirewallGroupHelper.RuleAllowsPortAndProtocol(rule, "123", "udp"))
+            return true;
+
+        // Check for 5G/LTE carrier domains
+        var carrierDomains = new[] { "trafficmanager.net", "t-mobile.com", "gsma.com" };
+        if (rule.WebDomains?.Any(d => carrierDomains.Any(cd => d.Contains(cd, StringComparison.OrdinalIgnoreCase))) == true)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
     /// Helper to find and flag ALLOW rules between networks that should be isolated.
     /// Rules targeting the External zone are skipped - they're for outbound internet access, not inter-VLAN traffic.
     /// </summary>
@@ -509,18 +737,19 @@ public class FirewallRuleAnalyzer
 
         // Find all ALLOW rules between these two networks (either direction)
         // Skip rules that explicitly target the External zone - they're for outbound internet, not inter-VLAN
+        // Also checks if IP-based source/destination CIDRs cover the network's subnet
         var allowRules = rules.Where(r =>
             r.Enabled &&
             !r.Predefined &&
             r.ActionType.IsAllowAction() &&
             !IsExternalZoneRule(r, externalZoneId) &&
-            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)))
+            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)))
             .ToList();
 
         foreach (var rule in allowRules)
         {
             // Determine direction for the message
-            var isForward = HasNetworkPair(rule, network1.Id, network2.Id);
+            var isForward = HasNetworkPair(rule, network1, network2);
             var sourceNet = isForward ? network1 : network2;
             var destNet = isForward ? network2 : network1;
 
@@ -559,10 +788,11 @@ public class FirewallRuleAnalyzer
         if (network1.Id == network2.Id)
             return;
 
+        // Check for isolation rules using both network IDs and CIDR coverage
         var hasIsolationRule = rules.Any(r =>
             r.Enabled &&
             r.ActionType.IsBlockAction() &&
-            (HasNetworkPair(r, network1.Id, network2.Id) || HasNetworkPair(r, network2.Id, network1.Id)));
+            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)));
 
         if (!hasIsolationRule)
         {
@@ -658,7 +888,7 @@ public class FirewallRuleAnalyzer
                 var accessType = GetBroadAccessDescription(rule, externalZoneId);
                 issues.Add(new AuditIssue
                 {
-                    Type = "INTERNET_BLOCK_BYPASSED",
+                    Type = IssueTypes.InternetBlockBypassed,
                     Severity = AuditSeverity.Recommended,
                     Message = $"Network '{network.Name}' has internet disabled but rule '{rule.Name}' allows {accessType}. " +
                               "This firewall rule circumvents the network's internet access restriction.",
@@ -681,6 +911,7 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Determines if a rule applies to a specific network (as source).
     /// Handles SourceMatchOppositeNetworks which inverts the matching.
+    /// Also checks if IP-based sources cover the network's subnet.
     /// </summary>
     private static bool RuleAppliesToNetwork(FirewallRule rule, NetworkInfo network)
     {
@@ -701,6 +932,12 @@ public class FirewallRuleAnalyzer
 
             // Normal case: rule applies to networks IN the list
             return isInList;
+        }
+
+        // IP source - check if CIDRs cover the network's subnet
+        if (sourceTarget == "IP" && !string.IsNullOrEmpty(network.Subnet))
+        {
+            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
         }
 
         return false;
@@ -857,6 +1094,7 @@ public class FirewallRuleAnalyzer
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
+        issues.AddRange(DetectNetworkIsolationExceptions(rules, networks, externalZoneId));
 
         _logger.LogInformation("Found {IssueCount} firewall issues", issues.Count);
 
@@ -1201,12 +1439,75 @@ public class FirewallRuleAnalyzer
     }
 
     /// <summary>
+    /// Check if a firewall rule applies to traffic from a specific source network.
+    /// Also checks if IP-based sources cover the network's subnet.
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="network">The network to check against</param>
+    /// <returns>True if the rule applies to traffic from the specified network</returns>
+    private static bool AppliesToSourceNetwork(FirewallRule rule, NetworkInfo network)
+    {
+        // First check network ID
+        if (AppliesToSourceNetwork(rule, network.Id))
+            return true;
+
+        // Also check if IP-based source covers the network's subnet
+        if (!string.IsNullOrEmpty(network.Subnet) &&
+            rule.SourceMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a firewall rule applies to traffic to a specific destination network.
+    /// Also checks if IP-based destinations cover the network's subnet.
+    /// </summary>
+    /// <param name="rule">The firewall rule to check</param>
+    /// <param name="network">The network to check against</param>
+    /// <returns>True if the rule applies to traffic to the specified network</returns>
+    private static bool AppliesToDestinationNetwork(FirewallRule rule, NetworkInfo network)
+    {
+        // First check network ID
+        if (AppliesToDestinationNetwork(rule, network.Id))
+            return true;
+
+        // Also check if IP-based destination covers the network's subnet
+        if (!string.IsNullOrEmpty(network.Subnet) &&
+            rule.DestinationMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return DestinationCidrsCoversNetworkSubnet(rule, network.Subnet);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a rule's destination IP/CIDRs cover a network's subnet.
+    /// </summary>
+    private static bool DestinationCidrsCoversNetworkSubnet(FirewallRule rule, string networkSubnet)
+    {
+        return NetworkUtilities.AnyCidrCoversSubnet(rule.DestinationIps, networkSubnet);
+    }
+
+    /// <summary>
     /// Check if a firewall rule matches a specific source->destination network pair.
     /// Handles both v2 API format (with Match Opposite support) and legacy format.
     /// </summary>
     private static bool HasNetworkPair(FirewallRule rule, string sourceNetworkId, string destNetworkId)
     {
         return AppliesToSourceNetwork(rule, sourceNetworkId) && AppliesToDestinationNetwork(rule, destNetworkId);
+    }
+
+    /// <summary>
+    /// Check if a firewall rule matches a specific source->destination network pair.
+    /// Also checks if IP-based source/destination CIDRs cover the network's subnet.
+    /// </summary>
+    private static bool HasNetworkPair(FirewallRule rule, NetworkInfo sourceNetwork, NetworkInfo destNetwork)
+    {
+        return AppliesToSourceNetwork(rule, sourceNetwork) && AppliesToDestinationNetwork(rule, destNetwork);
     }
 
     /// <summary>
@@ -1342,25 +1643,117 @@ public class FirewallRuleAnalyzer
         if (!string.IsNullOrEmpty(externalZoneId) &&
             string.Equals(denyRule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
         {
-            return "External Access Exception";
+            return "External Access";
         }
 
         // Check for inter-VLAN isolation rules (blocking network-to-network or any-to-network)
-        // Group by the ALLOW rule's destination network purpose (more specific than deny rule)
+        // Use "Source -> Destination" format for clear direction indication
         if (destTarget == "NETWORK" || srcTarget == "NETWORK")
         {
-            // Try to get purpose from the allow rule's destination first (more specific)
-            var purposeSuffix = GetDestinationNetworkPurposeSuffix(allowRule, networks);
-            // Fall back to deny rule if allow rule doesn't have network destinations
-            if (string.IsNullOrEmpty(purposeSuffix))
-            {
-                purposeSuffix = GetDestinationNetworkPurposeSuffix(denyRule, networks);
-            }
-            return $"Cross-VLAN Access Exception{purposeSuffix}";
+            return GetSourceToDestinationDescription(allowRule, networks);
         }
 
         // Default for other patterns (including Gateway zone blocks)
-        return "Firewall Exception";
+        return "";
+    }
+
+    /// <summary>
+    /// Gets a "Source -> Destination" description for a firewall rule.
+    /// Returns format like "Main Network -> Management" for grouping and display.
+    /// </summary>
+    private static string GetSourceToDestinationDescription(FirewallRule rule, List<NetworkInfo>? networks)
+    {
+        if (networks == null || networks.Count == 0)
+            return "";
+
+        var sourceName = GetNetworkPurposeFromRule(rule, networks, isSource: true);
+        var destName = GetNetworkPurposeFromRule(rule, networks, isSource: false);
+
+        // If we have both, format as "Source -> Dest"
+        if (!string.IsNullOrEmpty(sourceName) && !string.IsNullOrEmpty(destName))
+            return $"{sourceName} -> {destName}";
+
+        // If we only have source
+        if (!string.IsNullOrEmpty(sourceName))
+            return $"{sourceName} ->";
+
+        // If we only have destination, use "Device(s)" for unknown source
+        if (!string.IsNullOrEmpty(destName))
+            return $"Device(s) -> {destName}";
+
+        return "";
+    }
+
+    /// <summary>
+    /// Gets the network purpose(s) from a rule's source or destination.
+    /// Returns purpose names like "IoT", "Security", "Management" for grouping.
+    /// </summary>
+    private static string? GetNetworkPurposeFromRule(FirewallRule rule, List<NetworkInfo> networks, bool isSource)
+    {
+        var target = isSource ? rule.SourceMatchingTarget : rule.DestinationMatchingTarget;
+        var networkIds = isSource ? rule.SourceNetworkIds : rule.DestinationNetworkIds;
+        var ips = isSource ? rule.SourceIps : rule.DestinationIps;
+
+        // Check for ANY - represents all networks
+        if (string.Equals(target, "ANY", StringComparison.OrdinalIgnoreCase))
+            return null; // Don't include "Any" in the description
+
+        var purposes = new HashSet<NetworkPurpose>();
+
+        // Check for NETWORK target with network IDs
+        if (string.Equals(target, "NETWORK", StringComparison.OrdinalIgnoreCase) &&
+            networkIds != null && networkIds.Count > 0)
+        {
+            foreach (var networkId in networkIds)
+            {
+                var network = networks.FirstOrDefault(n =>
+                    string.Equals(n.Id, networkId, StringComparison.OrdinalIgnoreCase));
+                if (network != null)
+                    purposes.Add(network.Purpose);
+            }
+        }
+
+        // Check for IP target - find which network the IP belongs to
+        if (string.Equals(target, "IP", StringComparison.OrdinalIgnoreCase) &&
+            ips != null && ips.Count > 0)
+        {
+            foreach (var ipEntry in ips)
+            {
+                var ip = ipEntry.Contains('-') ? ipEntry.Split('-')[0] : ipEntry;
+                if (ip.Contains('/'))
+                    ip = ip.Split('/')[0];
+
+                foreach (var network in networks)
+                {
+                    if (!string.IsNullOrEmpty(network.Subnet) &&
+                        FirewallRuleOverlapDetector.IpMatchesCidr(ip, network.Subnet))
+                    {
+                        purposes.Add(network.Purpose);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (purposes.Count == 0)
+            return null;
+
+        // Convert purposes to display names, sorted for consistency
+        var purposeNames = purposes
+            .OrderBy(p => p)
+            .Select(p => p switch
+            {
+                NetworkPurpose.IoT => "IoT",
+                NetworkPurpose.Security => "Security",
+                NetworkPurpose.Management => "Management",
+                NetworkPurpose.Home => "Home",
+                NetworkPurpose.Corporate => "Corporate",
+                NetworkPurpose.Guest => "Guest",
+                _ => p.ToString()
+            })
+            .ToList();
+
+        return purposeNames.Count == 1 ? purposeNames[0] : string.Join(", ", purposeNames);
     }
 
     /// <summary>

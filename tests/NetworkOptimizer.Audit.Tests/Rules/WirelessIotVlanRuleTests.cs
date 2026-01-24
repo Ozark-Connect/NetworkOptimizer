@@ -279,6 +279,108 @@ public class WirelessIotVlanRuleTests
 
     #endregion
 
+    #region Evaluate Tests - Printer Handling
+
+    [Fact]
+    public void Evaluate_PrinterOnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Printer is handled like IoT
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.Printer, network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("WIFI-IOT-VLAN-001");
+    }
+
+    [Fact]
+    public void Evaluate_PrinterOnIoTVlan_ReturnsNull()
+    {
+        // Arrange - Printer correctly on IoT VLAN
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 40, Purpose = NetworkPurpose.IoT };
+        var client = CreateWirelessClient(ClientDeviceCategory.Printer, network: iotNetwork);
+        var networks = CreateNetworkList(iotNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Correctly placed
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Evaluate Tests - Null Network
+
+    [Fact]
+    public void Evaluate_ClientWithNullNetwork_ReturnsNull()
+    {
+        // Arrange - Client has no network assigned
+        var client = CreateWirelessClient(ClientDeviceCategory.SmartPlug, network: null);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Should skip when network is null
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Device Allowance Settings Tests
+
+    [Fact]
+    public void Evaluate_StreamingDevice_AllowAllStreaming_ReturnsInformational()
+    {
+        // Arrange
+        var rule = new WirelessIotVlanRule();
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAllStreamingOnMainNetwork = true
+        });
+
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.StreamingDevice, network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = rule.Evaluate(client, networks);
+
+        // Assert - allowed by settings
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+        result.Metadata.Should().ContainKey("allowed_by_settings");
+    }
+
+    [Fact]
+    public void Evaluate_SmartTV_AllowAllTVs_ReturnsInformational()
+    {
+        // Arrange
+        var rule = new WirelessIotVlanRule();
+        rule.SetAllowanceSettings(new DeviceAllowanceSettings
+        {
+            AllowAllTVsOnMainNetwork = true
+        });
+
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.SmartTV, network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = rule.Evaluate(client, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Severity.Should().Be(AuditSeverity.Informational);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static WirelessClientInfo CreateWirelessClient(

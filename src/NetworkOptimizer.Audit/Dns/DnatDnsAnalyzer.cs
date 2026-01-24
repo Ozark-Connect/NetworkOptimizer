@@ -476,90 +476,9 @@ public class DnatDnsAnalyzer
     }
 
     /// <summary>
-    /// Check if a CIDR block covers another subnet
+    /// Check if a CIDR block covers another subnet.
+    /// Delegates to NetworkUtilities.CidrCoversSubnet.
     /// </summary>
-    /// <param name="ruleCidr">The DNAT rule's CIDR (e.g., "192.168.0.0/16")</param>
-    /// <param name="networkSubnet">The network's subnet (e.g., "192.168.1.0/24")</param>
-    /// <returns>True if ruleCidr completely covers networkSubnet</returns>
     public static bool CidrCoversSubnet(string ruleCidr, string networkSubnet)
-    {
-        try
-        {
-            var (ruleNetwork, rulePrefixLength) = ParseCidr(ruleCidr);
-            var (subnetNetwork, subnetPrefixLength) = ParseCidr(networkSubnet);
-
-            if (ruleNetwork == null || subnetNetwork == null)
-            {
-                return false;
-            }
-
-            // Rule must have same or shorter prefix (larger network) to cover subnet
-            if (rulePrefixLength > subnetPrefixLength)
-            {
-                return false;
-            }
-
-            // Compare network addresses masked by rule's prefix length
-            var ruleBytes = ruleNetwork.GetAddressBytes();
-            var subnetBytes = subnetNetwork.GetAddressBytes();
-
-            if (ruleBytes.Length != subnetBytes.Length)
-            {
-                return false; // IPv4 vs IPv6 mismatch
-            }
-
-            // Calculate how many full bytes and remaining bits to compare
-            var fullBytes = rulePrefixLength / 8;
-            var remainingBits = rulePrefixLength % 8;
-
-            // Compare full bytes
-            for (int i = 0; i < fullBytes; i++)
-            {
-                if (ruleBytes[i] != subnetBytes[i])
-                {
-                    return false;
-                }
-            }
-
-            // Compare remaining bits if any
-            if (remainingBits > 0 && fullBytes < ruleBytes.Length)
-            {
-                var mask = (byte)(0xFF << (8 - remainingBits));
-                if ((ruleBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Parse CIDR notation into network address and prefix length
-    /// </summary>
-    private static (IPAddress? network, int prefixLength) ParseCidr(string cidr)
-    {
-        var parts = cidr.Split('/');
-        if (parts.Length != 2)
-        {
-            return (null, 0);
-        }
-
-        if (!IPAddress.TryParse(parts[0], out var address))
-        {
-            return (null, 0);
-        }
-
-        if (!int.TryParse(parts[1], out var prefixLength))
-        {
-            return (null, 0);
-        }
-
-        return (address, prefixLength);
-    }
+        => NetworkUtilities.CidrCoversSubnet(ruleCidr, networkSubnet);
 }

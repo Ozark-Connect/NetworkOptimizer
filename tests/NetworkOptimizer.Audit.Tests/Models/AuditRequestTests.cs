@@ -53,7 +53,7 @@ public class AuditRequestTests
     [Fact]
     public void AuditRequest_ClientHistory_CanBeSet()
     {
-        var history = new List<UniFiClientHistoryResponse>
+        var history = new List<UniFiClientDetailResponse>
         {
             new() { Mac = "aa:bb:cc:dd:ee:ff" }
         };
@@ -160,7 +160,7 @@ public class AuditRequestTests
     public void AuditRequest_AllPropertiesSet()
     {
         var clients = new List<UniFiClientResponse>();
-        var history = new List<UniFiClientHistoryResponse>();
+        var history = new List<UniFiClientDetailResponse>();
         var db = new UniFiFingerprintDatabase();
         var settings = JsonDocument.Parse("{}").RootElement;
         var firewallRules = new List<FirewallRule> { new() { Id = "rule1" } };

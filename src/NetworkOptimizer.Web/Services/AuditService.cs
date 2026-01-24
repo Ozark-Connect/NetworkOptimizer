@@ -958,7 +958,7 @@ public class AuditService
             _logger.LogInformation("Fetched {ClientCount} connected clients for device detection for site {SiteId}", clients?.Count ?? 0, siteId);
 
             // Fetch client history for offline device detection (30 days)
-            List<NetworkOptimizer.UniFi.Models.UniFiClientHistoryResponse>? clientHistory = null;
+            List<NetworkOptimizer.UniFi.Models.UniFiClientDetailResponse>? clientHistory = null;
             try
             {
                 clientHistory = await client.GetClientHistoryAsync(withinHours: 720);
@@ -1172,6 +1172,21 @@ public class AuditService
                 _logger.LogWarning(ex, "Failed to fetch network configs for zone ID detection");
             }
 
+            // Fetch firewall zones for zone validation and DMZ/Hotspot identification
+            List<NetworkOptimizer.UniFi.Models.UniFiFirewallZone>? firewallZones = null;
+            try
+            {
+                firewallZones = await client!.GetFirewallZonesAsync();
+                if (firewallZones.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} firewall zones for zone validation", firewallZones.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch firewall zones for zone validation");
+            }
+
             // Convert options to allowance settings for the audit engine
             var allowanceSettings = new Audit.Models.DeviceAllowanceSettings
             {
@@ -1205,7 +1220,8 @@ public class AuditService
                 PiholeManagementPort = options.PiholeManagementPort,
                 UpnpEnabled = upnpEnabled,
                 PortForwardRules = portForwardRules,
-                NetworkConfigs = networkConfigs
+                NetworkConfigs = networkConfigs,
+                FirewallZones = firewallZones
             });
 
             // Convert audit result to web models
@@ -1556,11 +1572,13 @@ public class AuditService
             Audit.IssueTypes.PermissiveRule => "Firewall: Overly Permissive Rule",
             Audit.IssueTypes.BroadRule => "Firewall: Broad Rule",
             Audit.IssueTypes.OrphanedRule => "Firewall: Orphaned Rule",
-            Audit.IssueTypes.AllowExceptionPattern => $"Firewall: {description ?? "Allow Exception Pattern"}",
+            Audit.IssueTypes.AllowExceptionPattern => $"Firewall: VLAN Isolation Exception{(!string.IsNullOrEmpty(description) ? $" ({description})" : "")}",
             Audit.IssueTypes.AllowSubvertsDeny => "Firewall: Rule Order Issue",
             Audit.IssueTypes.DenyShadowsAllow => "Firewall: Ineffective Allow Rule",
             Audit.IssueTypes.MissingIsolation => "Firewall: Missing VLAN Isolation",
             Audit.IssueTypes.IsolationBypassed => "Firewall: VLAN Isolation Bypassed",
+            Audit.IssueTypes.NetworkIsolationException => $"Firewall: VLAN Isolation Exception{(!string.IsNullOrEmpty(description) ? $" ({description})" : "")}",
+            Audit.IssueTypes.InternetBlockBypassed => "Firewall: Internet Block Bypassed",
             "VLAN_VIOLATION" => "VLAN Policy Violation",
             "INTER_VLAN" => "Inter-VLAN Access Issue",
 
@@ -1625,6 +1643,9 @@ public class AuditService
             Audit.IssueTypes.DnsDnatSingleIp => "DNS: Single IP DNAT",
             Audit.IssueTypes.DnsDnatWrongDestination => "DNS: Invalid DNAT Translated IP",
             Audit.IssueTypes.DnsDnatRestrictedDestination => "DNS: Restricted DNAT Destination",
+            Audit.IssueTypes.DnsDmzNetworkInfo => "DNS: DMZ Network Info",
+            Audit.IssueTypes.DnsGuestThirdPartyInfo => "DNS: Guest Network Info",
+            Audit.IssueTypes.DnsExternalBypass => "DNS: External DNS Bypass",
 
             // UPnP security
             Audit.IssueTypes.UpnpEnabled => "UPnP: Enabled",

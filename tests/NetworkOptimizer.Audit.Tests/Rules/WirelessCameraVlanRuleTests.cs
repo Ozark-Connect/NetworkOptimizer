@@ -224,6 +224,58 @@ public class WirelessCameraVlanRuleTests
 
     #endregion
 
+    #region Evaluate Tests - Cloud Surveillance Devices Skipped
+
+    [Fact]
+    public void Evaluate_CloudCameraDevice_ReturnsNull()
+    {
+        // Arrange - Cloud cameras (Ring, Nest, etc.) are handled by IoT rules, not camera rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.CloudCamera, network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_CloudSecuritySystemDevice_ReturnsNull()
+    {
+        // Arrange - Cloud security systems are handled by IoT rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.CloudSecuritySystem, network: corpNetwork);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Evaluate Tests - Null Network
+
+    [Fact]
+    public void Evaluate_ClientWithNullNetwork_ReturnsNull()
+    {
+        // Arrange - Client has no network assigned
+        var client = CreateWirelessClient(ClientDeviceCategory.Camera, network: null);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Should skip when network is null
+        result.Should().BeNull();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static WirelessClientInfo CreateWirelessClient(

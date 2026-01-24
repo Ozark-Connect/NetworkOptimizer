@@ -204,4 +204,110 @@ public class UniFiClientResponseTests
     }
 
     #endregion
+
+    #region BestIp Fallback Tests (UX/UX7 workaround)
+
+    [Fact]
+    public void BestIp_WhenIpSet_ReturnsIp()
+    {
+        // Arrange - Normal client with IP
+        var client = new UniFiClientResponse
+        {
+            Ip = "10.0.0.100",
+            LastIp = "10.0.0.200",
+            FixedIp = "10.0.0.50"
+        };
+
+        // Act & Assert - Should prefer Ip
+        client.BestIp.Should().Be("10.0.0.100");
+    }
+
+    [Fact]
+    public void BestIp_WhenIpEmptyAndLastIpSet_ReturnsLastIp()
+    {
+        // Arrange - UX/UX7 client missing Ip but has LastIp
+        var client = new UniFiClientResponse
+        {
+            Ip = "",
+            LastIp = "10.0.0.200",
+            FixedIp = "10.0.0.50"
+        };
+
+        // Act & Assert - Should fall back to LastIp
+        client.BestIp.Should().Be("10.0.0.200");
+    }
+
+    [Fact]
+    public void BestIp_WhenIpNullAndLastIpSet_ReturnsLastIp()
+    {
+        // Arrange - UX/UX7 client with null Ip
+        var client = new UniFiClientResponse
+        {
+            LastIp = "10.0.0.200",
+            FixedIp = "10.0.0.50"
+        };
+
+        // Act & Assert - Should fall back to LastIp
+        client.BestIp.Should().Be("10.0.0.200");
+    }
+
+    [Fact]
+    public void BestIp_WhenIpAndLastIpEmpty_ReturnsFixedIp()
+    {
+        // Arrange - Client with only FixedIp
+        var client = new UniFiClientResponse
+        {
+            Ip = "",
+            LastIp = "",
+            FixedIp = "10.0.0.50"
+        };
+
+        // Act & Assert - Should fall back to FixedIp
+        client.BestIp.Should().Be("10.0.0.50");
+    }
+
+    [Fact]
+    public void BestIp_WhenAllEmpty_ReturnsNull()
+    {
+        // Arrange - Client with no IP at all (would need /clients/active enrichment)
+        var client = new UniFiClientResponse
+        {
+            Ip = "",
+            LastIp = null,
+            FixedIp = null
+        };
+
+        // Act & Assert
+        client.BestIp.Should().BeNull();
+    }
+
+    [Fact]
+    public void BestIp_DefaultClient_ReturnsNull()
+    {
+        // Arrange - New client with default values
+        var client = new UniFiClientResponse();
+
+        // Act & Assert
+        client.BestIp.Should().BeNull();
+    }
+
+    [Fact]
+    public void BestIp_UxClientScenario_FallsBackToLastIp()
+    {
+        // Arrange - Simulates UX/UX7 connected client from GitHub issue #141
+        // stat/sta returns empty Ip but has LastIp
+        var client = new UniFiClientResponse
+        {
+            Mac = "00:5b:94:a8:50:a1",
+            Hostname = "TestDevice",
+            Ip = "",  // Empty due to UX/UX7 API bug
+            LastIp = "10.0.0.137",  // But last_ip is populated
+            FixedIp = null
+        };
+
+        // Act & Assert - Should get IP from LastIp without needing /clients/active call
+        client.BestIp.Should().Be("10.0.0.137");
+    }
+
+    #endregion
 }

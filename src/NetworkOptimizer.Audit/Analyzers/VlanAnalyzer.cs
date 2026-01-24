@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
 using static NetworkOptimizer.Core.Enums.DeviceTypeExtensions;
 
@@ -32,6 +33,8 @@ public class VlanAnalyzer
     // Word boundary patterns for Corporate (to avoid "network" matching "work")
     private static readonly string[] CorporateWordBoundaryPatterns = { "work", "biz", "branch", "shop", "staff", "employee", "hq", "store" };
     private static readonly string[] PrinterPatterns = { "print" };
+    // DMZ patterns - fallback name-based detection (zone-based is primary)
+    private static readonly string[] DmzPatterns = { "dmz" };
 
     public VlanAnalyzer(ILogger<VlanAnalyzer> logger)
     {
@@ -41,7 +44,7 @@ public class VlanAnalyzer
     /// <summary>
     /// Extract network map from UniFi device JSON data
     /// </summary>
-    public List<NetworkInfo> ExtractNetworks(JsonElement deviceData)
+    public List<NetworkInfo> ExtractNetworks(JsonElement deviceData, FirewallZoneLookup? zoneLookup = null)
     {
         var networks = new List<NetworkInfo>();
 
@@ -63,7 +66,7 @@ public class VlanAnalyzer
 
             foreach (var network in networkTableItems)
             {
-                var networkInfo = ParseNetwork(network);
+                var networkInfo = ParseNetwork(network, zoneLookup);
                 if (networkInfo != null)
                 {
                     networks.Add(networkInfo);
@@ -109,7 +112,7 @@ public class VlanAnalyzer
     /// <summary>
     /// Parse a single network from JSON
     /// </summary>
-    private NetworkInfo? ParseNetwork(JsonElement network)
+    private NetworkInfo? ParseNetwork(JsonElement network, FirewallZoneLookup? zoneLookup = null)
     {
         var networkId = network.GetStringFromAny("_id", "network_id");
         if (string.IsNullOrEmpty(networkId))
@@ -129,10 +132,10 @@ public class VlanAnalyzer
         var isUniFiGuestNetwork = purposeStr?.Equals("guest", StringComparison.OrdinalIgnoreCase) == true
             || network.GetBoolOrDefault("is_guest");
 
-        var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled);
+        var purpose = ClassifyNetwork(name, purposeStr, vlanId, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled, firewallZoneId, zoneLookup);
 
-        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}, UniFiGuest: {UniFiGuest}",
-            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled, isUniFiGuestNetwork);
+        _logger.LogDebug("Network '{Name}' classified as: {Purpose}, DHCP: {DhcpEnabled}, Isolated: {Isolated}, Internet: {Internet}, UniFiGuest: {UniFiGuest}, ZoneId: {ZoneId}",
+            name, purpose, dhcpEnabled, networkIsolationEnabled, internetAccessEnabled, isUniFiGuestNetwork, firewallZoneId);
 
         var rawSubnet = network.GetStringOrNull("ip_subnet");
 
@@ -246,20 +249,35 @@ public class VlanAnalyzer
     }
 
     /// <summary>
-    /// Classify a network based on its name, purpose, and UniFi configuration flags.
-    /// Uses name patterns as primary classification, then applies flag-based adjustments
-    /// to catch misclassifications (e.g., "Home" network with no internet is suspicious).
+    /// Classify a network based on its firewall zone, name, purpose, and UniFi configuration flags.
+    /// Priority: 1) Firewall zone (authoritative), 2) UniFi purpose field, 3) Name patterns, 4) Flag-based adjustments.
     /// </summary>
     public NetworkPurpose ClassifyNetwork(string networkName, string? purpose = null, int? vlanId = null,
-        bool? dhcpEnabled = null, bool? networkIsolationEnabled = null, bool? internetAccessEnabled = null)
+        bool? dhcpEnabled = null, bool? networkIsolationEnabled = null, bool? internetAccessEnabled = null,
+        string? firewallZoneId = null, FirewallZoneLookup? zoneLookup = null)
     {
-        // Check explicit UniFi "guest" purpose first (UniFi marks guest networks specially)
+        // Step 0: Zone-based classification (authoritative - highest priority)
+        if (zoneLookup?.HasZoneData == true && !string.IsNullOrEmpty(firewallZoneId))
+        {
+            if (zoneLookup.IsDmzZone(firewallZoneId))
+            {
+                _logger.LogDebug("Network '{NetworkName}' classified as DMZ based on firewall zone", networkName);
+                return NetworkPurpose.Dmz;
+            }
+            if (zoneLookup.IsHotspotZone(firewallZoneId))
+            {
+                _logger.LogDebug("Network '{NetworkName}' classified as Guest based on Hotspot firewall zone", networkName);
+                return NetworkPurpose.Guest;
+            }
+        }
+
+        // Check explicit UniFi "guest" purpose (UniFi marks guest networks specially)
         if (!string.IsNullOrEmpty(purpose) && purpose.Equals("guest", StringComparison.OrdinalIgnoreCase))
         {
             return NetworkPurpose.Guest;
         }
 
-        // Step 1: Name-based classification (primary)
+        // Step 1: Name-based classification
         // Order matters: more specific patterns first
         NetworkPurpose nameBasedPurpose;
 
@@ -269,6 +287,9 @@ public class VlanAnalyzer
         // Word-boundary patterns for Security (e.g., "NoT" should not match "Hotspot")
         else if (SecurityWordBoundaryPatterns.Any(p => ContainsWord(networkName, p)))
             nameBasedPurpose = NetworkPurpose.Security;
+        // DMZ networks - isolated zone with internet but restricted LAN access
+        else if (DmzPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
+            nameBasedPurpose = NetworkPurpose.Dmz;
         // Printer networks before IoT (more specific)
         else if (PrinterPatterns.Any(p => networkName.Contains(p, StringComparison.OrdinalIgnoreCase)))
             nameBasedPurpose = NetworkPurpose.Printer;
@@ -960,60 +981,10 @@ public class VlanAnalyzer
             if (string.IsNullOrEmpty(network.Subnet))
                 continue;
 
-            if (IsIpInSubnet(ipAddress, network.Subnet))
+            if (NetworkUtilities.IsIpInSubnet(ipAddress, network.Subnet))
                 return network;
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24").
-    /// </summary>
-    private static bool IsIpInSubnet(System.Net.IPAddress ip, string subnet)
-    {
-        var parts = subnet.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        if (!System.Net.IPAddress.TryParse(parts[0], out var networkAddress))
-            return false;
-
-        // Only handle IPv4
-        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
-            networkAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var networkBytes = networkAddress.GetAddressBytes();
-
-        // Create mask from prefix length
-        var maskBytes = new byte[4];
-        for (int i = 0; i < 4; i++)
-        {
-            if (prefixLength >= 8)
-            {
-                maskBytes[i] = 0xFF;
-                prefixLength -= 8;
-            }
-            else if (prefixLength > 0)
-            {
-                maskBytes[i] = (byte)(0xFF << (8 - prefixLength));
-                prefixLength = 0;
-            }
-            else
-            {
-                maskBytes[i] = 0;
-            }
-        }
-
-        // Check if masked IP equals masked network
-        for (int i = 0; i < 4; i++)
-        {
-            if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                return false;
-        }
-
-        return true;
     }
 }

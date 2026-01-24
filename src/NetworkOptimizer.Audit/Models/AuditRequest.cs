@@ -23,7 +23,7 @@ public class AuditRequest
     /// <summary>
     /// Optional: Historical client data for offline device analysis
     /// </summary>
-    public List<UniFiClientHistoryResponse>? ClientHistory { get; init; }
+    public List<UniFiClientDetailResponse>? ClientHistory { get; init; }
 
     /// <summary>
     /// Optional: UniFi fingerprint database for device detection
@@ -99,4 +99,10 @@ public class AuditRequest
     /// Used to determine the External/WAN firewall zone ID for firewall rule analysis.
     /// </summary>
     public List<UniFiNetworkConfig>? NetworkConfigs { get; init; }
+
+    /// <summary>
+    /// Optional: Firewall zones from /proxy/network/v2/api/site/{site}/firewall/zone API.
+    /// Used to validate zone assumptions and identify DMZ/Hotspot networks.
+    /// </summary>
+    public List<UniFiFirewallZone>? FirewallZones { get; init; }
 }

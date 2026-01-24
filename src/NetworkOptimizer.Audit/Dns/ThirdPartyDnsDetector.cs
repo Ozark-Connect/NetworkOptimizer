@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Audit.Dns;
 
@@ -33,6 +34,22 @@ public class ThirdPartyDnsDetector
         public bool IsAdGuardHome { get; init; }
         public string? AdGuardHomeVersion { get; init; }
         public string DnsProviderName { get; init; } = "Third-Party LAN DNS";
+    }
+
+    /// <summary>
+    /// Detection result for a network using DNS outside configured subnets
+    /// </summary>
+    public class ExternalDnsInfo
+    {
+        public required string DnsServerIp { get; init; }
+        public required string NetworkName { get; init; }
+        public int NetworkVlanId { get; init; }
+        public string? ProviderName { get; init; }
+        /// <summary>
+        /// True if the DNS IP is a public/routable address (e.g., 1.1.1.1, 8.8.8.8).
+        /// False if it's a private IP outside configured subnets.
+        /// </summary>
+        public bool IsPublicDns { get; init; }
     }
 
     /// <summary>
@@ -78,10 +95,10 @@ public class ThirdPartyDnsDetector
                     continue;
                 }
 
-                // Check if this is a LAN IP (RFC1918 private address)
-                if (!IsRfc1918Address(dnsServer))
+                // Check if this is a LAN IP (private address)
+                if (!NetworkUtilities.IsPrivateIpAddress(dnsServer))
                 {
-                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is not RFC1918, skipping", network.Name, dnsServer);
+                    _logger.LogDebug("Network {Network}: DNS {DnsServer} is not private, skipping", network.Name, dnsServer);
                     continue;
                 }
 
@@ -150,30 +167,79 @@ public class ThirdPartyDnsDetector
     }
 
     /// <summary>
-    /// Check if an IP address is an RFC1918 private address
+    /// Detect networks configured to use external public DNS servers (e.g., 1.1.1.1, 8.8.8.8).
+    /// These networks bypass all local DNS filtering (gateway DoH, Pi-hole, etc.).
+    /// A DNS server is considered "internal" if it falls within any configured network subnet.
     /// </summary>
-    public static bool IsRfc1918Address(string ipAddress)
+    public List<ExternalDnsInfo> DetectExternalDns(List<NetworkInfo> networks)
     {
-        if (!IPAddress.TryParse(ipAddress, out var ip))
-            return false;
+        var results = new List<ExternalDnsInfo>();
 
-        var bytes = ip.GetAddressBytes();
-        if (bytes.Length != 4)
-            return false; // IPv6 not supported
+        // Collect all internal subnets for checking
+        var internalSubnets = networks
+            .Where(n => !string.IsNullOrEmpty(n.Subnet))
+            .Select(n => n.Subnet!)
+            .Distinct()
+            .ToList();
 
-        // 10.0.0.0 - 10.255.255.255
-        if (bytes[0] == 10)
-            return true;
+        foreach (var network in networks)
+        {
+            // Skip networks without DHCP or without custom DNS servers
+            if (!network.DhcpEnabled || network.DnsServers == null || !network.DnsServers.Any())
+                continue;
 
-        // 172.16.0.0 - 172.31.255.255
-        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-            return true;
+            var gatewayIp = network.Gateway;
 
-        // 192.168.0.0 - 192.168.255.255
-        if (bytes[0] == 192 && bytes[1] == 168)
-            return true;
+            foreach (var dnsServer in network.DnsServers)
+            {
+                if (string.IsNullOrEmpty(dnsServer))
+                    continue;
 
-        return false;
+                // Skip if this DNS server is the gateway
+                if (dnsServer == gatewayIp)
+                    continue;
+
+                // Skip if DNS server is within any configured internal network subnet
+                if (NetworkUtilities.IsIpInAnySubnet(dnsServer, internalSubnets))
+                    continue;
+
+                // This is a DNS server not within any internal subnet
+                var isPublic = NetworkUtilities.IsPublicIpAddress(dnsServer);
+                var providerName = isPublic ? GetPublicDnsProviderName(dnsServer) : null;
+                var dnsType = isPublic ? "public" : "private (outside configured subnets)";
+                _logger.LogInformation("Network {Network} uses external DNS: {DnsServer} ({DnsType}, {Provider})",
+                    network.Name, dnsServer, dnsType, providerName ?? "unknown provider");
+
+                results.Add(new ExternalDnsInfo
+                {
+                    DnsServerIp = dnsServer,
+                    NetworkName = network.Name,
+                    NetworkVlanId = network.VlanId,
+                    ProviderName = providerName,
+                    IsPublicDns = isPublic
+                });
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Get the provider name for well-known public DNS servers
+    /// </summary>
+    private static string? GetPublicDnsProviderName(string ipAddress)
+    {
+        return ipAddress switch
+        {
+            "1.1.1.1" or "1.0.0.1" => "Cloudflare",
+            "8.8.8.8" or "8.8.4.4" => "Google",
+            "9.9.9.9" or "149.112.112.112" => "Quad9",
+            "208.67.222.222" or "208.67.220.220" => "OpenDNS",
+            "94.140.14.14" or "94.140.15.15" => "AdGuard DNS",
+            "76.76.2.0" or "76.76.10.0" => "Control D",
+            "185.228.168.9" or "185.228.169.9" => "CleanBrowsing",
+            _ => null
+        };
     }
 
     /// <summary>

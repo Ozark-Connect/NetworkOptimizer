@@ -1422,6 +1422,164 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
+    #region IpMatchesCidr - IPv6 Tests
+
+    [Fact]
+    public void IpMatchesCidr_IPv6Address_InCidr_ReturnsTrue()
+    {
+        var result = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::1", "2001:db8::/32");
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IpMatchesCidr_IPv6Address_OutsideCidr_ReturnsFalse()
+    {
+        var result = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db9::1", "2001:db8::/32");
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpMatchesCidr_IPv6_Slash64_BoundaryCheck()
+    {
+        var inRange = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8:abcd:1234::ffff", "2001:db8:abcd:1234::/64");
+        var outOfRange = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8:abcd:1235::1", "2001:db8:abcd:1234::/64");
+
+        inRange.Should().BeTrue("address within /64 prefix should match");
+        outOfRange.Should().BeFalse("address outside /64 prefix should not match");
+    }
+
+    [Fact]
+    public void IpMatchesCidr_IPv6_Slash128_ExactMatch()
+    {
+        var exactMatch = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::1", "2001:db8::1/128");
+        var noMatch = FirewallRuleOverlapDetector.IpMatchesCidr("2001:db8::2", "2001:db8::1/128");
+
+        exactMatch.Should().BeTrue();
+        noMatch.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IpMatchesCidr_MixedAddressFamilies_ReturnsFalse()
+    {
+        var result = FirewallRuleOverlapDetector.IpMatchesCidr("192.168.1.1", "2001:db8::/32");
+
+        result.Should().BeFalse("different address families should not match");
+    }
+
+    #endregion
+
+    #region ParsePortString - Edge Cases
+
+    [Fact]
+    public void ParsePortString_InvertedRange_ReturnsEmptySet()
+    {
+        // Bug verification: inverted range like "8080-80" should be handled
+        // Current implementation silently returns empty set
+        var result = FirewallRuleOverlapDetector.ParsePortString("8080-80");
+
+        // Document current behavior - inverted ranges produce empty sets
+        // This could be a bug if the UI allows users to enter inverted ranges
+        result.Should().BeEmpty("inverted range 8080-80 produces empty set (potential bug)");
+    }
+
+    [Fact]
+    public void ParsePortString_MixedWithInvertedRange_OnlyValidPartsIncluded()
+    {
+        // If one part is inverted, only valid parts are included
+        var result = FirewallRuleOverlapDetector.ParsePortString("443,8080-80,22");
+
+        // Only 443 and 22 should be included, inverted range is silently ignored
+        result.Should().BeEquivalentTo(new[] { 443, 22 });
+    }
+
+    [Fact]
+    public void ParsePortString_InvalidPortNumber_Ignored()
+    {
+        var result = FirewallRuleOverlapDetector.ParsePortString("abc,80,xyz");
+
+        result.Should().BeEquivalentTo(new[] { 80 });
+    }
+
+    [Fact]
+    public void ParsePortString_EmptyString_ReturnsEmptySet()
+    {
+        var result = FirewallRuleOverlapDetector.ParsePortString("");
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParsePortString_PortAbove65535_StopsAtLimit()
+    {
+        // Range that goes beyond valid port range
+        var result = FirewallRuleOverlapDetector.ParsePortString("65530-65540");
+
+        // Should only include ports up to 65535
+        result.Should().Contain(65535);
+        result.Should().NotContain(65536);
+        result.Count.Should().Be(6); // 65530, 65531, 65532, 65533, 65534, 65535
+    }
+
+    #endregion
+
+    #region DomainsOverlap - Edge Cases
+
+    [Fact]
+    public void DomainsOverlap_PublicSuffix_MatchesSubdomain()
+    {
+        // "test.co.uk" ends with ".co.uk" so it matches
+        // This could cause unintended matches with public suffixes
+        var domains1 = new List<string> { "test.co.uk" };
+        var domains2 = new List<string> { "co.uk" };
+
+        // Document current behavior
+        FirewallRuleOverlapDetector.DomainsOverlap(domains1, domains2).Should().BeTrue(
+            "current implementation treats 'co.uk' as a parent domain of 'test.co.uk'");
+    }
+
+    [Fact]
+    public void DomainsOverlap_DifferentTld_NoMatch()
+    {
+        // example.com should not match example.org
+        var domains1 = new List<string> { "example.com" };
+        var domains2 = new List<string> { "example.org" };
+
+        FirewallRuleOverlapDetector.DomainsOverlap(domains1, domains2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DomainsOverlap_PartialSuffixNoMatch()
+    {
+        // "myexample.com" should NOT match "example.com"
+        // (already tested as SimilarButNotSubdomain, adding for clarity)
+        var domains1 = new List<string> { "myexample.com" };
+        var domains2 = new List<string> { "example.com" };
+
+        FirewallRuleOverlapDetector.DomainsOverlap(domains1, domains2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DomainsOverlap_EmptyList_ReturnsFalse()
+    {
+        var domains1 = new List<string>();
+        var domains2 = new List<string> { "example.com" };
+
+        FirewallRuleOverlapDetector.DomainsOverlap(domains1, domains2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DomainsOverlap_BothEmpty_ReturnsFalse()
+    {
+        var domains1 = new List<string>();
+        var domains2 = new List<string>();
+
+        FirewallRuleOverlapDetector.DomainsOverlap(domains1, domains2).Should().BeFalse();
+    }
+
+    #endregion
+
     #region IsNarrowerScope Tests
 
     [Fact]
@@ -1562,6 +1720,199 @@ public class FirewallRuleOverlapDetectorTests
 
     #endregion
 
+    #region AppsOverlap Tests
+
+    [Fact]
+    public void AppsOverlap_SameAppIds_ReturnsTrue()
+    {
+        // Both rules target the same app (e.g., DNS)
+        var rule1 = CreateRule(appIds: new List<int> { 533 });
+        var rule2 = CreateRule(appIds: new List<int> { 533 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_DifferentAppIds_ReturnsFalse()
+    {
+        // Two completely different apps (DNS vs some IoT app)
+        // This is the key fix: different apps should NOT overlap
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appIds: new List<int> { 12345 }); // Some IoT app
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_SameCategoryIds_ReturnsTrue()
+    {
+        // Both rules target the same category
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 13 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_DifferentCategoryIds_ReturnsFalse()
+    {
+        // Different categories should NOT overlap
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 25 }); // Gaming
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_AppsWithBroadCategory_ReturnsTrue()
+    {
+        // If one rule has an app and the other has a catch-all category (0 or 1),
+        // assume they could overlap
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 0 }); // All category
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_AppsWithSpecificCategory_ReturnsFalse()
+    {
+        // DNS app should NOT be assumed to overlap with "Gaming" category
+        // This is the key fix for false positives like DNS vs Dehumidifier
+        var rule1 = CreateRule(appIds: new List<int> { 533 }); // DNS
+        var rule2 = CreateRule(appCategoryIds: new List<int> { 25 }); // Gaming category
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_CategoryWithSpecificApp_ReturnsFalse()
+    {
+        // Reverse of above: category rule should not overlap with unrelated app
+        var rule1 = CreateRule(appCategoryIds: new List<int> { 13 }); // Web Services
+        var rule2 = CreateRule(appIds: new List<int> { 99999 }); // Some random IoT app
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_PartialAppIdOverlap_ReturnsTrue()
+    {
+        // Multiple apps, one overlapping
+        var rule1 = CreateRule(appIds: new List<int> { 100, 200, 300 });
+        var rule2 = CreateRule(appIds: new List<int> { 200, 400, 500 });
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppsOverlap_NoAppsOrCategories_ReturnsFalse()
+    {
+        // Rules without any app/category specifications don't overlap via apps
+        var rule1 = CreateRule();
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppsOverlap_OneHasAppOneHasNothing_ReturnsFalse()
+    {
+        // One app-based rule, one non-app rule
+        var rule1 = CreateRule(appIds: new List<int> { 533 });
+        var rule2 = CreateRule();
+
+        FirewallRuleOverlapDetector.AppsOverlap(rule1, rule2).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_DifferentAppRules_ReturnsFalse()
+    {
+        // Integration test: Two app-based rules targeting different apps should NOT overlap
+        // This is the actual bug case: "Allow Dehumidifier App" vs "Block DNS App"
+        var allowDehumidifier = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 12345 }); // Dehumidifier IoT app
+
+        var blockDns = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS app
+
+        FirewallRuleOverlapDetector.RulesOverlap(allowDehumidifier, blockDns).Should().BeFalse();
+    }
+
+    [Fact]
+    public void RulesOverlap_SameAppRules_ReturnsTrue()
+    {
+        // Two rules targeting the same app should overlap
+        var rule1 = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS
+
+        var rule2 = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "ANY",
+            appIds: new List<int> { 533 }); // DNS
+
+        FirewallRuleOverlapDetector.RulesOverlap(rule1, rule2).Should().BeTrue();
+    }
+
+    [Fact]
+    public void RulesOverlap_AppRuleVsRegionRule_ReturnsFalse()
+    {
+        // App-based DNS block should NOT overlap with REGION-based allow rule
+        // This is the actual bug case: "[TEST] DNS App Block" vs "Allow Dehumidifier App Traffic"
+        // The dehumidifier rule targets a geographic REGION (not an app), so they don't overlap
+        var appRule = CreateRule(
+            protocol: "tcp_udp",
+            sourceMatchingTarget: "ANY",
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 589885, 1310919, 1310917 }); // DNS apps
+
+        var regionRule = CreateRule(
+            protocol: "all",
+            sourceMatchingTarget: "NETWORK",
+            sourceNetworkIds: new List<string> { "iot-network" },
+            destMatchingTarget: "REGION"); // Geographic region like Asia for cloud services
+
+        FirewallRuleOverlapDetector.RulesOverlap(appRule, regionRule).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_AppVsRegion_ReturnsFalse()
+    {
+        // REGION destination is a specific type (geographic region) - not broad
+        var appRule = CreateRule(
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 533 });
+        var regionRule = CreateRule(
+            destMatchingTarget: "REGION");
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(appRule, regionRule).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DestinationsOverlap_AppVsAny_ReturnsTrue()
+    {
+        // ANY destination IS broad and should overlap with app rules
+        var appRule = CreateRule(
+            destMatchingTarget: "APP",
+            appIds: new List<int> { 533 });
+        var anyRule = CreateRule(
+            destMatchingTarget: "ANY");
+
+        FirewallRuleOverlapDetector.DestinationsOverlap(appRule, anyRule).Should().BeTrue();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static FirewallRule CreateRule(
@@ -1582,7 +1933,9 @@ public class FirewallRuleOverlapDetectorTests
         bool destMatchOppositePorts = false,
         string? icmpTypename = null,
         string? sourceZoneId = null,
-        string? destZoneId = null)
+        string? destZoneId = null,
+        List<int>? appIds = null,
+        List<int>? appCategoryIds = null)
     {
         return new FirewallRule
         {
@@ -1606,7 +1959,9 @@ public class FirewallRuleOverlapDetectorTests
             DestinationMatchOppositePorts = destMatchOppositePorts,
             IcmpTypename = icmpTypename,
             SourceZoneId = sourceZoneId,
-            DestinationZoneId = destZoneId
+            DestinationZoneId = destZoneId,
+            AppIds = appIds,
+            AppCategoryIds = appCategoryIds
         };
     }
 

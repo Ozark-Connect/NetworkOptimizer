@@ -504,7 +504,7 @@ public class ConfigAuditEngineTests
         var result = await _engine.RunAuditAsync(
             deviceJson,
             clients: null,
-            clientHistory: new List<UniFiClientHistoryResponse>(),
+            clientHistory: new List<UniFiClientDetailResponse>(),
             fingerprintDb: null,
             settingsData: null,
             firewallRules: null,
@@ -519,7 +519,7 @@ public class ConfigAuditEngineTests
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Roku MAC prefix (known IoT device)
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -552,7 +552,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineIoTOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -582,7 +582,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineWiredDevice_Skipped()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -615,7 +615,7 @@ public class ConfigAuditEngineTests
         {
             new() { Mac = "D8:31:34:11:22:33" }
         };
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -648,7 +648,7 @@ public class ConfigAuditEngineTests
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Client last seen more than 14 days ago
         var staleTimestamp = DateTimeOffset.UtcNow.AddDays(-30).ToUnixTimeSeconds();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -683,7 +683,7 @@ public class ConfigAuditEngineTests
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Client last seen within 14 days
         var recentTimestamp = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -718,7 +718,7 @@ public class ConfigAuditEngineTests
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
         // Unknown MAC but name indicates IoT device
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -749,7 +749,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineUnknownDevice_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -781,7 +781,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineClientNoNetwork_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -850,7 +850,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnIoTVlan_StrictMode_CreatesIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -888,7 +888,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnIoTVlan_LenientMode_CreatesInformationalIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -926,7 +926,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflinePrinterOnPrinterVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -959,7 +959,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_StaleOfflinePrinter_GetsInformationalSeverity()
     {
         var deviceJson = CreateDeviceJsonWithPrinterVlan();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -996,7 +996,7 @@ public class ConfigAuditEngineTests
         // Bug fix test: Offline cloud cameras (Nest, Ring, etc.) should recommend
         // IoT VLAN, not Security VLAN. Only self-hosted cameras go on Security.
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1035,7 +1035,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineCloudCameraOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1068,7 +1068,7 @@ public class ConfigAuditEngineTests
     {
         // Self-hosted cameras (UniFi, Reolink) should still recommend Security VLAN
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1105,7 +1105,7 @@ public class ConfigAuditEngineTests
     {
         // Cloud security systems (SimpliSafe) need internet access, should recommend IoT VLAN
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1143,7 +1143,7 @@ public class ConfigAuditEngineTests
     public async Task RunAudit_OfflineCloudSecuritySystemOnIoTVlan_NoIssue()
     {
         var deviceJson = CreateDeviceJsonWithNetworks();
-        var clientHistory = new List<UniFiClientHistoryResponse>
+        var clientHistory = new List<UniFiClientDetailResponse>
         {
             new()
             {
@@ -1169,6 +1169,227 @@ public class ConfigAuditEngineTests
         // Cloud security system already on IoT VLAN - no issue
         result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CLOUD-CAMERA-VLAN");
         result.Issues.Should().NotContain(i => i.Type == "OFFLINE-CAMERA-VLAN");
+    }
+
+    #endregion
+
+    #region DNS Security Integration Tests
+
+    [Fact]
+    public async Task RunAudit_WithDohSettings_PopulatesDnsSecurityInfo()
+    {
+        var deviceJson = CreateDeviceJsonWithDoh();
+        var settingsData = CreateSettingsDataWithDoh();
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        // Verify DnsSecurity is populated
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.DohEnabled.Should().BeTrue();
+        result.DnsSecurity.DohProviders.Should().Contain("Cloudflare");
+    }
+
+    [Fact]
+    public async Task RunAudit_WithDohAndWanDns_PopulatesWanDnsInfo()
+    {
+        var deviceJson = CreateDeviceJsonWithDohAndWanDns();
+        var settingsData = CreateSettingsDataWithDoh();
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.WanDnsServers.Should().Contain("1.1.1.1");
+        result.DnsSecurity.ExpectedDnsProvider.Should().Be("Cloudflare");
+    }
+
+    [Fact]
+    public async Task RunAudit_WithThirdPartyDns_PopulatesThirdPartyInfo()
+    {
+        // Device JSON with networks using third-party LAN DNS (Pi-hole)
+        // Using RFC1918 private IPs (10.x.x.x) for proper detection
+        // Note: dhcpd_dns_enabled must be true for DNS servers to be extracted
+        var deviceJson = """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "10.0.1.1/24",
+                        "dhcpd_dns_enabled": true,
+                        "dhcpd_dns_1": "10.0.1.5"
+                    }
+                ]
+            }
+        ]
+        """;
+
+        // Need settings data to trigger DNS analysis
+        var settingsData = System.Text.Json.JsonDocument.Parse("[]").RootElement;
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.HasThirdPartyDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithEmptySettings_DnsSecurityShowsNotEnabled()
+    {
+        var deviceJson = "[]";
+        // Empty settings array - DNS analysis will run but find nothing configured
+        var settingsData = System.Text.Json.JsonDocument.Parse("[]").RootElement;
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: null,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.DohEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithNoSettingsOrFirewallRules_DnsSecurityIsNull()
+    {
+        // When no settings, firewall rules, or NAT rules are provided, DNS analysis is skipped
+        var deviceJson = "[]";
+
+        var result = await _engine.RunAuditAsync(deviceJson);
+
+        // This is expected behavior - no data to analyze
+        result.DnsSecurity.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RunAudit_WithDns53BlockRule_ShowsDnsLeakProtection()
+    {
+        var deviceJson = CreateDeviceJsonWithDoh();
+        var settingsData = CreateSettingsDataWithDoh();
+        var firewallRules = new List<Audit.Models.FirewallRule>
+        {
+            new()
+            {
+                Id = "rule-block-dns",
+                Name = "Block DNS Bypass",
+                Action = "drop",
+                DestinationPort = "53",
+                Enabled = true
+            }
+        };
+
+        var result = await _engine.RunAuditAsync(
+            deviceJson,
+            clients: null,
+            clientHistory: null,
+            fingerprintDb: null,
+            settingsData: settingsData,
+            firewallRules: firewallRules,
+            allowanceSettings: null,
+            protectCameras: null);
+
+        result.DnsSecurity.Should().NotBeNull();
+        result.DnsSecurity!.HasDns53BlockRule.Should().BeTrue();
+        result.DnsSecurity.DnsLeakProtection.Should().BeTrue();
+    }
+
+    private static string CreateDeviceJsonWithDoh()
+    {
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    private static string CreateDeviceJsonWithDohAndWanDns()
+    {
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "port_table": [
+                    {
+                        "network_name": "wan",
+                        "name": "WAN",
+                        "up": true,
+                        "dns": ["1.1.1.1", "1.0.0.1"]
+                    }
+                ],
+                "network_table": [
+                    {
+                        "_id": "net-home",
+                        "name": "Home",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    private static System.Text.Json.JsonElement CreateSettingsDataWithDoh()
+    {
+        return System.Text.Json.JsonDocument.Parse("""
+        [
+            {
+                "key": "doh",
+                "state": "custom",
+                "server_names": ["cloudflare"]
+            }
+        ]
+        """).RootElement;
     }
 
     #endregion

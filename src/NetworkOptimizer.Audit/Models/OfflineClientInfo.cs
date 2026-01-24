@@ -10,7 +10,7 @@ public class OfflineClientInfo
     /// <summary>
     /// The UniFi client history response data
     /// </summary>
-    public required UniFiClientHistoryResponse HistoryClient { get; init; }
+    public required UniFiClientDetailResponse HistoryClient { get; init; }
 
     /// <summary>
     /// The network this client was last connected to

@@ -42,6 +42,11 @@ public enum NetworkPurpose
     Printer,
 
     /// <summary>
+    /// DMZ (demilitarized zone) network - isolated with internet access but restricted LAN access
+    /// </summary>
+    Dmz,
+
+    /// <summary>
     /// Unknown or unclassified network
     /// </summary>
     Unknown
@@ -64,6 +69,7 @@ public static class NetworkPurposeExtensions
         NetworkPurpose.Guest => "Guest",
         NetworkPurpose.Management => "Management",
         NetworkPurpose.Printer => "Printer",
+        NetworkPurpose.Dmz => "DMZ",
         NetworkPurpose.Unknown => "Unclassified",
         _ => purpose.ToString()
     };

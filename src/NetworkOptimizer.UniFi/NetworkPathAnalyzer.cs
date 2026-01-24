@@ -319,6 +319,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                 if (targetDevice == null)
                 {
+                    _logger.LogDebug("Target {Host} not found in topology ({ClientCount} clients, {DeviceCount} devices)",
+                        targetHost, topology.Clients.Count, topology.Devices.Count);
+
                     path.IsValid = false;
                     path.ErrorMessage = $"Target '{targetHost}' not found in network topology";
 
@@ -644,48 +647,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (string.IsNullOrEmpty(network.IpSubnet))
                 continue;
 
-            // Parse subnet (e.g., "192.168.99.0/24" or "192.168.99.1/24")
-            var parts = network.IpSubnet.Split('/');
-            if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-                !int.TryParse(parts[1], out var prefixLength))
-                continue;
-
-            if (IsInSubnet(ip, subnetIp, prefixLength))
+            if (NetworkUtilities.IsIpInSubnet(ip, network.IpSubnet))
                 return network;
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a subnet.
-    /// </summary>
-    private static bool IsInSubnet(System.Net.IPAddress ip, System.Net.IPAddress subnetIp, int prefixLength)
-    {
-        var ipBytes = ip.GetAddressBytes();
-        var subnetBytes = subnetIp.GetAddressBytes();
-
-        if (ipBytes.Length != subnetBytes.Length)
-            return false;
-
-        // Create mask
-        int fullBytes = prefixLength / 8;
-        int remainingBits = prefixLength % 8;
-
-        for (int i = 0; i < fullBytes && i < ipBytes.Length; i++)
-        {
-            if (ipBytes[i] != subnetBytes[i])
-                return false;
-        }
-
-        if (fullBytes < ipBytes.Length && remainingBits > 0)
-        {
-            byte mask = (byte)(0xFF << (8 - remainingBits));
-            if ((ipBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>
@@ -1280,7 +1246,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         {
             // Check if this IP is in any known UniFi network
             var isInKnownNetwork = topology.Networks.Any(n =>
-                !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+                !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             if (!isInKnownNetwork)
             {
@@ -1304,7 +1270,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         // Check for UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
         var matchingNetwork = topology.Networks.FirstOrDefault(n =>
-            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+            !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
         if (matchingNetwork?.Purpose == "remote-user-vpn")
         {
@@ -1360,7 +1326,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         // Check if in any known network
         var matchingNetwork = topology.Networks.FirstOrDefault(n =>
-            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
+            !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(ip, n.IpSubnet));
 
         // If not in any known network, it's external
         if (matchingNetwork == null)
@@ -1404,22 +1370,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         return (0, 0);
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a CIDR subnet (e.g., "192.168.1.0/24").
-    /// </summary>
-    private static bool IsIpInSubnetCidr(string ipAddress, string cidrSubnet)
-    {
-        if (!System.Net.IPAddress.TryParse(ipAddress, out var ip))
-            return false;
-
-        var parts = cidrSubnet.Split('/');
-        if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-            !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        return IsInSubnet(ip, subnetIp, prefixLength);
     }
 
     private static HopType GetHopType(DeviceType deviceType) => deviceType switch

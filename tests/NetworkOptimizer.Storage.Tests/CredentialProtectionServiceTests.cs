@@ -213,14 +213,14 @@ public class CredentialProtectionServiceTests : IDisposable
         var base64Part = encrypted.Substring(4);
         var bytes = Convert.FromBase64String(base64Part);
 
-        // Tamper with the ciphertext
-        bytes[bytes.Length / 2] ^= 0xFF;
+        // Tamper with the last byte to corrupt padding (CBC mode throws on invalid padding)
+        bytes[bytes.Length - 1] ^= 0xFF;
         var tampered = "ENC:" + Convert.ToBase64String(bytes);
 
         // Act
         var decrypted = _service.Decrypt(tampered);
 
-        // Assert - Should return empty on tampering
+        // Assert - Should return empty on tampering (padding exception caught)
         decrypted.Should().BeEmpty();
     }
 

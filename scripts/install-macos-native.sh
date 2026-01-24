@@ -346,7 +346,7 @@ fi
 echo "Waiting for application to be ready..."
 HEALTH_OK=false
 for i in {1..12}; do
-    if curl -s http://localhost:8042/api/health | grep -qi "healthy"; then
+    if curl -sL http://localhost:8042/api/health | grep -qi "healthy"; then
         HEALTH_OK=true
         break
     fi
