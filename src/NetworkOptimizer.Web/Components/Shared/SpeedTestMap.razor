@@ -17,7 +17,7 @@
                 <SpeedTestSearchFilter @bind-SearchFilter="searchFilter"
                                        OnSearch="OnSearchExecuted"
                                        ShowStatus="false"
-                                       Placeholder="Filter by device or path..." />
+                                       Placeholder="Filter by device or IP..." />
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
                     LAN (@LanCount)

@@ -2,7 +2,7 @@
    Can be used in SpeedTestMap, ClientSpeedTest, and other pages.
 
    Usage:
-   <SpeedTestSearchFilter @bind-SearchFilter="myFilter" OnSearch="HandleSearch" Placeholder="Search..." />
+   <SpeedTestSearchFilter @bind-SearchFilter="myFilter" OnSearch="HandleSearch" />
 *@
 @implements IDisposable
 
@@ -60,7 +60,7 @@
     /// Placeholder text for the search input.
     /// </summary>
     [Parameter]
-    public string Placeholder { get; set; } = "Search by device, MAC, or network path...";
+    public string Placeholder { get; set; } = "Filter by device or IP...";
 
     /// <summary>
     /// Whether to show the status message (result count, "no results", etc.)
