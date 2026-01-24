@@ -3493,6 +3493,11 @@ select.form-control {
         margin-right: 0;
     }
 
+    /* Counter-rotate wireless icon to stay upright when connector is rotated */
+    .path-analysis .path-connector .wireless-icon {
+        transform: translateX(-50%) rotate(-90deg);
+    }
+
 }
 
 /* Wi-Fi tooltip styling */
