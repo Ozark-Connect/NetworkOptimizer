@@ -108,7 +108,8 @@
 
         debounceTimer = new System.Timers.Timer(DebounceMs);
         debounceTimer.AutoReset = false;
-        debounceTimer.Elapsed += async (s, e) => await ExecuteSearch();
+        // Timer fires on thread pool - must use InvokeAsync to get back to Blazor sync context
+        debounceTimer.Elapsed += async (s, e) => await InvokeAsync(ExecuteSearch);
         debounceTimer.Start();
     }
 
@@ -127,7 +128,7 @@
         // Notify parent to execute search
         if (OnSearch.HasDelegate)
         {
-            await InvokeAsync(async () => await OnSearch.InvokeAsync(SearchFilter));
+            await OnSearch.InvokeAsync(SearchFilter);
         }
     }
 
