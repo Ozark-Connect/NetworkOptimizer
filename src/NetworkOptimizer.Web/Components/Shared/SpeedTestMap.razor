@@ -927,6 +927,10 @@
         align-items: center;
     }
 
+    .map-filters :deep(.search-input-wrapper) {
+        min-width: 220px;
+    }
+
     .map-container {
         position: relative;
     }
@@ -1056,6 +1060,16 @@
 
         .map-filters {
             justify-content: center;
+        }
+
+        .map-filters :deep(.speedtest-search) {
+            width: 100%;
+            flex-basis: 100%;
+        }
+
+        .map-filters :deep(.search-input-wrapper) {
+            max-width: none;
+            min-width: auto;
         }
 
         .map-footer {

@@ -168,21 +168,32 @@
 
     <!-- Test History -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Test History</h2>
-            <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory()" disabled="@loading">
-                    @if (loading)
-                    {
-                        <span class="spinner"></span>
-                        <span>Loading...</span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+        <div class="card-header history-card-header">
+            <div class="header-title-row">
+                <h2 class="card-title">Test History</h2>
+                <div class="header-actions">
+                    <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory()" disabled="@loading">
+                        @if (loading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Loading...</span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                </div>
             </div>
+            @if (testHistory.Count > 0)
+            {
+                <div class="history-search-row">
+                    <SpeedTestSearchFilter @bind-SearchFilter="historySearchFilter"
+                                           OnSearch="OnFilterChanged"
+                                           ShowStatus="true"
+                                           ResultCount="filteredHistory.Count" />
+                </div>
+            }
         </div>
         <div class="card-body">
             @if (testHistory.Count > 0)
@@ -308,7 +319,7 @@
                 {
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
-                        <span class="pagination-info">Page @historyPage of @historyTotalPages</span>
+                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) ? " total" : $" of {testHistory.Count}"))</span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next</button>
                     </div>
                 }
@@ -618,6 +629,26 @@
         background: var(--bg-tertiary);
     }
 
+    /* History card header with search */
+    .history-card-header {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.75rem;
+    }
+
+    .header-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .history-search-row {
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--border-color);
+    }
+
 </style>
 
 @code {
@@ -638,11 +669,19 @@
     private static bool _lastHealthResult = false;
     private static readonly TimeSpan HealthCheckCacheDuration = TimeSpan.FromSeconds(30);
 
+    // Search filter
+    private string historySearchFilter = "";
+
+    // Filtered results (in-memory filter matching repository logic)
+    private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
+        ? testHistory
+        : testHistory.Where(r => MatchesSearchFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+
     // Pagination
     private int historyPage = 1;
     private int historyPageSize = 15;
-    private int historyTotalPages => (int)Math.Ceiling(testHistory.Count / (double)historyPageSize);
-    private IEnumerable<Iperf3Result> pagedHistory => testHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+    private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
+    private IEnumerable<Iperf3Result> pagedHistory => filteredHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
 
     // Expandable rows
     private int? expandedHistoryId = null;
@@ -899,6 +938,49 @@
             await Task.Delay(50); // Let the DOM update
             await JS.InvokeVoidAsync("eval", "const container = document.querySelector('.page-content'); document.getElementById('history-pagination')?.scrollIntoView({ behavior: 'smooth', block: 'end' }); container?.addEventListener('scrollend', () => container.scrollBy({ top: 50, behavior: 'smooth' }), { once: true });");
         }
+    }
+
+    private void OnFilterChanged(string filter)
+    {
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Checks if a result matches the search filter (case-insensitive partial match).
+    /// Mirrors SpeedTestRepository.MatchesFilter for consistency.
+    /// </summary>
+    private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
+    {
+        // Check device host
+        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check device name
+        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check client MAC
+        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check path analysis hops
+        var pathAnalysis = result.PathAnalysis;
+        if (pathAnalysis?.Path?.Hops != null)
+        {
+            foreach (var hop in pathAnalysis.Path.Hops)
+            {
+                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task ToggleHistoryExpand(int resultId)
