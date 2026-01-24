@@ -790,15 +790,7 @@
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
                         <span class="pagination-info">
-                            Page @historyPage of @historyTotalPages
-                            @if (!string.IsNullOrEmpty(historySearchFilter))
-                            {
-                                <text> (@filteredHistory.Count of @testHistory.Count)</text>
-                            }
-                            else
-                            {
-                                <text>(@filteredHistory.Count total)</text>
-                            }
+                            Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) ? " total" : $" of {testHistory.Count}"))
                         </span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
                     </div>
