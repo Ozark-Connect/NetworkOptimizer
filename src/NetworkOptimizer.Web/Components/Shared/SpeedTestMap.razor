@@ -82,19 +82,7 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
-    /// <summary>
-    /// Search filter value (two-way bindable). Parent can control this via @bind-SearchFilter.
-    /// </summary>
-    [Parameter]
-    public string SearchFilter { get; set; } = "";
-
-    /// <summary>
-    /// Callback when the search filter changes (for two-way binding).
-    /// </summary>
-    [Parameter]
-    public EventCallback<string> SearchFilterChanged { get; set; }
-
-    // Internal filter tracking - synced with parameter
+    // Search filter state (internal to map only)
     private string searchFilter = "";
 
     private string mapId = $"map-{Guid.NewGuid():N}";
@@ -293,18 +281,12 @@
 
     private async Task OnSearchExecuted(string filter)
     {
-        // Update markers with new filter
+        // Update markers with new filter (map filter is independent of table)
         if (mapInitialized)
         {
             await UpdateMarkers(fitBounds: !userHasZoomed);
         }
         StateHasChanged();
-
-        // Notify parent via two-way binding
-        if (SearchFilterChanged.HasDelegate)
-        {
-            await SearchFilterChanged.InvokeAsync(filter);
-        }
     }
 
     private async Task ClearSearchFilter()
@@ -315,11 +297,6 @@
             await UpdateMarkers(fitBounds: true);
         }
         StateHasChanged();
-
-        if (SearchFilterChanged.HasDelegate)
-        {
-            await SearchFilterChanged.InvokeAsync("");
-        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -341,20 +318,13 @@
     {
         var currentCount = Results.Count();
         var newestId = Results.FirstOrDefault()?.Id;
-        var filterChanged = searchFilter != SearchFilter;
 
-        // Sync internal filter state from parameter (for two-way binding from parent)
-        if (filterChanged)
-        {
-            searchFilter = SearchFilter;
-        }
-
-        // Update markers if data changed (count, newest result ID, or filter changed externally)
-        if (mapInitialized && (currentCount != lastResultCount || newestId != lastNewestResultId || filterChanged))
+        // Update markers if data changed (count or newest result ID)
+        if (mapInitialized && (currentCount != lastResultCount || newestId != lastNewestResultId))
         {
             lastResultCount = currentCount;
             lastNewestResultId = newestId;
-            await UpdateMarkers(fitBounds: filterChanged && !userHasZoomed);
+            await UpdateMarkers(fitBounds: false);
             StateHasChanged();
         }
     }
