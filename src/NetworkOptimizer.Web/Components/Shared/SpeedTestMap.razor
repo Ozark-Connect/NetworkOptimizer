@@ -8,12 +8,16 @@
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
 
-@if (HasLocationData)
+@if (HasAnyLocationData)
 {
     <div class="card speed-test-map-card">
         <div class="card-header">
             <h2 class="card-title">Speed / Coverage Map</h2>
             <div class="map-filters">
+                <SpeedTestSearchFilter @bind-SearchFilter="searchFilter"
+                                       OnSearch="OnSearchExecuted"
+                                       ShowStatus="false"
+                                       Placeholder="Filter by device or path..." />
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
                     LAN (@LanCount)
@@ -42,6 +46,15 @@
         <div class="card-body">
             <div class="map-container">
                 <div id="@mapId" class="speed-test-map"></div>
+                @if (ShowNoResultsMessage)
+                {
+                    <div class="map-no-results-overlay">
+                        <div class="map-no-results-message">
+                            <span>No results matching "@searchFilter"</span>
+                            <button class="btn btn-sm btn-secondary" @onclick="ClearSearchFilter">Clear filter</button>
+                        </div>
+                    </div>
+                }
             </div>
             <div class="map-footer">
                 <div class="map-legend">
@@ -69,6 +82,14 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
+    /// <summary>
+    /// Callback when the search filter changes. Parent can use this to filter other UI (e.g., table).
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnFilterChanged { get; set; }
+
+    // Search filter state (managed internally, exposed via OnFilterChanged)
+    private string searchFilter = "";
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
@@ -103,7 +124,7 @@
     };
     private int sliderValue = 6; // Default to 30 days (index 6)
 
-    // All tests with valid location data, filtered by time slider
+    // All tests with valid location data, filtered by time slider and search
     private IEnumerable<Iperf3Result> LocationResults
     {
         get
@@ -120,8 +141,51 @@
                 results = results.Where(r => r.TestTime >= cutoff);
             }
 
+            // Apply search filter (in-memory, same logic as repository)
+            if (!string.IsNullOrWhiteSpace(searchFilter))
+            {
+                var normalizedFilter = searchFilter.Trim().ToLowerInvariant();
+                results = results.Where(r => MatchesSearchFilter(r, normalizedFilter));
+            }
+
             return results;
         }
+    }
+
+    /// <summary>
+    /// Checks if a result matches the search filter (case-insensitive partial match).
+    /// Mirrors SpeedTestRepository.MatchesFilter for consistency.
+    /// </summary>
+    private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
+    {
+        // Check device host
+        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check device name
+        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check client MAC
+        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
+        // Check path analysis hops
+        var pathAnalysis = result.PathAnalysis;
+        if (pathAnalysis?.Path?.Hops != null)
+        {
+            foreach (var hop in pathAnalysis.Path.Hops)
+            {
+                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     // LAN = has valid L2 path, NOT external, AND has Wi-Fi signal (excludes wired clients)
@@ -151,8 +215,14 @@
         }
     }
 
-    // Check raw results for any location data (not time-filtered) - determines if map shows at all
-    private bool HasLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+    // Check raw results for any location data (not filtered) - determines if map card shows at all
+    private bool HasAnyLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+
+    // Check if current filter/time settings return any results (for "no results" message)
+    private bool HasFilteredResults => FilteredResults.Any();
+
+    // Check if search filter is active but returned no results
+    private bool ShowNoResultsMessage => !string.IsNullOrEmpty(searchFilter) && !HasFilteredResults;
 
     private async Task ToggleFilter(bool isLan)
     {
@@ -215,6 +285,37 @@
         }
     }
 
+    private async Task OnSearchExecuted(string filter)
+    {
+        // Update markers with new filter
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: !userHasZoomed);
+        }
+        StateHasChanged();
+
+        // Notify parent so it can filter table/other UI
+        if (OnFilterChanged.HasDelegate)
+        {
+            await OnFilterChanged.InvokeAsync(filter);
+        }
+    }
+
+    private async Task ClearSearchFilter()
+    {
+        searchFilter = "";
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: true);
+        }
+        StateHasChanged();
+
+        if (OnFilterChanged.HasDelegate)
+        {
+            await OnFilterChanged.InvokeAsync("");
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Load networks for VPN detection
@@ -224,7 +325,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Initialize map when we have location data and DOM is ready
-        if (!mapInitialized && HasLocationData)
+        if (!mapInitialized && HasAnyLocationData)
         {
             await InitializeMap();
         }
@@ -845,6 +946,34 @@
 
     .map-container {
         position: relative;
+    }
+
+    .map-no-results-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        border-radius: 6px;
+    }
+
+    .map-no-results-message {
+        text-align: center;
+        color: var(--text-secondary);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .map-no-results-message span {
+        font-size: 1rem;
+        color: var(--warning-color);
     }
 
     .map-footer {

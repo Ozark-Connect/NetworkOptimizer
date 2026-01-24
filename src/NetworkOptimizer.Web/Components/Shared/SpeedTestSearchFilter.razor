@@ -1,0 +1,215 @@
+@* Reusable search filter component for speed test results.
+   Can be used in SpeedTestMap, ClientSpeedTest, and other pages.
+
+   Usage:
+   <SpeedTestSearchFilter @bind-SearchFilter="myFilter" OnSearch="HandleSearch" Placeholder="Search..." />
+*@
+
+<div class="speedtest-search">
+    <div class="search-input-wrapper">
+        <input type="text"
+               class="form-control search-input"
+               placeholder="@Placeholder"
+               @bind="searchInput"
+               @bind:event="oninput"
+               @onkeyup="OnSearchKeyUp" />
+        @if (!string.IsNullOrEmpty(searchInput))
+        {
+            <button class="search-clear-btn" @onclick="ClearSearch" type="button">×</button>
+        }
+    </div>
+    @if (ShowStatus && !string.IsNullOrEmpty(SearchFilter))
+    {
+        <div class="search-status">
+            @if (IsSearching)
+            {
+                <span class="spinner-sm"></span>
+                <span>Searching...</span>
+            }
+            else if (ResultCount == 0)
+            {
+                <span class="search-no-results">No results matching "@SearchFilter"</span>
+            }
+            else
+            {
+                <span class="search-results-count">@ResultCount result@(ResultCount == 1 ? "" : "s") matching "@SearchFilter"</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// The current applied search filter (after debounce).
+    /// Two-way bindable.
+    /// </summary>
+    [Parameter]
+    public string SearchFilter { get; set; } = "";
+
+    [Parameter]
+    public EventCallback<string> SearchFilterChanged { get; set; }
+
+    /// <summary>
+    /// Callback when search should be executed (after debounce).
+    /// </summary>
+    [Parameter]
+    public EventCallback<string> OnSearch { get; set; }
+
+    /// <summary>
+    /// Placeholder text for the search input.
+    /// </summary>
+    [Parameter]
+    public string Placeholder { get; set; } = "Search by device, MAC, or network path...";
+
+    /// <summary>
+    /// Whether to show the status message (result count, "no results", etc.)
+    /// </summary>
+    [Parameter]
+    public bool ShowStatus { get; set; } = true;
+
+    /// <summary>
+    /// Number of results matching the filter (for status display).
+    /// Set by parent after filtering.
+    /// </summary>
+    [Parameter]
+    public int ResultCount { get; set; }
+
+    /// <summary>
+    /// Whether a search is currently in progress.
+    /// </summary>
+    [Parameter]
+    public bool IsSearching { get; set; }
+
+    /// <summary>
+    /// Debounce delay in milliseconds.
+    /// </summary>
+    [Parameter]
+    public int DebounceMs { get; set; } = 300;
+
+    private string searchInput = "";
+    private System.Timers.Timer? debounceTimer;
+
+    protected override void OnParametersSet()
+    {
+        // Sync input with external filter changes (e.g., clear from parent)
+        if (searchInput != SearchFilter && string.IsNullOrEmpty(SearchFilter))
+        {
+            searchInput = "";
+        }
+    }
+
+    private void OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        // Reset debounce timer on each keystroke
+        debounceTimer?.Stop();
+        debounceTimer?.Dispose();
+
+        debounceTimer = new System.Timers.Timer(DebounceMs);
+        debounceTimer.AutoReset = false;
+        debounceTimer.Elapsed += async (s, e) => await ExecuteSearch();
+        debounceTimer.Start();
+    }
+
+    private async Task ExecuteSearch()
+    {
+        var newFilter = searchInput?.Trim() ?? "";
+
+        // Skip if filter hasn't changed
+        if (newFilter == SearchFilter)
+            return;
+
+        // Update the bound filter
+        SearchFilter = newFilter;
+        await SearchFilterChanged.InvokeAsync(SearchFilter);
+
+        // Notify parent to execute search
+        if (OnSearch.HasDelegate)
+        {
+            await InvokeAsync(async () => await OnSearch.InvokeAsync(SearchFilter));
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchInput = "";
+        debounceTimer?.Stop();
+
+        SearchFilter = "";
+        await SearchFilterChanged.InvokeAsync(SearchFilter);
+
+        if (OnSearch.HasDelegate)
+        {
+            await OnSearch.InvokeAsync("");
+        }
+    }
+
+    public void Dispose()
+    {
+        debounceTimer?.Dispose();
+    }
+}
+
+<style>
+    .speedtest-search {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .search-input-wrapper {
+        position: relative;
+        max-width: 300px;
+    }
+
+    .search-input {
+        padding-right: 2rem;
+        font-size: 0.875rem;
+    }
+
+    .search-clear-btn {
+        position: absolute;
+        right: 0.5rem;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 1.25rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0.25rem;
+        border-radius: 50%;
+        width: 1.5rem;
+        height: 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .search-clear-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .search-status {
+        font-size: 0.8125rem;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .search-no-results {
+        color: var(--warning-color);
+    }
+
+    .search-results-count {
+        color: var(--text-secondary);
+    }
+
+    @@media (max-width: 768px) {
+        .search-input-wrapper {
+            max-width: none;
+        }
+    }
+</style>

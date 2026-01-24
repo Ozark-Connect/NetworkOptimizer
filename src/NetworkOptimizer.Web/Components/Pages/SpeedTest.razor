@@ -632,7 +632,7 @@
             <h2 class="card-title">Test History</h2>
             <div class="header-actions">
                 <button class="btn btn-sm btn-secondary" @onclick="LoadHistory">Refresh</button>
-                @if (testHistory.Count > 0 || !string.IsNullOrEmpty(historySearchFilter))
+                @if (testHistory.Count > 0)
                 {
                     @if (confirmingClearHistory)
                     {
@@ -659,40 +659,7 @@
             </div>
         </div>
         <div class="card-body">
-            <!-- Search Filter -->
-            <div class="history-search">
-                <div class="search-input-wrapper">
-                    <input type="text"
-                           class="form-control search-input"
-                           placeholder="Search by device, MAC, or network path..."
-                           @bind="historySearchInput"
-                           @bind:event="oninput"
-                           @onkeyup="OnSearchKeyUp" />
-                    @if (!string.IsNullOrEmpty(historySearchInput))
-                    {
-                        <button class="search-clear-btn" @onclick="ClearSearch" type="button">×</button>
-                    }
-                </div>
-                @if (!string.IsNullOrEmpty(historySearchFilter))
-                {
-                    <div class="search-status">
-                        @if (historySearching)
-                        {
-                            <span class="spinner-sm"></span>
-                            <span>Searching...</span>
-                        }
-                        else if (testHistory.Count == 0)
-                        {
-                            <span class="search-no-results">No results matching "@historySearchFilter"</span>
-                        }
-                        else
-                        {
-                            <span class="search-results-count">@testHistory.Count result@(testHistory.Count == 1 ? "" : "s") matching "@historySearchFilter"</span>
-                        }
-                    </div>
-                }
-            </div>
-            @if (testHistory.Count > 0)
+            @if (filteredHistory.Count > 0)
             {
                 <div class="table-responsive" id="history-table">
                 <table class="data-table">
@@ -811,10 +778,27 @@
                 {
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">← Prev</button>
-                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@testHistory.Count total)</span>
+                        <span class="pagination-info">
+                            Page @historyPage of @historyTotalPages
+                            @if (!string.IsNullOrEmpty(historySearchFilter))
+                            {
+                                <text>(@filteredHistory.Count of @testHistory.Count)</text>
+                            }
+                            else
+                            {
+                                <text>(@filteredHistory.Count total)</text>
+                            }
+                        </span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next →</button>
                     </div>
                 }
+            }
+            else if (!string.IsNullOrEmpty(historySearchFilter) && testHistory.Count > 0)
+            {
+                <div class="empty-state filter-empty">
+                    <p>No results matching "<strong>@historySearchFilter</strong>" in history table.</p>
+                    <p class="form-help">Try a different search term, or use the map filter above to explore results visually.</p>
+                </div>
             }
             else
             {
@@ -828,7 +812,8 @@
     <!-- Test Locations Map -->
     <SpeedTestMap Results="testHistory"
                   OnRefresh="LoadHistory"
-                  OnResultClick="ScrollToResult" />
+                  OnResultClick="ScrollToResult"
+                  OnFilterChanged="OnMapFilterChanged" />
 
     <!-- How it Works -->
     <div class="card">
@@ -1095,68 +1080,13 @@
         cursor: not-allowed;
     }
 
-    /* History search */
-    .history-search {
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
+    /* Empty state for filtered results */
+    .filter-empty {
+        text-align: center;
     }
 
-    .search-input-wrapper {
-        position: relative;
-        max-width: 400px;
-    }
-
-    .search-input {
-        padding-right: 2rem;
-    }
-
-    .search-clear-btn {
-        position: absolute;
-        right: 0.5rem;
-        top: 50%;
-        transform: translateY(-50%);
-        background: none;
-        border: none;
-        color: var(--text-muted);
-        font-size: 1.25rem;
-        line-height: 1;
-        cursor: pointer;
-        padding: 0.25rem;
-        border-radius: 50%;
-        width: 1.5rem;
-        height: 1.5rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .search-clear-btn:hover {
-        color: var(--text-primary);
-        background: var(--bg-tertiary);
-    }
-
-    .search-status {
-        font-size: 0.8125rem;
-        color: var(--text-muted);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .search-no-results {
-        color: var(--warning-color);
-    }
-
-    .search-results-count {
-        color: var(--text-secondary);
-    }
-
-    @@media (max-width: 768px) {
-        .search-input-wrapper {
-            max-width: none;
-        }
+    .filter-empty p {
+        margin-bottom: 0.5rem;
     }
 </style>
 
@@ -1171,11 +1101,11 @@
     private Iperf3Result? currentResult;
     private bool sshConfigured = false;
 
-    // Pagination
+    // Pagination (uses filteredHistory which respects the map's search filter)
     private int historyPage = 1;
     private int historyPageSize = 10;
-    private int historyTotalPages => (int)Math.Ceiling(testHistory.Count / (double)historyPageSize);
-    private IEnumerable<Iperf3Result> pagedHistory => testHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+    private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
+    private IEnumerable<Iperf3Result> pagedHistory => filteredHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
 
     // Discovered devices from UniFi controller (using unified discovery service)
     private List<DiscoveredDevice> discoveredDevices = new();
@@ -1203,13 +1133,37 @@
     private int? expandedHistoryId = null;
     private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
 
-    // Search state
+    // Search filter (managed by SpeedTestMap, synced via OnMapFilterChanged)
     // NOTE: Search uses in-memory filtering for now, structured for future SQL-side JSON filtering.
-    // See SpeedTestRepository.SearchIperf3ResultsAsync for scalability notes.
-    private string historySearchInput = "";      // Raw input (updated on every keystroke)
-    private string historySearchFilter = "";     // Applied filter (updated after debounce)
-    private bool historySearching = false;
-    private System.Timers.Timer? searchDebounceTimer;
+    // See SpeedTestRepository.SearchIperf3ResultsAsync and SpeedTestMap.MatchesSearchFilter for scalability notes.
+    private string historySearchFilter = "";
+
+    // Filtered history based on map's search filter
+    private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
+        ? testHistory
+        : testHistory.Where(r => MatchesSearchFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+
+    /// <summary>
+    /// Checks if a result matches the search filter (mirrors SpeedTestMap.MatchesSearchFilter).
+    /// </summary>
+    private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
+    {
+        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+
+        var pathAnalysis = result.PathAnalysis;
+        if (pathAnalysis?.Path?.Hops != null)
+        {
+            foreach (var hop in pathAnalysis.Path.Hops)
+            {
+                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
+            }
+        }
+        return false;
+    }
 
     // Path analysis for historical results (calculated on demand)
     private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();
@@ -1972,69 +1926,17 @@
     public void Dispose()
     {
         progressTimer?.Dispose();
-        searchDebounceTimer?.Dispose();
     }
 
-    // Search handling with debounce
-    private void OnSearchKeyUp(KeyboardEventArgs e)
+    /// <summary>
+    /// Called when the map's search filter changes. Updates the table filter.
+    /// </summary>
+    private void OnMapFilterChanged(string filter)
     {
-        // Reset debounce timer on each keystroke
-        searchDebounceTimer?.Stop();
-        searchDebounceTimer?.Dispose();
-
-        searchDebounceTimer = new System.Timers.Timer(300);
-        searchDebounceTimer.AutoReset = false;
-        searchDebounceTimer.Elapsed += async (s, e) => await ExecuteSearch();
-        searchDebounceTimer.Start();
-    }
-
-    private async Task ExecuteSearch()
-    {
-        var newFilter = historySearchInput?.Trim() ?? "";
-
-        // Skip if filter hasn't changed
-        if (newFilter == historySearchFilter)
-            return;
-
-        historySearchFilter = newFilter;
-        historySearching = true;
-        await InvokeAsync(StateHasChanged);
-
-        try
-        {
-            if (string.IsNullOrEmpty(historySearchFilter))
-            {
-                // No filter - load all results
-                testHistory = await SpeedTestService.GetRecentResultsAsync(count: 0);
-            }
-            else
-            {
-                // Apply search filter
-                testHistory = await SpeedTestService.SearchResultsAsync(historySearchFilter, count: 0);
-            }
-
-            historyPage = 1; // Reset to first page on search
-            expandedHistoryId = null; // Collapse any expanded row
-        }
-        catch (Exception ex)
-        {
-            // Log but don't show error for search - just show empty results
-            _ = ex;
-            testHistory = new List<Iperf3Result>();
-        }
-        finally
-        {
-            historySearching = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task ClearSearch()
-    {
-        historySearchInput = "";
-        historySearchFilter = "";
-        searchDebounceTimer?.Stop();
-        await LoadHistory();
+        historySearchFilter = filter;
+        historyPage = 1; // Reset to first page on filter change
+        expandedHistoryId = null; // Collapse any expanded row
+        StateHasChanged();
     }
 
     private static string ShortenIp(string? ip)
