@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject IHttpClientFactory HttpClientFactory
 @inject UniFiConnectionService ConnectionService
+@inject Iperf3ServerService Iperf3Server
 
 @* Uses unified Iperf3Result model with Direction field to distinguish test sources *@
 
@@ -98,7 +99,35 @@
                     </div>
                     <p>Run iperf3 from any device on your network to test LAN throughput to this server (<code>@serverHost</code>).</p>
 
-                    @if (iperf3ServerEnabled)
+                    @if (iperf3ServerEnabled && Iperf3Server.StartupFailed)
+                    {
+                        <div class="alert alert-danger">
+                            <strong>Server Failed to Start:</strong> @Iperf3Server.FailureMessage
+                            <br />
+                            <span class="form-help">
+                                @if (OperatingSystem.IsWindows())
+                                {
+                                    <text>Check Task Manager for iperf3.exe and end the process, then restart the app.</text>
+                                }
+                                else if (OperatingSystem.IsMacOS())
+                                {
+                                    <text>Check for existing iperf3: <code class="code-dark">pkill iperf3</code> or use Activity Monitor
+                                    <br />
+                                    Then restart: <code class="code-dark">launchctl unload ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist && launchctl load ~/Library/LaunchAgents/net.ozarkconnect.networkoptimizer.plist</code></text>
+                                }
+                                else
+                                {
+                                    <text>Check if another iperf3 server is already running:
+                                    <code class="code-dark">ps aux | grep iperf3</code>
+                                    <br />
+                                    If so, stop it: <code class="code-dark">systemctl stop iperf3 && systemctl disable iperf3</code>
+                                    <br />
+                                    Then restart the container: <code class="code-dark">docker restart network-optimizer</code></text>
+                                }
+                            </span>
+                        </div>
+                    }
+                    else if (iperf3ServerEnabled)
                     {
                         <div class="code-block">
                             <code>
@@ -799,7 +828,7 @@
         // Check for VPN-purpose networks (even if path is valid - gateway devices on VPN networks)
         if (_networks != null)
         {
-            var matchingNetwork = _networks.FirstOrDefault(n => IsIpInSubnet(clientIp, n.IpSubnet));
+            var matchingNetwork = _networks.FirstOrDefault(n => NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             // If in a UniFi VPN network, label as VPN
             if (matchingNetwork?.Purpose == "remote-user-vpn")
@@ -855,47 +884,6 @@
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a CIDR subnet.
-    /// </summary>
-    // TODO: Extract to shared utility (duplicated in SpeedTestMap.razor, VlanAnalyzer.cs)
-    private static bool IsIpInSubnet(string ipAddress, string? cidr)
-    {
-        if (string.IsNullOrEmpty(cidr))
-            return false;
-
-        var parts = cidr.Split('/');
-        if (parts.Length != 2 ||
-            !System.Net.IPAddress.TryParse(ipAddress, out var ip) ||
-            !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-            !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var subnetBytes = subnetIp.GetAddressBytes();
-
-        if (ipBytes.Length != subnetBytes.Length)
-            return false;
-
-        int fullBytes = prefixLength / 8;
-        int remainingBits = prefixLength % 8;
-
-        for (int i = 0; i < fullBytes && i < ipBytes.Length; i++)
-        {
-            if (ipBytes[i] != subnetBytes[i])
-                return false;
-        }
-
-        if (fullBytes < ipBytes.Length && remainingBits > 0)
-        {
-            byte mask = (byte)(0xFF << (8 - remainingBits));
-            if ((ipBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
-                return false;
-        }
-
-        return true;
     }
 
     private async Task ChangePage(int delta)

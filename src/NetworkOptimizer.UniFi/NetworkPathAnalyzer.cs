@@ -24,7 +24,13 @@ public interface INetworkPathAnalyzer
 {
     void InvalidateTopologyCache();
     Task<ServerPosition?> DiscoverServerPositionAsync(string? sourceIp = null, CancellationToken cancellationToken = default);
-    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Calculates the network path from the server to a target device or client.
+    /// If retryOnFailure is true and target not found or data stale, invalidates cache and retries once.
+    /// </summary>
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp = null, bool retryOnFailure = true, CancellationToken cancellationToken = default);
+
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 }
 
@@ -242,13 +248,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     /// <summary>
     /// Calculates the network path from the server to a target device or client.
+    /// If retryOnFailure is true and target not found or data stale, invalidates cache and retries once.
     /// </summary>
     /// <param name="targetHost">Target hostname or IP</param>
     /// <param name="sourceIp">Optional source IP (from iperf3 output). If null, auto-detects.</param>
+    /// <param name="retryOnFailure">If true, retry once with fresh topology when target not found</param>
     /// <param name="cancellationToken">Cancellation token</param>
     public async Task<NetworkPath> CalculatePathAsync(
         string targetHost,
         string? sourceIp = null,
+        bool retryOnFailure = true,
         CancellationToken cancellationToken = default)
     {
         var path = new NetworkPath
@@ -319,6 +328,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                     path.IsValid = false;
                     path.ErrorMessage = $"Target '{targetHost}' not found in network topology";
+
+                    // Retry with fresh topology if enabled
+                    if (retryOnFailure)
+                    {
+                        _logger.LogDebug("Target not found, invalidating topology cache and retrying");
+                        InvalidateTopologyCache();
+                        return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, cancellationToken);
+                    }
+
                     return path;
                 }
             }
@@ -384,6 +402,15 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             // Build the hop list
             BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices);
+
+            // Check if BuildHopList marked the path invalid due to stale data (retry if enabled)
+            if (!path.IsValid && retryOnFailure &&
+                path.ErrorMessage?.Contains("not yet available", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _logger.LogDebug("Stale client data detected, invalidating topology cache and retrying");
+                InvalidateTopologyCache();
+                return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, cancellationToken);
+            }
 
             // Calculate bottleneck
             CalculateBottleneck(path);
@@ -624,48 +651,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             if (string.IsNullOrEmpty(network.IpSubnet))
                 continue;
 
-            // Parse subnet (e.g., "192.168.99.0/24" or "192.168.99.1/24")
-            var parts = network.IpSubnet.Split('/');
-            if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-                !int.TryParse(parts[1], out var prefixLength))
-                continue;
-
-            if (IsInSubnet(ip, subnetIp, prefixLength))
+            if (NetworkUtilities.IsIpInSubnet(ip, network.IpSubnet))
                 return network;
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a subnet.
-    /// </summary>
-    private static bool IsInSubnet(System.Net.IPAddress ip, System.Net.IPAddress subnetIp, int prefixLength)
-    {
-        var ipBytes = ip.GetAddressBytes();
-        var subnetBytes = subnetIp.GetAddressBytes();
-
-        if (ipBytes.Length != subnetBytes.Length)
-            return false;
-
-        // Create mask
-        int fullBytes = prefixLength / 8;
-        int remainingBits = prefixLength % 8;
-
-        for (int i = 0; i < fullBytes && i < ipBytes.Length; i++)
-        {
-            if (ipBytes[i] != subnetBytes[i])
-                return false;
-        }
-
-        if (fullBytes < ipBytes.Length && remainingBits > 0)
-        {
-            byte mask = (byte)(0xFF << (8 - remainingBits));
-            if ((ipBytes[fullBytes] & mask) != (subnetBytes[fullBytes] & mask))
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>
@@ -821,9 +811,12 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
                 // Wired client - get port speed from switch
+                // Only set port number, not name, so bottleneck shows "port X" consistently
                 int portSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 hop.EgressSpeedMbps = portSpeed;
                 hop.IngressSpeedMbps = portSpeed;
+                hop.EgressPort = currentPort;
+                hop.IngressPort = currentPort;
             }
 
             hops.Add(hop);
@@ -1257,7 +1250,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         {
             // Check if this IP is in any known UniFi network
             var isInKnownNetwork = topology.Networks.Any(n =>
-                !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+                !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
             if (!isInKnownNetwork)
             {
@@ -1281,7 +1274,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         // Check for UniFi remote-user-vpn network (e.g., L2TP, OpenVPN server on gateway)
         var matchingNetwork = topology.Networks.FirstOrDefault(n =>
-            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(clientIp, n.IpSubnet));
+            !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(clientIp, n.IpSubnet));
 
         if (matchingNetwork?.Purpose == "remote-user-vpn")
         {
@@ -1337,7 +1330,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         // Check if in any known network
         var matchingNetwork = topology.Networks.FirstOrDefault(n =>
-            !string.IsNullOrEmpty(n.IpSubnet) && IsIpInSubnetCidr(ip, n.IpSubnet));
+            !string.IsNullOrEmpty(n.IpSubnet) && NetworkUtilities.IsIpInSubnet(ip, n.IpSubnet));
 
         // If not in any known network, it's external
         if (matchingNetwork == null)
@@ -1381,22 +1374,6 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         return (0, 0);
-    }
-
-    /// <summary>
-    /// Checks if an IP address is within a CIDR subnet (e.g., "192.168.1.0/24").
-    /// </summary>
-    private static bool IsIpInSubnetCidr(string ipAddress, string cidrSubnet)
-    {
-        if (!System.Net.IPAddress.TryParse(ipAddress, out var ip))
-            return false;
-
-        var parts = cidrSubnet.Split('/');
-        if (parts.Length != 2 || !System.Net.IPAddress.TryParse(parts[0], out var subnetIp) ||
-            !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        return IsInSubnet(ip, subnetIp, prefixLength);
     }
 
     private static HopType GetHopType(DeviceType deviceType) => deviceType switch

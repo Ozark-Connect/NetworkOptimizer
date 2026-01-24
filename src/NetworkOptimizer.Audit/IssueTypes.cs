@@ -16,6 +16,8 @@ public static class IssueTypes
     public const string MissingIsolation = "MISSING_ISOLATION";
     public const string IsolationBypassed = "ISOLATION_BYPASSED";
     public const string FwAnyAny = "FW_ANY_ANY";
+    public const string NetworkIsolationException = "NETWORK_ISOLATION_EXCEPTION";
+    public const string InternetBlockBypassed = "INTERNET_BLOCK_BYPASSED";
     public const string MgmtMissingUnifiAccess = "MGMT_MISSING_UNIFI_ACCESS";
     public const string MgmtMissingAfcAccess = "MGMT_MISSING_AFC_ACCESS";
     public const string MgmtMissingNtpAccess = "MGMT_MISSING_NTP_ACCESS";
@@ -75,4 +77,11 @@ public static class IssueTypes
     public const string DnsDnatSingleIp = "DNS_DNAT_SINGLE_IP";
     public const string DnsDnatWrongDestination = "DNS_DNAT_WRONG_DESTINATION";
     public const string DnsDnatRestrictedDestination = "DNS_DNAT_RESTRICTED_DESTINATION";
+
+    // DNS Zone-Specific Info Issues
+    public const string DnsDmzNetworkInfo = "DNS_DMZ_NETWORK_INFO";
+    public const string DnsGuestThirdPartyInfo = "DNS_GUEST_THIRD_PARTY_INFO";
+
+    // DNS Bypass Issues
+    public const string DnsExternalBypass = "DNS_EXTERNAL_BYPASS";
 }

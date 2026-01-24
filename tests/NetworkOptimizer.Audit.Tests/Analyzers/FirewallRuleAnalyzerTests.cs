@@ -129,7 +129,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
             CreateFirewallRule("Allow NTP", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "ntp.org" })
+                destinationPort: "123",
+                protocol: "udp")
         };
 
         // Act
@@ -200,7 +201,7 @@ public class FirewallRuleAnalyzerTests
     [Fact]
     public void AnalyzeManagementNetworkFirewallAccess_CombinedRule_MatchesBothUniFiAndAfc()
     {
-        // Arrange - Single rule combining UniFi, AFC, and NTP domains (common pattern)
+        // Arrange - Single rule combining UniFi and AFC domains, plus separate NTP port rule
         var mgmtNetworkId = "mgmt-network-123";
         var networks = new List<NetworkInfo>
         {
@@ -210,13 +211,17 @@ public class FirewallRuleAnalyzerTests
         {
             CreateFirewallRule("Allow Wi-Fi AFC Traffic", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "afcapi.qcs.qualcomm.com", "location.qcs.qualcomm.com", "api.qcs.qualcomm.com", "ui.com", "ntp.org" })
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com", "location.qcs.qualcomm.com", "api.qcs.qualcomm.com", "ui.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123",
+                protocol: "udp")
         };
 
         // Act
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks);
 
-        // Assert - Single rule satisfies both UniFi and AFC checks
+        // Assert - Combined rule satisfies UniFi and AFC, separate rule satisfies NTP
         issues.Should().BeEmpty();
     }
 
@@ -376,7 +381,8 @@ public class FirewallRuleAnalyzerTests
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
             CreateFirewallRule("NTP", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
-                webDomains: new List<string> { "ntp.org" }),
+                destinationPort: "123",
+                protocol: "udp"),
             CreateFirewallRule("TMobile Only", action: "allow",
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "t-mobile.com" })
@@ -386,6 +392,131 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
 
         // Assert - All rules satisfied (t-mobile.com alone is enough for 5G check)
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GRuleByIp_No5GIssue()
+    {
+        // Arrange - 5G rule targets modem by specific IP address
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("UniFi Cloud", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123",
+                protocol: "udp"),
+            // 5G modem registration rule by specific IP (modem at 192.168.99.5)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "5G Modem Registration",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.5" },
+                WebDomains = new List<string> { "trafficmanager.net", "t-mobile.com", "gsma.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - 5G rule by IP satisfies the requirement
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GRuleByMac_No5GIssue()
+    {
+        // Arrange - 5G rule targets modem by specific MAC address
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("UniFi Cloud", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123",
+                protocol: "udp"),
+            // 5G modem registration rule by specific MAC
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "5G Modem Registration",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "CLIENT",
+                SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
+                WebDomains = new List<string> { "t-mobile.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - 5G rule by MAC satisfies the requirement
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_Has5GRuleByAnySource_No5GIssue()
+    {
+        // Arrange - 5G rule with ANY source (allows all devices including modem)
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("UniFi Cloud", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("AFC Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "afcapi.qcs.qualcomm.com" }),
+            CreateFirewallRule("NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123",
+                protocol: "udp"),
+            // 5G modem registration rule with ANY source
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow Carrier Access",
+                Action = "allow",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "ANY",
+                WebDomains = new List<string> { "gsma.com" }
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, has5GDevice: true);
+
+        // Assert - 5G rule with ANY source satisfies the requirement
         issues.Should().BeEmpty();
     }
 
@@ -408,6 +539,165 @@ public class FirewallRuleAnalyzerTests
             issue.Severity.Should().Be(AuditSeverity.Informational);
             issue.ScoreImpact.Should().Be(0);
         }
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_InternetBlockedViaFirewallRule_ReturnsAllIssues()
+    {
+        // Arrange - Management network has internet enabled in config, but blocked via firewall rule
+        // This should still trigger the Info checks because the network effectively has no internet
+        var externalZoneId = "external-zone-123";
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block Internet Access firewall rule
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Management Internet",
+                Action = "block",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - Should detect that internet is blocked and fire all 3 Info checks
+        issues.Should().HaveCount(3);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_InternetBlockedViaFirewallRule_WithAllowRules_ReturnsNoIssues()
+    {
+        // Arrange - Management network blocked via firewall rule, but has allow rules for required services
+        var externalZoneId = "external-zone-123";
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block Internet Access firewall rule
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Management Internet",
+                Action = "block",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // Allow UniFi access
+            CreateFirewallRule("Allow UniFi Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            // Allow AFC access
+            CreateFirewallRule("Allow AFC Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "qcs.qualcomm.com" }),
+            // Allow NTP access (UDP port 123)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow NTP Access",
+                Action = "allow",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "123",
+                Protocol = "udp"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - No issues since all required allow rules are present
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_NtpViaPortGroup_SatisfiesRequirement()
+    {
+        // Arrange - NTP access via port group should satisfy the NTP requirement
+        var externalZoneId = "external-zone-123";
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+
+        // Set up port group with NTP port 123 (mixed with other ports)
+        var portGroup = new NetworkOptimizer.UniFi.Models.UniFiFirewallGroup
+        {
+            Id = "common-ports-group",
+            Name = "Common Ports",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "53", "123", "443" } // DNS, NTP, HTTPS
+        };
+        _analyzer.SetFirewallGroups(new[] { portGroup });
+
+        // Parse a rule that references the port group for NTP
+        var ntpRuleJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-ntp-portgroup"",
+            ""name"": ""Allow NTP via Port Group"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""udp"",
+            ""source"": {
+                ""matching_target"": ""NETWORK"",
+                ""network_ids"": [""mgmt-network-123""]
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""common-ports-group"",
+                ""zone_id"": ""external-zone-123""
+            }
+        }").RootElement;
+
+        var parsedRule = _analyzer.ParseFirewallPolicy(ntpRuleJson);
+        parsedRule.Should().NotBeNull();
+        parsedRule!.DestinationPort.Should().Be("53,123,443"); // Verify port group was resolved
+
+        var rules = new List<FirewallRule>
+        {
+            // UniFi cloud access
+            CreateFirewallRule("Allow UniFi Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            // AFC access
+            CreateFirewallRule("Allow AFC Access", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "qcs.qualcomm.com" }),
+            // NTP via port group
+            parsedRule
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - All requirements satisfied (NTP via port group should be detected)
+        issues.Should().BeEmpty();
     }
 
     #endregion
@@ -569,7 +859,7 @@ public class FirewallRuleAnalyzerTests
         issues.Should().ContainSingle();
         var issue = issues.First();
         issue.Type.Should().Be("DENY_SHADOWS_ALLOW");
-        issue.Severity.Should().Be(AuditSeverity.Informational);
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
         issue.Message.Should().Contain("Allow Device Screen Streaming");
         issue.Message.Should().Contain("Block Access to Isolated VLANs");
     }
@@ -612,14 +902,14 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        issue!.Description.Should().Be("External Access Exception");
+        issue!.Description.Should().Be("External Access");
     }
 
     [Fact]
-    public void DetectShadowedRules_ExceptionToGatewayBlock_SetsFirewallExceptionDescription()
+    public void DetectShadowedRules_ExceptionToGatewayBlock_SetsEmptyDescription()
     {
         // Allow rule before deny rule that blocks Gateway zone access (NOT external)
-        // Gateway zone blocks should NOT be categorized as "External Access Exception"
+        // Gateway zone blocks should NOT be categorized as "External Access"
         // Using IP/ANY sources to avoid triggering "Cross-VLAN" categorization
         var rules = new List<FirewallRule>
         {
@@ -655,12 +945,12 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Gateway zone blocks should fall back to generic "Firewall Exception" (not "External Access Exception")
-        issue!.Description.Should().Be("Firewall Exception");
+        // Gateway zone blocks should have empty description (not "External Access")
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
-    public void DetectShadowedRules_ExceptionToNetworkBlock_SetsCrossVlanDescription()
+    public void DetectShadowedRules_ExceptionToNetworkBlock_SetsEmptyDescription()
     {
         // Allow rule before deny rule that blocks network-to-network traffic
         // Both rules use network source for proper overlap detection
@@ -697,8 +987,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Without networks info, no purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception");
+        // Without networks info, description is empty (no purpose can be determined)
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
@@ -718,7 +1008,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { "home-network-1" },
                 DestinationMatchingTarget = "IP",
-                DestinationIps = new List<string> { "192.168.20.100" },
+                DestinationIps = new List<string> { "192.168.20.100" }, // IP in IoT subnet (vlan 20)
                 DestinationPort = "631"
             },
             new FirewallRule
@@ -737,16 +1027,16 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId),
-            CreateNetwork("Home", NetworkPurpose.Home, id: "home-network-1")
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: iotNetworkId, vlanId: 20), // subnet 192.168.20.0/24
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-network-1", vlanId: 1)
         };
 
         var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should include IoT purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (IoT)");
+        // Should include Source -> Destination format
+        issue!.Description.Should().Be("Home -> IoT");
     }
 
     [Fact]
@@ -766,7 +1056,7 @@ public class FirewallRuleAnalyzerTests
                 SourceMatchingTarget = "CLIENT",
                 SourceClientMacs = new List<string> { "aa:bb:cc:dd:ee:ff" },
                 DestinationMatchingTarget = "IP",
-                DestinationIps = new List<string> { "192.168.30.0/24" },
+                DestinationIps = new List<string> { "192.168.30.100" }, // IP in Security subnet (vlan 30)
                 DestinationPort = "443"
             },
             new FirewallRule
@@ -784,15 +1074,15 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
-            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: securityNetworkId)
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: securityNetworkId, vlanId: 30) // subnet 192.168.30.0/24
         };
 
         var issues = _analyzer.DetectShadowedRules(rules, networkConfigs: null, externalZoneId: null, networks: networks);
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should include Security purpose suffix
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
+        // Source is CLIENT (no network), destination is Security - should use "Device(s)" for unknown source
+        issue!.Description.Should().Be("Device(s) -> Security");
     }
 
     [Fact]
@@ -829,6 +1119,7 @@ public class FirewallRuleAnalyzerTests
 
         var networks = new List<NetworkInfo>
         {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net", vlanId: 1), // subnet 192.168.1.0/24
             CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", vlanId: 20),
             new NetworkInfo
             {
@@ -846,8 +1137,8 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        // Should determine Security purpose from destination IP falling within Security network subnet
-        issue!.Description.Should().Be("Cross-VLAN Access Exception (Security)");
+        // Should determine both source (Home from IP) and destination (Security from IP) using purpose names
+        issue!.Description.Should().Be("Home -> Security");
     }
 
     [Fact]
@@ -887,7 +1178,7 @@ public class FirewallRuleAnalyzerTests
 
         var issue = issues.FirstOrDefault(i => i.Type == "ALLOW_EXCEPTION_PATTERN");
         issue.Should().NotBeNull();
-        issue!.Description.Should().Be("Firewall Exception");
+        issue!.Description.Should().BeEmpty();
     }
 
     [Fact]
@@ -1163,6 +1454,300 @@ public class FirewallRuleAnalyzerTests
         exceptionIssues.Should().HaveCount(2);
         exceptionIssues.Should().Contain(i => i.Message.Contains("Allow Service A"));
         exceptionIssues.Should().Contain(i => i.Message.Contains("Allow Service B"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowDenyWithDomains_DoesNotShadowBroadAllow()
+    {
+        // Scenario: "Block Scam Domains" (narrow) should NOT shadow "Allow NTP Access" (broad)
+        // because the deny blocks only specific domains while the allow is for any destination
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-scam",
+                Name = "Block Scam Domains",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "WEB",
+                WebDomains = new List<string> { "scam-site.com", "phishing.net" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "Allow NTP Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "123"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT report that Allow NTP is ineffective due to Block Scam Domains
+        issues.Should().NotContain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow NTP Access") &&
+            i.Message.Contains("Block Scam Domains"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowDenyWithNetworks_DoesNotShadowBroadAllow()
+    {
+        // Scenario: "Block Access to VPN Network" should NOT shadow "Allow External Access"
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-vpn",
+                Name = "Block Access to VPN",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "vpn-net-id" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-external",
+                Name = "Allow External Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT report that Allow External is ineffective due to Block VPN
+        issues.Should().NotContain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow External Access") &&
+            i.Message.Contains("Block Access to VPN"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowDenyWithIps_DoesNotShadowBroadAllow()
+    {
+        // Scenario: "Block Specific IPs" should NOT shadow "Allow Internet Access"
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-ips",
+                Name = "Block Specific IPs",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "10.0.0.1", "10.0.0.2" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-internet",
+                Name = "Allow Internet Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT report that Allow Internet is ineffective
+        issues.Should().NotContain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow Internet Access") &&
+            i.Message.Contains("Block Specific IPs"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_NarrowDenyWithAppIds_DoesNotShadowBroadAllow()
+    {
+        // Scenario: "Block TikTok" (specific app ID) should NOT shadow "Allow Internet"
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-tiktok",
+                Name = "Block TikTok",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                AppIds = new List<int> { 1234567 } // Some app ID for TikTok
+            },
+            new FirewallRule
+            {
+                Id = "allow-internet",
+                Name = "Allow Internet Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // Should NOT report that Allow Internet is ineffective due to Block TikTok
+        issues.Should().NotContain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow Internet Access") &&
+            i.Message.Contains("Block TikTok"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_BroadDeny_DoesShadowNarrowAllow()
+    {
+        // Scenario: Broad "Block All External" SHOULD shadow narrow "Allow HTTP"
+        // because the deny is broader than the allow
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-all",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-http",
+                Name = "Allow HTTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // SHOULD report that Allow HTTP is ineffective because the deny blocks all traffic first
+        issues.Should().Contain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow HTTP") &&
+            i.Message.Contains("Block All External"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_BroadDeny_DoesShadowAppBasedAllow()
+    {
+        // Scenario: Broad "Block All External" SHOULD shadow app-based "Allow HTTP Apps"
+        // because the deny blocks all traffic including HTTP app traffic
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-all",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-http-apps",
+                Name = "Allow HTTP Apps",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "tcp_udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "APP",
+                AppIds = new List<int> { 852190, 1245278 } // HTTP (852190), HTTPS (1245278)
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // SHOULD report that Allow HTTP Apps is ineffective because the deny blocks all traffic first
+        issues.Should().Contain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow HTTP Apps") &&
+            i.Message.Contains("Block All External"));
+    }
+
+    [Fact]
+    public void DetectShadowedRules_BroadDeny_DoesShadowAppCategoryAllow()
+    {
+        // Scenario: Broad deny SHOULD shadow app category-based allow (Web Services category)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "deny-all",
+                Name = "Block Internet",
+                Action = "DROP",
+                Enabled = true,
+                Index = 1,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "allow-web-category",
+                Name = "Allow Web Services",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 2,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "APP_CATEGORY",
+                AppCategoryIds = new List<int> { 13 } // Web Services category
+            }
+        };
+
+        var issues = _analyzer.DetectShadowedRules(rules);
+
+        // SHOULD report that Allow Web Services is ineffective
+        issues.Should().Contain(i =>
+            i.Type == "DENY_SHADOWS_ALLOW" &&
+            i.Message.Contains("Allow Web Services") &&
+            i.Message.Contains("Block Internet"));
     }
 
     #endregion
@@ -1645,6 +2230,91 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void CheckInterVlanIsolation_AllowRuleToExternalZone_NotFlaggedAsIsolationBypass()
+    {
+        // Test that ALLOW rules targeting the External zone (internet access) are NOT flagged
+        // as isolation bypass - they're for outbound internet, not inter-VLAN traffic
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id"),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // NTP rule: Management -> External zone (should NOT be flagged)
+            new FirewallRule
+            {
+                Id = "allow-mgmt-ntp",
+                Name = "[Network] NTP Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                DestinationPort = "123",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net-id" },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            // Allow rule between IoT and Corporate (should be flagged)
+            new FirewallRule
+            {
+                Id = "allow-iot-to-corp",
+                Name = "Bad IoT to Corp Rule",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks, externalZoneId);
+
+        // The NTP rule targeting External zone should NOT be flagged as isolation bypass
+        issues.Should().NotContain(i => i.Type == "ISOLATION_BYPASSED" && i.Message.Contains("NTP Access"));
+
+        // But the IoT to Corp rule SHOULD be flagged
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" && i.Message.Contains("Bad IoT to Corp Rule"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleWithAnyDestination_NoExternalZoneId_StillFlagged()
+    {
+        // When we don't have an external zone ID, rules with ANY destination should still be flagged
+        // (conservative approach - can't tell if it's external or internal)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id"),
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-mgmt-any",
+                Name = "Management to Any",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net-id" },
+                DestinationMatchingTarget = "ANY"
+                // No DestinationZoneId set
+            }
+        };
+
+        // Call without externalZoneId - should flag the rule since we can't verify it's external-only
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks, externalZoneId: null);
+
+        // Should flag management to IoT (via ANY destination) as isolation bypass
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
     public void CheckInterVlanIsolation_CorporateToManagement_NoBlockRule_FlaggedAsCritical()
     {
         // Corporate to Management without block rule should be Critical
@@ -1968,6 +2638,830 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
 
         issues.Should().ContainSingle();
+    }
+
+    #endregion
+
+    #region CheckInternetDisabledBroadAllow Tests
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_InternetEnabled_NoIssue()
+    {
+        // Network with internet enabled should not trigger the check
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", internetAccessEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-external",
+                Name = "Allow External Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_InternetDisabled_BroadAllowRule_ReturnsIssue()
+    {
+        // Network with internet disabled AND a broad allow rule should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-all-external",
+                Name = "Allow All External",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Severity.Should().Be(AuditSeverity.Recommended);
+        issue.Message.Should().Contain("IoT Devices");
+        issue.Message.Should().Contain("Allow All External");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_HttpPort_ReturnsIssue()
+    {
+        // Allow rule for HTTP (port 80) on internet-disabled network should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http",
+                Name = "Allow HTTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "guest-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("HTTP access");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_HttpsPort_ReturnsIssue()
+    {
+        // Allow rule for HTTPS (port 443) on internet-disabled network should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-https",
+                Name = "Allow HTTPS",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "guest-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("HTTPS access");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_Port80_Udp_NoIssue()
+    {
+        // Port 80 with UDP only is NOT HTTP - HTTP requires TCP
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-80-udp",
+                Name = "Allow Port 80 UDP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp", // UDP only - not HTTP
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        // UDP port 80 is NOT HTTP - should not be flagged
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_Port80_Tcp_ReturnsIssue()
+    {
+        // Port 80 with TCP is HTTP - should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-80-tcp",
+                Name = "Allow Port 80 TCP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        issues.First().Message.Should().Contain("HTTP");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_Port80_TcpUdp_ReturnsIssue()
+    {
+        // Port 80 with TCP/UDP includes TCP, so it's HTTP
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-80-tcpudp",
+                Name = "Allow Port 80 TCP/UDP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp_udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_Port443_Udp_ReturnsIssue()
+    {
+        // Port 443 with UDP is QUIC (HTTP/3) - should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-443-udp",
+                Name = "Allow Port 443 UDP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp", // UDP port 443 = QUIC
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        issues.First().Message.Should().Contain("HTTPS"); // QUIC is still web access
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_Port443_Tcp_ReturnsIssue()
+    {
+        // Port 443 with TCP is HTTPS - should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-443-tcp",
+                Name = "Allow Port 443 TCP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        issues.First().Message.Should().Contain("HTTPS");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_ExternalZone_AllProtocols_ReturnsIssue()
+    {
+        // Allow rule targeting external zone with ALL protocols on internet-disabled network should trigger
+        var externalZoneId = "external-zone-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-external",
+                Name = "Allow All External",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all", // All protocols = broad access
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "sec-net" },
+                DestinationZoneId = externalZoneId,
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("external/internet access");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_ExternalZone_SpecificProtocol_NoIssue()
+    {
+        // Allow rule targeting external zone with specific protocol (not HTTP ports) should NOT trigger
+        var externalZoneId = "external-zone-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "sec-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-external-tcp",
+                Name = "Allow TCP External",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp", // Specific protocol without HTTP ports = narrow
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "sec-net" },
+                DestinationZoneId = externalZoneId,
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        // Not flagged because it's a specific protocol without HTTP/HTTPS ports
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_DisabledRule_NoIssue()
+    {
+        // Disabled allow rules should not trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-external-disabled",
+                Name = "Allow External (Disabled)",
+                Action = "ALLOW",
+                Enabled = false, // Disabled
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_NarrowRule_NoIssue()
+    {
+        // Narrow allow rules (specific IPs, not HTTP/HTTPS) should not trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "Allow NTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "IP",
+                DestinationIps = new List<string> { "192.0.2.1" },
+                DestinationPort = "123"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_PortRange_ReturnsIssue()
+    {
+        // Port range including HTTP should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-web-range",
+                Name = "Allow Web Ports",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80-443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Message.Should().Contain("HTTP/HTTPS access");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_HttpAppId_ReturnsIssue()
+    {
+        // Allow rule with HTTP App ID (852190) should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http-app",
+                Name = "Allow HTTP App",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp_udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "ANY",
+                AppIds = new List<int> { 852190 } // HTTP app ID
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_WebServicesCategory_ReturnsIssue()
+    {
+        // Allow rule with Web Services category (13) should trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-web-category",
+                Name = "Allow Web Services",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                DestinationMatchingTarget = "APP_CATEGORY",
+                AppCategoryIds = new List<int> { 13 } // Web Services category
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_PredefinedRule_NoIssue()
+    {
+        // Predefined/system rules (like "Allow Return Traffic") should be excluded
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-return",
+                Name = "Allow Return Traffic",
+                Action = "ALLOW",
+                Enabled = true,
+                Predefined = true, // System-created rule
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_SpecificDomains_NoIssue()
+    {
+        // Rules with specific WebDomains (like UniFi cloud access) should NOT trigger
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationMatchingTarget = "WEB",
+                WebDomains = new List<string> { "ui.com", "unifi.ui.com" }
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_NtpPort_NoIssue()
+    {
+        // Rules with NTP port (123) should NOT trigger - it's narrow access
+        var externalZoneId = "external-zone-1";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "NTP Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "udp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "mgmt-net" },
+                DestinationZoneId = externalZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "123"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_MatchOppositeNetworks_ExcludesNetwork()
+    {
+        // Rule with SourceMatchOppositeNetworks=true excludes the listed network
+        // If network IS in the list with match_opposite=true, rule does NOT apply to it
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-match-opposite",
+                Name = "Allow HTTP Match Opposite",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" }, // IoT Devices is in the list
+                SourceMatchOppositeNetworks = true, // But match opposite means "everyone EXCEPT IoT Devices"
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        // IoT Devices should NOT be flagged because the rule excludes it (match opposite)
+        // Corporate SHOULD be flagged because the rule applies to it (not in the exclusion list)
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Metadata!["network_name"].Should().Be("Corporate");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_MatchOppositeNetworks_IncludesOtherNetworks()
+    {
+        // Rule with SourceMatchOppositeNetworks=true applies to networks NOT in the list
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest", NetworkPurpose.Guest, id: "guest-net", internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-except-corp",
+                Name = "Allow All Except Corp",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net" }, // Corp is excluded
+                SourceMatchOppositeNetworks = true, // Match opposite = everyone except corp
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        // Guest should be flagged because it's NOT in the exclusion list
+        issues.Should().ContainSingle();
+        issues.First().Message.Should().Contain("Guest");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_PortGroupWithHttp_ReturnsIssue()
+    {
+        // Test that port groups containing HTTP ports are detected
+        // This verifies the full flow: port group -> parsing -> detection
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+
+        // Set up port group with HTTP port 80
+        var portGroup = new NetworkOptimizer.UniFi.Models.UniFiFirewallGroup
+        {
+            Id = "http-ports-group",
+            Name = "HTTP Ports",
+            GroupType = "port-group",
+            GroupMembers = new List<string> { "80", "443" }
+        };
+        _analyzer.SetFirewallGroups(new[] { portGroup });
+
+        // Parse a rule that references the port group
+        var ruleJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-http-portgroup"",
+            ""name"": ""[TEST] Allow HTTP via Port Group"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""tcp"",
+            ""source"": {
+                ""matching_target"": ""NETWORK"",
+                ""network_ids"": [""iot-net""]
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""http-ports-group"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var parsedRule = _analyzer.ParseFirewallPolicy(ruleJson);
+        parsedRule.Should().NotBeNull();
+        parsedRule!.DestinationPort.Should().Be("80,443"); // Verify port group was resolved
+
+        var rules = new List<FirewallRule> { parsedRule };
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, "external-zone");
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("HTTP");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_PortGroupNotResolved_StillDetectsExternalZone()
+    {
+        // Test behavior when port group is NOT resolved (group not loaded)
+        // Should still detect broad access via external zone with all protocols
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net", internetAccessEnabled: false)
+        };
+
+        // Don't set firewall groups - port group won't be resolved
+        _analyzer.SetFirewallGroups(null);
+
+        // Parse a rule that references a non-existent port group
+        var ruleJson = System.Text.Json.JsonDocument.Parse(@"{
+            ""_id"": ""allow-portgroup-unresolved"",
+            ""name"": ""[TEST] Allow via Unresolved Port Group"",
+            ""action"": ""ALLOW"",
+            ""enabled"": true,
+            ""protocol"": ""all"",
+            ""source"": {
+                ""matching_target"": ""NETWORK"",
+                ""network_ids"": [""iot-net""]
+            },
+            ""destination"": {
+                ""matching_target"": ""ANY"",
+                ""port_matching_type"": ""OBJECT"",
+                ""port_group_id"": ""nonexistent-group"",
+                ""zone_id"": ""external-zone""
+            }
+        }").RootElement;
+
+        var parsedRule = _analyzer.ParseFirewallPolicy(ruleJson);
+        parsedRule.Should().NotBeNull();
+        parsedRule!.DestinationPort.Should().BeNull(); // Port group not resolved
+
+        var rules = new List<FirewallRule> { parsedRule };
+
+        // With protocol=all and external zone, should still be detected as broad access
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, "external-zone");
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_SourceCidrCoversNetwork_ReturnsIssue()
+    {
+        // Rule with IP-based source CIDR that covers the network's subnet should trigger
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "iot-net",
+                Name = "IoT Devices",
+                Purpose = NetworkPurpose.IoT,
+                VlanId = 99,
+                Subnet = "192.168.99.0/24",
+                InternetAccessEnabled = false
+            }
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http-cidr",
+                Name = "Allow HTTP from CIDR",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.99.0/24" }, // Covers the IoT subnet
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80,443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        issues.Should().ContainSingle();
+        var issue = issues.First();
+        issue.Type.Should().Be("INTERNET_BLOCK_BYPASSED");
+        issue.Message.Should().Contain("IoT Devices");
+    }
+
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_SourceCidrDoesNotCoverNetwork_NoIssue()
+    {
+        // Rule with IP-based source CIDR that does NOT cover the network's subnet should NOT trigger
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "iot-net",
+                Name = "IoT Devices",
+                Purpose = NetworkPurpose.IoT,
+                VlanId = 99,
+                Subnet = "192.168.99.0/24",
+                InternetAccessEnabled = false
+            }
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-http-cidr",
+                Name = "Allow HTTP from Different CIDR",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp",
+                SourceMatchingTarget = "IP",
+                SourceIps = new List<string> { "192.168.50.0/24" }, // Different subnet
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80,443"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, null);
+
+        // Should NOT be flagged because the CIDR doesn't cover the IoT network
+        issues.Should().BeEmpty();
     }
 
     #endregion
@@ -2396,6 +3890,501 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region DetectNetworkIsolationExceptions Tests
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_NoIsolatedNetworks_ReturnsNoIssues()
+    {
+        // Arrange - No networks have isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT to Corp", action: "allow",
+                sourceNetworkIds: new List<string> { networks[0].Id })
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_NoPredefinedIsolatedNetworksRule_ReturnsNoIssues()
+    {
+        // Arrange - Network has isolation enabled but no predefined rule exists
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT Access", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id })
+            // No predefined "Isolated Networks" rule
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleFromIsolatedNetwork_ReturnsIssue()
+    {
+        // Arrange - IoT network has isolation enabled, user created an allow rule FROM it
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule from isolated network
+            CreateFirewallRule("Allow IoT to Printer", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Severity.Should().Be(AuditSeverity.Informational);
+        issues[0].Description.Should().Be("IoT ->");
+        issues[0].Message.Should().Contain("Allow IoT to Printer");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleToIsolatedNetwork_ReturnsNoIssue()
+    {
+        // Arrange - Security network has isolation enabled, user created an allow rule TO it
+        // Traffic TO isolated networks is implicitly allowed (predefined rules only block FROM isolated networks)
+        var securityNetwork = CreateNetwork("Security", NetworkPurpose.Security, id: "sec-123", networkIsolationEnabled: true);
+        var corpNetwork = CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-123", networkIsolationEnabled: false);
+        var networks = new List<NetworkInfo> { securityNetwork, corpNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule to isolated network (source is NOT isolated)
+            CreateFirewallRuleWithDestination("Allow to Cameras", action: "allow",
+                sourceNetworkIds: new List<string> { corpNetwork.Id },
+                destNetworkIds: new List<string> { securityNetwork.Id }),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(securityNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - No issue because source (Corporate) is not isolated
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_UserAllowRuleBetweenIsolatedNetworks_ReturnsIssue()
+    {
+        // Arrange - Both IoT and Security have isolation, allow rule between them
+        // Only the SOURCE network (IoT) matters for isolation exceptions
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var securityNetwork = CreateNetwork("Security", NetworkPurpose.Security, id: "sec-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork, securityNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // User-created allow rule between isolated networks
+            CreateFirewallRuleWithDestination("Allow IoT to Cameras", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                destNetworkIds: new List<string> { securityNetwork.Id }),
+            // Predefined rules for both networks
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id),
+            CreatePredefinedIsolatedNetworksRule(securityNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - Only source (IoT) is flagged, not destination
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Description.Should().Be("IoT -> Security");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_PredefinedAllowRule_IsIgnored()
+    {
+        // Arrange - Predefined allow rule should not be flagged
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Predefined allow rule (system-generated) - should be ignored
+            CreateFirewallRule("Allow Return Traffic", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                predefined: true),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_DisabledUserAllowRule_IsIgnored()
+    {
+        // Arrange - Disabled allow rule should not be flagged
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Disabled allow rule
+            CreateFirewallRule("Allow IoT Access", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id },
+                enabled: false),
+            // Predefined "Isolated Networks" rule
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementNetwork_HasCorrectPurposeSuffix()
+    {
+        // Arrange - Management network exception should have (Management) suffix
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow SSH to MGMT", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id }),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Description.Should().Be("Management ->");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementNtpRule_IsExcluded()
+    {
+        // Arrange - NTP access rule from management network should NOT be flagged
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRuleWithPort("Allow NTP", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id },
+                destPort: "123", protocol: "udp"),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - NTP rule should be excluded
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ManagementUniFiRule_IsExcluded()
+    {
+        // Arrange - UniFi access rule from management network should NOT be flagged
+        var mgmtNetwork = CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow UniFi", action: "allow",
+                sourceNetworkIds: new List<string> { mgmtNetwork.Id },
+                webDomains: new List<string> { "ui.com" }),
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert - UniFi rule should be excluded
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_MultipleAllowRules_ReturnsMultipleIssues()
+    {
+        // Arrange - Multiple allow rules creating exceptions
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Allow IoT to Printer", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }, index: 1),
+            CreateFirewallRule("Allow IoT HTTP", action: "allow",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }, index: 2),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(2);
+        issues.Should().AllSatisfy(i => i.Type.Should().Be(IssueTypes.NetworkIsolationException));
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_BlockRule_IsIgnored()
+    {
+        // Arrange - Block rules should not be flagged as exceptions
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", networkIsolationEnabled: true);
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            CreateFirewallRule("Block IoT External", action: "block",
+                sourceNetworkIds: new List<string> { iotNetwork.Id }),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_SourceCidrCoversIsolatedNetwork_ReturnsIssue()
+    {
+        // Arrange - Rule uses CIDR source that covers an isolated network's subnet
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", vlanId: 99, networkIsolationEnabled: true);
+        // Network has subnet 192.168.99.0/24 (from CreateNetwork helper)
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Rule with IP-based source that matches the IoT subnet
+            CreateFirewallRuleWithSourceCidr("Allow IoT Subnet", action: "allow",
+                sourceCidrs: new List<string> { "192.168.99.0/24" }),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+        issues[0].Description.Should().Be("IoT ->");
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_SourceCidrDoesNotCoverIsolatedNetwork_ReturnsNoIssue()
+    {
+        // Arrange - Rule uses CIDR source that does NOT cover the isolated network's subnet
+        var iotNetwork = CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-123", vlanId: 99, networkIsolationEnabled: true);
+        // Network has subnet 192.168.99.0/24, rule covers different subnet
+        var networks = new List<NetworkInfo> { iotNetwork };
+        var rules = new List<FirewallRule>
+        {
+            // Rule with IP-based source for different subnet
+            CreateFirewallRuleWithSourceCidr("Allow Other Subnet", action: "allow",
+                sourceCidrs: new List<string> { "192.168.50.0/24" }),
+            CreatePredefinedIsolatedNetworksRule(iotNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks);
+
+        // Assert
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_ExternalDestinationRule_ReturnsNoIssue()
+    {
+        // Arrange - rule allows traffic from isolated network to EXTERNAL zone (internet)
+        // This is NOT an isolation exception because "Isolated Networks" rules block inter-VLAN traffic, not internet
+        var mgmtNetwork = new NetworkInfo
+        {
+            Id = "mgmt-1",
+            Name = "Management",
+            VlanId = 99,
+            Subnet = "192.168.99.0/24",
+            NetworkIsolationEnabled = true,
+            Purpose = NetworkPurpose.Management
+        };
+        var networks = new List<NetworkInfo> { mgmtNetwork };
+
+        var externalZoneId = "external-zone-1";
+        var rules = new List<FirewallRule>
+        {
+            // Rule allowing Management network to access internet (HTTP/HTTPS)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow Management HTTP",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetwork.Id },
+                DestinationZoneId = externalZoneId, // Targets external/internet zone
+                DestinationMatchingTarget = "ANY"
+            },
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks, externalZoneId);
+
+        // Assert - no issue because it's external access, not inter-VLAN
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectNetworkIsolationExceptions_InternalDestinationRule_ReturnsIssue()
+    {
+        // Arrange - rule allows traffic from isolated network to INTERNAL network (another VLAN)
+        // This IS an isolation exception
+        var mgmtNetwork = new NetworkInfo
+        {
+            Id = "mgmt-1",
+            Name = "Management",
+            VlanId = 99,
+            Subnet = "192.168.99.0/24",
+            NetworkIsolationEnabled = true,
+            Purpose = NetworkPurpose.Management
+        };
+        var homeNetwork = new NetworkInfo
+        {
+            Id = "home-1",
+            Name = "Home",
+            VlanId = 1,
+            Subnet = "192.168.1.0/24",
+            NetworkIsolationEnabled = false,
+            Purpose = NetworkPurpose.Home
+        };
+        var networks = new List<NetworkInfo> { mgmtNetwork, homeNetwork };
+
+        var externalZoneId = "external-zone-1";
+        var internalZoneId = "internal-zone-1";
+        var rules = new List<FirewallRule>
+        {
+            // Rule allowing Management network to access Home network (inter-VLAN)
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Allow Management to Home",
+                Action = "allow",
+                Enabled = true,
+                Index = 1,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetwork.Id },
+                DestinationZoneId = internalZoneId, // Internal zone, not external
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { homeNetwork.Id }
+            },
+            CreatePredefinedIsolatedNetworksRule(mgmtNetwork.Id)
+        };
+
+        // Act
+        var issues = _analyzer.DetectNetworkIsolationExceptions(rules, networks, externalZoneId);
+
+        // Assert - issue because it's inter-VLAN access
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be(IssueTypes.NetworkIsolationException);
+    }
+
+    private static FirewallRule CreateFirewallRuleWithSourceCidr(
+        string name,
+        string action = "allow",
+        List<string>? sourceCidrs = null,
+        bool enabled = true)
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            Action = action,
+            Enabled = enabled,
+            Index = 1,
+            SourceMatchingTarget = "IP",
+            SourceIps = sourceCidrs
+        };
+    }
+
+    private static FirewallRule CreateFirewallRuleWithPort(
+        string name,
+        string action = "allow",
+        List<string>? sourceNetworkIds = null,
+        string? destPort = null,
+        string? protocol = null,
+        bool enabled = true)
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            Action = action,
+            Enabled = enabled,
+            Index = 1,
+            SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
+            DestinationPort = destPort,
+            Protocol = protocol
+        };
+    }
+
+    private static FirewallRule CreatePredefinedIsolatedNetworksRule(string originNetworkId)
+    {
+        return new FirewallRule
+        {
+            Id = $"isolated-{originNetworkId}",
+            Name = "Isolated Networks",
+            Action = "block",
+            Enabled = true,
+            Predefined = true,
+            Index = 30000 // High index like real UniFi rules
+        };
+    }
+
+    private static FirewallRule CreateFirewallRuleWithDestination(
+        string name,
+        string action = "allow",
+        List<string>? sourceNetworkIds = null,
+        List<string>? destNetworkIds = null,
+        bool enabled = true,
+        bool predefined = false)
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = name,
+            Action = action,
+            Enabled = enabled,
+            Predefined = predefined,
+            Index = 1,
+            SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
+            DestinationNetworkIds = destNetworkIds,
+            DestinationMatchingTarget = destNetworkIds?.Any() == true ? "NETWORK" : null
+        };
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -2444,6 +4433,7 @@ public class FirewallRuleAnalyzerTests
             Enabled = enabled,
             Index = index,
             SourceNetworkIds = sourceNetworkIds,
+            SourceMatchingTarget = sourceNetworkIds?.Any() == true ? "NETWORK" : null,
             WebDomains = webDomains,
             DestinationPort = destinationPort ?? destPort,
             SourceType = sourceType,

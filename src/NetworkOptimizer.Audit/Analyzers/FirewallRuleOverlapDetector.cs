@@ -1,4 +1,6 @@
+using System.Net;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Audit.Analyzers;
@@ -233,6 +235,53 @@ public static class FirewallRuleOverlapDetector
         var target1 = rule1.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
         var target2 = rule2.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
 
+        // Check for app-based rules (AppIds or AppCategoryIds)
+        // App-based rules use DPI to match traffic regardless of destination
+        var rule1HasApps = rule1.AppIds?.Count > 0 || rule1.AppCategoryIds?.Count > 0;
+        var rule2HasApps = rule2.AppIds?.Count > 0 || rule2.AppCategoryIds?.Count > 0;
+
+        if (rule1HasApps || rule2HasApps)
+        {
+            // If both rules have apps, check for app overlap
+            if (rule1HasApps && rule2HasApps)
+            {
+                return AppsOverlap(rule1, rule2);
+            }
+
+            // One rule has apps, one doesn't - they overlap if the non-app rule is broad
+            // App-based rules can match traffic to any destination, so they overlap with:
+            // - ANY destination rules
+            // - Zone-based rules (destination zone matches external/internet)
+            var nonAppRule = rule1HasApps ? rule2 : rule1;
+            var nonAppTarget = rule1HasApps ? target2 : target1;
+
+            // App rules only overlap with ANY destination
+            if (nonAppTarget == "ANY")
+                return true;
+
+            // Specific destination types don't overlap with app-based rules:
+            // - REGION: Geographic region (e.g., Asia, Europe) for cloud services
+            // - WEB: Specific domains
+            // - IP: Specific IP addresses
+            // - NETWORK: Specific network IDs
+            // - INTERNET_CATEGORY: Internet content category
+            // - CLIENT: Specific client MACs
+            // These are all specific enough that app-based rules targeting different apps won't overlap
+            if (nonAppTarget is "REGION" or "WEB" or "IP" or "NETWORK" or "INTERNET_CATEGORY" or "CLIENT")
+                return false;
+
+            // For any other target types, check if the rule has specific restrictions
+            if (nonAppRule.DestinationIps?.Count > 0 ||
+                nonAppRule.DestinationNetworkIds?.Count > 0 ||
+                nonAppRule.WebDomains?.Count > 0)
+            {
+                return false;
+            }
+
+            // Unknown target type with no specific restrictions - conservatively assume overlap
+            return true;
+        }
+
         // ANY matches everything
         if (target1 == "ANY" || target2 == "ANY")
             return true;
@@ -284,6 +333,56 @@ public static class FirewallRuleOverlapDetector
             var domains1 = rule1.WebDomains ?? new List<string>();
             var domains2 = rule2.WebDomains ?? new List<string>();
             return DomainsOverlap(domains1, domains2);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if two rules have overlapping app IDs or app category IDs.
+    /// App-based rules use DPI signatures to identify traffic, so two rules with
+    /// different specific apps don't overlap even if both have empty ports.
+    /// </summary>
+    public static bool AppsOverlap(FirewallRule rule1, FirewallRule rule2)
+    {
+        var apps1 = rule1.AppIds ?? new List<int>();
+        var apps2 = rule2.AppIds ?? new List<int>();
+        var cats1 = rule1.AppCategoryIds ?? new List<int>();
+        var cats2 = rule2.AppCategoryIds ?? new List<int>();
+
+        // Check for overlapping app IDs
+        if (apps1.Intersect(apps2).Any())
+            return true;
+
+        // Check for overlapping app category IDs
+        if (cats1.Intersect(cats2).Any())
+            return true;
+
+        // If both rules have specific AppIds (no categories), compare directly.
+        // Different apps = no overlap (e.g., DNS app vs Dehumidifier app)
+        if (apps1.Count > 0 && apps2.Count > 0 && cats1.Count == 0 && cats2.Count == 0)
+            return false;
+
+        // If both rules have specific categories (no apps), compare directly.
+        // Different categories = no overlap
+        if (cats1.Count > 0 && cats2.Count > 0 && apps1.Count == 0 && apps2.Count == 0)
+            return false;
+
+        // If one has apps and one has categories, only assume overlap if:
+        // - The category is "All" or another catch-all category (typically ID 0 or 1)
+        // - Otherwise, different apps/categories are unlikely to overlap
+        // This reduces false positives for unrelated apps (e.g., DNS vs smart home devices)
+        if ((apps1.Count > 0 && cats2.Count > 0) || (apps2.Count > 0 && cats1.Count > 0))
+        {
+            // Known broad categories that could contain any app
+            // UniFi category IDs: 0 and 1 are typically "All" or catch-all
+            var broadCategories = new HashSet<int> { 0, 1 };
+            if (cats1.Any(broadCategories.Contains) || cats2.Any(broadCategories.Contains))
+                return true;
+
+            // For specific categories (like "Streaming", "Gaming", "Network Infrastructure"),
+            // don't assume they contain unrelated apps
+            return false;
         }
 
         return false;
@@ -459,6 +558,7 @@ public static class FirewallRuleOverlapDetector
 
     /// <summary>
     /// Check if an IP address or smaller CIDR falls within a larger CIDR.
+    /// Supports both IPv4 and IPv6 addresses.
     /// </summary>
     public static bool IpMatchesCidr(string ip, string cidr)
     {
@@ -467,33 +567,13 @@ public static class FirewallRuleOverlapDetector
 
         try
         {
-            var parts = cidr.Split('/');
-            var networkAddress = parts[0];
-            var prefixLength = int.Parse(parts[1]);
-
             // Extract the IP part (without CIDR suffix if present)
             var ipPart = ip.Contains('/') ? ip.Split('/')[0] : ip;
 
-            // Parse both addresses
-            var ipBytes = System.Net.IPAddress.Parse(ipPart).GetAddressBytes();
-            var networkBytes = System.Net.IPAddress.Parse(networkAddress).GetAddressBytes();
+            if (!IPAddress.TryParse(ipPart, out var ipAddress))
+                return false;
 
-            // Create mask
-            var maskBytes = new byte[4];
-            for (int i = 0; i < 4; i++)
-            {
-                int bitsInThisByte = Math.Max(0, Math.Min(8, prefixLength - (i * 8)));
-                maskBytes[i] = (byte)(0xFF << (8 - bitsInThisByte));
-            }
-
-            // Check if masked addresses match
-            for (int i = 0; i < 4; i++)
-            {
-                if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                    return false;
-            }
-
-            return true;
+            return NetworkUtilities.IsIpInSubnet(ipAddress, cidr);
         }
         catch
         {
@@ -631,6 +711,33 @@ public static class FirewallRuleOverlapDetector
     private static int GetDestinationScopeScore(FirewallRule rule)
     {
         var target = rule.DestinationMatchingTarget?.ToUpperInvariant() ?? "ANY";
+
+        // If DestinationMatchingTarget is null/ANY but WebDomains is populated, treat as WEB
+        // This handles rules where the target type field isn't set but domains are specified
+        if ((target == "ANY" || string.IsNullOrEmpty(rule.DestinationMatchingTarget)) &&
+            rule.WebDomains?.Count > 0)
+        {
+            target = "WEB";
+        }
+
+        // Check for app-based rules
+        // App rules (HTTP, HTTPS, etc.) are medium-broad - they match all traffic for those apps
+        // They're broader than specific IPs/domains but narrower than ANY
+        if (target == "APP" || rule.AppIds?.Count > 0)
+        {
+            var appCount = rule.AppIds?.Count ?? 0;
+            // Base score 6 (medium-broad), increases slightly with more apps
+            var baseAppScore = 6 + GetListSizeBonus(appCount);
+            return Math.Max(1, baseAppScore - GetPortSpecificityPenalty(rule.DestinationPort));
+        }
+
+        if (target == "APP_CATEGORY" || rule.AppCategoryIds?.Count > 0)
+        {
+            var catCount = rule.AppCategoryIds?.Count ?? 0;
+            // Categories are very broad (e.g., "Web Services" = all web traffic)
+            var baseCatScore = 8 + GetListSizeBonus(catCount);
+            return Math.Max(1, baseCatScore - GetPortSpecificityPenalty(rule.DestinationPort));
+        }
 
         var baseScore = target switch
         {

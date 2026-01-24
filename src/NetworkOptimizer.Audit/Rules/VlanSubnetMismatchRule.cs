@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Helpers;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
@@ -69,7 +70,7 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
             return null;
 
         // Check if client IP is in the network's subnet
-        if (IsIpInSubnet(ip, effectiveNetwork.Subnet))
+        if (NetworkUtilities.IsIpInSubnet(ip, effectiveNetwork.Subnet))
             return null; // IP matches subnet, no issue
 
         // IP doesn't match subnet - this is a problem
@@ -138,56 +139,5 @@ public class VlanSubnetMismatchRule : WirelessAuditRuleBase
 
         return IPAddress.TryParse(parts[0], out var networkAddress) &&
                networkAddress.AddressFamily == AddressFamily.InterNetwork;
-    }
-
-    /// <summary>
-    /// Check if an IP address is within a given subnet (CIDR notation like "192.168.1.0/24").
-    /// </summary>
-    private static bool IsIpInSubnet(IPAddress ip, string subnet)
-    {
-        var parts = subnet.Split('/');
-        if (parts.Length != 2 || !int.TryParse(parts[1], out var prefixLength))
-            return false;
-
-        if (!IPAddress.TryParse(parts[0], out var networkAddress))
-            return false;
-
-        // Only handle IPv4
-        if (ip.AddressFamily != AddressFamily.InterNetwork ||
-            networkAddress.AddressFamily != AddressFamily.InterNetwork)
-            return false;
-
-        var ipBytes = ip.GetAddressBytes();
-        var networkBytes = networkAddress.GetAddressBytes();
-
-        // Create mask from prefix length
-        var maskBytes = new byte[4];
-        var remainingBits = prefixLength;
-        for (int i = 0; i < 4; i++)
-        {
-            if (remainingBits >= 8)
-            {
-                maskBytes[i] = 0xFF;
-                remainingBits -= 8;
-            }
-            else if (remainingBits > 0)
-            {
-                maskBytes[i] = (byte)(0xFF << (8 - remainingBits));
-                remainingBits = 0;
-            }
-            else
-            {
-                maskBytes[i] = 0;
-            }
-        }
-
-        // Check if masked IP equals masked network
-        for (int i = 0; i < 4; i++)
-        {
-            if ((ipBytes[i] & maskBytes[i]) != (networkBytes[i] & maskBytes[i]))
-                return false;
-        }
-
-        return true;
     }
 }

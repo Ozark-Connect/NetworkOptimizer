@@ -71,6 +71,18 @@ public class ConfigAuditEngine
         /// Used by firewall rule analysis to identify rules targeting internet traffic.
         /// </summary>
         public string? ExternalZoneId { get; set; }
+
+        /// <summary>
+        /// Firewall zones from /firewall/zone API.
+        /// Used to validate zone assumptions and identify DMZ/Hotspot networks.
+        /// </summary>
+        public List<UniFiFirewallZone>? FirewallZones { get; init; }
+
+        /// <summary>
+        /// Lookup service for firewall zones.
+        /// Provides zone ID to zone key mapping and validation.
+        /// </summary>
+        public FirewallZoneLookup? ZoneLookup { get; set; }
     }
 
     /// <summary>
@@ -335,6 +347,30 @@ public class ConfigAuditEngine
             securityEngine.SetProtectCameras(request.ProtectCameras);
         }
 
+        // Create zone lookup for zone validation and DMZ/Hotspot identification
+        var zoneLookup = new FirewallZoneLookup(request.FirewallZones, _loggerFactory.CreateLogger<FirewallZoneLookup>());
+        if (request.FirewallZones != null)
+            _logger.LogInformation("Firewall zone data available: {ZoneCount} zones", request.FirewallZones.Count);
+
+        // Determine external zone ID from WAN network or legacy rules
+        var externalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules);
+
+        // Validate zone assumptions if we have both zone lookup and external zone ID
+        if (zoneLookup.HasZoneData && externalZoneId != null)
+        {
+            // Find the WAN network to validate its zone assignment
+            var wanNetwork = request.NetworkConfigs?.FirstOrDefault(n =>
+                string.Equals(n.Purpose, "wan", StringComparison.OrdinalIgnoreCase));
+
+            if (wanNetwork != null)
+            {
+                zoneLookup.ValidateWanZoneAssumption(wanNetwork.Name, wanNetwork.FirewallZoneId);
+            }
+
+            // Cross-check our determined external zone ID against the zone lookup
+            zoneLookup.ValidateExternalZoneId(externalZoneId);
+        }
+
         return new AuditContext
         {
             DeviceData = deviceData,
@@ -353,7 +389,9 @@ public class ConfigAuditEngine
             UpnpEnabled = request.UpnpEnabled,
             PortForwardRules = request.PortForwardRules,
             NetworkConfigs = request.NetworkConfigs,
-            ExternalZoneId = DetermineExternalZoneId(request.NetworkConfigs, request.FirewallRules)
+            FirewallZones = request.FirewallZones,
+            ZoneLookup = zoneLookup,
+            ExternalZoneId = externalZoneId
         };
     }
 
@@ -405,7 +443,7 @@ public class ConfigAuditEngine
     private void ExecutePhase1_ExtractNetworks(AuditContext ctx)
     {
         _logger.LogInformation("Phase 1: Extracting network topology");
-        ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData);
+        ctx.Networks = _vlanAnalyzer.ExtractNetworks(ctx.DeviceData, ctx.ZoneLookup);
         _logger.LogInformation("Found {NetworkCount} networks", ctx.Networks.Count);
     }
 
@@ -774,9 +812,13 @@ public class ConfigAuditEngine
             : new List<AuditIssue>();
 
         // Check if there's a 5G/LTE device on the network
-        var has5GDevice = ctx.Switches.Any(s =>
-            s.Model?.StartsWith("U5G", StringComparison.OrdinalIgnoreCase) == true ||
-            s.Model?.StartsWith("U-LTE", StringComparison.OrdinalIgnoreCase) == true);
+        // Check all raw devices since 5G modems may not have port tables (not in Switches)
+        var has5GDevice = ctx.DeviceData.ValueKind is JsonValueKind.Array or JsonValueKind.Object &&
+            ctx.DeviceData.UnwrapDataArray().Any(d =>
+                UniFi.UniFiProductDatabase.IsCellularModem(
+                    d.GetStringOrNull("model"),
+                    d.GetStringOrNull("shortname"),
+                    d.GetStringOrNull("type")));
 
         var mgmtFirewallIssues = _firewallAnalyzer.AnalyzeManagementNetworkFirewallAccess(firewallRules, ctx.Networks, has5GDevice, ctx.ExternalZoneId);
 
@@ -812,7 +854,7 @@ public class ConfigAuditEngine
         if (ctx.SettingsData.HasValue || ctx.FirewallRules?.Count > 0 || ctx.NatRulesData.HasValue)
         {
             ctx.DnsSecurityResult = await _dnsAnalyzer.AnalyzeAsync(
-                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId);
+                ctx.SettingsData, ctx.FirewallRules, ctx.Switches, ctx.Networks, ctx.DeviceData, ctx.PiholeManagementPort, ctx.NatRulesData, ctx.DnatExcludedVlanIds, ctx.ExternalZoneId, ctx.ZoneLookup);
             ctx.AllIssues.AddRange(ctx.DnsSecurityResult.Issues);
             ctx.HardeningMeasures.AddRange(ctx.DnsSecurityResult.HardeningNotes);
             _logger.LogInformation("Found {IssueCount} DNS security issues", ctx.DnsSecurityResult.Issues.Count);

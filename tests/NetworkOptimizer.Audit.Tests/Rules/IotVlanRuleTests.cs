@@ -866,6 +866,8 @@ public class IotVlanRuleTests
             ClientDeviceCategory.SmartLighting => "Philips Hue",
             ClientDeviceCategory.RoboticVacuum => "Roomba",
             ClientDeviceCategory.Camera => "Security Camera",
+            ClientDeviceCategory.Printer => "HP Printer",
+            ClientDeviceCategory.Scanner => "Canon Scanner",
             ClientDeviceCategory.Desktop => "Desktop PC",
             ClientDeviceCategory.Laptop => "Laptop",
             ClientDeviceCategory.Server => "Server",
@@ -1171,6 +1173,189 @@ public class IotVlanRuleTests
         result.Should().NotBeNull();
         result!.Severity.Should().Be(AuditSeverity.Critical);
         result.ScoreImpact.Should().Be(10);
+    }
+
+    #endregion
+
+    #region Printer/Scanner Tests
+
+    [Fact]
+    public void Evaluate_PrinterOnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Printer is handled like IoT (should be isolated)
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Office Printer", deviceCategory: ClientDeviceCategory.Printer, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("IOT-VLAN-001");
+    }
+
+    [Fact]
+    public void Evaluate_PrinterOnIoTVlan_ReturnsNull()
+    {
+        // Arrange - Printer correctly on IoT VLAN
+        var iotNetwork = new NetworkInfo { Id = "iot-net", Name = "IoT", VlanId = 40, Purpose = NetworkPurpose.IoT };
+        var port = CreatePort(portName: "Office Printer", deviceCategory: ClientDeviceCategory.Printer, networkId: iotNetwork.Id);
+        var networks = CreateNetworkList(iotNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - correctly placed
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Device Name Fallback Tests
+
+    [Fact]
+    public void Evaluate_ActivePort_WithOuiAndMac_DeviceNameUsesOuiAndMacSuffix()
+    {
+        // Arrange - client has OUI but no name
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Test Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "00:17:88:11:22:33",
+                Name = string.Empty, // No name
+                Hostname = null!,
+                Oui = "Philips Lighting",
+                IsWired = true,
+                NetworkId = corpNetwork.Id
+            }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - should use OUI with MAC suffix
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Contain("Philips Lighting");
+        result.DeviceName.Should().Contain("22:33"); // MAC suffix
+    }
+
+    [Fact]
+    public void Evaluate_ActivePort_NoOuiNoName_DeviceNameUsesMac()
+    {
+        // Arrange - client has no name and no OUI
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Test Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "00:17:88:11:22:33",
+                Name = string.Empty,
+                Hostname = null!,
+                Oui = null!, // No OUI
+                IsWired = true,
+                NetworkId = corpNetwork.Id
+            }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - should use full MAC or category
+        result.Should().NotBeNull();
+        // DeviceName should contain some identifier
+        result!.DeviceName.Should().NotBeNullOrEmpty();
+    }
+
+    #endregion
+
+    #region Historical Client Tests
+
+    [Fact]
+    public void Evaluate_OfflineDevice_WithHistoricalClientDisplayName_UsesDisplayName()
+    {
+        // Arrange - offline device with historical client data that has display name
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Office Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = false,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            LastConnectionMac = "00:17:88:11:22:33",
+            LastConnectionSeen = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds(),
+            HistoricalClient = new UniFiClientHistoryResponse
+            {
+                Mac = "00:17:88:11:22:33",
+                DisplayName = "Living Room Hue Bridge",
+                Name = "hue-bridge",
+                Hostname = "philips-hue",
+                IsWired = true
+            }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - should use DisplayName from HistoricalClient
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Contain("Living Room Hue Bridge");
+    }
+
+    [Fact]
+    public void Evaluate_OfflineDevice_WithHistoricalClientHostname_UsesHostname()
+    {
+        // Arrange - offline device with historical client that only has hostname
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Office Switch", Model = "USW-24", Type = "usw" };
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = false,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            LastConnectionMac = "00:17:88:11:22:33",
+            LastConnectionSeen = DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds(),
+            HistoricalClient = new UniFiClientHistoryResponse
+            {
+                Mac = "00:17:88:11:22:33",
+                DisplayName = null,
+                Name = null,
+                Hostname = "philips-hue-bridge",
+                IsWired = true
+            }
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - should use hostname when display name and name are null
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Contain("philips-hue-bridge");
     }
 
     #endregion

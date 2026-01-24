@@ -183,7 +183,9 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
 // Enable via environment variable: Iperf3Server__Enabled=true
-builder.Services.AddHostedService<Iperf3ServerService>();
+// Registered as singleton so it can be injected to check status (e.g., startup failure)
+builder.Services.AddSingleton<Iperf3ServerService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<Iperf3ServerService>());
 
 // Register nginx hosted service (Windows only - manages nginx for OpenSpeedTest)
 builder.Services.AddHostedService<NginxHostedService>();

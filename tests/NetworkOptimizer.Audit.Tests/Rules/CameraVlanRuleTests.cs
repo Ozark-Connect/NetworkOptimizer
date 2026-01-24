@@ -406,6 +406,84 @@ public class CameraVlanRuleTests
         result!.DeviceName.Should().Be("Amcrest (22:33) on Outdoor Switch");
     }
 
+    [Fact]
+    public void Evaluate_ClientWithNoNameOrOui_FallsBackToVendorName()
+    {
+        // Arrange - Client with no name and no OUI, but MAC vendor is detected
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Outdoor Switch", Model = "USW-24", Type = "usw" };
+
+        // Reolink camera MAC without OUI set - detection should find vendor from MAC OUI mapping
+        var connectedClient = new UniFiClientResponse
+        {
+            Mac = "EC:71:DB:11:22:33", // Reolink MAC prefix
+            Name = null!,       // No name
+            Hostname = null!,   // No hostname
+            Oui = null!,        // No OUI set - testing vendor fallback
+            IsWired = true,
+            NetworkId = corpNetwork.Id
+        };
+
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Camera Port",
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = connectedClient
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Device name should use vendor from detection + MAC suffix
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Contain("Reolink");
+        result.DeviceName.Should().Contain("Outdoor Switch");
+    }
+
+    [Fact]
+    public void Evaluate_ClientWithNoNameOuiOrVendor_FallsBackToMac()
+    {
+        // Arrange - Client with absolutely no identifying info except MAC
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var switchInfo = new SwitchInfo { Name = "Outdoor Switch", Model = "USW-24", Type = "usw" };
+
+        // Unknown MAC that still gets detected as camera via port name
+        var connectedClient = new UniFiClientResponse
+        {
+            Mac = "AA:BB:CC:DD:EE:FF",
+            Name = null!,
+            Hostname = null!,
+            Oui = null!,
+            IsWired = true,
+            NetworkId = corpNetwork.Id
+        };
+
+        var port = new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Security Camera", // This name pattern triggers camera detection
+            IsUp = true,
+            ForwardMode = "native",
+            NativeNetworkId = corpNetwork.Id,
+            Switch = switchInfo,
+            ConnectedClient = connectedClient
+        };
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Device name should fall back to MAC
+        result.Should().NotBeNull();
+        result!.DeviceName.Should().Contain("AA:BB:CC:DD:EE:FF");
+        result.DeviceName.Should().Contain("Outdoor Switch");
+    }
+
     #endregion
 
     #region Down Port with MAC Restriction Tests
@@ -660,6 +738,40 @@ public class CameraVlanRuleTests
 
     #endregion
 
+    #region Cloud Camera Tests
+
+    [Fact]
+    public void Evaluate_CloudCameraOnCorporateVlan_ReturnsNull()
+    {
+        // Arrange - Cloud cameras (Ring, Nest, etc.) are handled by IoT rules, not camera rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Ring Camera", deviceCategory: ClientDeviceCategory.CloudCamera, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_CloudSecuritySystemOnCorporateVlan_ReturnsNull()
+    {
+        // Arrange - Cloud security systems are handled by IoT rules
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "SimpliSafe Base", deviceCategory: ClientDeviceCategory.CloudSecuritySystem, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Cloud surveillance is skipped by this rule
+        result.Should().BeNull();
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static PortInfo CreatePort(
@@ -724,6 +836,9 @@ public class CameraVlanRuleTests
         return category switch
         {
             ClientDeviceCategory.Camera => "Security Camera",
+            ClientDeviceCategory.CloudCamera => "Ring Camera",
+            ClientDeviceCategory.CloudSecuritySystem => "SimpliSafe Hub",
+            ClientDeviceCategory.SecuritySystem => "Security System",
             ClientDeviceCategory.SmartPlug => "Smart Plug",
             ClientDeviceCategory.Desktop => "Desktop PC",
             ClientDeviceCategory.Server => "Server",

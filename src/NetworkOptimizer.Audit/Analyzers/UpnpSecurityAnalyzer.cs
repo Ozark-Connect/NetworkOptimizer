@@ -223,9 +223,9 @@ public class UpnpSecurityAnalyzer
             // Upgrade to warning if on Home network with unrestricted privileged ports
             var isUnrestricted = unrestrictedRules.Count > 0 && hasHomeNetwork;
             var severity = isUnrestricted ? AuditSeverity.Recommended : AuditSeverity.Informational;
-            var scoreImpact = isUnrestricted ? 5 : 0;
+            var scoreImpact = isUnrestricted ? 8 : 0;
             var recommendation = isUnrestricted
-                ? "Define a source IP/firewall group to restrict access to these privileged ports"
+                ? "Edit the Port Forwarding Policy and set 'From' to 'Limited' to restrict which source IPs can access these ports"
                 : "Ensure these privileged ports are intentionally exposed and properly secured";
 
             issues.Add(new AuditIssue
