@@ -2086,7 +2086,7 @@ select.form-control {
         display: block;
         height: 60px;
         margin: -0.5rem 0;
-        max-height: 7vh;
+        max-height: 20vw;
     }
 
     .mobile-logo img {
