@@ -4,6 +4,7 @@
    Usage:
    <SpeedTestSearchFilter @bind-SearchFilter="myFilter" OnSearch="HandleSearch" Placeholder="Search..." />
 *@
+@implements IDisposable
 
 <div class="speedtest-search">
     <div class="search-input-wrapper">
@@ -91,10 +92,11 @@
 
     protected override void OnParametersSet()
     {
-        // Sync input with external filter changes (e.g., clear from parent)
-        if (searchInput != SearchFilter && string.IsNullOrEmpty(SearchFilter))
+        // Sync input with external filter changes (e.g., filter changed from map or table)
+        // Only update if the filter changed from outside (not from our own typing)
+        if (searchInput != SearchFilter)
         {
-            searchInput = "";
+            searchInput = SearchFilter;
         }
     }
 
