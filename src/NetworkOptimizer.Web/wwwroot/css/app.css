@@ -2292,6 +2292,7 @@ select.form-control {
         grid-row: 1;
         flex-wrap: wrap;
         gap: 0.25rem 0.5rem;
+        min-height: 0;
     }
 
     .issue-severity {
