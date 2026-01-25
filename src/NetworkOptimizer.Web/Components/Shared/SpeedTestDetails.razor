@@ -972,8 +972,8 @@
         string measuredFormatted, maxFormatted, unit;
         if (measuredMbps > 9999 || maxMbps > 9999)
         {
-            measuredFormatted = $"{measuredMbps / 1000.0:F1}";
-            maxFormatted = $"{maxMbps / 1000.0:F1}";
+            measuredFormatted = $"{measuredMbps / 1000.0:F2}";
+            maxFormatted = $"{maxMbps / 1000.0:F2}";
             unit = "Gbps";
         }
         else
