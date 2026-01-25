@@ -2151,7 +2151,7 @@
             // Refresh dashboard after adjustment
             if (success)
             {
-                await Task.Delay(1000); // Give the monitor a moment to update
+                await Task.Delay(2000); // Give the monitor time to update after TC changes
                 await RefreshDashboard();
             }
         }
