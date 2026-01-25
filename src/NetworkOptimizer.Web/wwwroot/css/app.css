@@ -2279,6 +2279,7 @@ select.form-control {
         grid-row: 2;
         align-self: start;
         margin-top: 0;
+        padding-top: 0.1rem;
     }
 
     .issue-body {
@@ -2343,6 +2344,7 @@ select.form-control {
         grid-row: 2;
         align-self: start;
         padding-top: 0.1rem;
+        margin: 0;
     }
 
     .issue-type-body {
