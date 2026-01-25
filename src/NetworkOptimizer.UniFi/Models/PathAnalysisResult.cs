@@ -297,9 +297,9 @@ public class PathAnalysisResult
     /// Used to populate Iperf3Result.WifiTxRateKbps/WifiRxRateKbps for asymmetric display.
     /// Returns null if no directional rates are available in the path.
     ///
-    /// Direction mapping for mesh APs:
-    /// - TX (FromDevice ↓): Mesh AP transmits toward uplink/server
-    /// - RX (ToDevice ↑): Mesh AP receives from uplink/server
+    /// Direction mapping (same for Wi-Fi clients and mesh - data from parent AP's perspective):
+    /// - RX (FromDevice ↓): Parent AP receives from device
+    /// - TX (ToDevice ↑): Parent AP transmits to device
     ///
     /// Direction mapping for WAN:
     /// - Ingress/Download (FromDevice ↓): Data from external toward server
@@ -308,8 +308,7 @@ public class PathAnalysisResult
     public (long? rxKbps, long? txKbps) GetDirectionalRatesFromPath()
     {
         // For mesh APs: get rates from the wireless hop
-        // Note: Mesh direction is opposite of client Wi-Fi because we're looking at
-        // the mesh AP's perspective transmitting TO (not receiving FROM) the server direction
+        // Mesh uses same perspective as Wi-Fi clients - from parent AP's view
         if (Path.TargetIsAccessPoint && Path.HasWirelessConnection)
         {
             var wirelessHop = Path.Hops.FirstOrDefault(h =>
@@ -318,8 +317,8 @@ public class PathAnalysisResult
 
             if (wirelessHop != null)
             {
-                // Mesh: TX limits FromDevice (AP transmits toward server), RX limits ToDevice (AP receives from server)
-                return (wirelessHop.WirelessTxRateMbps!.Value * 1000L, wirelessHop.WirelessRxRateMbps!.Value * 1000L);
+                // RX = parent receives from mesh AP = FromDevice, TX = parent transmits to mesh AP = ToDevice
+                return (wirelessHop.WirelessRxRateMbps!.Value * 1000L, wirelessHop.WirelessTxRateMbps!.Value * 1000L);
             }
         }
 
