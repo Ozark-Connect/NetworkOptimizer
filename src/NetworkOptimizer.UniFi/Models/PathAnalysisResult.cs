@@ -241,13 +241,19 @@ public class PathAnalysisResult
     /// Used to populate Iperf3Result.WifiTxRateKbps/WifiRxRateKbps for asymmetric display.
     /// Returns null if no directional rates are available in the path.
     ///
-    /// Direction mapping:
-    /// - RX (FromDevice ↓): AP receives from device, or WAN download
-    /// - TX (ToDevice ↑): AP transmits to device, or WAN upload
+    /// Direction mapping for mesh APs:
+    /// - TX (FromDevice ↓): Mesh AP transmits toward uplink/server
+    /// - RX (ToDevice ↑): Mesh AP receives from uplink/server
+    ///
+    /// Direction mapping for WAN:
+    /// - Ingress/Download (FromDevice ↓): Data from external toward server
+    /// - Egress/Upload (ToDevice ↑): Data from server toward external
     /// </summary>
     public (long? rxKbps, long? txKbps) GetDirectionalRatesFromPath()
     {
         // For mesh APs: get rates from the wireless hop
+        // Note: Mesh direction is opposite of client Wi-Fi because we're looking at
+        // the mesh AP's perspective transmitting TO (not receiving FROM) the server direction
         if (Path.TargetIsAccessPoint && Path.HasWirelessConnection)
         {
             var wirelessHop = Path.Hops.FirstOrDefault(h =>
@@ -256,8 +262,8 @@ public class PathAnalysisResult
 
             if (wirelessHop != null)
             {
-                // Convert Mbps to Kbps
-                return (wirelessHop.WirelessRxRateMbps!.Value * 1000L, wirelessHop.WirelessTxRateMbps!.Value * 1000L);
+                // Mesh: TX limits FromDevice (AP transmits toward server), RX limits ToDevice (AP receives from server)
+                return (wirelessHop.WirelessTxRateMbps!.Value * 1000L, wirelessHop.WirelessRxRateMbps!.Value * 1000L);
             }
         }
 
