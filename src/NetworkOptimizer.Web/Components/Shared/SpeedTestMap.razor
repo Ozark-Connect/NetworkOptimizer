@@ -148,7 +148,7 @@
 
     /// <summary>
     /// Checks if a result matches the search filter (case-insensitive partial match).
-    /// Map filter only checks client device and connected AP (first hop).
+    /// Map filter only checks client device and connected AP.
     /// </summary>
     private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
     {
@@ -164,11 +164,11 @@
         if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
             return true;
 
-        // Check connected AP (first hop only)
-        var firstHop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault();
-        if (firstHop != null)
+        // Check connected AP (first AccessPoint hop in path)
+        var apHop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault(h => h.Type == HopType.AccessPoint);
+        if (apHop != null)
         {
-            if (firstHop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            if (apHop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
                 return true;
         }
 
