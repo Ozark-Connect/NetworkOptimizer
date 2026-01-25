@@ -3656,6 +3656,15 @@ select.form-control {
     color: var(--speed-upload-color);
 }
 
+.wifi-tooltip-bottleneck {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--warning-color);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
 .wifi-band-badge {
     display: inline-block;
     padding: 0.1rem 0.35rem;

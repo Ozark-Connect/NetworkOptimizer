@@ -164,10 +164,10 @@
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (lastHop.IsBottleneck || nextHopGlobal.IsBottleneck);
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
-                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                    <div class="path-connector path-turn turn-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@(isBottleneckLink && !isWirelessLink ? "Bottleneck: slowest link in path" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            var wifiTooltip = GetWifiTooltip(lastHop, nextHopGlobal);
+                                            var wifiTooltip = GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink);
                                             <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
                                         }
                                         <span class="connector-line"></span>
@@ -197,10 +197,10 @@
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (hop.IsBottleneck || nextHopGlobal.IsBottleneck);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@(isBottleneckLink ? "Bottleneck: slowest link in path" : null)">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@(isBottleneckLink && !isWirelessLink ? "Bottleneck: slowest link in path" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink);
                                             <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
                                         }
                                         <span class="connector-line"></span>
@@ -236,10 +236,10 @@
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var needsTurn = isLastHopInRow && !isLastRow;
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@(isBottleneckLink ? "Bottleneck: slowest link in path" : null)">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" data-tooltip="@(isBottleneckLink && !isWirelessLink ? "Bottleneck: slowest link in path" : null)">
                                         @if (isWirelessLink)
                                         {
-                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
+                                            var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink);
                                             <span class="wireless-icon" data-tooltip="@wifiTooltip">📶</span>
                                         }
                                         <span class="connector-line"></span>
@@ -574,7 +574,10 @@
     /// <summary>
     /// Get Wi-Fi signal tooltip content from the hop or Result
     /// </summary>
-    private string GetWifiTooltip(NetworkHop hop, NetworkHop nextHop)
+    /// <param name="hop">The current hop</param>
+    /// <param name="nextHop">The next hop in the path</param>
+    /// <param name="isBottleneck">Whether this link is the bottleneck</param>
+    private string GetWifiTooltip(NetworkHop hop, NetworkHop nextHop, bool isBottleneck = false)
     {
         // Determine if this is the client's wireless connection (first hop is WirelessClient)
         // or a mesh/bridge wireless link
@@ -593,7 +596,8 @@
             // Check for MLO (Multi-Link Operation) - use unified styling
             if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
             {
-                return BuildMloTooltip();
+                var mloTooltip = BuildMloTooltip();
+                return isBottleneck ? mloTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : mloTooltip;
             }
 
             // Single-link wireless - use same styled format as MLO
@@ -636,7 +640,8 @@
                 lines.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
             }
 
-            return lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
+            var clientTooltip = lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
+            return isBottleneck ? clientTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : clientTooltip;
         }
 
         // For mesh/bridge wireless - use same styled format
@@ -676,7 +681,8 @@
             lines2.Add($"<div class='wifi-tooltip-link-signal'>{string.Join(" · ", sigParts)}</div>");
         }
 
-        return lines2.Count > 1 ? string.Join("", lines2) : "Wireless mesh";
+        var meshTooltip = lines2.Count > 1 ? string.Join("", lines2) : "Wireless mesh";
+        return isBottleneck ? meshTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : meshTooltip;
     }
 
     /// <summary>
