@@ -3053,13 +3053,9 @@ select.form-control {
 
 /* Speed test result notes */
 .result-notes {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border-color);
-}
-
-.notes-input-wrapper {
+    flex: 1;
     position: relative;
+    min-width: 150px;
 }
 
 .notes-input {
@@ -3068,9 +3064,9 @@ select.form-control {
     border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: var(--text-primary);
-    resize: vertical;
+    resize: none;
     min-height: 2.5rem;
 }
 

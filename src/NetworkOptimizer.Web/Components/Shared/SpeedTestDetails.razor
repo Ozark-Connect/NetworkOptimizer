@@ -108,6 +108,25 @@
                         </div>
                     }
                 </div>
+                @if (Result != null && OnNotesChanged.HasDelegate)
+                {
+                    <div class="result-notes" @onclick:stopPropagation="true">
+                        <textarea class="notes-input"
+                                  placeholder="Add notes..."
+                                  @bind="_notesInput"
+                                  @bind:event="oninput"
+                                  @onkeyup="OnNotesKeyUp"
+                                  rows="2"></textarea>
+                        @if (_notesSaving)
+                        {
+                            <span class="notes-status saving">Saving...</span>
+                        }
+                        else if (_notesSaved)
+                        {
+                            <span class="notes-status saved">Saved</span>
+                        }
+                    </div>
+                }
             </div>
 
             @if (PathAnalysis.Path.Hops.Count > 0)
@@ -285,28 +304,6 @@
                 }
             </div>
         }
-    </div>
-}
-
-@if (Result != null && OnNotesChanged.HasDelegate)
-{
-    <div class="result-notes" @onclick:stopPropagation="true">
-        <div class="notes-input-wrapper">
-            <textarea class="notes-input"
-                      placeholder="Add notes about this test..."
-                      @bind="_notesInput"
-                      @bind:event="oninput"
-                      @onkeyup="OnNotesKeyUp"
-                      rows="2"></textarea>
-            @if (_notesSaving)
-            {
-                <span class="notes-status saving">Saving...</span>
-            }
-            else if (_notesSaved)
-            {
-                <span class="notes-status saved">Saved</span>
-            }
-        </div>
     </div>
 }
 
