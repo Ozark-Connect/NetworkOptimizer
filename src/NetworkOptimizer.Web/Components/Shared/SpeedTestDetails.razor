@@ -260,10 +260,10 @@
                 </div>
             }
 
-            @if (PathAnalysis.Path.HasRealBottleneck && !string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
+            @if (PathAnalysis.Path.HasRealBottleneck)
             {
                 <div class="bottleneck-warning">
-                    ⚠️ @PathAnalysis.Path.BottleneckDescription
+                    ⚠️ @FormatBottleneckDescription()
                 </div>
             }
 
@@ -1038,6 +1038,50 @@
 
         // Use download/upload colors: download (from device) = blue, upload (to device) = green
         return new MarkupString($"<span class=\"speed-from\">↓{fromVal}</span> <span class=\"speed-to\">↑{toVal}</span> {unit}");
+    }
+
+    /// <summary>
+    /// Format the bottleneck description, showing directional speeds (Rx / Tx) if asymmetric.
+    /// Generated on the fly to support existing test results.
+    /// </summary>
+    private string FormatBottleneckDescription()
+    {
+        if (PathAnalysis == null || string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
+            return "";
+
+        var (rxKbps, txKbps) = GetDirectionalRates();
+
+        // If we have directional rates and they differ significantly, show both
+        if (rxKbps.HasValue && txKbps.HasValue &&
+            rxKbps.Value > 0 && txKbps.Value > 0 &&
+            PathAnalysisResult.IsAsymmetric(rxKbps, txKbps))
+        {
+            var rxMbps = rxKbps.Value / 1000.0;
+            var txMbps = txKbps.Value / 1000.0;
+
+            // Format speed as "Rx / Tx" with appropriate unit
+            string speedStr;
+            if (rxMbps >= 1000 && txMbps >= 1000)
+            {
+                var rxGbps = rxMbps / 1000.0;
+                var txGbps = txMbps / 1000.0;
+                speedStr = $"{rxGbps:F1} / {txGbps:F1} Gbps";
+            }
+            else
+            {
+                speedStr = $"{rxMbps:F0} / {txMbps:F0} Mbps";
+            }
+
+            // Extract device info from existing description (after " at ")
+            var description = PathAnalysis.Path.BottleneckDescription;
+            var atIndex = description.IndexOf(" at ", StringComparison.Ordinal);
+            var devicePart = atIndex >= 0 ? description.Substring(atIndex) : "";
+
+            return $"{speedStr} link{devicePart}";
+        }
+
+        // Fall back to existing description for symmetric links
+        return PathAnalysis.Path.BottleneckDescription;
     }
 
     /// <summary>
