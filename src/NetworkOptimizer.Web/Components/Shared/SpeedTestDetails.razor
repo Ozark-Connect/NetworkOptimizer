@@ -967,35 +967,70 @@
         if (maxMbps <= 0 || measuredMbps <= 0)
             return directionText;
 
-        // Format the tooltip with consistent units (Gbps if >= 1000, else Mbps)
+        // Format with units matching the MAX display (all Gbps or all Mbps)
         // maxMbps is the link speed (PHY rate), overhead explains why you can't achieve 100%
-        var measuredFormatted = FormatSpeedCompact(measuredMbps);
-        var maxFormatted = FormatSpeedCompact(maxMbps);
-        return $"{directionText}. {measuredFormatted} of {maxFormatted} link ({overheadPct}% overhead)";
+        var (useGbps, unit) = GetAsymmetricUnit();
+        string measuredFormatted, maxFormatted;
+        if (useGbps)
+        {
+            measuredFormatted = $"{measuredMbps / 1000.0:F1}";
+            maxFormatted = $"{maxMbps / 1000.0:F1}";
+        }
+        else
+        {
+            measuredFormatted = $"{measuredMbps:F0}";
+            maxFormatted = $"{maxMbps:F0}";
+        }
+        return $"{directionText}. {measuredFormatted} of {maxFormatted} {unit} link ({overheadPct}% overhead)";
     }
 
     /// <summary>
     /// Format the path max speed display, showing directional speeds if asymmetric.
+    /// Returns MarkupString for colored arrows.
     /// </summary>
-    private string FormatPathMaxSpeed()
+    private MarkupString FormatPathMaxSpeed()
     {
         if (PathAnalysis == null)
-            return "0 Mbps";
+            return new MarkupString("0 Mbps");
 
         if (!IsLinkAsymmetric())
         {
-            return FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps);
+            return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));
         }
 
-        // Asymmetric: show both directions with consistent units
+        // Asymmetric: show both directions with colored arrows matching speed-results
         var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
 
         // Use Gbps if both are >= 1000, otherwise Mbps
+        string fromVal, toVal, unit;
         if (fromMax >= 1000 && toMax >= 1000)
         {
-            return $"↓{fromMax / 1000.0:F1} / ↑{toMax / 1000.0:F1} Gbps";
+            fromVal = $"{fromMax / 1000.0:F1}";
+            toVal = $"{toMax / 1000.0:F1}";
+            unit = "Gbps";
         }
-        return $"↓{fromMax:F0} / ↑{toMax:F0} Mbps";
+        else
+        {
+            fromVal = $"{fromMax:F0}";
+            toVal = $"{toMax:F0}";
+            unit = "Mbps";
+        }
+
+        // Use download/upload colors: download (from device) = blue, upload (to device) = green
+        return new MarkupString($"<span class=\"speed-from\">↓{fromVal}</span> <span class=\"speed-to\">↑{toVal}</span> {unit}");
+    }
+
+    /// <summary>
+    /// Get the unit (Gbps or Mbps) used for asymmetric display, for tooltip consistency.
+    /// </summary>
+    private (bool useGbps, string unit) GetAsymmetricUnit()
+    {
+        if (PathAnalysis == null || !IsLinkAsymmetric())
+            return (false, "Mbps");
+
+        var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
+        var useGbps = fromMax >= 1000 && toMax >= 1000;
+        return (useGbps, useGbps ? "Gbps" : "Mbps");
     }
 
     /// <summary>

@@ -3200,6 +3200,15 @@ select.form-control {
     color: var(--text-primary);
 }
 
+/* Directional speed colors for asymmetric links (matching speed-results) */
+.path-analysis .path-max-speed .speed-from {
+    color: var(--speed-download-color);  /* blue - From Device (↓) */
+}
+
+.path-analysis .path-max-speed .speed-to {
+    color: var(--speed-upload-color);    /* green - To Device (↑) */
+}
+
 .path-analysis .path-max-speed .speed-label {
     font-size: 0.7rem;
     color: var(--text-muted);
