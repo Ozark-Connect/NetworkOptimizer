@@ -73,14 +73,7 @@ public class ClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        // Let WiFi link rates stabilize after the speed test
-        await Task.Delay(TimeSpan.FromSeconds(2));
-
-        // Try to look up client info from UniFi
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
-
-        // Perform path analysis (client to server)
-        await AnalyzePathAsync(result);
+        await EnrichAndAnalyzeAsync(result);
 
         await using var db = await _dbFactory.CreateDbContextAsync();
         db.Iperf3Results.Add(result);
@@ -183,14 +176,7 @@ public class ClientSpeedTestService
             Success = true
         };
 
-        // Let WiFi link rates stabilize after the speed test
-        await Task.Delay(TimeSpan.FromSeconds(2));
-
-        // Try to look up client info from UniFi
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
-
-        // Perform path analysis
-        await AnalyzePathAsync(result);
+        await EnrichAndAnalyzeAsync(result);
 
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
@@ -361,5 +347,21 @@ public class ClientSpeedTestService
         {
             _logger.LogWarning(ex, "Failed to analyze path for {Client}", result.DeviceHost);
         }
+    }
+
+    /// <summary>
+    /// Common post-processing for client speed test results:
+    /// waits for WiFi rates to stabilize, enriches with UniFi data, and analyzes path.
+    /// </summary>
+    private async Task EnrichAndAnalyzeAsync(Iperf3Result result)
+    {
+        // Let WiFi link rates stabilize after the speed test
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        // Try to look up client info from UniFi
+        await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
+
+        // Perform path analysis
+        await AnalyzePathAsync(result);
     }
 }
