@@ -979,8 +979,9 @@
         }
         else
         {
-            measuredFormatted = $"{measuredMbps:F0}";
-            maxFormatted = $"{maxMbps:F0}";
+            // Show decimal for values < 10 to ensure 2+ significant digits
+            measuredFormatted = measuredMbps < 10 ? $"{measuredMbps:F1}" : $"{measuredMbps:F0}";
+            maxFormatted = maxMbps < 10 ? $"{maxMbps:F1}" : $"{maxMbps:F0}";
             unit = "Mbps";
         }
         return $"{directionText}. {measuredFormatted} of {maxFormatted} {unit} link (~{overheadPct}% overhead)";
