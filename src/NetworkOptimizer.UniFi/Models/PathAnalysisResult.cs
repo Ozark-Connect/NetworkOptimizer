@@ -237,6 +237,51 @@ public class PathAnalysisResult
     }
 
     /// <summary>
+    /// Extract directional rates from path data (mesh hops or WAN).
+    /// Used to populate Iperf3Result.WifiTxRateKbps/WifiRxRateKbps for asymmetric display.
+    /// Returns null if no directional rates are available in the path.
+    ///
+    /// Direction mapping:
+    /// - RX (FromDevice ↓): AP receives from device, or WAN download
+    /// - TX (ToDevice ↑): AP transmits to device, or WAN upload
+    /// </summary>
+    public (long? rxKbps, long? txKbps) GetDirectionalRatesFromPath()
+    {
+        // For mesh APs: get rates from the wireless hop
+        if (Path.TargetIsAccessPoint && Path.HasWirelessConnection)
+        {
+            var wirelessHop = Path.Hops.FirstOrDefault(h =>
+                h.WirelessTxRateMbps.HasValue && h.WirelessRxRateMbps.HasValue &&
+                h.WirelessTxRateMbps.Value > 0 && h.WirelessRxRateMbps.Value > 0);
+
+            if (wirelessHop != null)
+            {
+                // Convert Mbps to Kbps
+                return (wirelessHop.WirelessRxRateMbps!.Value * 1000L, wirelessHop.WirelessTxRateMbps!.Value * 1000L);
+            }
+        }
+
+        // For WAN/VPN: use hop ingress/egress speeds if asymmetric
+        // These are set during path tracing from WAN provider capabilities
+        if (Path.IsExternalPath)
+        {
+            var externalHop = Path.Hops.FirstOrDefault(h =>
+                h.Type == HopType.Wan || h.Type == HopType.Vpn ||
+                h.Type == HopType.Teleport || h.Type == HopType.Tailscale);
+
+            if (externalHop != null &&
+                externalHop.IngressSpeedMbps > 0 && externalHop.EgressSpeedMbps > 0 &&
+                externalHop.IngressSpeedMbps != externalHop.EgressSpeedMbps)
+            {
+                // Ingress = download (FromDevice), Egress = upload (ToDevice)
+                return (externalHop.IngressSpeedMbps * 1000L, externalHop.EgressSpeedMbps * 1000L);
+            }
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
     /// Analyze TCP retransmits and generate insights about packet loss.
     /// Uses percentage-based thresholds: 0.1% is concerning, with higher thresholds for UniFi devices.
     /// </summary>

@@ -1231,15 +1231,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 if (secondOctet >= 64 && secondOctet <= 127)
                 {
-                    // Use higher of upload/download until asymmetric link support is added
-                    var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+                    // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
                     return new NetworkHop
                     {
                         Type = HopType.Tailscale,
                         DeviceName = "Tailscale",
                         DeviceIp = clientIp,
-                        IngressSpeedMbps = wanSpeed,
-                        EgressSpeedMbps = wanSpeed,
+                        IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                        EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                         IngressPortName = "WAN",
                         EgressPortName = "WAN",
                         Notes = wanUploadMbps > 0
@@ -1259,15 +1258,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (!isInKnownNetwork)
             {
-                // Use higher of upload/download until asymmetric link support is added
-                var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+                // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
                 return new NetworkHop
                 {
                     Type = HopType.Teleport,
                     DeviceName = "Teleport",
                     DeviceIp = clientIp,
-                    IngressSpeedMbps = wanSpeed,
-                    EgressSpeedMbps = wanSpeed,
+                    IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                    EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                     IngressPortName = "WAN",
                     EgressPortName = "WAN",
                     Notes = wanUploadMbps > 0
@@ -1283,14 +1281,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (matchingNetwork?.Purpose == "remote-user-vpn")
         {
-            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
             {
                 Type = HopType.Vpn,
                 DeviceName = "VPN",
                 DeviceIp = clientIp,
-                IngressSpeedMbps = wanSpeed,
-                EgressSpeedMbps = wanSpeed,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
                 Notes = wanUploadMbps > 0
@@ -1304,14 +1302,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (isExternalIp)
         {
-            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
             {
                 Type = HopType.Wan,
                 DeviceName = "WAN",
                 DeviceIp = clientIp,
-                IngressSpeedMbps = wanSpeed,
-                EgressSpeedMbps = wanSpeed,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
                 Notes = wanUploadMbps > 0

@@ -917,17 +917,33 @@
     #region Directional Efficiency Helpers
 
     /// <summary>
+    /// Get directional rates (TX/RX in Kbps) from result or path analysis.
+    /// Returns null if no directional rates are available.
+    /// </summary>
+    private (long? rxKbps, long? txKbps) GetDirectionalRates()
+    {
+        // First check if rates are stored on the result (Wi-Fi clients)
+        if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
+        {
+            return (Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+        }
+
+        // Fall back to extracting from path (mesh hops, WAN)
+        return PathAnalysis?.GetDirectionalRatesFromPath() ?? (null, null);
+    }
+
+    /// <summary>
     /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 10%)
     /// </summary>
     private bool IsLinkAsymmetric()
     {
-        if (Result == null) return false;
-        return PathAnalysisResult.IsAsymmetric(Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+        var (rxKbps, txKbps) = GetDirectionalRates();
+        return PathAnalysisResult.IsAsymmetric(rxKbps, txKbps);
     }
 
     /// <summary>
     /// Get directional efficiency data for display.
-    /// Uses stored Wi-Fi TX/RX rates for accurate asymmetric efficiency.
+    /// Uses stored Wi-Fi TX/RX rates or mesh hop rates for accurate asymmetric efficiency.
     ///
     /// Direction mapping (critical):
     /// - FromDevice (↓): Client SENDS → AP RECEIVES → uses RX rate
@@ -940,7 +956,8 @@
             return (0, 0, 0, 0, 6); // Default overhead
         }
 
-        return PathAnalysis.GetDirectionalEfficiency(Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+        var (rxKbps, txKbps) = GetDirectionalRates();
+        return PathAnalysis.GetDirectionalEfficiency(rxKbps, txKbps);
     }
 
     /// <summary>
@@ -1045,8 +1062,9 @@
         if (PathAnalysis == null)
             return 0;
 
-        // If we have Wi-Fi TX/RX rates, use directional efficiency
-        if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
+        // If we have directional rates (Wi-Fi client or mesh), use directional efficiency
+        var (rxKbps, txKbps) = GetDirectionalRates();
+        if (rxKbps > 0 && txKbps > 0)
         {
             var (_, _, fromEff, toEff, _) = GetDirectionalEfficiencyData();
             return isFromDevice ? fromEff : toEff;
