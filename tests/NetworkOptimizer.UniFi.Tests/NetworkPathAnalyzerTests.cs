@@ -61,9 +61,10 @@ public class NetworkPathAnalyzerTests
     }
 
     [Fact]
-    public void HasWirelessConnection_WiredClientFollowedByAP_ReturnsFalse()
+    public void HasWirelessConnection_ClientFollowedByAP_ReturnsTrue_BackwardsCompat()
     {
-        // Arrange - Wired client connected to AP (no wireless flags set)
+        // Arrange - Old data format: wireless clients stored as HopType.Client
+        // Client -> AP pattern indicates wireless (backwards compatibility)
         var path = new NetworkPath
         {
             Hops = new List<NetworkHop>
@@ -73,8 +74,8 @@ public class NetworkPathAnalyzerTests
             }
         };
 
-        // Act & Assert - Wired client to AP is not a wireless connection
-        path.HasWirelessConnection.Should().BeFalse();
+        // Act & Assert - Client -> AP is wireless (backwards compatibility with old data)
+        path.HasWirelessConnection.Should().BeTrue();
     }
 
     [Fact]

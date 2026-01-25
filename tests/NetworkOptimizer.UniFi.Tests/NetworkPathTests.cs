@@ -198,9 +198,10 @@ public class NetworkPathTests
     }
 
     [Fact]
-    public void HasWirelessConnection_WiredClientToAp_ReturnsFalse()
+    public void HasWirelessConnection_ClientToAp_ReturnsTrue_BackwardsCompat()
     {
-        // Arrange - Wired client connecting to AP (no wireless flags)
+        // Arrange - Old data format: wireless clients stored as HopType.Client
+        // Client -> AP pattern indicates wireless (backwards compatibility)
         var path = new NetworkPath
         {
             Hops = new List<NetworkHop>
@@ -210,8 +211,8 @@ public class NetworkPathTests
             }
         };
 
-        // Act & Assert - Wired client to AP is not a wireless connection
-        path.HasWirelessConnection.Should().BeFalse();
+        // Act & Assert - Client -> AP is wireless (backwards compatibility with old data)
+        path.HasWirelessConnection.Should().BeTrue();
     }
 
     [Fact]
@@ -285,13 +286,14 @@ public class NetworkPathTests
     [Fact]
     public void HasWirelessConnection_ComplexPathWithWirelessClient_ReturnsTrue()
     {
-        // Arrange - Complex path: WirelessClient -> AP -> Switch -> Gateway -> Server
+        // Arrange - Complex path: Client -> AP -> Switch -> Gateway -> Server
+        // Uses backwards-compatible Client -> AP pattern
         var path = new NetworkPath
         {
             Hops = new List<NetworkHop>
             {
-                new() { Type = HopType.WirelessClient, IsWirelessEgress = true },
-                new() { Type = HopType.AccessPoint, IsWirelessIngress = true },
+                new() { Type = HopType.Client },
+                new() { Type = HopType.AccessPoint },
                 new() { Type = HopType.Switch },
                 new() { Type = HopType.Gateway },
                 new() { Type = HopType.Server }

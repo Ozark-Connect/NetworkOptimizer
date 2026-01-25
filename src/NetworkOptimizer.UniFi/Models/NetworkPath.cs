@@ -84,9 +84,28 @@ public class NetworkPath
     /// Checks the IsWirelessIngress/Egress properties which are set based on
     /// the actual UplinkType from UniFi, not just hop types.
     /// This correctly handles wired AP-to-AP backhaul (e.g., MoCA, Ethernet).
+    /// Also includes backwards compatibility for old stored results where
+    /// wireless clients were stored as HopType.Client.
     /// </summary>
-    public bool HasWirelessConnection =>
-        Hops.Any(h => h.IsWirelessIngress || h.IsWirelessEgress || h.Type == HopType.WirelessClient);
+    public bool HasWirelessConnection
+    {
+        get
+        {
+            // Check for explicit wireless indicators (new data format)
+            if (Hops.Any(h => h.IsWirelessIngress || h.IsWirelessEgress || h.Type == HopType.WirelessClient))
+                return true;
+
+            // Backwards compatibility: Client -> AP pattern indicates wireless client
+            // (old data stored wireless clients as HopType.Client without IsWireless flags)
+            for (int i = 0; i < Hops.Count - 1; i++)
+            {
+                if (Hops[i].Type == HopType.Client && Hops[i + 1].Type == HopType.AccessPoint)
+                    return true;
+            }
+
+            return false;
+        }
+    }
 
     /// <summary>
     /// Whether there's a real bottleneck (a link slower than others in the path)
