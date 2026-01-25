@@ -145,20 +145,35 @@ public class PathAnalysisResult
     public const double WanOverheadFactor = 0.94;           // 6% overhead
 
     /// <summary>
-    /// Get the overhead factor for this path based on whether it has wireless connection.
+    /// Get the overhead factor for this path based on the bottleneck link type.
+    /// Only uses mesh overhead (55%) if mesh backhaul is actually the bottleneck.
     /// </summary>
     public double GetOverheadFactor()
     {
         if (!Path.HasWirelessConnection)
             return WiredOverheadFactor;
 
-        // Check if it's mesh backhaul (AP to AP) vs client Wi-Fi
-        // Mesh backhaul has higher overhead (55%) vs client (25%)
-        var hasMeshBackhaul = Path.Hops.Any(h =>
+        // Find mesh hop if present
+        var meshHop = Path.Hops.FirstOrDefault(h =>
             h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
             h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
 
-        return hasMeshBackhaul ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
+        if (meshHop != null)
+        {
+            // Get mesh backhaul speed
+            var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
+                ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
+                : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
+
+            // Mesh overhead only if mesh is the bottleneck (matches TheoreticalMaxMbps)
+            // If path max is lower than mesh, something else (client Wi-Fi) is the bottleneck
+            if (meshSpeedMbps > 0 && meshSpeedMbps <= Path.TheoreticalMaxMbps)
+            {
+                return MeshBackhaulOverheadFactor;
+            }
+        }
+
+        return ClientWifiOverheadFactor;
     }
 
     /// <summary>
@@ -197,11 +212,31 @@ public class PathAnalysisResult
             }
             else
             {
-                // Wi-Fi paths: check for mesh backhaul (55%) vs client Wi-Fi (25%)
-                var hasMeshBackhaul = Path.Hops.Any(h =>
+                // Wi-Fi paths: check if mesh backhaul is the bottleneck
+                // Only use mesh overhead (55%) if mesh is slower than client Wi-Fi link
+                var meshHop = Path.Hops.FirstOrDefault(h =>
                     h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
                     h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
-                overheadFactor = hasMeshBackhaul ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
+
+                if (meshHop != null)
+                {
+                    // Get mesh backhaul speed (use min of ingress/egress, or whichever is set)
+                    var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
+                        ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
+                        : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
+
+                    // Get client Wi-Fi speed (use min of RX/TX)
+                    var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
+
+                    // Mesh overhead only if mesh is the bottleneck
+                    overheadFactor = meshSpeedMbps < clientSpeedMbps
+                        ? MeshBackhaulOverheadFactor
+                        : ClientWifiOverheadFactor;
+                }
+                else
+                {
+                    overheadFactor = ClientWifiOverheadFactor;
+                }
             }
             var overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
 
