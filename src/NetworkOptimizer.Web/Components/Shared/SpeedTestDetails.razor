@@ -160,7 +160,7 @@
                                 if (lastGlobalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[lastGlobalIdx + 1];
-                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : lastHop.EgressSpeedMbps;
+                                    var linkSpeed = lastHop.IngressSpeedMbps > 0 ? lastHop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -193,7 +193,7 @@
                                 @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -231,7 +231,7 @@
                                 @if (!isReversed && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = nextHopGlobal.IngressSpeedMbps > 0 ? nextHopGlobal.IngressSpeedMbps : hop.EgressSpeedMbps;
+                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var needsTurn = isLastHopInRow && !isLastRow;
@@ -596,9 +596,9 @@
             {
                 var speedParts = new List<string>();
                 if (Result.WifiRxRateKbps.HasValue && Result.WifiRxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-rx'>RX {Result.WifiRxRateKbps.Value / 1000} Mbps</span>");
+                    speedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(Result.WifiRxRateKbps.Value / 1000.0)} Mbps</span>");
                 if (Result.WifiTxRateKbps.HasValue && Result.WifiTxRateKbps.Value > 0)
-                    speedParts.Add($"<span class='wifi-speed-tx'>TX {Result.WifiTxRateKbps.Value / 1000} Mbps</span>");
+                    speedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(Result.WifiTxRateKbps.Value / 1000.0)} Mbps</span>");
                 if (speedParts.Count > 0)
                     lines.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
             }
@@ -725,9 +725,9 @@
                 {
                     var linkSpeedParts = new List<string>();
                     if (link.rxRate.HasValue)
-                        linkSpeedParts.Add($"<span class='wifi-speed-rx'>RX {link.rxRate.Value / 1000} Mbps</span>");
+                        linkSpeedParts.Add($"<span class='wifi-speed-rx'>RX {Math.Round(link.rxRate.Value / 1000.0)} Mbps</span>");
                     if (link.txRate.HasValue)
-                        linkSpeedParts.Add($"<span class='wifi-speed-tx'>TX {link.txRate.Value / 1000} Mbps</span>");
+                        linkSpeedParts.Add($"<span class='wifi-speed-tx'>TX {Math.Round(link.txRate.Value / 1000.0)} Mbps</span>");
                     lines.Add($"<div class='wifi-tooltip-link-speed'>{string.Join(" · ", linkSpeedParts)}</div>");
                 }
 
