@@ -184,13 +184,18 @@ public class PathAnalysisResult
     public (double fromDeviceMaxMbps, double toDeviceMaxMbps, double fromEfficiency, double toEfficiency, int overheadPercent)
         GetDirectionalEfficiency(long? wifiRxRateKbps, long? wifiTxRateKbps)
     {
-        var overheadFactor = GetOverheadFactor();
-        var overheadPercent = GetOverheadPercent();
-
-        // Use stored directional rates if available (Wi-Fi clients since Jan 7)
+        // Use stored directional rates if available (wireless clients with TX/RX data)
         if (wifiRxRateKbps.HasValue && wifiRxRateKbps.Value > 0 &&
             wifiTxRateKbps.HasValue && wifiTxRateKbps.Value > 0)
         {
+            // If we have Wi-Fi rates, it's a wireless client - use client Wi-Fi overhead (15%)
+            // Check for mesh backhaul which has higher overhead (40%)
+            var hasMeshBackhaul = Path.Hops.Any(h =>
+                h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
+                h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
+            var overheadFactor = hasMeshBackhaul ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
+            var overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
+
             // RX = AP receives from client = FromDevice direction limit
             // TX = AP transmits to client = ToDevice direction limit
             var fromDeviceMaxMbps = wifiRxRateKbps.Value / 1000.0;
@@ -205,12 +210,13 @@ public class PathAnalysisResult
         }
 
         // Fall back to symmetric calculation (legacy results or wired clients)
+        var fallbackOverheadPercent = GetOverheadPercent();
         return (
             Path.TheoreticalMaxMbps,
             Path.TheoreticalMaxMbps,
             FromDeviceEfficiencyPercent,
             ToDeviceEfficiencyPercent,
-            overheadPercent
+            fallbackOverheadPercent
         );
     }
 

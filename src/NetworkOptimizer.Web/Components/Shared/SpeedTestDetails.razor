@@ -88,7 +88,7 @@
             <div class="path-summary">
                 <div class="path-max-speed">
                     <span class="speed-value">@FormatPathMaxSpeed()</span>
-                    <span class="speed-label">path max</span>
+                    <span class="speed-label">max</span>
                 </div>
                 <div class="efficiency-grades">
                     @if (DownloadMbps > 0)
@@ -978,11 +978,15 @@
             return FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps);
         }
 
-        // Asymmetric: show both directions
+        // Asymmetric: show both directions with consistent units
         var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
-        var fromFormatted = fromMax >= 1000 ? $"{fromMax / 1000.0:F1}G" : $"{fromMax:F0}";
-        var toFormatted = toMax >= 1000 ? $"{toMax / 1000.0:F1}G" : $"{toMax:F0}";
-        return $"↓{fromFormatted} / ↑{toFormatted} Mbps";
+
+        // Use Gbps if both are >= 1000, otherwise Mbps
+        if (fromMax >= 1000 && toMax >= 1000)
+        {
+            return $"↓{fromMax / 1000.0:F1} / ↑{toMax / 1000.0:F1} Gbps";
+        }
+        return $"↓{fromMax:F0} / ↑{toMax:F0} Mbps";
     }
 
     /// <summary>
