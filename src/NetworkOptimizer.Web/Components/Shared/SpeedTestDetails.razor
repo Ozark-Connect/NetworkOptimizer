@@ -160,7 +160,7 @@
                                 if (lastGlobalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[lastGlobalIdx + 1];
-                                    var linkSpeed = lastHop.IngressSpeedMbps > 0 ? lastHop.IngressSpeedMbps : (lastHop.EgressSpeedMbps > 0 ? lastHop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
+                                    var linkSpeed = GetLinkSpeed(lastHop, nextHopGlobal);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -193,7 +193,7 @@
                                 @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
+                                    var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -231,7 +231,7 @@
                                 @if (!isReversed && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
+                                    var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var needsTurn = isLastHopInRow && !isLastRow;
@@ -557,6 +557,19 @@
         HopType.Vpn => "🔒",
         _ => "•"
     };
+
+    /// <summary>
+    /// Calculate link speed between two adjacent hops.
+    /// For wireless/WAN hops, uses IngressSpeedMbps (TX to device or download).
+    /// For wired hops, uses EgressSpeedMbps (port toward next hop) with fallback to nextHop's Ingress.
+    /// </summary>
+    private int GetLinkSpeed(NetworkHop hop, NetworkHop nextHop)
+    {
+        var isWanType = hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport || hop.Type == HopType.Wan;
+        return (hop.IsWirelessIngress || isWanType)
+            ? hop.IngressSpeedMbps
+            : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHop.IngressSpeedMbps);
+    }
 
     /// <summary>
     /// Get Wi-Fi signal tooltip content from the hop or Result
