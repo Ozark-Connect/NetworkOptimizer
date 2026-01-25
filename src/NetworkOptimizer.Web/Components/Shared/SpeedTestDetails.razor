@@ -160,7 +160,7 @@
                                 if (lastGlobalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[lastGlobalIdx + 1];
-                                    var linkSpeed = lastHop.IngressSpeedMbps > 0 ? lastHop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
+                                    var linkSpeed = lastHop.IngressSpeedMbps > 0 ? lastHop.IngressSpeedMbps : (lastHop.EgressSpeedMbps > 0 ? lastHop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -193,7 +193,7 @@
                                 @if (isReversed && localIdx != row.Count - 1 && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
+                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
@@ -231,7 +231,7 @@
                                 @if (!isReversed && globalIdx < hops.Count - 1)
                                 {
                                     var nextHopGlobal = hops[globalIdx + 1];
-                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : nextHopGlobal.EgressSpeedMbps;
+                                    var linkSpeed = hop.IngressSpeedMbps > 0 ? hop.IngressSpeedMbps : (hop.EgressSpeedMbps > 0 ? hop.EgressSpeedMbps : nextHopGlobal.IngressSpeedMbps);
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps;
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var needsTurn = isLastHopInRow && !isLastRow;
