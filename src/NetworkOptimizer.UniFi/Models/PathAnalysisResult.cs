@@ -153,7 +153,7 @@ public class PathAnalysisResult
             return WiredOverheadFactor;
 
         // Check if it's mesh backhaul (AP to AP) vs client Wi-Fi
-        // Mesh backhaul has higher overhead (40%) vs client (15%)
+        // Mesh backhaul has higher overhead (55%) vs client (25%)
         var hasMeshBackhaul = Path.Hops.Any(h =>
             h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
             h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
@@ -162,7 +162,7 @@ public class PathAnalysisResult
     }
 
     /// <summary>
-    /// Get the overhead percentage for display (e.g., "15%" for client Wi-Fi)
+    /// Get the overhead percentage for display (e.g., "25%" for client Wi-Fi)
     /// </summary>
     public int GetOverheadPercent()
     {
@@ -188,8 +188,8 @@ public class PathAnalysisResult
         if (wifiRxRateKbps.HasValue && wifiRxRateKbps.Value > 0 &&
             wifiTxRateKbps.HasValue && wifiTxRateKbps.Value > 0)
         {
-            // If we have Wi-Fi rates, it's a wireless client - use client Wi-Fi overhead (15%)
-            // Check for mesh backhaul which has higher overhead (40%)
+            // If we have Wi-Fi rates, it's a wireless client - use client Wi-Fi overhead (25%)
+            // Check for mesh backhaul which has higher overhead (55%)
             var hasMeshBackhaul = Path.Hops.Any(h =>
                 h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
                 h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
