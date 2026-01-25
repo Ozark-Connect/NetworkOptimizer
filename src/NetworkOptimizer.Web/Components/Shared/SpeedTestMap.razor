@@ -160,6 +160,10 @@
         if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
             return true;
 
+        // Check client MAC
+        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
+            return true;
+
         // Check connected AP (first hop only)
         var firstHop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault();
         if (firstHop != null)
