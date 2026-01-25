@@ -603,7 +603,7 @@
             if (Result.WifiIsMlo && !string.IsNullOrEmpty(Result.WifiMloLinksJson))
             {
                 var mloTooltip = BuildMloTooltip();
-                return isBottleneck ? mloTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : mloTooltip;
+                return isBottleneck ? mloTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : mloTooltip;
             }
 
             // Single-link wireless - use same styled format as MLO
@@ -647,7 +647,7 @@
             }
 
             var clientTooltip = lines.Count > 0 ? string.Join("", lines) : "Wireless connection";
-            return isBottleneck ? clientTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : clientTooltip;
+            return isBottleneck ? clientTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : clientTooltip;
         }
 
         // For mesh/bridge wireless - use same styled format
@@ -688,7 +688,7 @@
         }
 
         var meshTooltip = lines2.Count > 1 ? string.Join("", lines2) : "Wireless mesh";
-        return isBottleneck ? meshTooltip + "<div class='wifi-tooltip-bottleneck'>⚠ Bottleneck: slowest link in path</div>" : meshTooltip;
+        return isBottleneck ? meshTooltip + "<div class='wifi-tooltip-bottleneck'>Bottleneck: slowest link in path</div>" : meshTooltip;
     }
 
     /// <summary>
