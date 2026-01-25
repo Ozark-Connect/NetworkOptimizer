@@ -163,7 +163,7 @@
                                                 <div class="rule-note">
                                                     <input type="text"
                                                            class="note-input"
-                                                           placeholder="Add note..."
+                                                           placeholder="Add notes..."
                                                            value="@GetNote(GetNoteKey(rule))"
                                                            @onchange="@(e => OnNoteChanged(rule, e.Value?.ToString()))"
                                                            @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
