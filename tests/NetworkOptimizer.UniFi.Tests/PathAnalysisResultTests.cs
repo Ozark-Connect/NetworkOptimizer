@@ -217,7 +217,7 @@ public class PathAnalysisResultTests
     [Fact]
     public void GenerateInsights_WirelessConnection_NotesVariableSpeed()
     {
-        // Arrange
+        // Arrange - Wireless client with IsWirelessEgress flag set
         var result = new PathAnalysisResult
         {
             Path = new NetworkPath
@@ -225,8 +225,8 @@ public class PathAnalysisResultTests
                 RealisticMaxMbps = 1000,
                 Hops = new List<NetworkHop>
                 {
-                    new() { Type = HopType.Client },
-                    new() { Type = HopType.AccessPoint }
+                    new() { Type = HopType.WirelessClient, IsWirelessEgress = true },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
                 }
             },
             MeasuredFromDeviceMbps = 900,
@@ -341,8 +341,8 @@ public class PathAnalysisResultTests
                 RealisticMaxMbps = 94,
                 Hops = new List<NetworkHop>
                 {
-                    new() { Type = HopType.Client },
-                    new() { Type = HopType.AccessPoint }
+                    new() { Type = HopType.WirelessClient, IsWirelessEgress = true },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
                 }
             },
             MeasuredFromDeviceMbps = 90,
@@ -411,7 +411,7 @@ public class PathAnalysisResultTests
     [Fact]
     public void GenerateInsights_ElevatedRetransmits_WirelessClient_RecommendsSignalCheck()
     {
-        // Arrange - Wireless client with retransmits
+        // Arrange - Wireless client with retransmits (IsWirelessEgress flag indicates Wi-Fi)
         var result = new PathAnalysisResult
         {
             Path = new NetworkPath
@@ -419,8 +419,8 @@ public class PathAnalysisResultTests
                 RealisticMaxMbps = 1000,
                 Hops = new List<NetworkHop>
                 {
-                    new() { Type = HopType.Client },
-                    new() { Type = HopType.AccessPoint }
+                    new() { Type = HopType.WirelessClient, IsWirelessEgress = true },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
                 }
             },
             MeasuredFromDeviceMbps = 900,
@@ -443,7 +443,7 @@ public class PathAnalysisResultTests
     [Fact]
     public void GenerateInsights_ElevatedRetransmits_MeshedAp_RecommendsBackhaulCheck()
     {
-        // Arrange - AP with wireless mesh backhaul
+        // Arrange - AP with wireless mesh backhaul (IsWirelessEgress indicates mesh link)
         var result = new PathAnalysisResult
         {
             Path = new NetworkPath
@@ -452,8 +452,8 @@ public class PathAnalysisResultTests
                 TargetIsAccessPoint = true,
                 Hops = new List<NetworkHop>
                 {
-                    new() { Type = HopType.AccessPoint },  // Target AP
-                    new() { Type = HopType.AccessPoint }   // Mesh backhaul
+                    new() { Type = HopType.AccessPoint, IsWirelessEgress = true },  // Target AP with mesh uplink
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }  // Parent AP
                 }
             },
             MeasuredFromDeviceMbps = 400,  // Lower due to mesh

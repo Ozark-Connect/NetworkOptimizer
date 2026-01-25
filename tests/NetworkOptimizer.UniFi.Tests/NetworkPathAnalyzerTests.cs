@@ -44,9 +44,26 @@ public class NetworkPathAnalyzerTests
     }
 
     [Fact]
-    public void HasWirelessConnection_ClientFollowedByAP_ReturnsTrue()
+    public void HasWirelessConnection_WirelessClientFollowedByAP_ReturnsTrue()
     {
-        // Arrange - Minimal path with just Client -> AP
+        // Arrange - Wireless client connected to AP (IsWirelessEgress indicates wireless link)
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.WirelessClient, IsWirelessEgress = true },
+                new NetworkHop { Type = HopType.AccessPoint, IsWirelessIngress = true }
+            }
+        };
+
+        // Act & Assert
+        path.HasWirelessConnection.Should().BeTrue();
+    }
+
+    [Fact]
+    public void HasWirelessConnection_WiredClientFollowedByAP_ReturnsFalse()
+    {
+        // Arrange - Wired client connected to AP (no wireless flags set)
         var path = new NetworkPath
         {
             Hops = new List<NetworkHop>
@@ -56,8 +73,8 @@ public class NetworkPathAnalyzerTests
             }
         };
 
-        // Act & Assert
-        path.HasWirelessConnection.Should().BeTrue();
+        // Act & Assert - Wired client to AP is not a wireless connection
+        path.HasWirelessConnection.Should().BeFalse();
     }
 
     [Fact]
@@ -78,9 +95,10 @@ public class NetworkPathAnalyzerTests
     }
 
     [Fact]
-    public void HasWirelessConnection_APFollowedByAP_ReturnsTrue()
+    public void HasWirelessConnection_APFollowedByAP_WiredBackhaul_ReturnsFalse()
     {
-        // Arrange - Mesh backhaul (AP -> AP is wireless)
+        // Arrange - Wired backhaul between APs (e.g., MoCA, Ethernet)
+        // No IsWirelessIngress/Egress flags set = wired connection
         var path = new NetworkPath
         {
             Hops = new List<NetworkHop>
@@ -90,7 +108,24 @@ public class NetworkPathAnalyzerTests
             }
         };
 
-        // Act & Assert
+        // Act & Assert - Wired AP-to-AP is NOT a wireless connection
+        path.HasWirelessConnection.Should().BeFalse();
+    }
+
+    [Fact]
+    public void HasWirelessConnection_APFollowedByAP_WirelessMesh_ReturnsTrue()
+    {
+        // Arrange - Wireless mesh backhaul between APs
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.AccessPoint, IsWirelessEgress = true },
+                new NetworkHop { Type = HopType.AccessPoint, IsWirelessIngress = true }
+            }
+        };
+
+        // Act & Assert - Wireless mesh IS a wireless connection
         path.HasWirelessConnection.Should().BeTrue();
     }
 

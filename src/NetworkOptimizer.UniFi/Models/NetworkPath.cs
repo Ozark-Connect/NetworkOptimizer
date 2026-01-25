@@ -80,31 +80,13 @@ public class NetworkPath
     public bool HasWirelessSegment => Hops.Any(h => h.Type == HopType.AccessPoint);
 
     /// <summary>
-    /// Whether the path includes an actual wireless connection:
-    /// - Client followed by AP (wireless client)
-    /// - AP followed by AP (wireless backhaul)
-    /// Does NOT trigger for AP followed by Switch (wired uplink)
+    /// Whether the path includes an actual wireless connection.
+    /// Checks the IsWirelessIngress/Egress properties which are set based on
+    /// the actual UplinkType from UniFi, not just hop types.
+    /// This correctly handles wired AP-to-AP backhaul (e.g., MoCA, Ethernet).
     /// </summary>
-    public bool HasWirelessConnection
-    {
-        get
-        {
-            for (int i = 0; i < Hops.Count - 1; i++)
-            {
-                var current = Hops[i].Type;
-                var next = Hops[i + 1].Type;
-
-                // Client -> AP = wireless client connection
-                if (current == HopType.Client && next == HopType.AccessPoint)
-                    return true;
-
-                // AP -> AP = wireless backhaul
-                if (current == HopType.AccessPoint && next == HopType.AccessPoint)
-                    return true;
-            }
-            return false;
-        }
-    }
+    public bool HasWirelessConnection =>
+        Hops.Any(h => h.IsWirelessIngress || h.IsWirelessEgress || h.Type == HopType.WirelessClient);
 
     /// <summary>
     /// Whether there's a real bottleneck (a link slower than others in the path)
