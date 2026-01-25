@@ -972,8 +972,9 @@
         string measuredFormatted, maxFormatted, unit;
         if (measuredMbps > 9999 || maxMbps > 9999)
         {
-            measuredFormatted = $"{measuredMbps / 1000.0:F2}";
-            maxFormatted = $"{maxMbps / 1000.0:F2}";
+            // Format with 2 decimals, trim trailing zeros (10.00 -> 10, 4.50 -> 4.5)
+            measuredFormatted = $"{measuredMbps / 1000.0:F2}".TrimEnd('0').TrimEnd('.');
+            maxFormatted = $"{maxMbps / 1000.0:F2}".TrimEnd('0').TrimEnd('.');
             unit = "Gbps";
         }
         else
