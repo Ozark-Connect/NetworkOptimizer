@@ -197,7 +197,7 @@
                                     var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (hop.IsBottleneck || nextHopGlobal.IsBottleneck);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
 
-                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                    <div class="path-connector arrow-left @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" @(isBottleneckLink ? "data-tooltip=Bottleneck: slowest link in path" : "")>
                                         @if (isWirelessLink)
                                         {
                                             var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
@@ -236,7 +236,7 @@
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
                                     var needsTurn = isLastHopInRow && !isLastRow;
 
-                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")">
+                                    <div class="path-connector @(needsTurn ? "path-turn" : "") @(isBottleneckLink ? "bottleneck" : "") @(isWirelessLink ? "wireless" : "")" @(isBottleneckLink ? "data-tooltip=Bottleneck: slowest link in path" : "")>
                                         @if (isWirelessLink)
                                         {
                                             var wifiTooltip = GetWifiTooltip(hop, nextHopGlobal);
@@ -262,7 +262,7 @@
 
             @if (PathAnalysis.Path.HasRealBottleneck)
             {
-                <div class="bottleneck-warning">
+                <div class="bottleneck-warning" data-tooltip="This is the slowest link in the path, limiting overall throughput">
                     @FormatBottleneckDescription()
                 </div>
             }
