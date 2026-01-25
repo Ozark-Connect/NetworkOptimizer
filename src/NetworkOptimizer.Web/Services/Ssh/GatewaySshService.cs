@@ -172,7 +172,7 @@ public class GatewaySshService : IGatewaySshService
                 Username = username,
                 Password = password,
                 PrivateKeyPath = privateKeyPath,
-                Timeout = TimeSpan.FromSeconds(30)
+                Timeout = TimeSpan.FromSeconds(5)
             };
 
             var (success, message) = await _sshClient.TestConnectionAsync(connection);
