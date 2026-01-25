@@ -1708,7 +1708,7 @@ select.form-control {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
-    margin-top: 18px;
+    margin-top: 22px;
     width: 24px;
     min-height: 24px;
 }
@@ -1736,6 +1736,7 @@ select.form-control {
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+    min-height: 28px;
 }
 
 .issue-severity {
