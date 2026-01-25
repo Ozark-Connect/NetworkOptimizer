@@ -73,6 +73,9 @@ public class ClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
+        // Let WiFi link rates stabilize after the speed test
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
         // Try to look up client info from UniFi
         await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
 
@@ -179,6 +182,9 @@ public class ClientSpeedTestService
             TestTime = now,
             Success = true
         };
+
+        // Let WiFi link rates stabilize after the speed test
+        await Task.Delay(TimeSpan.FromSeconds(2));
 
         // Try to look up client info from UniFi
         await _connectionService.EnrichSpeedTestWithClientInfoAsync(result);
