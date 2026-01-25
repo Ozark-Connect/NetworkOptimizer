@@ -3,6 +3,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.Core.Enums
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
@@ -1161,37 +1162,13 @@
     private int? expandedHistoryId = null;
     private int? _collapsingHistoryId = null; // Track row being collapsed for smooth transition
 
-    // Search filter (managed by SpeedTestMap, synced via OnMapFilterChanged)
-    // NOTE: Search uses in-memory filtering for now, structured for future SQL-side JSON filtering.
-    // See SpeedTestRepository.SearchIperf3ResultsAsync and SpeedTestMap.MatchesSearchFilter for scalability notes.
+    // Search filter for table (uses shared SpeedTestFilterHelper for consistency with repository)
     private string historySearchFilter = "";
 
-    // Filtered history based on map's search filter
+    // Filtered history based on search filter
     private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
         ? testHistory
-        : testHistory.Where(r => MatchesSearchFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
-
-    /// <summary>
-    /// Checks if a result matches the search filter (mirrors SpeedTestMap.MatchesSearchFilter).
-    /// </summary>
-    private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
-    {
-        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-
-        var pathAnalysis = result.PathAnalysis;
-        if (pathAnalysis?.Path?.Hops != null)
-        {
-            foreach (var hop in pathAnalysis.Path.Hops)
-            {
-                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true) return true;
-            }
-        }
-        return false;
-    }
+        : testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
 
     // Path analysis for historical results (calculated on demand)
     private Dictionary<int, PathAnalysisResult?> historyPathAnalysis = new();

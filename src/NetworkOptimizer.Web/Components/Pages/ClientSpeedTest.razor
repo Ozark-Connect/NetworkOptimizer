@@ -3,6 +3,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
@@ -669,13 +670,13 @@
     private static bool _lastHealthResult = false;
     private static readonly TimeSpan HealthCheckCacheDuration = TimeSpan.FromSeconds(30);
 
-    // Search filter
+    // Search filter (uses shared SpeedTestFilterHelper for consistency with repository)
     private string historySearchFilter = "";
 
-    // Filtered results (in-memory filter matching repository logic)
+    // Filtered results based on search filter
     private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
         ? testHistory
-        : testHistory.Where(r => MatchesSearchFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+        : testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
 
     // Pagination
     private int historyPage = 1;
@@ -945,42 +946,6 @@
         historyPage = 1;
         expandedHistoryId = null;
         StateHasChanged();
-    }
-
-    /// <summary>
-    /// Checks if a result matches the search filter (case-insensitive partial match).
-    /// Mirrors SpeedTestRepository.MatchesFilter for consistency.
-    /// </summary>
-    private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
-    {
-        // Check device host
-        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check device name
-        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check client MAC
-        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check path analysis hops
-        var pathAnalysis = result.PathAnalysis;
-        if (pathAnalysis?.Path?.Hops != null)
-        {
-            foreach (var hop in pathAnalysis.Path.Hops)
-            {
-                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-            }
-        }
-
-        return false;
     }
 
     private async Task ToggleHistoryExpand(int resultId)

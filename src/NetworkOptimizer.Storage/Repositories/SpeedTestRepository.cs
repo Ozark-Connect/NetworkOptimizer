@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
@@ -229,8 +230,8 @@ public class SpeedTestRepository : ISpeedTestRepository
                 .OrderByDescending(r => r.TestTime)
                 .ToListAsync(cancellationToken);
 
-            // Filter by device properties or path hops
-            var filtered = results.Where(r => MatchesFilter(r, normalizedFilter)).ToList();
+            // Filter by device properties or path hops (uses shared helper)
+            var filtered = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, normalizedFilter)).ToList();
 
             // Apply count limit after filtering
             if (count > 0)
@@ -245,52 +246,6 @@ public class SpeedTestRepository : ISpeedTestRepository
             _logger.LogError(ex, "Failed to search iperf3 results with filter {Filter}", filter);
             throw;
         }
-    }
-
-    /// <summary>
-    /// Checks if a result matches the search filter (case-insensitive partial match).
-    /// </summary>
-    /// <remarks>
-    /// FUTURE: This logic can be expressed as SQL for server-side filtering:
-    /// - DeviceHost, DeviceName, ClientMac: Simple LIKE queries
-    /// - PathAnalysis hops: SQLite json_each() + json_extract()
-    /// Keep this method in sync with any future SQL implementation.
-    /// </remarks>
-    private static bool MatchesFilter(Iperf3Result result, string normalizedFilter)
-    {
-        // Check device host (top-level column - easy to move to SQL)
-        if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check device name (top-level column - easy to move to SQL)
-        if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check client MAC (top-level column - easy to move to SQL)
-        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check path analysis hops (JSON column - requires json_each() in SQL)
-        var pathAnalysis = result.PathAnalysis;
-        if (pathAnalysis?.Path?.Hops != null)
-        {
-            foreach (var hop in pathAnalysis.Path.Hops)
-            {
-                // Check hop device name
-                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-
-                // Check hop device MAC
-                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-
-                // Check hop device IP
-                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
