@@ -2935,11 +2935,16 @@ select.form-control {
     background: var(--bg-tertiary);
 }
 
+#latest-result .tooltip-icon {
+    background: var(--bg-secondary);
+}
+
 .speed-result.upload {
     border-left: 4px solid var(--speed-upload-color);
 }
 
-.speed-result.upload .speed-icon {
+.speed-result.upload .speed-icon,
+.speed-result.upload .speed-value {
     color: var(--speed-upload-color);
 }
 
@@ -2947,13 +2952,16 @@ select.form-control {
     border-left: 4px solid var(--speed-download-color);
 }
 
-.speed-result.download .speed-icon {
+.speed-result.download .speed-icon,
+.speed-result.download .speed-value {
     color: var(--speed-download-color);
 }
 
 .speed-icon {
     font-size: 1.5rem;
     font-weight: bold;
+    place-content: center;
+    display: flex;
 }
 
 .speed-details,
@@ -2967,6 +2975,9 @@ select.form-control {
     color: var(--text-secondary);
     text-transform: uppercase;
     margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
 }
 
 .speed-value {
@@ -2974,6 +2985,10 @@ select.form-control {
     font-weight: 700;
     color: var(--text-primary);
     line-height: 0.8;
+}
+
+.speed-details .speed-value {
+    font-size: 1.25rem;
 }
 
 .speed-unit {
@@ -3049,6 +3064,54 @@ select.form-control {
     border-top-color: var(--text-muted);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
+}
+
+/* Speed test result notes */
+.result-notes {
+    flex: 1;
+    position: relative;
+    min-width: 150px;
+}
+
+.notes-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    resize: none;
+    min-height: 2.5rem;
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.notes-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.notes-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.75;
+}
+
+.notes-status {
+    position: absolute;
+    right: 0.5rem;
+    top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.notes-status.saving {
+    color: var(--text-muted);
+}
+
+.notes-status.saved {
+    color: var(--success-color);
 }
 
 .show-mobile {
@@ -3150,6 +3213,15 @@ select.form-control {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-primary);
+}
+
+/* Directional speed colors for asymmetric links (matching speed-results) */
+.path-analysis .path-max-speed .speed-from {
+    color: var(--speed-download-color);  /* blue - From Device (↓) */
+}
+
+.path-analysis .path-max-speed .speed-to {
+    color: var(--speed-upload-color);    /* green - To Device (↑) */
 }
 
 .path-analysis .path-max-speed .speed-label {

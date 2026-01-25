@@ -277,6 +277,35 @@ public class SpeedTestRepository : ISpeedTestRepository
     }
 
     /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    /// <param name="id">Result ID</param>
+    /// <param name="notes">Notes text (null or empty to clear)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if the result was found and updated</returns>
+    public async Task<bool> UpdateIperf3ResultNotesAsync(int id, string? notes, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _context.Iperf3Results.FindAsync([id], cancellationToken);
+            if (result == null)
+            {
+                return false;
+            }
+
+            result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogDebug("Updated notes for iperf3 result {Id}", id);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update notes for iperf3 result {Id}", id);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Clears all iperf3 test history.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

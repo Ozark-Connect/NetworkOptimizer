@@ -114,6 +114,14 @@ public interface IIperf3SpeedTestService
     Task<bool> DeleteResultAsync(int id);
 
     /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    /// <param name="id">The ID of the result.</param>
+    /// <param name="notes">The notes text (null or empty to clear).</param>
+    /// <returns>True if the result was found and updated.</returns>
+    Task<bool> UpdateNotesAsync(int id, string? notes);
+
+    /// <summary>
     /// Clears all speed test history from the database.
     /// </summary>
     /// <returns>The number of records deleted.</returns>

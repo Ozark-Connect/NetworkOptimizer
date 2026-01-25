@@ -305,7 +305,7 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
                                                 </div>
                                             </div>
                                         </div>
@@ -997,6 +997,11 @@
             expandedHistoryId = null;
             StateHasChanged();
         }
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await ClientSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
     }
 
     private async Task ScrollToResult(int resultId)
