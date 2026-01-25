@@ -3473,6 +3473,7 @@ select.form-control {
     /* Wrap path-summary (grades + notes) on mobile */
     .path-analysis .path-summary {
         flex-wrap: wrap;
+        justify-content: center;
     }
 
     .path-analysis .path-summary .result-notes {
