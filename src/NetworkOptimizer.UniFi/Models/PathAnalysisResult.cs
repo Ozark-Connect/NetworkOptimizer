@@ -139,8 +139,8 @@ public class PathAnalysisResult
     /// <summary>
     /// Overhead factors for different link types
     /// </summary>
-    public const double ClientWifiOverheadFactor = 0.85;    // 15% overhead
-    public const double MeshBackhaulOverheadFactor = 0.60;  // 40% overhead
+    public const double ClientWifiOverheadFactor = 0.75;    // 25% overhead
+    public const double MeshBackhaulOverheadFactor = 0.45;  // 55% overhead
     public const double WiredOverheadFactor = 0.94;         // 6% overhead
     public const double WanOverheadFactor = 0.94;           // 6% overhead
 

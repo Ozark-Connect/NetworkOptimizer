@@ -71,11 +71,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     // Fallback overhead factor for unknown link speeds (6% overhead)
     private const double FallbackOverheadFactor = 0.94;
 
-    // Client Wi-Fi overhead factor - ~15% overhead for direct client connections
-    private const double ClientWifiOverheadFactor = 0.85;
+    // Client Wi-Fi overhead factor - ~25% overhead for direct client connections
+    private const double ClientWifiOverheadFactor = 0.75;
 
-    // Mesh backhaul overhead factor - ~40% overhead due to half-duplex, retransmits, etc.
-    private const double MeshBackhaulOverheadFactor = 0.60;
+    // Mesh backhaul overhead factor - ~55% overhead due to half-duplex, retransmits, etc.
+    private const double MeshBackhaulOverheadFactor = 0.45;
 
     // WAN overhead factor - same as wired (6% overhead)
     private const double WanOverheadFactor = 0.94;
