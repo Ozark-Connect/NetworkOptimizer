@@ -957,12 +957,9 @@
         if (maxMbps <= 0 || measuredMbps <= 0)
             return directionText;
 
-        // Calculate the realistic max with overhead
-        var overheadFactor = 1.0 - (overheadPct / 100.0);
-        var realisticMax = maxMbps * overheadFactor;
-
         // Format the tooltip: "Direction. X Mbps of Y Mbps link (Z% overhead)"
-        return $"{directionText}. {measuredMbps:F0} Mbps of {realisticMax:F0} Mbps link ({overheadPct}% overhead)";
+        // maxMbps is the link speed (PHY rate), overhead explains why you can't achieve 100%
+        return $"{directionText}. {measuredMbps:F0} Mbps of {maxMbps:F0} Mbps link ({overheadPct}% overhead)";
     }
 
     /// <summary>
