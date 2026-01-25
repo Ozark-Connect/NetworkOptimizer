@@ -1507,7 +1507,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         path.TheoreticalMaxMbps = minSpeed;
-        path.RealisticMaxMbps = GetRealisticMax(minSpeed, isBottleneckMeshBackhaul, isBottleneckClientWifi);
+        path.RealisticMaxMbps = Math.Max(1, GetRealisticMax(minSpeed, isBottleneckMeshBackhaul, isBottleneckClientWifi));
 
         // Only mark as bottleneck if there's actually a slower link than others
         path.HasRealBottleneck = allSpeeds.Count > 0 && minSpeed < maxSpeed;
