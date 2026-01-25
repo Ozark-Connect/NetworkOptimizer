@@ -17,7 +17,7 @@
                 <SpeedTestSearchFilter @bind-SearchFilter="searchFilter"
                                        OnSearch="OnSearchExecuted"
                                        ShowStatus="false"
-                                       Placeholder="Filter by any device in path..." />
+                                       Placeholder="Filter by client device or AP..." />
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
                     LAN (@LanCount)
@@ -148,11 +148,11 @@
 
     /// <summary>
     /// Checks if a result matches the search filter (case-insensitive partial match).
-    /// Mirrors SpeedTestRepository.MatchesFilter for consistency.
+    /// Map filter only checks client device and connected AP (first hop).
     /// </summary>
     private static bool MatchesSearchFilter(Iperf3Result result, string normalizedFilter)
     {
-        // Check device host
+        // Check device host (IP)
         if (result.DeviceHost?.ToLowerInvariant().Contains(normalizedFilter) == true)
             return true;
 
@@ -160,23 +160,12 @@
         if (result.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
             return true;
 
-        // Check client MAC
-        if (result.ClientMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-            return true;
-
-        // Check path analysis hops
-        var pathAnalysis = result.PathAnalysis;
-        if (pathAnalysis?.Path?.Hops != null)
+        // Check connected AP (first hop only)
+        var firstHop = result.PathAnalysis?.Path?.Hops?.FirstOrDefault();
+        if (firstHop != null)
         {
-            foreach (var hop in pathAnalysis.Path.Hops)
-            {
-                if (hop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-                if (hop.DeviceMac?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-                if (hop.DeviceIp?.ToLowerInvariant().Contains(normalizedFilter) == true)
-                    return true;
-            }
+            if (firstHop.DeviceName?.ToLowerInvariant().Contains(normalizedFilter) == true)
+                return true;
         }
 
         return false;
