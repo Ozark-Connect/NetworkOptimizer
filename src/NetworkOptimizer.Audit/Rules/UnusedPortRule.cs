@@ -14,6 +14,13 @@ public class UnusedPortRule : AuditRuleBase
     private static int _unusedPortInactivityDays = 15;
     private static int _namedPortInactivityDays = 45;
 
+    /// <summary>
+    /// Maximum reasonable age for a lastSeen timestamp. Timestamps older than this
+    /// are considered invalid data from the UniFi API (e.g., corrupted values after
+    /// power events) and are ignored rather than flagging the port.
+    /// </summary>
+    private const int MaxReasonableAgeDays = 3650; // 10 years
+
     public static void SetLogger(ILogger logger) => _logger = logger;
 
     /// <summary>
@@ -57,6 +64,16 @@ public class UnusedPortRule : AuditRuleBase
             var lastSeen = DateTimeOffset.FromUnixTimeSeconds(port.LastConnectionSeen.Value);
             var daysSinceLastConnection = (DateTimeOffset.UtcNow - lastSeen).TotalDays;
 
+            // Treat absurdly old timestamps as invalid data (likely UniFi API bug after power events)
+            // Don't flag these ports - we can't trust the data
+            if (daysSinceLastConnection > MaxReasonableAgeDays)
+            {
+                _logger?.LogWarning(
+                    "UnusedPortRule ignoring invalid lastSeen for {Switch} port {Port}: timestamp={Timestamp} ({Days:F0} days ago exceeds {Max} day maximum)",
+                    port.Switch.Name, port.PortIndex, port.LastConnectionSeen, daysSinceLastConnection, MaxReasonableAgeDays);
+                return null;
+            }
+
             if (daysSinceLastConnection < thresholdDays)
             {
                 // Device was connected recently - don't flag
@@ -65,8 +82,12 @@ public class UnusedPortRule : AuditRuleBase
         }
 
         // Debug logging for flagged ports
-        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: forward='{Forward}', isUp={IsUp}, lastSeen={LastSeen}, threshold={Threshold}d",
-            port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp, port.LastConnectionSeen, thresholdDays);
+        _logger?.LogInformation("UnusedPortRule flagging {Switch} port {Port}: forward='{Forward}', isUp={IsUp}, lastSeenDaysAgo={LastSeenDays}, threshold={Threshold}d",
+            port.Switch.Name, port.PortIndex, port.ForwardMode, port.IsUp,
+            port.LastConnectionSeen.HasValue
+                ? $"{(DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(port.LastConnectionSeen.Value)).TotalDays:F0}"
+                : "none",
+            thresholdDays);
 
         return CreateIssue(
             "Unused port should be set to Disabled or disabled via an Ethernet Port Profile in UniFi Network",

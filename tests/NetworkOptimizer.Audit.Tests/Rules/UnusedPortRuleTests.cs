@@ -478,6 +478,132 @@ public class UnusedPortRuleTests
 
     #endregion
 
+    #region Evaluate Tests - Invalid Timestamps (GitHub Issue #154)
+
+    [Fact]
+    public void Evaluate_InvalidTimestamp_VeryOld_ReturnsNull()
+    {
+        // Arrange - Timestamp from 1986 (clearly invalid UniFi API data)
+        // This is the scenario from GitHub issue #154: lastSeen=509086767
+        const long invalidTimestamp = 509086767; // Feb 18, 1986
+        var port = CreatePort(portName: "Port 4", isUp: false, forwardMode: "native", lastConnectionSeen: invalidTimestamp);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should NOT flag port when timestamp is clearly invalid
+        result.Should().BeNull("port with invalid timestamp (>10 years old) should not be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_InvalidTimestamp_ZeroEpoch_ReturnsNull()
+    {
+        // Arrange - Unix epoch (Jan 1, 1970) is clearly invalid
+        const long epochTimestamp = 0;
+        var port = CreatePort(portName: "Port 5", isUp: false, forwardMode: "native", lastConnectionSeen: epochTimestamp);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().BeNull("port with epoch timestamp should not be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_InvalidTimestamp_Year2000_ReturnsNull()
+    {
+        // Arrange - Year 2000 timestamp (before UniFi existed)
+        var year2000Timestamp = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Port 6", isUp: false, forwardMode: "native", lastConnectionSeen: year2000Timestamp);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert
+        result.Should().BeNull("port with timestamp from year 2000 should not be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_ValidOldTimestamp_JustUnderThreshold_ReturnsNull()
+    {
+        // Arrange - Timestamp that's old but within the 10-year reasonable window
+        // and within the named port threshold (45 days)
+        var validOldTimestamp = DateTimeOffset.UtcNow.AddDays(-30).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Printer", isUp: false, forwardMode: "native", lastConnectionSeen: validOldTimestamp);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should NOT flag because it's within the 45-day threshold for named ports
+        result.Should().BeNull("named port active within 45 days should not be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_ValidOldTimestamp_BeyondThreshold_ReturnsIssue()
+    {
+        // Arrange - Timestamp from 1 year ago (valid but beyond threshold)
+        var oneYearAgo = DateTimeOffset.UtcNow.AddDays(-365).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Port 7", isUp: false, forwardMode: "native", lastConnectionSeen: oneYearAgo);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should flag because timestamp is valid and beyond threshold
+        result.Should().NotBeNull("port with valid 1-year-old timestamp should be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_ValidOldTimestamp_FiveYearsAgo_ReturnsIssue()
+    {
+        // Arrange - Timestamp from 5 years ago (valid, within 10-year window)
+        var fiveYearsAgo = DateTimeOffset.UtcNow.AddYears(-5).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Port 8", isUp: false, forwardMode: "native", lastConnectionSeen: fiveYearsAgo);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should flag because it's a valid old timestamp
+        result.Should().NotBeNull("port with valid 5-year-old timestamp should be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_ValidTimestamp_JustUnderBoundary_ReturnsIssue()
+    {
+        // Arrange - Timestamp just under the 10-year boundary (should be flagged as legitimately old)
+        var justUnderTenYears = DateTimeOffset.UtcNow.AddDays(-3649).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Port 9", isUp: false, forwardMode: "native", lastConnectionSeen: justUnderTenYears);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Just under 3650 days is still valid and should be flagged as unused
+        result.Should().NotBeNull("port just under 10-year boundary should be flagged as legitimately unused");
+    }
+
+    [Fact]
+    public void Evaluate_InvalidTimestamp_JustPastBoundary_ReturnsNull()
+    {
+        // Arrange - Timestamp just past the 10-year boundary
+        var justPastTenYears = DateTimeOffset.UtcNow.AddDays(-3651).ToUnixTimeSeconds();
+        var port = CreatePort(portName: "Port 10", isUp: false, forwardMode: "native", lastConnectionSeen: justPastTenYears);
+        var networks = CreateNetworkList();
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Just past boundary should be treated as invalid
+        result.Should().BeNull("port just past 10-year boundary should not be flagged");
+    }
+
+    #endregion
+
     #region Evaluate Tests - Configurable Thresholds
 
     [Fact]
