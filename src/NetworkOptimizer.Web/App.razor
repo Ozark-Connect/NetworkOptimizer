@@ -6,7 +6,7 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <base href="/" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -192,6 +192,8 @@
                 tippy(el, {
                     content: el.dataset.tooltip,
                     allowHTML: true,
+                    trigger: 'mouseenter click',
+                    hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
                     theme: 'custom',
@@ -211,6 +213,8 @@
                         tippy(el, {
                             content: el.dataset.tooltip,
                             allowHTML: true,
+                            trigger: 'mouseenter click',
+                            hideOnClick: true,
                             delay: [100, 200],
                             placement: 'top',
                             theme: 'custom',
@@ -223,6 +227,8 @@
                     tippy(el, {
                         content: el.dataset.tooltip,
                         allowHTML: true,
+                        trigger: 'mouseenter click',
+                        hideOnClick: true,
                         delay: [100, 200],
                         placement: 'top',
                         theme: 'custom',

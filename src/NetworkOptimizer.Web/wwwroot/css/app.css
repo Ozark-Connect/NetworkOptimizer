@@ -2086,7 +2086,7 @@ select.form-control {
         display: block;
         height: 60px;
         margin: -0.5rem 0;
-        max-height: 7vh;
+        max-height: 20vw;
     }
 
     .mobile-logo img {
@@ -3491,6 +3491,11 @@ select.form-control {
 
     .path-analysis .path-connector.path-turn.turn-left {
         margin-right: 0;
+    }
+
+    /* Counter-rotate wireless icon to stay upright when connector is rotated */
+    .path-analysis .path-connector .wireless-icon {
+        transform: translateX(-50%) rotate(-90deg);
     }
 
 }

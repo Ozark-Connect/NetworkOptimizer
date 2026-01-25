@@ -1,4 +1,5 @@
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.UniFi
 @using NetworkOptimizer.UniFi.Models
 @using NetworkOptimizer.Web.Services
@@ -8,12 +9,16 @@
 @inject IJSRuntime JS
 @inject UniFiConnectionService ConnectionService
 
-@if (HasLocationData)
+@if (HasAnyLocationData)
 {
     <div class="card speed-test-map-card">
         <div class="card-header">
             <h2 class="card-title">Speed / Coverage Map</h2>
             <div class="map-filters">
+                <SpeedTestSearchFilter @bind-SearchFilter="searchFilter"
+                                       OnSearch="OnSearchExecuted"
+                                       ShowStatus="false"
+                                       Placeholder="Filter by client device or AP..." />
                 <button class="btn btn-sm @(ShowLan ? "btn-primary" : "btn-secondary")"
                         @onclick="() => ToggleFilter(true)">
                     LAN (@LanCount)
@@ -42,6 +47,15 @@
         <div class="card-body">
             <div class="map-container">
                 <div id="@mapId" class="speed-test-map"></div>
+                @if (ShowNoResultsMessage)
+                {
+                    <div class="map-no-results-overlay">
+                        <div class="map-no-results-message">
+                            <span>No results matching "@searchFilter"</span>
+                            <button class="btn btn-sm btn-secondary" @onclick="ClearSearchFilter">Clear filter</button>
+                        </div>
+                    </div>
+                }
             </div>
             <div class="map-footer">
                 <div class="map-legend">
@@ -69,6 +83,8 @@
     [Parameter]
     public EventCallback<int> OnResultClick { get; set; }
 
+    // Search filter state (internal to map only)
+    private string searchFilter = "";
 
     private string mapId = $"map-{Guid.NewGuid():N}";
     private DotNetObjectReference<SpeedTestMap>? dotNetRef;
@@ -103,7 +119,7 @@
     };
     private int sliderValue = 6; // Default to 30 days (index 6)
 
-    // All tests with valid location data, filtered by time slider
+    // All tests with valid location data, filtered by time slider and search
     private IEnumerable<Iperf3Result> LocationResults
     {
         get
@@ -118,6 +134,13 @@
             {
                 var cutoff = DateTime.UtcNow.AddHours(-hours);
                 results = results.Where(r => r.TestTime >= cutoff);
+            }
+
+            // Apply search filter (client + AP only for map view)
+            if (!string.IsNullOrWhiteSpace(searchFilter))
+            {
+                var normalizedFilter = searchFilter.Trim().ToLowerInvariant();
+                results = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, normalizedFilter, clientAndApOnly: true));
             }
 
             return results;
@@ -151,8 +174,14 @@
         }
     }
 
-    // Check raw results for any location data (not time-filtered) - determines if map shows at all
-    private bool HasLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+    // Check raw results for any location data (not filtered) - determines if map card shows at all
+    private bool HasAnyLocationData => Results.Any(r => r.Latitude.HasValue && r.Longitude.HasValue);
+
+    // Check if current filter/time settings return any results (for "no results" message)
+    private bool HasFilteredResults => FilteredResults.Any();
+
+    // Check if search filter is active but returned no results
+    private bool ShowNoResultsMessage => !string.IsNullOrEmpty(searchFilter) && !HasFilteredResults;
 
     private async Task ToggleFilter(bool isLan)
     {
@@ -215,6 +244,26 @@
         }
     }
 
+    private async Task OnSearchExecuted(string filter)
+    {
+        // Update markers with new filter (map filter is independent of table)
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: !userHasZoomed);
+        }
+        StateHasChanged();
+    }
+
+    private async Task ClearSearchFilter()
+    {
+        searchFilter = "";
+        if (mapInitialized)
+        {
+            await UpdateMarkers(fitBounds: true);
+        }
+        StateHasChanged();
+    }
+
     protected override async Task OnInitializedAsync()
     {
         // Load networks for VPN detection
@@ -224,7 +273,7 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Initialize map when we have location data and DOM is ready
-        if (!mapInitialized && HasLocationData)
+        if (!mapInitialized && HasAnyLocationData)
         {
             await InitializeMap();
         }
@@ -611,7 +660,19 @@
                         markerToReopen.openPopup();
                     }}
 
-                    if ({shouldFitBounds} && bounds.length > 0) {{
+                    // Determine if we should fit bounds:
+                    // 1. If explicitly requested (user hasn't zoomed), or
+                    // 2. If none of the filtered markers are visible in current view
+                    let shouldActuallyFitBounds = {shouldFitBounds};
+                    if (!shouldActuallyFitBounds && bounds.length > 0) {{
+                        const currentBounds = map.getBounds();
+                        const anyVisible = bounds.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
+                        if (!anyVisible) {{
+                            shouldActuallyFitBounds = true;
+                        }}
+                    }}
+
+                    if (shouldActuallyFitBounds && bounds.length > 0) {{
                         // Mark as programmatic so zoom/drag listeners don't fire
                         if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
                         if (bounds.length === 1) {{
@@ -845,6 +906,34 @@
 
     .map-container {
         position: relative;
+    }
+
+    .map-no-results-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        border-radius: 6px;
+    }
+
+    .map-no-results-message {
+        text-align: center;
+        color: var(--text-secondary);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .map-no-results-message span {
+        font-size: 1rem;
+        color: var(--warning-color);
     }
 
     .map-footer {
