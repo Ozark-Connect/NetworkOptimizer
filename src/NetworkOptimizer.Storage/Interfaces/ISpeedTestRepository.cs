@@ -33,6 +33,15 @@ public interface ISpeedTestRepository
     Task<bool> DeleteIperf3ResultAsync(int id, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    /// <param name="id">Result ID</param>
+    /// <param name="notes">Notes text (null or empty to clear)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if the result was found and updated</returns>
+    Task<bool> UpdateIperf3ResultNotesAsync(int id, string? notes, CancellationToken cancellationToken = default);
+
     // SQM WAN Configuration
     Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int wanNumber, CancellationToken cancellationToken = default);
     Task<List<SqmWanConfiguration>> GetAllSqmWanConfigsAsync(CancellationToken cancellationToken = default);

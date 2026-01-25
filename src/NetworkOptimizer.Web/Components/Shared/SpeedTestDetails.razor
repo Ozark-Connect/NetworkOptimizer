@@ -288,6 +288,28 @@
     </div>
 }
 
+@if (Result != null && OnNotesChanged.HasDelegate)
+{
+    <div class="result-notes" @onclick:stopPropagation="true">
+        <div class="notes-input-wrapper">
+            <textarea class="notes-input"
+                      placeholder="Add notes about this test..."
+                      @bind="_notesInput"
+                      @bind:event="oninput"
+                      @onkeyup="OnNotesKeyUp"
+                      rows="2"></textarea>
+            @if (_notesSaving)
+            {
+                <span class="notes-status saving">Saving...</span>
+            }
+            else if (_notesSaved)
+            {
+                <span class="notes-status saved">Saved</span>
+            }
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public double DownloadMbps { get; set; }
     [Parameter] public double UploadMbps { get; set; }
@@ -324,12 +346,25 @@
     /// </summary>
     [Parameter] public EventCallback<int> OnDelete { get; set; }
 
+    /// <summary>
+    /// Callback invoked when notes are changed (after debounce).
+    /// Parameters: (resultId, notes)
+    /// </summary>
+    [Parameter] public EventCallback<(int Id, string? Notes)> OnNotesChanged { get; set; }
+
     // Track previous Result ID to detect when Result changes
     private int? _previousResultId;
 
     // Delete state
     private bool _deleting;
     private bool _disposed;
+
+    // Notes state
+    private string _notesInput = "";
+    private bool _notesSaving;
+    private bool _notesSaved;
+    private System.Timers.Timer? _notesDebounceTimer;
+    private System.Timers.Timer? _notesSavedTimer;
 
     protected override void OnParametersSet()
     {
@@ -357,6 +392,9 @@
             if (resultChanged)
             {
                 PathAnalysis = Result.PathAnalysis;
+                // Sync notes from Result
+                _notesInput = Result.Notes ?? "";
+                _notesSaved = false;
             }
             else
             {
@@ -789,6 +827,67 @@
         builder.AddContent(0, GetHopIcon(hop.Type));
     };
 
+    private void OnNotesKeyUp(KeyboardEventArgs e)
+    {
+        // Reset debounce timer on each keystroke
+        _notesDebounceTimer?.Stop();
+        _notesDebounceTimer?.Dispose();
+        _notesSaved = false;
+
+        _notesDebounceTimer = new System.Timers.Timer(800); // Longer debounce for notes
+        _notesDebounceTimer.AutoReset = false;
+        _notesDebounceTimer.Elapsed += async (s, e) => await InvokeAsync(SaveNotes);
+        _notesDebounceTimer.Start();
+    }
+
+    private async Task SaveNotes()
+    {
+        if (Result == null || !OnNotesChanged.HasDelegate || _disposed) return;
+
+        var newNotes = _notesInput?.Trim();
+        var currentNotes = Result.Notes?.Trim();
+
+        // Skip if notes haven't changed
+        if (newNotes == currentNotes || (string.IsNullOrEmpty(newNotes) && string.IsNullOrEmpty(currentNotes)))
+            return;
+
+        _notesSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            await OnNotesChanged.InvokeAsync((Result.Id, string.IsNullOrEmpty(newNotes) ? null : newNotes));
+            Result.Notes = string.IsNullOrEmpty(newNotes) ? null : newNotes;
+            _notesSaved = true;
+
+            // Hide "Saved" after 2 seconds
+            _notesSavedTimer?.Stop();
+            _notesSavedTimer?.Dispose();
+            _notesSavedTimer = new System.Timers.Timer(2000);
+            _notesSavedTimer.AutoReset = false;
+            _notesSavedTimer.Elapsed += async (s, e) =>
+            {
+                if (!_disposed)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        _notesSaved = false;
+                        StateHasChanged();
+                    });
+                }
+            };
+            _notesSavedTimer.Start();
+        }
+        finally
+        {
+            if (!_disposed)
+            {
+                _notesSaving = false;
+                StateHasChanged();
+            }
+        }
+    }
+
     private async Task HandleDelete()
     {
         if (Result == null) return;
@@ -811,5 +910,7 @@
     public void Dispose()
     {
         _disposed = true;
+        _notesDebounceTimer?.Dispose();
+        _notesSavedTimer?.Dispose();
     }
 }

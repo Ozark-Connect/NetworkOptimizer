@@ -614,7 +614,7 @@
             <div class="card-body">
                 @if (currentResult.Success)
                 {
-                    <SpeedTestDetails Result="currentResult" />
+                    <SpeedTestDetails Result="currentResult" OnNotesChanged="HandleNotesChanged" />
                 }
                 else
                 {
@@ -755,7 +755,7 @@
                                                         // Use stored path analysis if available, otherwise use result's analysis
                                                         var pathAnalysis = historyPathAnalysis.GetValueOrDefault(result.Id) ?? result.PathAnalysis;
                                                     }
-                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="pathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
 
                                                     @if (pathAnalysis == null && ConnectionService.IsConnected)
                                                     {
@@ -1447,6 +1447,11 @@
             expandedHistoryId = null;
             StateHasChanged();
         }
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await SpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
     }
 
     private void EditDevice(DeviceSshConfiguration device)

@@ -3051,6 +3051,54 @@ select.form-control {
     animation: spin 0.6s linear infinite;
 }
 
+/* Speed test result notes */
+.result-notes {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.notes-input-wrapper {
+    position: relative;
+}
+
+.notes-input {
+    width: 100%;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    resize: vertical;
+    min-height: 2.5rem;
+}
+
+.notes-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.notes-input::placeholder {
+    color: var(--text-muted);
+}
+
+.notes-status {
+    position: absolute;
+    right: 0.5rem;
+    top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.notes-status.saving {
+    color: var(--text-muted);
+}
+
+.notes-status.saved {
+    color: var(--success-color);
+}
+
 .show-mobile {
     display: none !important;
 }

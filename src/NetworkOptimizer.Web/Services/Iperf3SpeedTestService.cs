@@ -546,6 +546,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    public async Task<bool> UpdateNotesAsync(int id, string? notes)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.UpdateIperf3ResultNotesAsync(id, notes);
+    }
+
+    /// <summary>
     /// Clear all speed test history
     /// </summary>
     public async Task<int> ClearHistoryAsync()

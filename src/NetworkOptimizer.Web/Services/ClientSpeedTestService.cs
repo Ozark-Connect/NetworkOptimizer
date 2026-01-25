@@ -298,6 +298,24 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    public async Task<bool> UpdateNotesAsync(int id, string? notes)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var result = await db.Iperf3Results.FindAsync(id);
+        if (result == null)
+        {
+            return false;
+        }
+
+        result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        await db.SaveChangesAsync();
+        _logger.LogDebug("Updated notes for speed test result {Id}", id);
+        return true;
+    }
+
+    /// <summary>
     /// Analyze network path for the speed test result.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
     /// Retry logic is built into CalculatePathAsync.
