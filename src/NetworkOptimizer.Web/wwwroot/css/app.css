@@ -3190,7 +3190,7 @@ select.form-control {
 }
 
 .history-details .path-analysis {
-    margin-top: 0.5rem;
+    margin-top: 0rem;
     padding-bottom: 0.25rem;
 }
 
@@ -3215,6 +3215,7 @@ select.form-control {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-primary);
+    line-height: 1.25rem;
 }
 
 /* Directional speed colors for asymmetric links (matching speed-results) */
