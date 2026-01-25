@@ -967,19 +967,20 @@
         if (maxMbps <= 0 || measuredMbps <= 0)
             return directionText;
 
-        // Format with units matching the MAX display (all Gbps or all Mbps)
+        // Format with appropriate units - use Mbps until either value exceeds 9999
         // maxMbps is the link speed (PHY rate), overhead explains why you can't achieve 100%
-        var (useGbps, unit) = GetAsymmetricUnit();
-        string measuredFormatted, maxFormatted;
-        if (useGbps)
+        string measuredFormatted, maxFormatted, unit;
+        if (measuredMbps > 9999 || maxMbps > 9999)
         {
             measuredFormatted = $"{measuredMbps / 1000.0:F1}";
             maxFormatted = $"{maxMbps / 1000.0:F1}";
+            unit = "Gbps";
         }
         else
         {
             measuredFormatted = $"{measuredMbps:F0}";
             maxFormatted = $"{maxMbps:F0}";
+            unit = "Mbps";
         }
         return $"{directionText}. {measuredFormatted} of {maxFormatted} {unit} link ({overheadPct}% overhead)";
     }

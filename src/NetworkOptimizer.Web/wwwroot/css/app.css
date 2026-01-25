@@ -2939,7 +2939,8 @@ select.form-control {
     border-left: 4px solid var(--speed-upload-color);
 }
 
-.speed-result.upload .speed-icon {
+.speed-result.upload .speed-icon,
+.speed-result.upload .speed-value {
     color: var(--speed-upload-color);
 }
 
@@ -2947,7 +2948,8 @@ select.form-control {
     border-left: 4px solid var(--speed-download-color);
 }
 
-.speed-result.download .speed-icon {
+.speed-result.download .speed-icon,
+.speed-result.download .speed-value {
     color: var(--speed-download-color);
 }
 
