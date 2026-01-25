@@ -983,7 +983,7 @@
             maxFormatted = $"{maxMbps:F0}";
             unit = "Mbps";
         }
-        return $"{directionText}. {measuredFormatted} of {maxFormatted} {unit} link ({overheadPct}% overhead)";
+        return $"{directionText}. {measuredFormatted} of {maxFormatted} {unit} link (~{overheadPct}% overhead)";
     }
 
     /// <summary>
