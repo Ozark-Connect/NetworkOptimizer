@@ -3785,10 +3785,31 @@ select.form-control {
     font-size: 0.8rem;
     color: var(--text-secondary);
     padding: 0.25rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
 }
 
+.path-analysis .note::before {
+    content: '';
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-top: 1px;
+    background: currentColor;
+    -webkit-mask: var(--note-icon) center/contain no-repeat;
+    mask: var(--note-icon) center/contain no-repeat;
+}
+
+/* Info circle icon for insights */
+.path-analysis .note.insight {
+    --note-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E");
+}
+
+/* Trending up arrow for recommendations */
 .path-analysis .note.recommendation {
     color: #93c5fd;
+    --note-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 6 13.5 15.5 8.5 10.5 1 18'/%3E%3Cpolyline points='17 6 23 6 23 12'/%3E%3C/svg%3E");
 }
 
 .test-error {

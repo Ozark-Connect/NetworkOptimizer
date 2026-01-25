@@ -263,7 +263,7 @@
             @if (PathAnalysis.Path.HasRealBottleneck)
             {
                 <div class="bottleneck-warning">
-                    ⚠️ @FormatBottleneckDescription()
+                    @FormatBottleneckDescription()
                 </div>
             }
 
@@ -296,11 +296,11 @@
             <div class="path-notes">
                 @foreach (var insight in filteredInsights)
                 {
-                    <div class="note insight">💡 @insight</div>
+                    <div class="note insight">@insight</div>
                 }
                 @foreach (var rec in filteredRecs)
                 {
-                    <div class="note recommendation">📈 @rec</div>
+                    <div class="note recommendation">@rec</div>
                 }
             </div>
         }
