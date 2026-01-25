@@ -470,6 +470,16 @@
         return $"{mbps} Mbps";
     }
 
+    private string FormatSpeedCompact(double mbps)
+    {
+        if (mbps >= 1000)
+        {
+            var gbps = mbps / 1000.0;
+            return gbps % 1 == 0 ? $"{(int)gbps} Gbps" : $"{gbps:F1} Gbps";
+        }
+        return $"{mbps:F0} Mbps";
+    }
+
     private string GetGradeClass(PerformanceGrade grade) => grade switch
     {
         PerformanceGrade.Excellent => "grade-excellent",
@@ -957,9 +967,11 @@
         if (maxMbps <= 0 || measuredMbps <= 0)
             return directionText;
 
-        // Format the tooltip: "Direction. X Mbps of Y Mbps link (Z% overhead)"
+        // Format the tooltip with consistent units (Gbps if >= 1000, else Mbps)
         // maxMbps is the link speed (PHY rate), overhead explains why you can't achieve 100%
-        return $"{directionText}. {measuredMbps:F0} Mbps of {maxMbps:F0} Mbps link ({overheadPct}% overhead)";
+        var measuredFormatted = FormatSpeedCompact(measuredMbps);
+        var maxFormatted = FormatSpeedCompact(maxMbps);
+        return $"{directionText}. {measuredFormatted} of {maxFormatted} link ({overheadPct}% overhead)";
     }
 
     /// <summary>
