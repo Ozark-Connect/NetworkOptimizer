@@ -2935,6 +2935,10 @@ select.form-control {
     background: var(--bg-tertiary);
 }
 
+#latest-result .tooltip-icon {
+    background: var(--bg-secondary);
+}
+
 .speed-result.upload {
     border-left: 4px solid var(--speed-upload-color);
 }
