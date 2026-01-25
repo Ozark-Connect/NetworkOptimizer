@@ -205,6 +205,14 @@
 
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
+            // Clean up orphaned tippy instances (elements that no longer have data-tooltip but still have _tippy)
+            // This happens when Blazor reuses elements and removes the data-tooltip attribute
+            document.querySelectorAll('.path-connector, .wireless-icon').forEach(function(el) {
+                if (el._tippy && !el.hasAttribute('data-tooltip')) {
+                    el._tippy.destroy();
+                }
+            });
+
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
                 if (el._tippy) {
                     // Update existing tooltip if content changed
