@@ -40,8 +40,8 @@ public class SqmDeploymentService : ISqmDeploymentService
     /// <summary>
     /// Run SSH command on gateway (shorthand)
     /// </summary>
-    private Task<(bool success, string output)> RunCommandAsync(string command)
-        => _gatewaySsh.RunCommandAsync(command);
+    private Task<(bool success, string output)> RunCommandAsync(string command, TimeSpan? timeout = null)
+        => _gatewaySsh.RunCommandAsync(command, timeout);
 
     /// <summary>
     /// Test SSH connection to the gateway
@@ -657,8 +657,8 @@ WantedBy=multi-user.target
                 return (false, $"SQM script not found: {scriptPath}");
             }
 
-            // Run the script (speedtest can take up to 60 seconds)
-            var result = await RunCommandAsync(scriptPath);
+            // Run the script (speedtest can take up to 60 seconds, use 90s timeout)
+            var result = await RunCommandAsync(scriptPath, TimeSpan.FromSeconds(90));
 
             if (result.success)
             {
