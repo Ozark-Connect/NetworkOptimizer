@@ -660,7 +660,19 @@
                         markerToReopen.openPopup();
                     }}
 
-                    if ({shouldFitBounds} && bounds.length > 0) {{
+                    // Determine if we should fit bounds:
+                    // 1. If explicitly requested (user hasn't zoomed), or
+                    // 2. If none of the filtered markers are visible in current view
+                    let shouldActuallyFitBounds = {shouldFitBounds};
+                    if (!shouldActuallyFitBounds && bounds.length > 0) {{
+                        const currentBounds = map.getBounds();
+                        const anyVisible = bounds.some(b => currentBounds.contains(L.latLng(b[0], b[1])));
+                        if (!anyVisible) {{
+                            shouldActuallyFitBounds = true;
+                        }}
+                    }}
+
+                    if (shouldActuallyFitBounds && bounds.length > 0) {{
                         // Mark as programmatic so zoom/drag listeners don't fire
                         if (mapData.setProgrammaticMove) mapData.setProgrammaticMove(true);
                         if (bounds.length === 1) {{
