@@ -2956,6 +2956,8 @@ select.form-control {
 .speed-icon {
     font-size: 1.5rem;
     font-weight: bold;
+    place-content: center;
+    display: flex;
 }
 
 .speed-details,
@@ -2976,6 +2978,10 @@ select.form-control {
     font-weight: 700;
     color: var(--text-primary);
     line-height: 0.8;
+}
+
+.speed-details .speed-value {
+    font-size: 1.25rem;
 }
 
 .speed-unit {
