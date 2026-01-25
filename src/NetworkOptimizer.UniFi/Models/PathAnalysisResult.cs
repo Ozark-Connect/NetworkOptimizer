@@ -146,7 +146,8 @@ public class PathAnalysisResult
 
     /// <summary>
     /// Get the overhead factor for this path based on the bottleneck link type.
-    /// Only uses mesh overhead (55%) if mesh backhaul is actually the bottleneck.
+    /// For Wi-Fi clients behind mesh, only uses mesh overhead (55%) if mesh is the bottleneck.
+    /// For mesh AP tests (target IS the mesh AP), always uses mesh overhead.
     /// </summary>
     public double GetOverheadFactor()
     {
@@ -160,13 +161,18 @@ public class PathAnalysisResult
 
         if (meshHop != null)
         {
-            // Get mesh backhaul speed
+            // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
+            if (Path.TargetIsAccessPoint)
+            {
+                return MeshBackhaulOverheadFactor;
+            }
+
+            // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
             var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
                 ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
                 : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
 
-            // Mesh overhead only if mesh is the bottleneck (matches TheoreticalMaxMbps)
-            // If path max is lower than mesh, something else (client Wi-Fi) is the bottleneck
+            // Mesh overhead only if mesh is the bottleneck
             if (meshSpeedMbps > 0 && meshSpeedMbps <= Path.TheoreticalMaxMbps)
             {
                 return MeshBackhaulOverheadFactor;
@@ -212,26 +218,32 @@ public class PathAnalysisResult
             }
             else
             {
-                // Wi-Fi paths: check if mesh backhaul is the bottleneck
-                // Only use mesh overhead (55%) if mesh is slower than client Wi-Fi link
+                // Find mesh hop if present
                 var meshHop = Path.Hops.FirstOrDefault(h =>
                     h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
                     h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
 
                 if (meshHop != null)
                 {
-                    // Get mesh backhaul speed (use min of ingress/egress, or whichever is set)
-                    var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
-                        ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
-                        : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
+                    // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
+                    if (Path.TargetIsAccessPoint)
+                    {
+                        overheadFactor = MeshBackhaulOverheadFactor;
+                    }
+                    else
+                    {
+                        // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
+                        var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
+                            ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
+                            : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
 
-                    // Get client Wi-Fi speed (use min of RX/TX)
-                    var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
+                        var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
 
-                    // Mesh overhead only if mesh is the bottleneck
-                    overheadFactor = meshSpeedMbps < clientSpeedMbps
-                        ? MeshBackhaulOverheadFactor
-                        : ClientWifiOverheadFactor;
+                        // Mesh overhead only if mesh is the bottleneck
+                        overheadFactor = meshSpeedMbps < clientSpeedMbps
+                            ? MeshBackhaulOverheadFactor
+                            : ClientWifiOverheadFactor;
+                    }
                 }
                 else
                 {
