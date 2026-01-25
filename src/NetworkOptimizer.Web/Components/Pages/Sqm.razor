@@ -2148,10 +2148,12 @@
             adjustmentSuccess = success;
             adjustmentMessage = message;
 
-            // Refresh dashboard after adjustment
+            // Refresh dashboard after adjustment (twice to catch delayed updates)
             if (success)
             {
-                await Task.Delay(2000); // Give the monitor time to update after TC changes
+                await Task.Delay(2000);
+                await RefreshDashboard();
+                await Task.Delay(3000);
                 await RefreshDashboard();
             }
         }
