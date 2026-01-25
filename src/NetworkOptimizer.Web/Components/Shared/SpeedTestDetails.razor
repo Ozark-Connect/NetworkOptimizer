@@ -87,23 +87,23 @@
         {
             <div class="path-summary">
                 <div class="path-max-speed">
-                    <span class="speed-value">@FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps)</span>
-                    <span class="speed-label">max</span>
+                    <span class="speed-value">@FormatPathMaxSpeed()</span>
+                    <span class="speed-label">path max</span>
                 </div>
                 <div class="efficiency-grades">
                     @if (DownloadMbps > 0)
                     {
                         <div class="grade-item">
-                            <span class="grade-badge @GetGradeClass(PathAnalysis.FromDeviceGrade)" data-tooltip="From device to server">
-                                ↓ @PathAnalysis.FromDeviceEfficiencyPercent.ToString("F0")%
+                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(isFromDevice: true))" data-tooltip="@GetEfficiencyTooltip(isFromDevice: true)">
+                                ↓ @GetDisplayEfficiency(isFromDevice: true).ToString("F0")%
                             </span>
                         </div>
                     }
                     @if (UploadMbps > 0)
                     {
                         <div class="grade-item">
-                            <span class="grade-badge @GetGradeClass(PathAnalysis.ToDeviceGrade)" data-tooltip="From server to device">
-                                ↑ @PathAnalysis.ToDeviceEfficiencyPercent.ToString("F0")%
+                            <span class="grade-badge @GetGradeClass(GetDisplayGrade(isFromDevice: false))" data-tooltip="@GetEfficiencyTooltip(isFromDevice: false)">
+                                ↑ @GetDisplayEfficiency(isFromDevice: false).ToString("F0")%
                             </span>
                         </div>
                     }
@@ -903,6 +903,125 @@
             }
         }
     }
+
+    #region Directional Efficiency Helpers
+
+    /// <summary>
+    /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 10%)
+    /// </summary>
+    private bool IsLinkAsymmetric()
+    {
+        if (Result == null) return false;
+        return PathAnalysisResult.IsAsymmetric(Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+    }
+
+    /// <summary>
+    /// Get directional efficiency data for display.
+    /// Uses stored Wi-Fi TX/RX rates for accurate asymmetric efficiency.
+    ///
+    /// Direction mapping (critical):
+    /// - FromDevice (↓): Client SENDS → AP RECEIVES → uses RX rate
+    /// - ToDevice (↑): Server SENDS → AP TRANSMITS → uses TX rate
+    /// </summary>
+    private (double fromMaxMbps, double toMaxMbps, double fromEff, double toEff, int overheadPct) GetDirectionalEfficiencyData()
+    {
+        if (PathAnalysis == null || Result == null)
+        {
+            return (0, 0, 0, 0, 6); // Default overhead
+        }
+
+        return PathAnalysis.GetDirectionalEfficiency(Result.WifiRxRateKbps, Result.WifiTxRateKbps);
+    }
+
+    /// <summary>
+    /// Get the efficiency tooltip text for a direction.
+    /// ADDS to existing direction text, does not replace it.
+    /// </summary>
+    /// <param name="isFromDevice">True for FromDevice (↓), false for ToDevice (↑)</param>
+    private string GetEfficiencyTooltip(bool isFromDevice)
+    {
+        // Base direction text (preserved from original)
+        var directionText = isFromDevice ? "From device to server" : "From server to device";
+
+        if (PathAnalysis == null || Result == null)
+            return directionText;
+
+        var (fromMax, toMax, fromEff, toEff, overheadPct) = GetDirectionalEfficiencyData();
+
+        // Get the relevant values for this direction
+        var maxMbps = isFromDevice ? fromMax : toMax;
+        var measuredMbps = isFromDevice ? DownloadMbps : UploadMbps;
+        var efficiency = isFromDevice ? fromEff : toEff;
+
+        // If we don't have valid data, return just the direction text
+        if (maxMbps <= 0 || measuredMbps <= 0)
+            return directionText;
+
+        // Calculate the realistic max with overhead
+        var overheadFactor = 1.0 - (overheadPct / 100.0);
+        var realisticMax = maxMbps * overheadFactor;
+
+        // Format the tooltip: "Direction. X Mbps of Y Mbps link (Z% overhead)"
+        return $"{directionText}. {measuredMbps:F0} Mbps of {realisticMax:F0} Mbps link ({overheadPct}% overhead)";
+    }
+
+    /// <summary>
+    /// Format the path max speed display, showing directional speeds if asymmetric.
+    /// </summary>
+    private string FormatPathMaxSpeed()
+    {
+        if (PathAnalysis == null)
+            return "0 Mbps";
+
+        if (!IsLinkAsymmetric())
+        {
+            return FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps);
+        }
+
+        // Asymmetric: show both directions
+        var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
+        var fromFormatted = fromMax >= 1000 ? $"{fromMax / 1000.0:F1}G" : $"{fromMax:F0}";
+        var toFormatted = toMax >= 1000 ? $"{toMax / 1000.0:F1}G" : $"{toMax:F0}";
+        return $"↓{fromFormatted} / ↑{toFormatted} Mbps";
+    }
+
+    /// <summary>
+    /// Get the display efficiency percentage for a direction.
+    /// Uses directional calculation if Wi-Fi rates are available.
+    /// </summary>
+    private double GetDisplayEfficiency(bool isFromDevice)
+    {
+        if (PathAnalysis == null)
+            return 0;
+
+        // If we have Wi-Fi TX/RX rates, use directional efficiency
+        if (Result?.WifiRxRateKbps > 0 && Result?.WifiTxRateKbps > 0)
+        {
+            var (_, _, fromEff, toEff, _) = GetDirectionalEfficiencyData();
+            return isFromDevice ? fromEff : toEff;
+        }
+
+        // Fall back to symmetric efficiency
+        return isFromDevice ? PathAnalysis.FromDeviceEfficiencyPercent : PathAnalysis.ToDeviceEfficiencyPercent;
+    }
+
+    /// <summary>
+    /// Get the performance grade for a direction based on efficiency.
+    /// </summary>
+    private PerformanceGrade GetDisplayGrade(bool isFromDevice)
+    {
+        var efficiency = GetDisplayEfficiency(isFromDevice);
+        return efficiency switch
+        {
+            >= 90 => PerformanceGrade.Excellent,
+            >= 75 => PerformanceGrade.Good,
+            >= 50 => PerformanceGrade.Fair,
+            >= 25 => PerformanceGrade.Poor,
+            _ => PerformanceGrade.Critical
+        };
+    }
+
+    #endregion
 
     public void Dispose()
     {

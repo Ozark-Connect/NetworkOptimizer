@@ -137,6 +137,100 @@ public class PathAnalysisResult
     }
 
     /// <summary>
+    /// Overhead factors for different link types
+    /// </summary>
+    public const double ClientWifiOverheadFactor = 0.85;    // 15% overhead
+    public const double MeshBackhaulOverheadFactor = 0.60;  // 40% overhead
+    public const double WiredOverheadFactor = 0.94;         // 6% overhead
+    public const double WanOverheadFactor = 0.94;           // 6% overhead
+
+    /// <summary>
+    /// Get the overhead factor for this path based on whether it has wireless connection.
+    /// </summary>
+    public double GetOverheadFactor()
+    {
+        if (!Path.HasWirelessConnection)
+            return WiredOverheadFactor;
+
+        // Check if it's mesh backhaul (AP to AP) vs client Wi-Fi
+        // Mesh backhaul has higher overhead (40%) vs client (15%)
+        var hasMeshBackhaul = Path.Hops.Any(h =>
+            h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
+            h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
+
+        return hasMeshBackhaul ? MeshBackhaulOverheadFactor : ClientWifiOverheadFactor;
+    }
+
+    /// <summary>
+    /// Get the overhead percentage for display (e.g., "15%" for client Wi-Fi)
+    /// </summary>
+    public int GetOverheadPercent()
+    {
+        var factor = GetOverheadFactor();
+        return (int)Math.Round((1 - factor) * 100);
+    }
+
+    /// <summary>
+    /// Calculate directional efficiency at display time using stored Wi-Fi TX/RX rates.
+    /// This provides accurate efficiency for asymmetric links (where TX ≠ RX).
+    ///
+    /// Direction mapping (critical - do not change):
+    /// - FromDevice (↓): Client SENDS → AP RECEIVES → uses RX rate (WifiRxRateKbps)
+    /// - ToDevice (↑): Server SENDS → AP TRANSMITS → uses TX rate (WifiTxRateKbps)
+    /// </summary>
+    /// <param name="wifiRxRateKbps">AP RX rate in Kbps (limits FromDevice direction)</param>
+    /// <param name="wifiTxRateKbps">AP TX rate in Kbps (limits ToDevice direction)</param>
+    /// <returns>Tuple of (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency%, toEfficiency%, overheadPercent)</returns>
+    public (double fromDeviceMaxMbps, double toDeviceMaxMbps, double fromEfficiency, double toEfficiency, int overheadPercent)
+        GetDirectionalEfficiency(long? wifiRxRateKbps, long? wifiTxRateKbps)
+    {
+        var overheadFactor = GetOverheadFactor();
+        var overheadPercent = GetOverheadPercent();
+
+        // Use stored directional rates if available (Wi-Fi clients since Jan 7)
+        if (wifiRxRateKbps.HasValue && wifiRxRateKbps.Value > 0 &&
+            wifiTxRateKbps.HasValue && wifiTxRateKbps.Value > 0)
+        {
+            // RX = AP receives from client = FromDevice direction limit
+            // TX = AP transmits to client = ToDevice direction limit
+            var fromDeviceMaxMbps = wifiRxRateKbps.Value / 1000.0;
+            var toDeviceMaxMbps = wifiTxRateKbps.Value / 1000.0;
+            var fromRealistic = fromDeviceMaxMbps * overheadFactor;
+            var toRealistic = toDeviceMaxMbps * overheadFactor;
+
+            var fromEfficiency = fromRealistic > 0 ? (MeasuredFromDeviceMbps / fromRealistic) * 100 : 0;
+            var toEfficiency = toRealistic > 0 ? (MeasuredToDeviceMbps / toRealistic) * 100 : 0;
+
+            return (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency, toEfficiency, overheadPercent);
+        }
+
+        // Fall back to symmetric calculation (legacy results or wired clients)
+        return (
+            Path.TheoreticalMaxMbps,
+            Path.TheoreticalMaxMbps,
+            FromDeviceEfficiencyPercent,
+            ToDeviceEfficiencyPercent,
+            overheadPercent
+        );
+    }
+
+    /// <summary>
+    /// Check if the link is asymmetric (>10% difference between TX and RX rates)
+    /// </summary>
+    public static bool IsAsymmetric(long? wifiRxRateKbps, long? wifiTxRateKbps)
+    {
+        if (!wifiRxRateKbps.HasValue || !wifiTxRateKbps.HasValue ||
+            wifiRxRateKbps.Value <= 0 || wifiTxRateKbps.Value <= 0)
+            return false;
+
+        var maxRate = Math.Max(wifiRxRateKbps.Value, wifiTxRateKbps.Value);
+        var minRate = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value);
+        var difference = (maxRate - minRate) / (double)maxRate;
+
+        return difference > 0.10; // More than 10% difference
+    }
+
+    /// <summary>
     /// Analyze TCP retransmits and generate insights about packet loss.
     /// Uses percentage-based thresholds: 0.1% is concerning, with higher thresholds for UniFi devices.
     /// </summary>
