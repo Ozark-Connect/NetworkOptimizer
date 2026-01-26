@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
