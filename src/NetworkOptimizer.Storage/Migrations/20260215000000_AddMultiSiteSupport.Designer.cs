@@ -11,7 +11,7 @@ using NetworkOptimizer.Storage.Models;
 namespace NetworkOptimizer.Storage.Migrations
 {
     [DbContext(typeof(NetworkOptimizerDbContext))]
-    [Migration("20260125000000_AddMultiSiteSupport")]
+    [Migration("20260215000000_AddMultiSiteSupport")]
     partial class AddMultiSiteSupport
     {
         /// <inheritdoc />
