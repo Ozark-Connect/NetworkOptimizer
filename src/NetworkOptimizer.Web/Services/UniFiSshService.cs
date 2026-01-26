@@ -182,7 +182,7 @@ public class UniFiSshService : IUniFiSshService
             Username = effectiveUsername,
             Password = decryptedPassword,
             PrivateKeyPath = effectivePrivateKeyPath,
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(5)
         };
 
         var result = await _sshClient.ExecuteCommandAsync(connection, command, TimeSpan.FromSeconds(30), cancellationToken);

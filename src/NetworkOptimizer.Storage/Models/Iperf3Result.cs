@@ -149,6 +149,10 @@ public class Iperf3Result
     /// <summary>MLO link details as JSON array (wireless clients with MLO only)</summary>
     public string? WifiMloLinksJson { get; set; }
 
+    /// <summary>User notes about this test result</summary>
+    [MaxLength(2000)]
+    public string? Notes { get; set; }
+
     /// <summary>Raw iperf3 JSON output for upload test</summary>
     public string? RawUploadJson { get; set; }
 

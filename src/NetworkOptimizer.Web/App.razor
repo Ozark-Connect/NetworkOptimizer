@@ -6,7 +6,7 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <base href="/" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -192,6 +192,8 @@
                 tippy(el, {
                     content: el.dataset.tooltip,
                     allowHTML: true,
+                    trigger: 'mouseenter click',
+                    hideOnClick: true,
                     delay: [100, 200],
                     placement: 'top',
                     theme: 'custom',
@@ -203,6 +205,14 @@
 
         // Periodically check for new/stale tooltips (handles Blazor element reuse and dynamic content)
         setInterval(function() {
+            // Clean up orphaned tippy instances (elements that no longer have data-tooltip but still have _tippy)
+            // This happens when Blazor reuses elements and removes the data-tooltip attribute
+            document.querySelectorAll('.path-connector, .wireless-icon').forEach(function(el) {
+                if (el._tippy && !el.hasAttribute('data-tooltip')) {
+                    el._tippy.destroy();
+                }
+            });
+
             document.querySelectorAll('[data-tooltip]:not(.tooltip-icon)').forEach(function(el) {
                 if (el._tippy) {
                     // Update existing tooltip if content changed
@@ -211,6 +221,8 @@
                         tippy(el, {
                             content: el.dataset.tooltip,
                             allowHTML: true,
+                            trigger: 'mouseenter click',
+                            hideOnClick: true,
                             delay: [100, 200],
                             placement: 'top',
                             theme: 'custom',
@@ -223,6 +235,8 @@
                     tippy(el, {
                         content: el.dataset.tooltip,
                         allowHTML: true,
+                        trigger: 'mouseenter click',
+                        hideOnClick: true,
                         delay: [100, 200],
                         placement: 'top',
                         theme: 'custom',

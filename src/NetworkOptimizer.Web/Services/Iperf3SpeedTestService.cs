@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Core.Enums;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
@@ -547,6 +548,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     }
 
     /// <summary>
+    /// Search speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    public async Task<List<Iperf3Result>> SearchResultsAsync(int siteId, string filter, int count = 50, int hours = 0)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.SearchIperf3ResultsAsync(siteId, filter, count, hours);
+    }
+
+    /// <summary>
     /// Get speed test results for a specific device
     /// </summary>
     public async Task<List<Iperf3Result>> GetResultsForDeviceAsync(int siteId, string deviceHost, int count = 20)
@@ -564,6 +575,16 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         using var scope = _serviceProvider.CreateScope();
         var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
         return await repository.DeleteIperf3ResultAsync(siteId, id);
+    }
+
+    /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    public async Task<bool> UpdateNotesAsync(int id, string? notes)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var repository = scope.ServiceProvider.GetRequiredService<ISpeedTestRepository>();
+        return await repository.UpdateIperf3ResultNotesAsync(id, notes);
     }
 
     /// <summary>
@@ -593,27 +614,6 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         }
     }
 
-    /// <summary>
-    /// Gets the path to the local iperf3 executable for client operations.
-    /// On Windows, prefers the bundled/installed iperf3 over PATH.
-    /// On Linux/macOS, uses iperf3 from PATH.
-    /// </summary>
-    private static string GetLocalIperf3Path()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            // Look for bundled iperf3 relative to the application directory
-            var bundledPath = Path.Combine(AppContext.BaseDirectory, "iperf3", "iperf3.exe");
-            if (File.Exists(bundledPath))
-            {
-                return bundledPath;
-            }
-        }
-
-        // Fall back to iperf3 in PATH (Linux/macOS/Docker)
-        return "iperf3";
-    }
-
     private async Task<(bool success, string output)> RunLocalIperf3Async(string host, int duration, int streams, bool reverse)
     {
         // --connect-timeout in ms - fail fast if server isn't running (5 second connection timeout)
@@ -625,7 +625,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = GetLocalIperf3Path(),
+            FileName = ProcessUtilities.GetIperf3Path(),
             Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

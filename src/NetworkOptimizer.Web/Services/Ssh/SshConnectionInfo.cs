@@ -27,7 +27,7 @@ public class SshConnectionInfo
     public string? PrivateKeyPassphrase { get; set; }
 
     /// <summary>Connection timeout</summary>
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
+    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Whether credentials are configured</summary>
     public bool HasCredentials => !string.IsNullOrEmpty(Password) || !string.IsNullOrEmpty(PrivateKeyPath);
@@ -49,7 +49,7 @@ public class SshConnectionInfo
             Username = settings.Username,
             Password = decryptedPassword,
             PrivateKeyPath = settings.PrivateKeyPath,
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(5)
         };
     }
 
@@ -68,7 +68,7 @@ public class SshConnectionInfo
             Username = settings.Username,
             Password = decryptedPassword,
             PrivateKeyPath = settings.PrivateKeyPath,
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(5)
         };
     }
 
@@ -98,7 +98,7 @@ public class SshConnectionInfo
             Username = username,
             Password = password,
             PrivateKeyPath = keyPath,
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = TimeSpan.FromSeconds(5)
         };
     }
 }

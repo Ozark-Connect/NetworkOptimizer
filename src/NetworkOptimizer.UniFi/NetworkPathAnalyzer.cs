@@ -68,11 +68,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         { 100, 94 },       // 100 Mbps: ~94% typical
     };
 
-    // Fallback overhead factor for unknown link speeds
+    // Fallback overhead factor for unknown link speeds (6% overhead)
     private const double FallbackOverheadFactor = 0.94;
 
-    // WiFi overhead factor - real TCP throughput is ~60% of PHY rate due to MAC overhead, contention, etc.
-    private const double WifiOverheadFactor = 0.60;
+    // Client Wi-Fi overhead factor - ~25% overhead for direct client connections
+    private const double ClientWifiOverheadFactor = 0.75;
+
+    // Mesh backhaul overhead factor - ~55% overhead due to half-duplex, retransmits, etc.
+    private const double MeshBackhaulOverheadFactor = 0.45;
+
+    // WAN overhead factor - same as wired (6% overhead)
+    private const double WanOverheadFactor = 0.94;
 
     /// <summary>
     /// Known gateway inter-VLAN routing throughput limits (Mbps).
@@ -794,14 +800,17 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     rxMbps = (int)(targetClient.RxRate / 1000);
                 }
 
-                var maxRate = Math.Max(txMbps, rxMbps);
-                hop.EgressSpeedMbps = maxRate;
-                hop.IngressSpeedMbps = maxRate;
+                // Preserve directional rates for asymmetric Wi-Fi links:
+                // - IngressSpeedMbps = TX rate (AP transmits to client) = limits ToDevice (↑) direction
+                // - EgressSpeedMbps = RX rate (AP receives from client) = limits FromDevice (↓) direction
+                // Note: Full Wi-Fi data (signal, noise, channel) is stored in Iperf3Result during enrichment
+                hop.IngressSpeedMbps = txMbps;
+                hop.EgressSpeedMbps = rxMbps;
                 hop.IsWirelessEgress = true;
                 hop.IsWirelessIngress = true;
                 hop.WirelessEgressBand = targetClient.Radio;
                 hop.WirelessIngressBand = targetClient.Radio;
-                _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps, RxRate={Rx}Mbps, Radio={Radio}, MLO={IsMlo}",
+                _logger.LogDebug("Wireless client {Name}: TxRate={Tx}Mbps (ToDevice), RxRate={Rx}Mbps (FromDevice), Radio={Radio}, MLO={IsMlo}",
                     targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.Radio ?? "null", targetClient.IsMlo);
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
@@ -1222,15 +1231,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 if (secondOctet >= 64 && secondOctet <= 127)
                 {
-                    // Use higher of upload/download until asymmetric link support is added
-                    var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+                    // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
                     return new NetworkHop
                     {
                         Type = HopType.Tailscale,
                         DeviceName = "Tailscale",
                         DeviceIp = clientIp,
-                        IngressSpeedMbps = wanSpeed,
-                        EgressSpeedMbps = wanSpeed,
+                        IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                        EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                         IngressPortName = "WAN",
                         EgressPortName = "WAN",
                         Notes = wanUploadMbps > 0
@@ -1250,15 +1258,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (!isInKnownNetwork)
             {
-                // Use higher of upload/download until asymmetric link support is added
-                var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+                // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
                 return new NetworkHop
                 {
                     Type = HopType.Teleport,
                     DeviceName = "Teleport",
                     DeviceIp = clientIp,
-                    IngressSpeedMbps = wanSpeed,
-                    EgressSpeedMbps = wanSpeed,
+                    IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                    EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                     IngressPortName = "WAN",
                     EgressPortName = "WAN",
                     Notes = wanUploadMbps > 0
@@ -1274,14 +1281,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (matchingNetwork?.Purpose == "remote-user-vpn")
         {
-            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
             {
                 Type = HopType.Vpn,
                 DeviceName = "VPN",
                 DeviceIp = clientIp,
-                IngressSpeedMbps = wanSpeed,
-                EgressSpeedMbps = wanSpeed,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
                 Notes = wanUploadMbps > 0
@@ -1295,14 +1302,14 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
         if (isExternalIp)
         {
-            var wanSpeed = Math.Max(wanDownloadMbps, wanUploadMbps);
+            // Store directional WAN speeds: Ingress=download (FromDevice), Egress=upload (ToDevice)
             return new NetworkHop
             {
                 Type = HopType.Wan,
                 DeviceName = "WAN",
                 DeviceIp = clientIp,
-                IngressSpeedMbps = wanSpeed,
-                EgressSpeedMbps = wanSpeed,
+                IngressSpeedMbps = wanDownloadMbps > 0 ? wanDownloadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
+                EgressSpeedMbps = wanUploadMbps > 0 ? wanUploadMbps : Math.Max(wanDownloadMbps, wanUploadMbps),
                 IngressPortName = "WAN",
                 EgressPortName = "WAN",
                 Notes = wanUploadMbps > 0
@@ -1409,16 +1416,26 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
     /// <summary>
     /// Gets the realistic maximum throughput for a given link speed.
-    /// Uses empirical data where available, falls back to 94% overhead estimate.
+    /// Uses empirical data where available, falls back to overhead estimates.
     /// </summary>
-    private static int GetRealisticMax(int theoreticalMbps, bool isWireless = false)
+    /// <param name="theoreticalMbps">The theoretical/PHY link speed</param>
+    /// <param name="isMeshBackhaul">True for wireless mesh backhaul (40% overhead)</param>
+    /// <param name="isClientWifi">True for wireless client connection (15% overhead)</param>
+    private static int GetRealisticMax(int theoreticalMbps, bool isMeshBackhaul = false, bool isClientWifi = false)
     {
-        // WiFi has much higher overhead than wired (~60% efficiency vs ~94%)
-        if (isWireless)
+        // Mesh backhaul has highest overhead (~40%) due to half-duplex, retransmits, etc.
+        if (isMeshBackhaul)
         {
-            return (int)(theoreticalMbps * WifiOverheadFactor);
+            return (int)(theoreticalMbps * MeshBackhaulOverheadFactor);
         }
 
+        // Client Wi-Fi has moderate overhead (~15%)
+        if (isClientWifi)
+        {
+            return (int)(theoreticalMbps * ClientWifiOverheadFactor);
+        }
+
+        // Wired - use empirical data if available
         if (RealisticMaxByLinkSpeed.TryGetValue(theoreticalMbps, out int realistic))
         {
             return realistic;
@@ -1443,7 +1460,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         int maxSpeed = 0;
         NetworkHop? bottleneckHop = null;
         string? bottleneckPort = null;
-        bool isBottleneckWireless = false;
+        bool isBottleneckMeshBackhaul = false;
+        bool isBottleneckClientWifi = false;
 
         foreach (var hop in path.Hops)
         {
@@ -1457,7 +1475,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.IngressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = GetPortDescription(hop.IngressPortName, hop.IngressPort, hop.IsWirelessIngress);
-                    isBottleneckWireless = hop.IsWirelessIngress;
+                    // Determine wireless type: mesh backhaul vs client Wi-Fi
+                    isBottleneckMeshBackhaul = hop.IsWirelessIngress &&
+                        hop.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
+                    isBottleneckClientWifi = hop.IsWirelessIngress && !isBottleneckMeshBackhaul;
                 }
             }
 
@@ -1471,7 +1492,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     minSpeed = hop.EgressSpeedMbps;
                     bottleneckHop = hop;
                     bottleneckPort = GetPortDescription(hop.EgressPortName, hop.EgressPort, hop.IsWirelessEgress);
-                    isBottleneckWireless = hop.IsWirelessEgress;
+                    // Determine wireless type: mesh backhaul vs client Wi-Fi
+                    isBottleneckMeshBackhaul = hop.IsWirelessEgress &&
+                        hop.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true;
+                    isBottleneckClientWifi = hop.IsWirelessEgress && !isBottleneckMeshBackhaul;
                 }
             }
         }
@@ -1483,7 +1507,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         }
 
         path.TheoreticalMaxMbps = minSpeed;
-        path.RealisticMaxMbps = GetRealisticMax(minSpeed, isBottleneckWireless);
+        path.RealisticMaxMbps = Math.Max(1, GetRealisticMax(minSpeed, isBottleneckMeshBackhaul, isBottleneckClientWifi));
 
         // Only mark as bottleneck if there's actually a slower link than others
         path.HasRealBottleneck = allSpeeds.Count > 0 && minSpeed < maxSpeed;

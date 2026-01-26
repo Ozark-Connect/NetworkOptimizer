@@ -29,6 +29,8 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Test
+        env:
+          FLUENT_ASSERTIONS_LICENSED: ${{ secrets.FLUENT_ASSERTIONS_LICENSED }}
         run: dotnet test --no-build --configuration Release --verbosity normal
 
   build-and-push:

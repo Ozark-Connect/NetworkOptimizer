@@ -124,19 +124,18 @@ public class ClientSpeedTestService
             LocationAccuracyMeters = locationAccuracy
         };
 
-        // Try to look up client info from UniFi (site-specific)
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
-
-        // Perform path analysis (client to server) using site-specific connection
-        await AnalyzePathAsync(siteId, result);
-
+        // Save immediately so client doesn't wait
         await using var db = await _dbFactory.CreateDbContextAsync();
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
+        var resultId = result.Id;
 
         _logger.LogInformation(
-            "Recorded OpenSpeedTest result: {ClientIp} ({ClientName}) - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps",
-            result.DeviceHost, result.DeviceName ?? "Unknown", result.DownloadMbps, result.UploadMbps);
+            "Recorded OpenSpeedTest result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps",
+            result.DeviceHost, result.DownloadMbps, result.UploadMbps);
+
+        // Enrich and analyze in background (after WiFi rates stabilize)
+        _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(siteId, resultId));
 
         return result;
     }
@@ -249,18 +248,17 @@ public class ClientSpeedTestService
             Success = true
         };
 
-        // Try to look up client info from UniFi (site-specific)
-        await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
-
-        // Perform path analysis (using site-specific connection)
-        await AnalyzePathAsync(siteId, result);
-
+        // Save immediately so client doesn't wait
         db.Iperf3Results.Add(result);
         await db.SaveChangesAsync();
+        var resultId = result.Id;
 
         _logger.LogInformation(
-            "Recorded iperf3 client result: {ClientIp} ({ClientName}) - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
-            result.DeviceHost, result.DeviceName ?? "Unknown", result.DownloadMbps, result.UploadMbps, parallelStreams);
+            "Recorded iperf3 client result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
+            result.DeviceHost, result.DownloadMbps, result.UploadMbps, parallelStreams);
+
+        // Enrich and analyze in background (after WiFi rates stabilize)
+        _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(siteId, resultId));
 
         return result;
     }
@@ -370,6 +368,24 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    public async Task<bool> UpdateNotesAsync(int id, string? notes)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var result = await db.Iperf3Results.FindAsync(id);
+        if (result == null)
+        {
+            return false;
+        }
+
+        result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        await db.SaveChangesAsync();
+        _logger.LogDebug("Updated notes for speed test result {Id}", id);
+        return true;
+    }
+
+    /// <summary>
     /// Analyze network path for the speed test result using the site-specific UniFi connection.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
     /// </summary>
@@ -410,6 +426,42 @@ public class ClientSpeedTestService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to analyze path for site {SiteId}, {Client}", siteId, result.DeviceHost);
+        }
+    }
+
+    /// <summary>
+    /// Background task to enrich and analyze a speed test result after WiFi rates stabilize.
+    /// Loads the result from DB, enriches with UniFi data, analyzes path, and saves.
+    /// </summary>
+    private async Task EnrichAndAnalyzeInBackgroundAsync(int siteId, int resultId)
+    {
+        try
+        {
+            // Let WiFi link rates stabilize after the speed test
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var result = await db.Iperf3Results.FindAsync(resultId);
+            if (result == null)
+            {
+                _logger.LogWarning("Result {Id} not found for background enrichment", resultId);
+                return;
+            }
+
+            // Try to look up client info from UniFi (site-specific)
+            await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
+
+            // Perform path analysis (site-specific)
+            await AnalyzePathAsync(siteId, result);
+
+            await db.SaveChangesAsync();
+
+            _logger.LogDebug("Background enrichment complete for result {Id}: {DeviceName}",
+                resultId, result.DeviceName ?? result.DeviceHost);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enrich result {Id} in background", resultId);
         }
     }
 }

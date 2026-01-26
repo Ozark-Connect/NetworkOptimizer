@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Storage.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
@@ -180,6 +181,86 @@ public class SpeedTestRepository : ISpeedTestRepository
     }
 
     /// <summary>
+    /// Searches speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    /// <remarks>
+    /// SCALABILITY NOTE: This implementation uses in-memory filtering after loading results.
+    /// This is efficient for typical usage (hundreds to low thousands of results) but can be
+    /// migrated to server-side SQLite JSON filtering if needed:
+    ///
+    /// SQLite approach (for future optimization):
+    /// <code>
+    /// // Filter top-level columns server-side
+    /// query = query.Where(r =>
+    ///     EF.Functions.Like(r.DeviceHost, $"%{filter}%") ||
+    ///     EF.Functions.Like(r.DeviceName, $"%{filter}%") ||
+    ///     EF.Functions.Like(r.ClientMac, $"%{filter}%"));
+    ///
+    /// // For JSON path filtering, use raw SQL with json_each():
+    /// // SELECT * FROM Iperf3Results WHERE EXISTS (
+    /// //   SELECT 1 FROM json_each(json_extract(PathAnalysisJson, '$.Path.Hops'))
+    /// //   WHERE json_extract(value, '$.DeviceName') LIKE '%filter%'
+    /// // )
+    /// </code>
+    ///
+    /// Migration triggers:
+    /// - Query time exceeds 500ms consistently
+    /// - Users report slow search with 5000+ results
+    /// - Memory pressure observed in monitoring
+    /// </remarks>
+    public async Task<List<Iperf3Result>> SearchIperf3ResultsAsync(int siteId, string filter, int count = 50, int hours = 0, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(filter))
+            {
+                return await GetRecentIperf3ResultsAsync(siteId, count, hours, cancellationToken);
+            }
+
+            var normalizedFilter = filter.Trim().ToLowerInvariant();
+
+            var query = _context.Iperf3Results
+                .AsNoTracking()
+                .Where(r => r.SiteId == siteId);
+
+            // Apply date filter server-side (always efficient)
+            if (hours > 0)
+            {
+                var cutoff = DateTime.UtcNow.AddHours(-hours);
+                query = query.Where(r => r.TestTime >= cutoff);
+            }
+
+            // FUTURE: Move top-level column filtering to server-side when scaling:
+            // query = query.Where(r =>
+            //     EF.Functions.Like(r.DeviceHost, $"%{normalizedFilter}%") ||
+            //     EF.Functions.Like(r.DeviceName, $"%{normalizedFilter}%") ||
+            //     EF.Functions.Like(r.ClientMac, $"%{normalizedFilter}%"));
+
+            // Load results and filter in memory (PathAnalysisJson requires deserialization)
+            // This is fine for typical usage - see scalability note above for migration path
+            var results = await query
+                .OrderByDescending(r => r.TestTime)
+                .ToListAsync(cancellationToken);
+
+            // Filter by device properties or path hops (uses shared helper)
+            var filtered = results.Where(r => SpeedTestFilterHelper.MatchesFilter(r, normalizedFilter)).ToList();
+
+            // Apply count limit after filtering
+            if (count > 0)
+            {
+                filtered = filtered.Take(count).ToList();
+            }
+
+            return filtered;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search iperf3 results for site {SiteId} with filter {Filter}", siteId, filter);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Deletes a single iperf3 test result by ID for a site.
     /// </summary>
     /// <param name="siteId">The site ID.</param>
@@ -205,6 +286,35 @@ public class SpeedTestRepository : ISpeedTestRepository
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete iperf3 result {Id} in site {SiteId}", id, siteId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    /// <param name="id">Result ID</param>
+    /// <param name="notes">Notes text (null or empty to clear)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if the result was found and updated</returns>
+    public async Task<bool> UpdateIperf3ResultNotesAsync(int id, string? notes, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await _context.Iperf3Results.FindAsync([id], cancellationToken);
+            if (result == null)
+            {
+                return false;
+            }
+
+            result.Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogDebug("Updated notes for iperf3 result {Id}", id);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update notes for iperf3 result {Id}", id);
             throw;
         }
     }

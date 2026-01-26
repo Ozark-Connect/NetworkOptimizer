@@ -1708,7 +1708,7 @@ select.form-control {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
-    padding-top: 0.125rem;
+    margin-top: 22px;
     width: 24px;
     min-height: 24px;
 }
@@ -1724,7 +1724,6 @@ select.form-control {
 
 .issue-item.issue-info .issue-icon {
     color: var(--info-color);
-    padding-top: 0.25rem;
 }
 
 .issue-body {
@@ -1737,6 +1736,7 @@ select.form-control {
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+    min-height: 28px;
 }
 
 .issue-severity {
@@ -1917,7 +1917,7 @@ select.form-control {
 .issue-type-icon {
     display: flex;
     align-items: flex-start;
-    padding-top: 0.125rem;
+    margin: auto 0;
     width: 24px;
     min-height: 24px;
     flex-shrink: 0;
@@ -1938,7 +1938,6 @@ select.form-control {
 
 .issue-type-group.issue-info .issue-type-icon {
     color: var(--info-color);
-    padding-top: 0.25rem;
 }
 
 .issue-type-body {
@@ -2086,7 +2085,7 @@ select.form-control {
         display: block;
         height: 60px;
         margin: -0.5rem 0;
-        max-height: 7vh;
+        max-height: 20vw;
     }
 
     .mobile-logo img {
@@ -2280,7 +2279,8 @@ select.form-control {
         grid-column: 1;
         grid-row: 2;
         align-self: start;
-        padding-top: 0.1rem;
+        margin-top: 0;
+        padding-top: 0.05rem;
     }
 
     .issue-body {
@@ -2292,6 +2292,7 @@ select.form-control {
         grid-row: 1;
         flex-wrap: wrap;
         gap: 0.25rem 0.5rem;
+        min-height: 0;
     }
 
     .issue-severity {
@@ -2344,7 +2345,8 @@ select.form-control {
         grid-column: 1;
         grid-row: 2;
         align-self: start;
-        padding-top: 0.1rem;
+        padding-top: 0.05rem;
+        margin: 0;
     }
 
     .issue-type-body {
@@ -2935,11 +2937,16 @@ select.form-control {
     background: var(--bg-tertiary);
 }
 
+#latest-result .tooltip-icon {
+    background: var(--bg-secondary);
+}
+
 .speed-result.upload {
     border-left: 4px solid var(--speed-upload-color);
 }
 
-.speed-result.upload .speed-icon {
+.speed-result.upload .speed-icon,
+.speed-result.upload .speed-value {
     color: var(--speed-upload-color);
 }
 
@@ -2947,13 +2954,16 @@ select.form-control {
     border-left: 4px solid var(--speed-download-color);
 }
 
-.speed-result.download .speed-icon {
+.speed-result.download .speed-icon,
+.speed-result.download .speed-value {
     color: var(--speed-download-color);
 }
 
 .speed-icon {
     font-size: 1.5rem;
     font-weight: bold;
+    place-content: center;
+    display: flex;
 }
 
 .speed-details,
@@ -2967,6 +2977,9 @@ select.form-control {
     color: var(--text-secondary);
     text-transform: uppercase;
     margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
 }
 
 .speed-value {
@@ -2974,6 +2987,10 @@ select.form-control {
     font-weight: 700;
     color: var(--text-primary);
     line-height: 0.8;
+}
+
+.speed-details .speed-value {
+    font-size: 1.25rem;
 }
 
 .speed-unit {
@@ -3051,6 +3068,54 @@ select.form-control {
     animation: spin 0.6s linear infinite;
 }
 
+/* Speed test result notes */
+.result-notes {
+    flex: 1;
+    position: relative;
+    min-width: 150px;
+}
+
+.notes-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    resize: none;
+    min-height: 2.5rem;
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.notes-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.notes-input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.75;
+}
+
+.notes-status {
+    position: absolute;
+    right: 0.5rem;
+    top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.notes-status.saving {
+    color: var(--text-muted);
+}
+
+.notes-status.saved {
+    color: var(--success-color);
+}
+
 .show-mobile {
     display: none !important;
 }
@@ -3125,7 +3190,7 @@ select.form-control {
 }
 
 .history-details .path-analysis {
-    margin-top: 0.5rem;
+    margin-top: 0rem;
     padding-bottom: 0.25rem;
 }
 
@@ -3150,6 +3215,16 @@ select.form-control {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-primary);
+    line-height: 1.25rem;
+}
+
+/* Directional speed colors for asymmetric links (matching speed-results) */
+.path-analysis .path-max-speed .speed-from {
+    color: var(--speed-download-color);  /* blue - From Device (↓) */
+}
+
+.path-analysis .path-max-speed .speed-to {
+    color: var(--speed-upload-color);    /* green - To Device (↑) */
 }
 
 .path-analysis .path-max-speed .speed-label {
@@ -3398,6 +3473,29 @@ select.form-control {
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
+    /* Wrap path-summary (grades + notes) on mobile */
+    .path-analysis .path-summary {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .path-analysis .path-summary .result-notes {
+        flex-basis: 100%;
+        min-width: 0;
+    }
+
+    .path-analysis .path-max-speed {
+        padding: 0.75rem 0.5rem;
+    }
+
+    .path-analysis .path-max-speed .speed-value {
+        font-size: 1rem;
+    }
+
+    .path-analysis .grade-badge {
+        padding: 0.35rem 0.4rem;
+    }
+
     /* Mobile: simple vertical stack layout */
     .path-analysis .path-visualization {
         flex-direction: column;
@@ -3493,6 +3591,11 @@ select.form-control {
         margin-right: 0;
     }
 
+    /* Counter-rotate wireless icon to stay upright when connector is rotated */
+    .path-analysis .path-connector .wireless-icon {
+        transform: translateX(-50%) rotate(-90deg);
+    }
+
 }
 
 /* Wi-Fi tooltip styling */
@@ -3552,6 +3655,15 @@ select.form-control {
 
 .wifi-speed-tx {
     color: var(--speed-upload-color);
+}
+
+.wifi-tooltip-bottleneck {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--warning-color);
+    font-size: 0.75rem;
+    font-weight: 500;
 }
 
 .wifi-band-badge {
@@ -3687,8 +3799,27 @@ select.form-control {
     padding: 0.25rem 0;
 }
 
+.path-analysis .note::before {
+    content: '';
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    margin-right: 0.35rem;
+    vertical-align: -4px;
+    background: currentColor;
+    -webkit-mask: var(--note-icon) center/contain no-repeat;
+    mask: var(--note-icon) center/contain no-repeat;
+}
+
+/* Info circle icon for insights */
+.path-analysis .note.insight {
+    --note-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E");
+}
+
+/* Trending up arrow for recommendations */
 .path-analysis .note.recommendation {
     color: #93c5fd;
+    --note-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='23 6 13.5 15.5 8.5 10.5 1 18'/%3E%3Cpolyline points='17 6 23 6 23 12'/%3E%3C/svg%3E");
 }
 
 .test-error {

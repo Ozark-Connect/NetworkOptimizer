@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 
@@ -212,7 +213,7 @@ public class SystemSettingsService : ISystemSettingsService
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "iperf3",
+                FileName = ProcessUtilities.GetIperf3Path(),
                 Arguments = "--version",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using NetworkOptimizer.Core.Helpers;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -119,7 +120,7 @@ public class Iperf3ServerService : BackgroundService
         // Check cancellation before starting a new process
         stoppingToken.ThrowIfCancellationRequested();
 
-        var iperf3Path = GetIperf3Path();
+        var iperf3Path = ProcessUtilities.GetIperf3Path();
         _logger.LogDebug("Using iperf3 at: {Path}", iperf3Path);
 
         var startInfo = new ProcessStartInfo
@@ -518,29 +519,6 @@ public class Iperf3ServerService : BackgroundService
         {
             _logger.LogDebug(ex, "Error checking for orphaned iperf3 processes");
         }
-    }
-
-    /// <summary>
-    /// Gets the path to the iperf3 executable.
-    /// On Windows, looks for bundled iperf3 in the install directory.
-    /// On Linux/macOS, uses iperf3 from PATH.
-    /// </summary>
-    private static string GetIperf3Path()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            // Look for bundled iperf3 relative to the application directory
-            // This works regardless of where the app is installed
-            var bundledPath = Path.Combine(AppContext.BaseDirectory, "iperf3", "iperf3.exe");
-
-            if (File.Exists(bundledPath))
-            {
-                return bundledPath;
-            }
-        }
-
-        // Fall back to iperf3 in PATH (Linux/macOS/Docker)
-        return "iperf3";
     }
 
     /// <summary>

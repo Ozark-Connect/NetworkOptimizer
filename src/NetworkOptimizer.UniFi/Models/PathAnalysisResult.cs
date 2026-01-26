@@ -137,6 +137,212 @@ public class PathAnalysisResult
     }
 
     /// <summary>
+    /// Overhead factors for different link types
+    /// </summary>
+    public const double ClientWifiOverheadFactor = 0.75;    // 25% overhead
+    public const double MeshBackhaulOverheadFactor = 0.45;  // 55% overhead
+    public const double WiredOverheadFactor = 0.94;         // 6% overhead
+    public const double WanOverheadFactor = 0.94;           // 6% overhead
+
+    /// <summary>
+    /// Get the overhead factor for this path based on the bottleneck link type.
+    /// For Wi-Fi clients behind mesh, only uses mesh overhead (55%) if mesh is the bottleneck.
+    /// For mesh AP tests (target IS the mesh AP), always uses mesh overhead.
+    /// </summary>
+    public double GetOverheadFactor()
+    {
+        if (!Path.HasWirelessConnection)
+            return WiredOverheadFactor;
+
+        // Find mesh hop if present
+        var meshHop = Path.Hops.FirstOrDefault(h =>
+            h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
+            h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
+
+        if (meshHop != null)
+        {
+            // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
+            if (Path.TargetIsAccessPoint)
+            {
+                return MeshBackhaulOverheadFactor;
+            }
+
+            // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
+            var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
+                ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
+                : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
+
+            // Mesh overhead only if mesh is the bottleneck
+            if (meshSpeedMbps > 0 && meshSpeedMbps <= Path.TheoreticalMaxMbps)
+            {
+                return MeshBackhaulOverheadFactor;
+            }
+        }
+
+        return ClientWifiOverheadFactor;
+    }
+
+    /// <summary>
+    /// Get the overhead percentage for display (e.g., "25%" for client Wi-Fi)
+    /// </summary>
+    public int GetOverheadPercent()
+    {
+        var factor = GetOverheadFactor();
+        return (int)Math.Round((1 - factor) * 100);
+    }
+
+    /// <summary>
+    /// Calculate directional efficiency at display time using stored Wi-Fi TX/RX rates.
+    /// This provides accurate efficiency for asymmetric links (where TX ≠ RX).
+    ///
+    /// Direction mapping (critical - do not change):
+    /// - FromDevice (↓): Client SENDS → AP RECEIVES → uses RX rate (WifiRxRateKbps)
+    /// - ToDevice (↑): Server SENDS → AP TRANSMITS → uses TX rate (WifiTxRateKbps)
+    /// </summary>
+    /// <param name="wifiRxRateKbps">AP RX rate in Kbps (limits FromDevice direction)</param>
+    /// <param name="wifiTxRateKbps">AP TX rate in Kbps (limits ToDevice direction)</param>
+    /// <returns>Tuple of (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency%, toEfficiency%, overheadPercent)</returns>
+    public (double fromDeviceMaxMbps, double toDeviceMaxMbps, double fromEfficiency, double toEfficiency, int overheadPercent)
+        GetDirectionalEfficiency(long? wifiRxRateKbps, long? wifiTxRateKbps)
+    {
+        // Use stored directional rates if available (wireless clients with TX/RX data, or WAN/VPN)
+        if (wifiRxRateKbps.HasValue && wifiRxRateKbps.Value > 0 &&
+            wifiTxRateKbps.HasValue && wifiTxRateKbps.Value > 0)
+        {
+            // Determine overhead based on path type
+            double overheadFactor;
+            if (Path.IsExternalPath)
+            {
+                // WAN/VPN paths use wired overhead (6%)
+                overheadFactor = WanOverheadFactor;
+            }
+            else
+            {
+                // Find mesh hop if present
+                var meshHop = Path.Hops.FirstOrDefault(h =>
+                    h.IngressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true ||
+                    h.EgressPortName?.Contains("mesh", StringComparison.OrdinalIgnoreCase) == true);
+
+                if (meshHop != null)
+                {
+                    // If target IS the mesh AP, mesh IS the connection - always use mesh overhead
+                    if (Path.TargetIsAccessPoint)
+                    {
+                        overheadFactor = MeshBackhaulOverheadFactor;
+                    }
+                    else
+                    {
+                        // For Wi-Fi clients behind mesh: check if mesh is the bottleneck
+                        var meshSpeedMbps = meshHop.IngressSpeedMbps > 0 && meshHop.EgressSpeedMbps > 0
+                            ? Math.Min(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps)
+                            : Math.Max(meshHop.IngressSpeedMbps, meshHop.EgressSpeedMbps);
+
+                        var clientSpeedMbps = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value) / 1000.0;
+
+                        // Mesh overhead only if mesh is the bottleneck
+                        overheadFactor = meshSpeedMbps < clientSpeedMbps
+                            ? MeshBackhaulOverheadFactor
+                            : ClientWifiOverheadFactor;
+                    }
+                }
+                else
+                {
+                    overheadFactor = ClientWifiOverheadFactor;
+                }
+            }
+            var overheadPercent = (int)Math.Round((1 - overheadFactor) * 100);
+
+            // RX = AP receives from client = FromDevice direction limit
+            // TX = AP transmits to client = ToDevice direction limit
+            var fromDeviceMaxMbps = wifiRxRateKbps.Value / 1000.0;
+            var toDeviceMaxMbps = wifiTxRateKbps.Value / 1000.0;
+            var fromRealistic = fromDeviceMaxMbps * overheadFactor;
+            var toRealistic = toDeviceMaxMbps * overheadFactor;
+
+            var fromEfficiency = fromRealistic > 0 ? (MeasuredFromDeviceMbps / fromRealistic) * 100 : 0;
+            var toEfficiency = toRealistic > 0 ? (MeasuredToDeviceMbps / toRealistic) * 100 : 0;
+
+            return (fromDeviceMaxMbps, toDeviceMaxMbps, fromEfficiency, toEfficiency, overheadPercent);
+        }
+
+        // Fall back to symmetric calculation (legacy results or wired clients)
+        var fallbackOverheadPercent = GetOverheadPercent();
+        return (
+            Path.TheoreticalMaxMbps,
+            Path.TheoreticalMaxMbps,
+            FromDeviceEfficiencyPercent,
+            ToDeviceEfficiencyPercent,
+            fallbackOverheadPercent
+        );
+    }
+
+    /// <summary>
+    /// Check if the link is asymmetric (>10% difference between TX and RX rates)
+    /// </summary>
+    public static bool IsAsymmetric(long? wifiRxRateKbps, long? wifiTxRateKbps)
+    {
+        if (!wifiRxRateKbps.HasValue || !wifiTxRateKbps.HasValue ||
+            wifiRxRateKbps.Value <= 0 || wifiTxRateKbps.Value <= 0)
+            return false;
+
+        var maxRate = Math.Max(wifiRxRateKbps.Value, wifiTxRateKbps.Value);
+        var minRate = Math.Min(wifiRxRateKbps.Value, wifiTxRateKbps.Value);
+        var difference = (maxRate - minRate) / (double)maxRate;
+
+        return difference > 0.10; // More than 10% difference
+    }
+
+    /// <summary>
+    /// Extract directional rates from path data (mesh hops or WAN).
+    /// Used to populate Iperf3Result.WifiTxRateKbps/WifiRxRateKbps for asymmetric display.
+    /// Returns null if no directional rates are available in the path.
+    ///
+    /// Direction mapping (same for Wi-Fi clients and mesh - data from parent AP's perspective):
+    /// - RX (FromDevice ↓): Parent AP receives from device
+    /// - TX (ToDevice ↑): Parent AP transmits to device
+    ///
+    /// Direction mapping for WAN:
+    /// - Ingress/Download (FromDevice ↓): Data from external toward server
+    /// - Egress/Upload (ToDevice ↑): Data from server toward external
+    /// </summary>
+    public (long? rxKbps, long? txKbps) GetDirectionalRatesFromPath()
+    {
+        // For mesh APs: get rates from the wireless hop
+        // Mesh uses same perspective as Wi-Fi clients - from parent AP's view
+        if (Path.TargetIsAccessPoint && Path.HasWirelessConnection)
+        {
+            var wirelessHop = Path.Hops.FirstOrDefault(h =>
+                h.WirelessTxRateMbps.HasValue && h.WirelessRxRateMbps.HasValue &&
+                h.WirelessTxRateMbps.Value > 0 && h.WirelessRxRateMbps.Value > 0);
+
+            if (wirelessHop != null)
+            {
+                // RX = parent receives from mesh AP = FromDevice, TX = parent transmits to mesh AP = ToDevice
+                return (wirelessHop.WirelessRxRateMbps!.Value * 1000L, wirelessHop.WirelessTxRateMbps!.Value * 1000L);
+            }
+        }
+
+        // For WAN/VPN: use hop ingress/egress speeds if asymmetric
+        // These are set during path tracing from WAN provider capabilities
+        if (Path.IsExternalPath)
+        {
+            var externalHop = Path.Hops.FirstOrDefault(h =>
+                h.Type == HopType.Wan || h.Type == HopType.Vpn ||
+                h.Type == HopType.Teleport || h.Type == HopType.Tailscale);
+
+            if (externalHop != null &&
+                externalHop.IngressSpeedMbps > 0 && externalHop.EgressSpeedMbps > 0 &&
+                externalHop.IngressSpeedMbps != externalHop.EgressSpeedMbps)
+            {
+                // Ingress = download (FromDevice), Egress = upload (ToDevice)
+                return (externalHop.IngressSpeedMbps * 1000L, externalHop.EgressSpeedMbps * 1000L);
+            }
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
     /// Analyze TCP retransmits and generate insights about packet loss.
     /// Uses percentage-based thresholds: 0.1% is concerning, with higher thresholds for UniFi devices.
     /// </summary>

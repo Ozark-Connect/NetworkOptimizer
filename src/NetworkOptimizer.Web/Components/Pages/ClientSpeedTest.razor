@@ -3,6 +3,7 @@
 @implements IDisposable
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.Storage.Models
+@using NetworkOptimizer.Storage.Helpers
 @using NetworkOptimizer.Web.Components.Shared
 @using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
@@ -174,21 +175,32 @@
 
     <!-- Test History -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Test History</h2>
-            <div class="header-actions">
-                <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory()" disabled="@loading">
-                    @if (loading)
-                    {
-                        <span class="spinner"></span>
-                        <span>Loading...</span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+        <div class="card-header history-card-header">
+            <div class="header-title-row">
+                <h2 class="card-title">Test History</h2>
+                <div class="header-actions">
+                    <button class="btn btn-sm btn-secondary" @onclick="() => LoadHistory()" disabled="@loading">
+                        @if (loading)
+                        {
+                            <span class="spinner"></span>
+                            <span>Loading...</span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
+                    </button>
+                </div>
             </div>
+            @if (testHistory.Count > 0)
+            {
+                <div class="history-search-row">
+                    <SpeedTestSearchFilter @bind-SearchFilter="historySearchFilter"
+                                           OnSearch="OnFilterChanged"
+                                           ShowStatus="true"
+                                           ResultCount="filteredHistory.Count" />
+                </div>
+            }
         </div>
         <div class="card-body">
             @if (testHistory.Count > 0)
@@ -299,7 +311,7 @@
                                         <div class="expand-wrapper @(isExpanded ? "expanded" : "")">
                                             <div class="expand-content">
                                                 <div class="history-details">
-                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" IsInTableRow="true" />
+                                                    <SpeedTestDetails Result="result" PathAnalysis="result.PathAnalysis" OnDelete="HandleDeleteResult" OnNotesChanged="HandleNotesChanged" IsInTableRow="true" />
                                                 </div>
                                             </div>
                                         </div>
@@ -314,7 +326,7 @@
                 {
                     <div class="pagination" id="history-pagination">
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage <= 1)" @onclick="() => ChangePage(-1)">Prev</button>
-                        <span class="pagination-info">Page @historyPage of @historyTotalPages</span>
+                        <span class="pagination-info">Page @historyPage of @historyTotalPages (@filteredHistory.Count@(string.IsNullOrEmpty(historySearchFilter) ? " total" : $" of {testHistory.Count}"))</span>
                         <button class="btn btn-sm btn-secondary" disabled="@(historyPage >= historyTotalPages)" @onclick="() => ChangePage(1)">Next</button>
                     </div>
                 }
@@ -624,6 +636,26 @@
         background: var(--bg-tertiary);
     }
 
+    /* History card header with search */
+    .history-card-header {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.75rem;
+    }
+
+    .header-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .history-search-row {
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--border-color);
+    }
+
 </style>
 
 @code {
@@ -646,11 +678,19 @@
     private static bool _lastHealthResult = false;
     private static readonly TimeSpan HealthCheckCacheDuration = TimeSpan.FromSeconds(30);
 
+    // Search filter (uses shared SpeedTestFilterHelper for consistency with repository)
+    private string historySearchFilter = "";
+
+    // Filtered results based on search filter
+    private List<Iperf3Result> filteredHistory => string.IsNullOrEmpty(historySearchFilter)
+        ? testHistory
+        : testHistory.Where(r => SpeedTestFilterHelper.MatchesFilter(r, historySearchFilter.ToLowerInvariant())).ToList();
+
     // Pagination
     private int historyPage = 1;
     private int historyPageSize = 15;
-    private int historyTotalPages => (int)Math.Ceiling(testHistory.Count / (double)historyPageSize);
-    private IEnumerable<Iperf3Result> pagedHistory => testHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
+    private int historyTotalPages => (int)Math.Ceiling(filteredHistory.Count / (double)historyPageSize);
+    private IEnumerable<Iperf3Result> pagedHistory => filteredHistory.Skip((historyPage - 1) * historyPageSize).Take(historyPageSize);
 
     // Expandable rows
     private int? expandedHistoryId = null;
@@ -909,6 +949,13 @@
         }
     }
 
+    private void OnFilterChanged(string filter)
+    {
+        historyPage = 1;
+        expandedHistoryId = null;
+        StateHasChanged();
+    }
+
     private async Task ToggleHistoryExpand(int resultId)
     {
         if (expandedHistoryId == resultId)
@@ -958,6 +1005,11 @@
             expandedHistoryId = null;
             StateHasChanged();
         }
+    }
+
+    private async Task HandleNotesChanged((int Id, string? Notes) args)
+    {
+        await ClientSpeedTestService.UpdateNotesAsync(args.Id, args.Notes);
     }
 
     private async Task ScrollToResult(int resultId)

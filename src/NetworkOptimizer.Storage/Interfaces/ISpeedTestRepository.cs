@@ -19,8 +19,29 @@ public interface ISpeedTestRepository
     Task SaveIperf3ResultAsync(int siteId, Iperf3Result result, CancellationToken cancellationToken = default);
     Task<List<Iperf3Result>> GetRecentIperf3ResultsAsync(int siteId, int count = 50, int hours = 0, CancellationToken cancellationToken = default);
     Task<List<Iperf3Result>> GetIperf3ResultsForDeviceAsync(int siteId, string deviceHost, int count = 50, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches speed test results by device name, host, MAC, or network path involvement.
+    /// </summary>
+    /// <param name="siteId">Site ID to filter results</param>
+    /// <param name="filter">Search filter (matches device name, host, client MAC, or hop names/MACs in path)</param>
+    /// <param name="count">Maximum number of results to return (0 = no limit)</param>
+    /// <param name="hours">Filter to results within the last N hours (0 = all time)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Matching results ordered by time descending</returns>
+    Task<List<Iperf3Result>> SearchIperf3ResultsAsync(int siteId, string filter, int count = 50, int hours = 0, CancellationToken cancellationToken = default);
+
     Task<bool> DeleteIperf3ResultAsync(int siteId, int id, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(int siteId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates the notes for a speed test result.
+    /// </summary>
+    /// <param name="id">Result ID</param>
+    /// <param name="notes">Notes text (null or empty to clear)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True if the result was found and updated</returns>
+    Task<bool> UpdateIperf3ResultNotesAsync(int id, string? notes, CancellationToken cancellationToken = default);
 
     // SQM WAN Configuration
     Task<SqmWanConfiguration?> GetSqmWanConfigAsync(int siteId, int wanNumber, CancellationToken cancellationToken = default);
