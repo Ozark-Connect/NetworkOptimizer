@@ -106,30 +106,26 @@
                     <div class="issues-list">
                         @foreach (var issue in _result.ApLockIssues)
                         {
-                            <div class="issue-item severity-@issue.Severity.ToString().ToLower()">
-                                <div class="issue-header">
-                                    <span class="severity-badge @issue.Severity.ToString().ToLower()">@issue.Severity</span>
-                                    <span class="issue-title">@issue.ClientName</span>
+                            <div class="issue-item issue-@GetSeverityCssClass(issue.Severity)">
+                                <div class="issue-icon">
+                                    @((MarkupString)GetSeverityIcon(issue.Severity))
                                 </div>
-                                <div class="issue-details">
-                                    <div class="detail-row">
-                                        <span class="detail-label">Locked to AP:</span>
-                                        <span class="detail-value">@issue.LockedApName</span>
+                                <div class="issue-body">
+                                    <div class="issue-header">
+                                        <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                     </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Device Type:</span>
-                                        <span class="detail-value">@issue.DeviceDetection.Category.GetDisplayName()</span>
+                                    <div class="issue-title">@issue.ClientName</div>
+                                    <div class="issue-context">
+                                        <span class="context-item"><strong>Locked to:</strong> @issue.LockedApName</span>
+                                        <span class="context-item"><strong>Type:</strong> @issue.DeviceDetection.Category.GetDisplayName()</span>
+                                        @if (issue.RoamCount.HasValue)
+                                        {
+                                            <span class="context-item"><strong>Roams:</strong> @issue.RoamCount</span>
+                                        }
                                     </div>
-                                    @if (issue.RoamCount.HasValue)
-                                    {
-                                        <div class="detail-row">
-                                            <span class="detail-label">Roam Count:</span>
-                                            <span class="detail-value">@issue.RoamCount</span>
-                                        </div>
-                                    }
-                                </div>
-                                <div class="issue-recommendation">
-                                    @issue.Recommendation
+                                    <div class="issue-recommendation">
+                                        <strong>Recommendation:</strong> @issue.Recommendation
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -150,25 +146,22 @@
                     <div class="issues-list">
                         @foreach (var issue in _result.TrunkConsistencyIssues)
                         {
-                            <div class="issue-item severity-@GetConfidenceClass(issue.Confidence)">
-                                <div class="issue-header">
-                                    <span class="severity-badge @GetConfidenceClass(issue.Confidence)">@issue.Confidence</span>
-                                    <span class="issue-title">@issue.Link.DeviceAName &harr; @issue.Link.DeviceBName</span>
+                            <div class="issue-item issue-@GetConfidenceCssClass(issue.Confidence)">
+                                <div class="issue-icon">
+                                    @((MarkupString)GetConfidenceIcon(issue.Confidence))
                                 </div>
-                                <div class="issue-details">
-                                    <div class="detail-row">
-                                        <span class="detail-label">Link:</span>
-                                        <span class="detail-value">Port @issue.Link.DeviceAPort &harr; Port @issue.Link.DeviceBPort</span>
+                                <div class="issue-body">
+                                    <div class="issue-header">
+                                        <span class="issue-severity">@issue.Confidence Confidence</span>
                                     </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Mismatched VLANs:</span>
-                                        <span class="detail-value">
-                                            @string.Join(", ", issue.Mismatches.Select(m => $"{m.NetworkName} (VLAN {m.VlanId})"))
-                                        </span>
+                                    <div class="issue-title">@issue.Link.DeviceAName ↔ @issue.Link.DeviceBName</div>
+                                    <div class="issue-context">
+                                        <span class="context-item"><strong>Link:</strong> Port @issue.Link.DeviceAPort ↔ Port @issue.Link.DeviceBPort</span>
+                                        <span class="context-item"><strong>Missing VLANs:</strong> @string.Join(", ", issue.Mismatches.Select(m => $"{m.NetworkName} ({m.VlanId})"))</span>
                                     </div>
-                                </div>
-                                <div class="issue-recommendation">
-                                    @issue.Recommendation
+                                    <div class="issue-recommendation">
+                                        <strong>Recommendation:</strong> @issue.Recommendation
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -189,30 +182,26 @@
                     <div class="issues-list">
                         @foreach (var suggestion in _result.PortProfileSuggestions)
                         {
-                            <div class="issue-item severity-info">
-                                <div class="issue-header">
-                                    <span class="severity-badge info">@suggestion.Type</span>
-                                    <span class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</span>
+                            <div class="issue-item issue-info">
+                                <div class="issue-icon">
+                                    @((MarkupString)InfoIcon)
                                 </div>
-                                <div class="issue-details">
-                                    <div class="detail-row">
-                                        <span class="detail-label">Affected Ports:</span>
-                                        <span class="detail-value">@suggestion.AffectedPorts.Count ports</span>
+                                <div class="issue-body">
+                                    <div class="issue-header">
+                                        <span class="issue-severity">@GetSuggestionTypeDisplay(suggestion.Type)</span>
                                     </div>
-                                    <div class="detail-row">
-                                        <span class="detail-label">Without Profile:</span>
-                                        <span class="detail-value">@suggestion.PortsWithoutProfile</span>
+                                    <div class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</div>
+                                    <div class="issue-context">
+                                        <span class="context-item"><strong>Ports:</strong> @suggestion.AffectedPorts.Count affected</span>
+                                        <span class="context-item"><strong>Without Profile:</strong> @suggestion.PortsWithoutProfile</span>
+                                        @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
+                                        {
+                                            <span class="context-item"><strong>VLANs:</strong> @string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(3))@(suggestion.Configuration.AllowedVlanNames.Count > 3 ? $" +{suggestion.Configuration.AllowedVlanNames.Count - 3} more" : "")</span>
+                                        }
                                     </div>
-                                    @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
-                                    {
-                                        <div class="detail-row">
-                                            <span class="detail-label">VLANs:</span>
-                                            <span class="detail-value">@string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(5))@(suggestion.Configuration.AllowedVlanNames.Count > 5 ? $" (+{suggestion.Configuration.AllowedVlanNames.Count - 5} more)" : "")</span>
-                                        </div>
-                                    }
-                                </div>
-                                <div class="issue-recommendation">
-                                    @suggestion.Recommendation
+                                    <div class="issue-recommendation">
+                                        <strong>Recommendation:</strong> @suggestion.Recommendation
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -225,15 +214,28 @@
         @if (_result.TotalIssueCount == 0)
         {
             <div class="card">
-                <div class="card-body">
-                    <div class="no-issues">
-                        <span class="success-icon">&#10003;</span>
+                <div class="card-body text-center">
+                    <div class="empty-state">
+                        <div class="empty-icon-img"><img src="/icons/check-circle.png" alt="" onerror="this.style.display='none'" /></div>
+                        <div class="no-issues-icon">@((MarkupString)SuccessIcon)</div>
                         <h3>No Issues Found</h3>
                         <p>Your network configuration looks good!</p>
                     </div>
                 </div>
             </div>
         }
+    }
+    else if (!_isRunning)
+    {
+        <div class="card">
+            <div class="card-body text-center">
+                <div class="empty-state">
+                    <div class="empty-icon-img"><img src="/icons/warning-v2.png" alt="" /></div>
+                    <h3>No Diagnostics Results</h3>
+                    <p>Run diagnostics to analyze your network configuration.</p>
+                </div>
+            </div>
+        </div>
     }
 </div>
 
@@ -243,6 +245,11 @@
     private bool _runApLockAnalyzer = true;
     private bool _runTrunkConsistency = true;
     private bool _runPortProfileSuggestions = true;
+
+    // SVG Icons matching the Audit page style
+    private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
+    private const string InfoIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>""";
+    private const string SuccessIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48"><circle cx="12" cy="12" r="10" opacity="0.2" fill="var(--success-color)"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z" fill="var(--success-color)"/><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="var(--success-color)"/></svg>""";
 
     protected override void OnInitialized()
     {
@@ -276,11 +283,49 @@
         }
     }
 
-    private static string GetConfidenceClass(DiagnosticConfidence confidence) => confidence switch
+    // ApLockSeverity helpers
+    private static string GetSeverityCssClass(ApLockSeverity severity) => severity switch
+    {
+        ApLockSeverity.Warning => "warning",
+        ApLockSeverity.Info => "info",
+        _ => "info"
+    };
+
+    private static string GetSeverityDisplayName(ApLockSeverity severity) => severity switch
+    {
+        ApLockSeverity.Warning => "Warning",
+        ApLockSeverity.Info => "Info",
+        _ => severity.ToString()
+    };
+
+    private static string GetSeverityIcon(ApLockSeverity severity) => severity switch
+    {
+        ApLockSeverity.Warning => WarningIcon,
+        ApLockSeverity.Info => InfoIcon,
+        _ => InfoIcon
+    };
+
+    private static string GetConfidenceCssClass(DiagnosticConfidence confidence) => confidence switch
     {
         DiagnosticConfidence.High => "warning",
         DiagnosticConfidence.Medium => "info",
         DiagnosticConfidence.Low => "info",
         _ => "info"
+    };
+
+    private static string GetConfidenceIcon(DiagnosticConfidence confidence) => confidence switch
+    {
+        DiagnosticConfidence.High => WarningIcon,
+        DiagnosticConfidence.Medium => InfoIcon,
+        DiagnosticConfidence.Low => InfoIcon,
+        _ => InfoIcon
+    };
+
+    private static string GetSuggestionTypeDisplay(PortProfileSuggestionType type) => type switch
+    {
+        PortProfileSuggestionType.CreateNew => "Create Profile",
+        PortProfileSuggestionType.ApplyExisting => "Apply Profile",
+        PortProfileSuggestionType.ExtendUsage => "Extend Profile",
+        _ => type.ToString()
     };
 }
