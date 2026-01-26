@@ -196,7 +196,7 @@
                                         <span class="context-item"><strong>Without Profile:</strong> @suggestion.PortsWithoutProfile</span>
                                         @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
                                         {
-                                            <span class="context-item"><strong>VLANs:</strong> @string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(3))@(suggestion.Configuration.AllowedVlanNames.Count > 3 ? $" +{suggestion.Configuration.AllowedVlanNames.Count - 3} more" : "")</span>
+                                            <span class="context-item"><strong>VLANs:</strong> @string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(5))@(suggestion.Configuration.AllowedVlanNames.Count > 5 ? $" +{suggestion.Configuration.AllowedVlanNames.Count - 5} more" : "")</span>
                                         }
                                     </div>
                                     <div class="issue-recommendation">
