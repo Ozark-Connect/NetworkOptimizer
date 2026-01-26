@@ -1,5 +1,3 @@
-using NetworkOptimizer.Audit.Models;
-
 namespace NetworkOptimizer.Diagnostics.Models;
 
 /// <summary>
@@ -70,8 +68,9 @@ public class VlanMismatch
 
     /// <summary>
     /// Purpose of this network (for context in recommendations)
+    /// e.g., "corporate", "guest", "vlan-only"
     /// </summary>
-    public NetworkPurpose Purpose { get; set; }
+    public string Purpose { get; set; } = string.Empty;
 
     /// <summary>
     /// Which side is missing the VLAN ("A" or "B")
