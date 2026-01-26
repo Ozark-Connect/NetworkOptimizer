@@ -51,6 +51,14 @@ public class UniFiPortProfile
     [JsonPropertyName("tagged_vlan_mgmt")]
     public string? TaggedVlanMgmt { get; set; }
 
+    /// <summary>
+    /// Network config IDs excluded from this trunk profile.
+    /// Only relevant for trunk port profiles.
+    /// Allowed VLANs = All Networks - ExcludedNetworkConfIds
+    /// </summary>
+    [JsonPropertyName("excluded_networkconf_ids")]
+    public List<string>? ExcludedNetworkConfIds { get; set; }
+
     [JsonPropertyName("stormctrl_bcast_enabled")]
     public bool StormCtrlBcastEnabled { get; set; }
 
