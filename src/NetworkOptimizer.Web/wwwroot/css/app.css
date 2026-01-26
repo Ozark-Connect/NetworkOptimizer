@@ -330,6 +330,34 @@ a:hover {
     justify-content: space-between;
 }
 
+.card-header-collapsible {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.card-header-collapsible:hover {
+    background: var(--bg-tertiary);
+}
+
+.card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.collapse-chevron {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+}
+
+.collapse-chevron.expanded {
+    transform: rotate(90deg);
+}
+
 .card-title-group {
     display: flex;
     align-items: center;
