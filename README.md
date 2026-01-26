@@ -1,6 +1,6 @@
 > **⚠️ PREVIEW BRANCH — TESTING ONLY**
 >
-> This is the `feature/multi-site` development branch. Database changes may not migrate to the release version. **Do not use for production.**
+> This is the `feature/multi-site` development branch. **Your sites and collected data may be lost** when this feature is released. Do not use for production.
 
 ---
 
