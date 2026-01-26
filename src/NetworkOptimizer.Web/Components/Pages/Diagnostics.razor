@@ -96,10 +96,10 @@
             <div class="card">
                 <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
                     <div class="card-header-left">
-                        <span class="collapse-chevron @(_apLockCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+                        <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
                         <h2 class="card-title">AP Lock Issues</h2>
                     </div>
-                    <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
+                    <span class="collapse-chevron @(_apLockCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
                 </div>
                 @if (!_apLockCollapsed)
                 {
@@ -152,10 +152,10 @@
             <div class="card">
                 <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
                     <div class="card-header-left">
-                        <span class="collapse-chevron @(_trunkCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+                        <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
                         <h2 class="card-title">Trunk VLAN Consistency</h2>
                     </div>
-                    <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
+                    <span class="collapse-chevron @(_trunkCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
                 </div>
                 @if (!_trunkCollapsed)
                 {
@@ -194,10 +194,10 @@
             <div class="card">
                 <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
                     <div class="card-header-left">
-                        <span class="collapse-chevron @(_portProfileCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+                        <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
                         <h2 class="card-title">Port Profile Suggestions</h2>
                     </div>
-                    <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
+                    <span class="collapse-chevron @(_portProfileCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
                 </div>
                 @if (!_portProfileCollapsed)
                 {
