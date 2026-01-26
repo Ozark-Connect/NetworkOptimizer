@@ -119,6 +119,38 @@ public static class VlanAnalysisHelper
     }
 
     /// <summary>
+    /// Determines if a network is a VLAN network (not WAN/VPN/system).
+    /// Only VLAN networks are relevant for switch port VLAN analysis.
+    /// </summary>
+    /// <param name="network">The network configuration to check</param>
+    /// <returns>True if this is a VLAN network that could be on switch ports</returns>
+    public static bool IsVlanNetwork(UniFiNetworkConfig network)
+    {
+        // Filter based on network purpose
+        var purpose = network.Purpose?.ToLowerInvariant() ?? "";
+
+        // WAN networks are not VLANs on switch ports
+        if (purpose == "wan")
+            return false;
+
+        // VPN networks (remote-user-vpn, site-vpn) are not switch port VLANs
+        if (purpose.Contains("vpn"))
+            return false;
+
+        // vlan-only networks with no VLAN ID set might be system networks
+        // Keep them if they have a VLAN ID
+        if (purpose == "vlan-only" && network.Vlan == 0)
+            return false;
+
+        // Teleport/Tailscale virtual networks
+        if (purpose == "teleport" || purpose == "tailscale")
+            return false;
+
+        // Include corporate, guest, vlan-only (with VLAN), and other LAN networks
+        return true;
+    }
+
+    /// <summary>
     /// Check if a port is for network infrastructure (uplink/fabric).
     /// </summary>
     /// <param name="port">The switch port</param>

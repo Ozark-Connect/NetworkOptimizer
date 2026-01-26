@@ -34,7 +34,24 @@ public class PortProfileSuggestionAnalyzer
         var profileList = portProfiles.ToList();
         var profilesById = profileList.ToDictionary(p => p.Id);
         var networksById = networks.ToDictionary(n => n.Id);
-        var allNetworkIds = networks.Select(n => n.Id).ToHashSet();
+
+        // Filter out WAN and VPN networks - they're not relevant for switch port profiles
+        var networkList = networks.ToList();
+        var vlanNetworks = networkList.Where(VlanAnalysisHelper.IsVlanNetwork).ToList();
+        var excludedNetworks = networkList.Where(n => !VlanAnalysisHelper.IsVlanNetwork(n)).ToList();
+        var allNetworkIds = vlanNetworks.Select(n => n.Id).ToHashSet();
+
+        _logger?.LogInformation("Port profile analysis: {TotalNetworks} total networks, {VlanNetworks} VLAN networks included",
+            networkList.Count, vlanNetworks.Count);
+
+        if (excludedNetworks.Count > 0)
+        {
+            _logger?.LogDebug("Excluded networks (WAN/VPN): {Networks}",
+                string.Join(", ", excludedNetworks.Select(n => $"{n.Name} (purpose={n.Purpose})")));
+        }
+
+        _logger?.LogDebug("VLAN networks for profile analysis: {Networks}",
+            string.Join(", ", vlanNetworks.Select(n => $"{n.Name} (VLAN {n.Vlan})")));
 
         // Collect all trunk ports with their effective configurations
         var trunkPorts = CollectTrunkPorts(devices, profilesById, networksById, allNetworkIds);
@@ -298,6 +315,7 @@ public class PortProfileSuggestionAnalyzer
                "Create a port profile to ensure consistent configuration across all these ports " +
                "and simplify future maintenance.";
     }
+
 }
 
 /// <summary>
