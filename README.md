@@ -1,3 +1,9 @@
+> **⚠️ PREVIEW BRANCH — TESTING ONLY**
+>
+> This is the `feature/multi-site` development branch. Database changes may not migrate to the release version. **Do not use for production.**
+
+---
+
 # Network Optimizer for UniFi
 
 > **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.

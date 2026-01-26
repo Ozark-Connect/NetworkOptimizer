@@ -285,6 +285,23 @@ a:hover {
     color: var(--text-muted);
 }
 
+/* Preview Banner - Testing/Development Warning */
+.preview-banner {
+    background: linear-gradient(90deg, #b45309, #d97706);
+    color: white;
+    padding: 8px 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.875rem;
+}
+
+.preview-banner .banner-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
 /* Page Content */
 .page-content {
     flex: 1;
