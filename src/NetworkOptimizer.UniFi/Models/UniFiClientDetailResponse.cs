@@ -113,6 +113,20 @@ public class UniFiClientDetailResponse
 
     [JsonPropertyName("local_dns_record_enabled")]
     public bool LocalDnsRecordEnabled { get; set; }
+
+    // AP Lock settings
+    /// <summary>
+    /// Whether this client is locked to a specific AP.
+    /// </summary>
+    [JsonPropertyName("fixed_ap_enabled")]
+    public bool? FixedApEnabled { get; set; }
+
+    /// <summary>
+    /// MAC address of the AP this client is locked to.
+    /// Only relevant when FixedApEnabled is true.
+    /// </summary>
+    [JsonPropertyName("fixed_ap_mac")]
+    public string? FixedApMac { get; set; }
 }
 
 /// <summary>

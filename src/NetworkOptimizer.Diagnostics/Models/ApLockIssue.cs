@@ -59,6 +59,16 @@ public class ApLockIssue
     public int? RoamCount { get; set; }
 
     /// <summary>
+    /// Whether this client is currently offline
+    /// </summary>
+    public bool IsOffline { get; set; }
+
+    /// <summary>
+    /// When this client was last seen (for offline clients)
+    /// </summary>
+    public DateTime? LastSeen { get; set; }
+
+    /// <summary>
     /// Severity of this issue based on device type
     /// </summary>
     public ApLockSeverity Severity { get; set; }

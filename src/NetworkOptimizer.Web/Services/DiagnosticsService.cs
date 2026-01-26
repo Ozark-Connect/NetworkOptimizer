@@ -93,18 +93,20 @@ public class DiagnosticsService
             var clientsTask = _connectionService.Client.GetClientsAsync();
             var networksTask = _connectionService.Client.GetNetworkConfigsAsync();
             var portProfilesTask = _connectionService.Client.GetPortProfilesAsync();
+            var clientHistoryTask = _connectionService.Client.GetClientHistoryAsync(withinHours: 720); // 30 days
 
-            await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask);
+            await Task.WhenAll(devicesTask, clientsTask, networksTask, portProfilesTask, clientHistoryTask);
 
             var devices = await devicesTask;
             var clients = await clientsTask;
             var networks = await networksTask;
             var portProfiles = await portProfilesTask;
+            var clientHistory = await clientHistoryTask;
 
             _logger.LogInformation(
                 "Fetched data for diagnostics: {DeviceCount} devices, {ClientCount} clients, " +
-                "{NetworkCount} networks, {ProfileCount} port profiles",
-                devices.Count, clients.Count, networks.Count, portProfiles.Count);
+                "{NetworkCount} networks, {ProfileCount} port profiles, {HistoryCount} history clients",
+                devices.Count, clients.Count, networks.Count, portProfiles.Count, clientHistory.Count);
 
             // Get fingerprint database for device detection
             var fingerprintDb = await _fingerprintService.GetDatabaseAsync();
@@ -124,7 +126,7 @@ public class DiagnosticsService
                 _loggerFactory.CreateLogger<Diagnostics.Analyzers.TrunkConsistencyAnalyzer>(),
                 _loggerFactory.CreateLogger<Diagnostics.Analyzers.PortProfileSuggestionAnalyzer>());
 
-            var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options);
+            var result = engine.RunDiagnostics(clients, devices, portProfiles, networks, options, clientHistory);
 
             // Cache the result
             _cache.Set(CacheKeyLastResult, result);

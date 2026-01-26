@@ -114,13 +114,23 @@
                                     <div class="issue-header">
                                         <span class="issue-severity">@GetSeverityDisplayName(issue.Severity)</span>
                                     </div>
-                                    <div class="issue-title">@issue.ClientName</div>
+                                    <div class="issue-title">
+                                        @issue.ClientName
+                                        @if (issue.IsOffline)
+                                        {
+                                            <span class="offline-badge">Offline</span>
+                                        }
+                                    </div>
                                     <div class="issue-context">
                                         <span class="context-item"><strong>Locked to:</strong> @issue.LockedApName</span>
                                         <span class="context-item"><strong>Type:</strong> @issue.DeviceDetection.Category.GetDisplayName()</span>
                                         @if (issue.RoamCount.HasValue)
                                         {
                                             <span class="context-item"><strong>Roams:</strong> @issue.RoamCount</span>
+                                        }
+                                        @if (issue.IsOffline && issue.LastSeen.HasValue)
+                                        {
+                                            <span class="context-item"><strong>Last seen:</strong> @FormatLastSeen(issue.LastSeen.Value)</span>
                                         }
                                     </div>
                                     <div class="issue-recommendation">
@@ -328,4 +338,18 @@
         PortProfileSuggestionType.ExtendUsage => "Extend Profile",
         _ => type.ToString()
     };
+
+    private static string FormatLastSeen(DateTime lastSeen)
+    {
+        var ago = DateTime.UtcNow - lastSeen;
+
+        if (ago.TotalMinutes < 60)
+            return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalHours < 24)
+            return $"{(int)ago.TotalHours}h ago";
+        if (ago.TotalDays < 7)
+            return $"{(int)ago.TotalDays}d ago";
+
+        return lastSeen.ToLocalTime().ToString("MMM d");
+    }
 }

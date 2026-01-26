@@ -54,18 +54,20 @@ public class DiagnosticsEngine
     /// <summary>
     /// Run all enabled diagnostic analyzers.
     /// </summary>
-    /// <param name="clients">All network clients</param>
+    /// <param name="clients">All network clients (online)</param>
     /// <param name="devices">All network devices</param>
     /// <param name="portProfiles">All port profiles</param>
     /// <param name="networks">All network configurations</param>
     /// <param name="options">Options to control which analyzers run</param>
+    /// <param name="clientHistory">Optional historical clients for offline device detection</param>
     /// <returns>Complete diagnostics result</returns>
     public DiagnosticsResult RunDiagnostics(
         IEnumerable<UniFiClientResponse> clients,
         IEnumerable<UniFiDeviceResponse> devices,
         IEnumerable<UniFiPortProfile> portProfiles,
         IEnumerable<UniFiNetworkConfig> networks,
-        DiagnosticsOptions? options = null)
+        DiagnosticsOptions? options = null,
+        IEnumerable<UniFiClientDetailResponse>? clientHistory = null)
     {
         options ??= new DiagnosticsOptions();
         var stopwatch = Stopwatch.StartNew();
@@ -77,6 +79,7 @@ public class DiagnosticsEngine
         var deviceList = devices.ToList();
         var profileList = portProfiles.ToList();
         var networkList = networks.ToList();
+        var historyList = clientHistory?.ToList() ?? new List<UniFiClientDetailResponse>();
 
         // Run AP Lock Analyzer
         if (options.RunApLockAnalyzer)
@@ -84,8 +87,18 @@ public class DiagnosticsEngine
             _logger?.LogDebug("Running AP Lock Analyzer");
             try
             {
+                // Analyze online clients
                 result.ApLockIssues = _apLockAnalyzer.Analyze(clientList, deviceList);
-                _logger?.LogDebug("AP Lock Analyzer found {Count} issues", result.ApLockIssues.Count);
+                _logger?.LogDebug("AP Lock Analyzer found {Count} online issues", result.ApLockIssues.Count);
+
+                // Analyze offline clients from history
+                if (historyList.Count > 0)
+                {
+                    var onlineMacs = clientList.Select(c => c.Mac.ToLowerInvariant()).ToHashSet();
+                    var offlineIssues = _apLockAnalyzer.AnalyzeOfflineClients(historyList, deviceList, onlineMacs);
+                    result.ApLockIssues.AddRange(offlineIssues);
+                    _logger?.LogDebug("AP Lock Analyzer found {Count} offline issues", offlineIssues.Count);
+                }
             }
             catch (Exception ex)
             {
