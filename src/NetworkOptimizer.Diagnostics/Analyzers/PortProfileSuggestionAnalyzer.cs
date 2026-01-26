@@ -287,10 +287,10 @@ public class PortProfileSuggestionAnalyzer
         bool hasExistingUsage)
     {
         var portList = string.Join(", ",
-            portsWithoutProfile.Take(3).Select(p => $"{p.DeviceName} port {p.PortIndex}"));
+            portsWithoutProfile.Take(5).Select(p => $"{p.DeviceName} port {p.PortIndex}"));
 
-        if (portsWithoutProfile.Count > 3)
-            portList += $" and {portsWithoutProfile.Count - 3} more";
+        if (portsWithoutProfile.Count > 5)
+            portList += $" +{portsWithoutProfile.Count - 5} more";
 
         if (hasExistingUsage)
         {
