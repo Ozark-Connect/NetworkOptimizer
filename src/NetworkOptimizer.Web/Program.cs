@@ -245,6 +245,7 @@ builder.Services.AddSingleton<FingerprintDatabaseService>(); // Singleton to cac
 builder.Services.AddSingleton<IeeeOuiDatabase>(); // IEEE OUI database for MAC vendor lookup
 builder.Services.AddSingleton<PdfStorageService>(); // Singleton - manages PDF report file storage
 builder.Services.AddScoped<AuditService>(); // Scoped - uses IMemoryCache for cross-request state
+builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostics (trunk consistency, AP lock, etc.)
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<AgentService>();

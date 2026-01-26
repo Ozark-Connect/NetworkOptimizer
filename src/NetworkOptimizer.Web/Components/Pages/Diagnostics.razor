@@ -1,0 +1,286 @@
+@page "/diagnostics"
+@using NetworkOptimizer.Diagnostics
+@using NetworkOptimizer.Diagnostics.Models
+@using NetworkOptimizer.Core.Enums
+@inject DiagnosticsService DiagnosticsService
+@inject UniFiConnectionService ConnectionService
+@inject ILogger<Diagnostics> Logger
+@rendermode InteractiveServer
+
+<PageTitle>Diagnostics - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Network Diagnostics</h1>
+    <p class="page-description">Analyze network configuration for potential issues</p>
+</div>
+
+@if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
+{
+    <div class="connection-banner">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>Not Connected</strong>
+                <span>Connect to your UniFi Console to run diagnostics.</span>
+            </div>
+            <a href="/settings" class="btn btn-primary">Connect Now</a>
+        </div>
+    </div>
+}
+
+<div class="diagnostics-container">
+    <!-- Diagnostics Controls -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Diagnostics Controls</h2>
+        </div>
+        <div class="card-body">
+            <div class="diagnostics-controls">
+                <button class="btn btn-primary" @onclick="RunDiagnostics" disabled="@(_isRunning || !ConnectionService.IsConnected)" style="min-width: 160px;">
+                    @if (_isRunning)
+                    {
+                        <span class="spinner"></span>
+                        <span>Running...</span>
+                    }
+                    else
+                    {
+                        <span>Run Diagnostics</span>
+                    }
+                </button>
+
+                <div class="diagnostics-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runApLockAnalyzer" />
+                        <span>AP Lock Detection</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runTrunkConsistency" />
+                        <span>Trunk VLAN Consistency</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runPortProfileSuggestions" />
+                        <span>Port Profile Suggestions</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Diagnostics Results Summary -->
+    @if (_result != null)
+    {
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Diagnostics Summary</h2>
+                <span class="audit-timestamp"><span class="timestamp-label">Last run: </span>@_result.Timestamp.ToLocalTime().ToString("g")</span>
+            </div>
+            <div class="card-body">
+                <div class="diagnostics-summary">
+                    <div class="summary-stats">
+                        <div class="stat-item @(_result.WarningCount > 0 ? "has-warnings" : "")">
+                            <span class="stat-value">@_result.WarningCount</span>
+                            <span class="stat-label">Warnings</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">@_result.TotalIssueCount</span>
+                            <span class="stat-label">Total Issues</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value">@_result.Duration.TotalMilliseconds.ToString("F0")ms</span>
+                            <span class="stat-label">Duration</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AP Lock Issues -->
+        @if (_result.ApLockIssues.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">AP Lock Issues</h2>
+                    <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
+                </div>
+                <div class="card-body">
+                    <div class="issues-list">
+                        @foreach (var issue in _result.ApLockIssues)
+                        {
+                            <div class="issue-item severity-@issue.Severity.ToString().ToLower()">
+                                <div class="issue-header">
+                                    <span class="severity-badge @issue.Severity.ToString().ToLower()">@issue.Severity</span>
+                                    <span class="issue-title">@issue.ClientName</span>
+                                </div>
+                                <div class="issue-details">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Locked to AP:</span>
+                                        <span class="detail-value">@issue.LockedApName</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Device Type:</span>
+                                        <span class="detail-value">@issue.DeviceDetection.Category.GetDisplayName()</span>
+                                    </div>
+                                    @if (issue.RoamCount.HasValue)
+                                    {
+                                        <div class="detail-row">
+                                            <span class="detail-label">Roam Count:</span>
+                                            <span class="detail-value">@issue.RoamCount</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="issue-recommendation">
+                                    @issue.Recommendation
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Trunk Consistency Issues -->
+        @if (_result.TrunkConsistencyIssues.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Trunk VLAN Consistency</h2>
+                    <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
+                </div>
+                <div class="card-body">
+                    <div class="issues-list">
+                        @foreach (var issue in _result.TrunkConsistencyIssues)
+                        {
+                            <div class="issue-item severity-@GetConfidenceClass(issue.Confidence)">
+                                <div class="issue-header">
+                                    <span class="severity-badge @GetConfidenceClass(issue.Confidence)">@issue.Confidence</span>
+                                    <span class="issue-title">@issue.Link.DeviceAName &harr; @issue.Link.DeviceBName</span>
+                                </div>
+                                <div class="issue-details">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Link:</span>
+                                        <span class="detail-value">Port @issue.Link.DeviceAPort &harr; Port @issue.Link.DeviceBPort</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Mismatched VLANs:</span>
+                                        <span class="detail-value">
+                                            @string.Join(", ", issue.Mismatches.Select(m => $"{m.NetworkName} (VLAN {m.VlanId})"))
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="issue-recommendation">
+                                    @issue.Recommendation
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Port Profile Suggestions -->
+        @if (_result.PortProfileSuggestions.Count > 0)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Port Profile Suggestions</h2>
+                    <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
+                </div>
+                <div class="card-body">
+                    <div class="issues-list">
+                        @foreach (var suggestion in _result.PortProfileSuggestions)
+                        {
+                            <div class="issue-item severity-info">
+                                <div class="issue-header">
+                                    <span class="severity-badge info">@suggestion.Type</span>
+                                    <span class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</span>
+                                </div>
+                                <div class="issue-details">
+                                    <div class="detail-row">
+                                        <span class="detail-label">Affected Ports:</span>
+                                        <span class="detail-value">@suggestion.AffectedPorts.Count ports</span>
+                                    </div>
+                                    <div class="detail-row">
+                                        <span class="detail-label">Without Profile:</span>
+                                        <span class="detail-value">@suggestion.PortsWithoutProfile</span>
+                                    </div>
+                                    @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
+                                    {
+                                        <div class="detail-row">
+                                            <span class="detail-label">VLANs:</span>
+                                            <span class="detail-value">@string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(5))@(suggestion.Configuration.AllowedVlanNames.Count > 5 ? $" (+{suggestion.Configuration.AllowedVlanNames.Count - 5} more)" : "")</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="issue-recommendation">
+                                    @suggestion.Recommendation
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- No Issues Found -->
+        @if (_result.TotalIssueCount == 0)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="no-issues">
+                        <span class="success-icon">&#10003;</span>
+                        <h3>No Issues Found</h3>
+                        <p>Your network configuration looks good!</p>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private DiagnosticsResult? _result;
+    private bool _isRunning;
+    private bool _runApLockAnalyzer = true;
+    private bool _runTrunkConsistency = true;
+    private bool _runPortProfileSuggestions = true;
+
+    protected override void OnInitialized()
+    {
+        _result = DiagnosticsService.LastResult;
+    }
+
+    private async Task RunDiagnostics()
+    {
+        _isRunning = true;
+        StateHasChanged();
+
+        try
+        {
+            var options = new DiagnosticsOptions
+            {
+                RunApLockAnalyzer = _runApLockAnalyzer,
+                RunTrunkConsistencyAnalyzer = _runTrunkConsistency,
+                RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions
+            };
+
+            _result = await DiagnosticsService.RunDiagnosticsAsync(options);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to run diagnostics");
+        }
+        finally
+        {
+            _isRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string GetConfidenceClass(DiagnosticConfidence confidence) => confidence switch
+    {
+        DiagnosticConfidence.High => "warning",
+        DiagnosticConfidence.Medium => "info",
+        DiagnosticConfidence.Low => "info",
+        _ => "info"
+    };
+}
