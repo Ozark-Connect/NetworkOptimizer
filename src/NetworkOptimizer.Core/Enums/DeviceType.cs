@@ -43,6 +43,11 @@ public enum DeviceType
     /// </summary>
     CloudKey = 6,
 
+    /// <summary>
+    /// UniFi Device Bridge (UDB series).
+    /// </summary>
+    DeviceBridge = 7,
+
     // === UniFi Application Devices (Protect, Talk, Access) ===
 
     /// <summary>
@@ -109,6 +114,7 @@ public static class DeviceTypeExtensions
         DeviceType.AccessPoint => "Access Point",
         DeviceType.CellularModem => "Cellular Modem",
         DeviceType.BuildingBridge => "Building Bridge",
+        DeviceType.DeviceBridge => "Device Bridge",
         DeviceType.CloudKey => "Cloud Key",
         DeviceType.ProtectDevice => "Protect Device",
         DeviceType.TalkDevice => "Talk Device",
@@ -129,6 +135,7 @@ public static class DeviceTypeExtensions
         DeviceType.AccessPoint or
         DeviceType.CellularModem or
         DeviceType.BuildingBridge or
+        DeviceType.DeviceBridge or
         DeviceType.CloudKey => true,
         _ => false
     };
@@ -167,6 +174,7 @@ public static class DeviceTypeExtensions
             "uap" => DeviceType.AccessPoint,
             "umbb" => DeviceType.CellularModem,
             "ubb" => DeviceType.BuildingBridge,
+            "udb" => DeviceType.DeviceBridge,
             "uck" => DeviceType.CloudKey,
             _ => DeviceType.Unknown
         };
