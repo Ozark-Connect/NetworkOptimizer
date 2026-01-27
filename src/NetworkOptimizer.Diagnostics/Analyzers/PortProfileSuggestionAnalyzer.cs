@@ -231,16 +231,42 @@ public class PortProfileSuggestionAnalyzer
                     }
 
                     // ALSO create fallback suggestions for excluded ports grouped by speed compatibility
-                    // Grouping logic (consistent with profile matching):
-                    // 1. Group by current speed - autoneg ports can join any speed group they're at
-                    // 2. Leftover autoneg ports (at unique speeds) can form their own autoneg group
+                    // Strategy:
+                    // 1. First, check if there's an autoneg profile that can take ALL autoneg ports together
+                    //    (regardless of their current speeds - autoneg ports can adapt)
+                    // 2. If not, fall back to speed-based grouping
                     if (excludedPorts.Count >= 2)
                     {
                         var compatibilityGroups = new List<List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>>();
-                        var portsInSpeedGroups = new HashSet<(string Mac, int Port)>();
+                        var handledPorts = new HashSet<(string Mac, int Port)>();
 
-                        // First pass: group by current speed (both autoneg and forced can share if at same speed)
-                        var speedGroups = excludedPorts
+                        // First: Try to find an autoneg profile for ALL autoneg ports together
+                        var allAutonegPorts = excludedPorts.Where(p => p.PortAutoneg).ToList();
+                        if (allAutonegPorts.Count >= 2)
+                        {
+                            var autonegProfile = FindCompatibleProfile(
+                                signature, allAutonegPorts, profileSignatures,
+                                matchingProfile.Value.ProfileId);
+
+                            if (autonegProfile != null && !autonegProfile.Value.ForcesSpeed)
+                            {
+                                // Found an autoneg profile - all autoneg ports can use it regardless of current speed
+                                compatibilityGroups.Add(allAutonegPorts);
+                                foreach (var p in allAutonegPorts)
+                                    handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+
+                                _logger?.LogDebug(
+                                    "All {Count} autoneg ports can use alternate profile '{ProfileName}'",
+                                    allAutonegPorts.Count, autonegProfile.Value.ProfileName);
+                            }
+                        }
+
+                        // Second: Group remaining ports by current speed
+                        var remainingPorts = excludedPorts
+                            .Where(p => !handledPorts.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
+                            .ToList();
+
+                        var speedGroups = remainingPorts
                             .GroupBy(p => p.CurrentSpeed)
                             .Where(g => g.Count() >= 2)
                             .ToList();
@@ -250,12 +276,12 @@ public class PortProfileSuggestionAnalyzer
                             var groupList = speedGroup.ToList();
                             compatibilityGroups.Add(groupList);
                             foreach (var p in groupList)
-                                portsInSpeedGroups.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                                handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
                         }
 
-                        // Second pass: leftover autoneg ports at unique speeds can share an autoneg profile
-                        var leftoverAutonegPorts = excludedPorts
-                            .Where(p => p.PortAutoneg && !portsInSpeedGroups.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
+                        // Third: Leftover autoneg ports at unique speeds can form their own autoneg group
+                        var leftoverAutonegPorts = remainingPorts
+                            .Where(p => p.PortAutoneg && !handledPorts.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
                             .ToList();
 
                         if (leftoverAutonegPorts.Count >= 2)

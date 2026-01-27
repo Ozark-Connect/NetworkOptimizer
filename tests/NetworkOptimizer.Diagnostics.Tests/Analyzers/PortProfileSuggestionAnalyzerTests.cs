@@ -1814,5 +1814,90 @@ public class PortProfileSuggestionAnalyzerTests
         suggestion.SuggestedProfileName.Should().Contain("(PoE)");
     }
 
+    [Fact]
+    public void Analyze_ExcludedAutonegPortsAtDifferentSpeeds_MatchAlternateAutonegProfile()
+    {
+        // Arrange - three ports excluded from a profile that forces PoE off
+        // All three have autoneg=true but at different speeds (10G, 2.5G, 2.5G)
+        // An alternate autoneg profile should match ALL THREE, not just the 2.5G ports
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 },
+            new UniFiNetworkConfig { Id = "network-2", Name = "IoT", Vlan = 20 },
+            new UniFiNetworkConfig { Id = "network-3", Name = "Management", Vlan = 99 }
+        };
+
+        var profileForcedSpeedNoPoE = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk 10G No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // All VLANs included
+            PoeMode = "off",  // Forces PoE off
+            Autoneg = false   // Forces speed
+        };
+
+        var profileAutonegWithPoE = new UniFiPortProfile
+        {
+            Id = "profile-2",
+            Name = "AP PoE Autoneg",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // Same VLANs
+            PoeMode = "auto", // Allows PoE
+            Autoneg = true    // Uses autoneg - can handle any speed
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profileForcedSpeedNoPoE
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = false
+                },
+                // Port 2: 10G autoneg PoE - EXCLUDED from profile-1 (PoE enabled)
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = true
+                },
+                // Port 3: 2.5G autoneg PoE - EXCLUDED from profile-1 (PoE enabled)
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 4: 2.5G autoneg PoE - EXCLUDED from profile-1 (PoE enabled)
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileForcedSpeedNoPoE, profileAutonegWithPoE }, networks);
+
+        // Assert - should have ONE ApplyExisting suggestion for ALL THREE excluded ports
+        // The autoneg profile can handle ports at different speeds since autoneg adapts
+        result.Should().HaveCount(1);
+
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.ApplyExisting);
+        suggestion.MatchingProfileName.Should().Be("AP PoE Autoneg");
+        suggestion.MatchingProfileId.Should().Be("profile-2");
+        suggestion.AffectedPorts.Should().HaveCount(3); // All three excluded ports
+        suggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3, 4 });
+    }
+
     #endregion
 }
