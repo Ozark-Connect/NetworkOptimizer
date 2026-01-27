@@ -140,11 +140,36 @@ public class PortProfileSuggestionAnalyzer
                     }
                     else if (matchingProfile.Value.ForcesSpeed)
                     {
-                        // Profile forces speed and NO ports currently use it - too risky to suggest
-                        _logger?.LogDebug(
-                            "Profile '{ProfileName}' forces speed (autoneg=false) and no ports use it - skipping",
-                            matchingProfile.Value.ProfileName);
-                        compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>();
+                        // Profile forces speed but no ports currently use it
+                        // Group by current speed and suggest to the largest group at a single speed
+                        var speedGroups = compatiblePorts
+                            .GroupBy(p => p.CurrentSpeed)
+                            .OrderByDescending(g => g.Count())
+                            .ToList();
+
+                        if (speedGroups.Count > 0 && speedGroups[0].Count() >= 2)
+                        {
+                            var targetSpeed = speedGroups[0].Key;
+                            var incompatibleSpeedPorts = compatiblePorts.Where(p => p.CurrentSpeed != targetSpeed).ToList();
+                            if (incompatibleSpeedPorts.Count > 0)
+                            {
+                                _logger?.LogDebug(
+                                    "Profile '{ProfileName}' forces speed - using {Speed}Mbps ports, excluding {Count} ports at different speeds: {Ports}",
+                                    matchingProfile.Value.ProfileName,
+                                    targetSpeed,
+                                    incompatibleSpeedPorts.Count,
+                                    string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
+                            }
+                            compatiblePorts = speedGroups[0].ToList();
+                        }
+                        else
+                        {
+                            // Not enough ports at any single speed
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces speed (autoneg=false) - not enough ports at any single speed",
+                                matchingProfile.Value.ProfileName);
+                            compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>();
+                        }
                     }
                     else
                     {
@@ -250,11 +275,15 @@ public class PortProfileSuggestionAnalyzer
                                 ? PortProfileSuggestionSeverity.Recommendation
                                 : PortProfileSuggestionSeverity.Info;
 
+                            // Only add "(PoE)" suffix if ports actually have PoE enabled
+                            var hasPoEPorts = groupPorts.Any(p => p.HasPoEEnabled);
+                            var profileNameSuffix = hasPoEPorts ? " (PoE)" : "";
+
                             var fallbackSuggestion = new PortProfileSuggestion
                             {
                                 Type = PortProfileSuggestionType.CreateNew,
                                 Severity = fallbackSeverity,
-                                SuggestedProfileName = GenerateProfileName(signature, networksById) + " (PoE)",
+                                SuggestedProfileName = GenerateProfileName(signature, networksById) + profileNameSuffix,
                                 Configuration = signature,
                                 AffectedPorts = groupPorts.Select(p => p.Reference).ToList(),
                                 PortsWithoutProfile = groupPorts.Count,

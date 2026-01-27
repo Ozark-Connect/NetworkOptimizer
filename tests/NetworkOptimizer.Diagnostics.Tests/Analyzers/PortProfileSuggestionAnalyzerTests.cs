@@ -472,10 +472,10 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_ProfileForcesSpeedNoExistingPorts_CreatesFallbackSuggestion()
+    public void Analyze_ProfileForcesSpeedNoExistingPorts_SuggestsApplyingToSameSpeedPorts()
     {
         // Arrange - profile forces speed but no ports currently use it
-        // We don't suggest applying it (too risky), but we DO suggest creating a new profile for these ports
+        // Ports at the same speed can still be suggested for the profile
         var networks = new List<UniFiNetworkConfig>
         {
             new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
@@ -500,7 +500,7 @@ public class PortProfileSuggestionAnalyzerTests
             Type = "usw",
             PortTable = new List<SwitchPort>
             {
-                // No ports currently use the profile
+                // No ports currently use the profile, but both are at 10G
                 new SwitchPort
                 {
                     PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
@@ -520,11 +520,11 @@ public class PortProfileSuggestionAnalyzerTests
             new[] { profile },
             networks);
 
-        // Assert - creates fallback CreateNew suggestion for excluded ports
+        // Assert - suggests applying existing profile since ports are at same speed
         result.Should().HaveCount(1);
-        result[0].Type.Should().Be(Models.PortProfileSuggestionType.CreateNew);
+        result[0].Type.Should().Be(Models.PortProfileSuggestionType.ApplyExisting);
         result[0].AffectedPorts.Should().HaveCount(2);
-        result[0].SuggestedProfileName.Should().Contain("(PoE)");
+        result[0].MatchingProfileName.Should().Be("10G Trunk");
     }
 
     #endregion
