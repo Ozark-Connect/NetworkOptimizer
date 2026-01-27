@@ -1395,6 +1395,10 @@ td .btn + .btn {
     margin-left: 0.5rem;
 }
 
+.btn-group-wrap .btn + .btn {
+    margin-left: 0;
+}
+
 /* Data Management Section */
 .data-actions {
     display: flex;
