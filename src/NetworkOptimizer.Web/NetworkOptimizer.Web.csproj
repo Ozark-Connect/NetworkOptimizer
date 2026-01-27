@@ -13,6 +13,7 @@
     <ProjectReference Include="..\NetworkOptimizer.Storage\NetworkOptimizer.Storage.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.UniFi\NetworkOptimizer.UniFi.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Audit\NetworkOptimizer.Audit.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.Diagnostics\NetworkOptimizer.Diagnostics.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Sqm\NetworkOptimizer.Sqm.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Monitoring\NetworkOptimizer.Monitoring.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Agents\NetworkOptimizer.Agents.csproj" />

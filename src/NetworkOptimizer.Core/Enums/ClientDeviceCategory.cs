@@ -284,6 +284,49 @@ public static class ClientDeviceCategoryExtensions
     };
 
     /// <summary>
+    /// Check if the category is a mobile device that should NOT be locked to an AP.
+    /// Mobile devices include phones, tablets, and laptops that move around.
+    /// </summary>
+    public static bool IsMobile(this ClientDeviceCategory category) => category switch
+    {
+        ClientDeviceCategory.Smartphone => true,
+        ClientDeviceCategory.Tablet => true,
+        ClientDeviceCategory.Laptop => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Check if the category is typically stationary and appropriate to lock to an AP.
+    /// Stationary devices include IoT, cameras, desktops, printers, etc.
+    /// </summary>
+    public static bool IsStationary(this ClientDeviceCategory category) => category switch
+    {
+        ClientDeviceCategory.Camera => true,
+        ClientDeviceCategory.CloudCamera => true,
+        ClientDeviceCategory.SecuritySystem => true,
+        ClientDeviceCategory.CloudSecuritySystem => true,
+        ClientDeviceCategory.SmartLighting => true,
+        ClientDeviceCategory.SmartPlug => true,
+        ClientDeviceCategory.SmartThermostat => true,
+        ClientDeviceCategory.SmartLock => true,
+        ClientDeviceCategory.SmartSensor => true,
+        ClientDeviceCategory.SmartAppliance => true,
+        ClientDeviceCategory.SmartHub => true,
+        ClientDeviceCategory.RoboticVacuum => true,
+        ClientDeviceCategory.IoTGeneric => true,
+        ClientDeviceCategory.SmartTV => true,
+        ClientDeviceCategory.SmartSpeaker => true,
+        ClientDeviceCategory.MediaPlayer => true,
+        ClientDeviceCategory.Desktop => true,
+        ClientDeviceCategory.Server => true,
+        ClientDeviceCategory.NAS => true,
+        ClientDeviceCategory.Printer => true,
+        ClientDeviceCategory.Scanner => true,
+        ClientDeviceCategory.VoIP => true,
+        _ => false
+    };
+
+    /// <summary>
     /// Get display-friendly name for the category
     /// </summary>
     public static string GetDisplayName(this ClientDeviceCategory category) => category switch

@@ -15,7 +15,7 @@
 <PageTitle>Security Audit - Network Optimizer</PageTitle>
 
 <div class="page-header">
-    <h1>Security & Configuration Audit</h1>
+    <h1>Security Audit</h1>
     <p class="page-description">Comprehensive network security analysis</p>
 </div>
 
@@ -36,9 +36,6 @@
 <div class="audit-container">
     <!-- Audit Controls -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Audit Controls</h2>
-        </div>
         <div class="card-body">
             <div class="audit-controls">
                 <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)" style="min-width: 140px;">
@@ -136,7 +133,7 @@
                             <span class="count">@warningCount</span>
                             <span class="label">Recommended</span>
                         </div>
-                        <div class="issue-count info">
+                        <div class="issue-count @(infoCount > 0 ? "info" : "")">
                             <span class="count">@infoCount</span>
                             <span class="label">Info</span>
                         </div>

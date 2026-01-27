@@ -45,11 +45,31 @@ public class UniFiPortProfile
     [JsonPropertyName("autoneg")]
     public bool Autoneg { get; set; }
 
+    /// <summary>
+    /// Forced speed in Mbps when Autoneg is false.
+    /// </summary>
+    [JsonPropertyName("speed")]
+    public int? Speed { get; set; }
+
+    /// <summary>
+    /// Full duplex mode when Autoneg is false.
+    /// </summary>
+    [JsonPropertyName("full_duplex")]
+    public bool? FullDuplex { get; set; }
+
     [JsonPropertyName("setting_preference")]
     public string? SettingPreference { get; set; }
 
     [JsonPropertyName("tagged_vlan_mgmt")]
     public string? TaggedVlanMgmt { get; set; }
+
+    /// <summary>
+    /// Network config IDs excluded from this trunk profile.
+    /// Only relevant for trunk port profiles.
+    /// Allowed VLANs = All Networks - ExcludedNetworkConfIds
+    /// </summary>
+    [JsonPropertyName("excluded_networkconf_ids")]
+    public List<string>? ExcludedNetworkConfIds { get; set; }
 
     [JsonPropertyName("stormctrl_bcast_enabled")]
     public bool StormCtrlBcastEnabled { get; set; }

@@ -210,6 +210,28 @@ public class UniFiClientResponse
 
     [JsonPropertyName("mlo_details")]
     public List<MloLinkDetail>? MloDetails { get; set; }
+
+    // AP Lock settings
+    /// <summary>
+    /// Whether the client is locked/pinned to a specific AP.
+    /// When true, the client will not roam to other APs.
+    /// </summary>
+    [JsonPropertyName("fixed_ap_enabled")]
+    public bool? FixedApEnabled { get; set; }
+
+    /// <summary>
+    /// MAC address of the AP this client is locked to.
+    /// Only relevant when FixedApEnabled is true.
+    /// </summary>
+    [JsonPropertyName("fixed_ap_mac")]
+    public string? FixedApMac { get; set; }
+
+    /// <summary>
+    /// Number of times this client has roamed between APs.
+    /// High values indicate a mobile device that moves around.
+    /// </summary>
+    [JsonPropertyName("roam_count")]
+    public int? RoamCount { get; set; }
 }
 
 /// <summary>

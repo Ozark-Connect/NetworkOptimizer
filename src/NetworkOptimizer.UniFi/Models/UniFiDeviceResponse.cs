@@ -170,6 +170,13 @@ public class SwitchPort
     [JsonPropertyName("speed")]
     public int Speed { get; set; }
 
+    /// <summary>
+    /// Whether auto-negotiation is enabled for this port.
+    /// When false, speed is forced/manually configured.
+    /// </summary>
+    [JsonPropertyName("autoneg")]
+    public bool Autoneg { get; set; } = true;
+
     [JsonPropertyName("up")]
     public bool Up { get; set; }
 
@@ -204,6 +211,41 @@ public class SwitchPort
     /// </summary>
     [JsonPropertyName("network_name")]
     public string? NetworkName { get; set; }
+
+    // VLAN trunk configuration fields
+
+    /// <summary>
+    /// Port forwarding mode: "customize" = trunk, "native" = access port, "disabled" = disabled
+    /// </summary>
+    [JsonPropertyName("forward")]
+    public string? Forward { get; set; }
+
+    /// <summary>
+    /// Tagged VLAN management: "custom" = trunk (allows specific VLANs), "block_all" = access (no tagged VLANs)
+    /// </summary>
+    [JsonPropertyName("tagged_vlan_mgmt")]
+    public string? TaggedVlanMgmt { get; set; }
+
+    /// <summary>
+    /// Network config IDs excluded from this trunk port.
+    /// Allowed VLANs = All Networks - ExcludedNetworkConfIds
+    /// Empty list means all VLANs are allowed.
+    /// </summary>
+    [JsonPropertyName("excluded_networkconf_ids")]
+    public List<string>? ExcludedNetworkConfIds { get; set; }
+
+    /// <summary>
+    /// Native VLAN network config ID for this port
+    /// </summary>
+    [JsonPropertyName("native_networkconf_id")]
+    public string? NativeNetworkConfId { get; set; }
+
+    /// <summary>
+    /// Port profile ID if a port profile is assigned to this port.
+    /// When set, the port profile settings override the port's direct settings.
+    /// </summary>
+    [JsonPropertyName("portconf_id")]
+    public string? PortConfId { get; set; }
 }
 
 public class UplinkInfo
@@ -325,4 +367,26 @@ public class ConfigNetworkLan
 
     [JsonPropertyName("cidr")]
     public string? Cidr { get; set; }
+}
+
+/// <summary>
+/// Port override configuration from device port_overrides array.
+/// Contains per-port VLAN and profile configuration that may differ from defaults.
+/// </summary>
+public class PortOverride
+{
+    [JsonPropertyName("port_idx")]
+    public int PortIdx { get; set; }
+
+    [JsonPropertyName("native_networkconf_id")]
+    public string? NativeNetworkConfId { get; set; }
+
+    [JsonPropertyName("voice_networkconf_id")]
+    public string? VoiceNetworkConfId { get; set; }
+
+    [JsonPropertyName("tagged_networkconf_ids")]
+    public List<string>? TaggedNetworkConfIds { get; set; }
+
+    [JsonPropertyName("portconf_id")]
+    public string? PortConfId { get; set; }
 }

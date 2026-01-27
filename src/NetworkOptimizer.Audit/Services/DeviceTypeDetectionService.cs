@@ -90,6 +90,48 @@ public class DeviceTypeDetectionService
         string? portName = null,
         string? deviceName = null)
     {
+        return DetectDeviceTypeCore(client, portName, deviceName);
+    }
+
+    /// <summary>
+    /// Detect device type from a historical/offline client response.
+    /// Converts the detail response to match the main detection method.
+    /// </summary>
+    /// <param name="client">UniFi client detail (history) data</param>
+    /// <param name="portName">Switch port name (optional)</param>
+    /// <param name="deviceName">User-assigned device name (optional)</param>
+    /// <returns>Best detection result</returns>
+    public DeviceDetectionResult DetectDeviceType(
+        UniFiClientDetailResponse? client,
+        string? portName = null,
+        string? deviceName = null)
+    {
+        if (client == null)
+            return DetectDeviceTypeCore(null, portName, deviceName);
+
+        // Convert detail response to standard response for detection
+        var clientResponse = new UniFiClientResponse
+        {
+            Mac = client.Mac ?? string.Empty,
+            Name = client.DisplayName ?? client.Name ?? string.Empty,
+            Hostname = client.Hostname ?? string.Empty,
+            Oui = client.Oui ?? string.Empty,
+            DevCat = client.Fingerprint?.DevCat,
+            DevVendor = client.Fingerprint?.DevVendor,
+            DevIdOverride = client.Fingerprint?.DevIdOverride
+        };
+
+        return DetectDeviceTypeCore(clientResponse, portName, deviceName);
+    }
+
+    /// <summary>
+    /// Core device type detection logic.
+    /// </summary>
+    private DeviceDetectionResult DetectDeviceTypeCore(
+        UniFiClientResponse? client,
+        string? portName,
+        string? deviceName)
+    {
         var results = new List<DeviceDetectionResult>();
         var mac = client?.Mac ?? "unknown";
         var displayName = client?.Name ?? client?.Hostname ?? portName ?? mac;
