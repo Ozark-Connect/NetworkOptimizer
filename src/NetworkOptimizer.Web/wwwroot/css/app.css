@@ -346,6 +346,13 @@ a:hover {
     gap: 0.5rem;
 }
 
+.card-header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: auto;
+}
+
 .collapse-chevron {
     display: flex;
     align-items: center;
