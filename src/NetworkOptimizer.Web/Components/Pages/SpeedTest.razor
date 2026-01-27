@@ -461,7 +461,7 @@
                                                 <span>Run Test</span>
                                             }
                                         </button>
-                                        <button class="btn btn-secondary btn-sm" style="min-width: 5rem; @(device.StartIperf3Server ? "" : "visibility: hidden;")"
+                                        <button class="btn btn-secondary btn-sm @(device.StartIperf3Server ? "" : "hidden-placeholder")" style="min-width: 5rem;"
                                                 @onclick="() => TestConnection(device)" disabled="@(!sshConfigured && !device.HasOwnCredentials)">Test SSH</button>
                                         <button class="btn btn-secondary btn-sm" @onclick="() => EditDevice(device)">Edit</button>
                                         <button class="btn btn-danger btn-sm" @onclick="() => DeleteDevice(device)">Delete</button>
