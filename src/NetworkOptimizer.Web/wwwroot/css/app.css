@@ -3204,7 +3204,17 @@ select.form-control {
     display: none !important;
 }
 
+.col-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
 @media (max-width: 768px) {
+    .col-actions {
+        width: auto;
+        white-space: normal;
+    }
+
     .speed-results {
         flex-direction: column;
         align-items: center;
