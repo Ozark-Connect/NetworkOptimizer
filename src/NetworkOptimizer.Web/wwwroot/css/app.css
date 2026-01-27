@@ -5401,7 +5401,8 @@ select.form-control {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 1.5rem;
+    gap: 1rem;
+    padding-top: 1rem;
 }
 
 .diagnostics-options {
