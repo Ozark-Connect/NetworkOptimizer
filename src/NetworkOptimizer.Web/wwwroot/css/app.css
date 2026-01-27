@@ -4154,6 +4154,12 @@ select.form-control {
     gap: 0.625rem;
 }
 
+@media (max-width: 768px) {
+    .audit-controls {
+        padding-top: 0;
+    }
+}
+
 /* Audit Results Summary */
 .results-summary {
     display: flex;
@@ -5602,6 +5608,7 @@ select.form-control {
 @media (max-width: 768px) {
     .diagnostics-controls {
         flex-direction: column;
+        padding-top: 0;
     }
 
     .diagnostics-options {
