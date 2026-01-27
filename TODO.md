@@ -76,21 +76,21 @@ New audit section focused on network performance issues (distinct from security 
   - WAN traffic still uses standard 1500 MTU
 - Severity: Informational (performance optimization, not a problem)
 
-### AP Pinning Report
-- Report all devices that are pinned to specific APs
-- For each pinned device, show:
-  - Device name/type
-  - Pinned AP name
-  - How long it's been pinned
-- Flag devices that probably shouldn't be pinned:
-  - **Obvious cases:** Phones, tablets, wearables, laptops (mobile devices that roam)
-  - **Borderline:** IoT devices (user prerogative, but often unnecessary)
-  - **Acceptable:** Fixed cameras, sensors, stationary equipment
-- Default stance: Pinning is the user's prerogative, but it's often not recommended because:
-  - Device stays offline if its pinned AP goes down (no failover)
-  - Prevents roaming to better AP when signal degrades
-  - Can cause connectivity issues during AP firmware updates
-- Severity: Informational for acceptable pins, Recommended for mobile device pins
+### MTU Mismatch Detection
+- Detect MTU mismatches along network paths that cause fragmentation or packet drops
+- Implementation:
+  - During path tracing, SSH into each hop (gateway, switches) to query interface MTU
+  - Gateway: `ip link show <interface>` or parse `/sys/class/net/<iface>/mtu`
+  - Switches: Check port MTU via SSH (UniFi switches support shell access)
+  - Compare MTU values across the path - all devices should match
+- Issues to detect:
+  - Standard MTU (1500) mixed with Jumbo Frames (9000) in same path
+  - Intermediate device with lower MTU than endpoints (causes fragmentation)
+  - Jumbo Frames enabled on LAN but not on inter-switch uplinks
+  - VPN/tunnel overhead not accounted for (e.g., WireGuard needs ~1420 MTU)
+- Display: Show MTU at each hop in path analysis, flag mismatches
+- Severity: Warning (mismatches cause performance degradation or silent drops)
+- Prerequisite: Reuse SSH infrastructure from SQM/gateway speed tests
 
 ### AP / RF Performance Analysis (Design Session Needed)
 - **Goal:** Provide RF performance insights beyond what UniFi Network offers natively
