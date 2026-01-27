@@ -256,9 +256,13 @@ public class PortProfileSuggestionAnalyzer
                     }
 
                     // Calculate excluded ports (candidates that didn't make it through filtering)
-                    var excludedPorts = portsWithoutProfile.Where(p =>
-                        !compatiblePorts.Any(c => c.Reference.DeviceMac == p.Reference.DeviceMac &&
-                                                  c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
+                    // When profileAlreadyHandled=true, ALL remaining ports need alternate profiles
+                    // (the first loop already handled the primary profile, these ports were filtered out)
+                    var excludedPorts = profileAlreadyHandled
+                        ? portsWithoutProfile.ToList()  // All remaining ports need alternate profile
+                        : portsWithoutProfile.Where(p =>
+                            !compatiblePorts.Any(c => c.Reference.DeviceMac == p.Reference.DeviceMac &&
+                                                      c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
 
                     // Create suggestion for compatible ports if any
                     // Skip if this profile was already handled in the first loop (extend suggestions)
@@ -273,23 +277,29 @@ public class PortProfileSuggestionAnalyzer
                             ? PortProfileSuggestionSeverity.Recommendation
                             : PortProfileSuggestionSeverity.Info;
 
+                        // Count only ports using THE MATCHING profile for Type determination
+                        // (not ports using other profiles with same VLANs)
+                        var portsUsingMatchingProfile = portsWithProfile
+                            .Where(p => p.Reference.CurrentProfileId == matchingProfile.Value.ProfileId)
+                            .ToList();
+
                         suggestion = new PortProfileSuggestion
                         {
-                            Type = portsWithProfile.Count > 0
+                            Type = portsUsingMatchingProfile.Count > 0
                                 ? PortProfileSuggestionType.ExtendUsage
                                 : PortProfileSuggestionType.ApplyExisting,
                             Severity = severity,
                             MatchingProfileId = matchingProfile.Value.ProfileId,
                             MatchingProfileName = matchingProfile.Value.ProfileName,
                             Configuration = signature,
-                            AffectedPorts = portsWithProfile.Select(p => p.Reference)
+                            AffectedPorts = portsUsingMatchingProfile.Select(p => p.Reference)
                                 .Concat(compatiblePorts.Select(p => p.Reference)).ToList(),
                             PortsWithoutProfile = compatiblePorts.Count,
-                            PortsAlreadyUsingProfile = portsWithProfile.Count,
+                            PortsAlreadyUsingProfile = portsUsingMatchingProfile.Count,
                             Recommendation = GenerateRecommendation(
                                 matchingProfile.Value.ProfileName,
                                 compatiblePorts.Select(p => p.Reference).ToList(),
-                                portsWithProfile.Count > 0)
+                                portsUsingMatchingProfile.Count > 0)
                         };
                         suggestions.Add(suggestion);
                     }

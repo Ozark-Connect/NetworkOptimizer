@@ -2565,5 +2565,171 @@ public class PortProfileSuggestionAnalyzerTests
         suggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3, 4 });
     }
 
+    [Fact]
+    public void Analyze_PortsWithDifferentProfileSameVlans_SuggestsApplyNotExtend()
+    {
+        // Arrange - Real scenario:
+        // - 7 ports with same VLAN signature
+        // - 3 ports use Profile A (PoE enabled) - e.g., [AP] PoE w/ Core VLANs
+        // - 4 ports have NO profile (PoE disabled)
+        // First loop extends Profile A but filters out 4 ports (PoE disabled) due to PoE consistency
+        // Second loop finds Profile B (same VLANs, allows PoE) for the 4 ports
+        // BUG: portsWithProfile = 3 (counting Profile A users, wrong profile!)
+        // Should be ApplyExisting for Profile B (no ports use it), NOT ExtendUsage
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" },
+            new UniFiNetworkConfig { Id = "net-2", Name = "VLAN 20", Vlan = 20, Purpose = "corporate" }
+        };
+
+        var profileA = new UniFiPortProfile
+        {
+            Id = "profile-a",
+            Name = "Profile A (PoE)",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",  // Allows PoE
+            Autoneg = true
+        };
+
+        var profileB = new UniFiPortProfile
+        {
+            Id = "profile-b",
+            Name = "Profile B (No PoE)",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // Same VLANs as A
+            PoeMode = "off",  // Forces PoE off - compatible with PoE-disabled ports
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Ports 1-3: use Profile A (PoE enabled)
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-a", PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-a", PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-a", PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // Ports 4-7: no profile, PoE disabled - incompatible with Profile A (PoE consistency)
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 6, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 7, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileA, profileB }, networks);
+
+        // Assert
+        // Should have suggestion for Profile B (ports 4-7)
+        // MUST be ApplyExisting (no ports use Profile B), NOT ExtendUsage
+        var suggestionForB = result.FirstOrDefault(r => r.MatchingProfileId == "profile-b");
+        suggestionForB.Should().NotBeNull("should suggest Profile B for PoE-disabled ports");
+        suggestionForB!.Type.Should().Be(
+            Models.PortProfileSuggestionType.ApplyExisting,
+            "because ZERO ports use Profile B - cannot 'extend' a profile nobody uses");
+        suggestionForB.PortsAlreadyUsingProfile.Should().Be(0, "no ports use Profile B");
+        suggestionForB.PortsWithoutProfile.Should().Be(4, "4 ports need Profile B");
+        suggestionForB.AffectedPorts.Should().HaveCount(4, "only the 4 ports without profiles");
+    }
+
+    [Fact]
+    public void Analyze_AllPortsWithoutMatchingProfile_SuggestsApplyExisting()
+    {
+        // Arrange - 4 ports with same VLAN signature, none using the matching profile
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk Profile",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should be ApplyExisting (not ExtendUsage) since no ports use the profile
+        result.Should().HaveCount(1);
+        result[0].Type.Should().Be(Models.PortProfileSuggestionType.ApplyExisting);
+        result[0].MatchingProfileName.Should().Be("Trunk Profile");
+        result[0].AffectedPorts.Should().HaveCount(4);
+        result[0].PortsAlreadyUsingProfile.Should().Be(0);
+        result[0].PortsWithoutProfile.Should().Be(4);
+    }
+
     #endregion
 }
