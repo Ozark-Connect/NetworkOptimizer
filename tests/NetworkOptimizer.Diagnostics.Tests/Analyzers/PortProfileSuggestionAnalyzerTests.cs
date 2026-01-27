@@ -1815,6 +1815,141 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_TwoPortsUsingProfileOneWithout_SuggestsExtendToThird()
+    {
+        // Arrange - 2 ports already use a profile, 1 port doesn't
+        // Should suggest extending the profile to the third port
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 },
+            new UniFiNetworkConfig { Id = "network-2", Name = "IoT", Vlan = 20 },
+            new UniFiNetworkConfig { Id = "network-3", Name = "Management", Vlan = 99 }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-ap-poe",
+            Name = "AP PoE Autoneg",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using the profile
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-ap-poe", PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 2: using the profile
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-ap-poe", PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 3: NOT using any profile - should get suggestion to extend
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should suggest extending the profile to port 3
+        result.Should().HaveCount(1);
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.ExtendUsage);
+        suggestion.MatchingProfileName.Should().Be("AP PoE Autoneg");
+        suggestion.PortsAlreadyUsingProfile.Should().Be(2);
+        suggestion.PortsWithoutProfile.Should().Be(1);
+        suggestion.AffectedPorts.Should().HaveCount(3);
+        suggestion.AffectedPorts.Should().Contain(p => p.PortIndex == 3);
+    }
+
+    [Fact]
+    public void Analyze_ThreePortsUsingProfileOneWithout_SuggestsExtendToFourth()
+    {
+        // Arrange - 3 ports already use a profile, 1 port doesn't
+        // Should suggest extending the profile to the fourth port
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 },
+            new UniFiNetworkConfig { Id = "network-2", Name = "IoT", Vlan = 20 }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-ap-poe",
+            Name = "AP PoE Autoneg",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Ports 1-3: using the profile
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-ap-poe", PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-ap-poe", PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-ap-poe", PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 4: NOT using any profile - should get suggestion to extend
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should suggest extending the profile to port 4
+        result.Should().HaveCount(1);
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.ExtendUsage);
+        suggestion.MatchingProfileName.Should().Be("AP PoE Autoneg");
+        suggestion.PortsAlreadyUsingProfile.Should().Be(3);
+        suggestion.PortsWithoutProfile.Should().Be(1);
+        suggestion.AffectedPorts.Should().HaveCount(4);
+        suggestion.AffectedPorts.Should().Contain(p => p.PortIndex == 4);
+    }
+
+    [Fact]
     public void Analyze_ExcludedAutonegPortsAtDifferentSpeeds_MatchAlternateAutonegProfile()
     {
         // Arrange - three ports excluded from a profile that forces PoE off

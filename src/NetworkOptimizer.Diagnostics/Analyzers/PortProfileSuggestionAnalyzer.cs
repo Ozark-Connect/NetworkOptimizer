@@ -73,26 +73,97 @@ public class PortProfileSuggestionAnalyzer
             var ports = group.ToList();
             var signature = group.Key;
 
-            // Check if any ports in this group already use a profile
+            // Track ports that we've already included in suggestions
+            var handledPortsForExtend = new HashSet<(string Mac, int Port)>();
+
+            // FIRST: Process each profile that ports in this group ACTUALLY use
+            // This ensures we generate extend suggestions for the correct profiles
+            var profilesActuallyInUse = ports
+                .Where(p => !string.IsNullOrEmpty(p.Reference.CurrentProfileId))
+                .Select(p => p.Reference.CurrentProfileId!)
+                .Distinct()
+                .Where(id => profileSignatures.ContainsKey(id))
+                .ToList();
+
+            foreach (var profileId in profilesActuallyInUse)
+            {
+                var profileInfo = profileSignatures[profileId];
+                var portsUsingThisProfile = ports.Where(p => p.Reference.CurrentProfileId == profileId).ToList();
+                var portsNotUsingThisProfile = ports.Where(p => p.Reference.CurrentProfileId != profileId).ToList();
+
+                if (portsNotUsingThisProfile.Count == 0)
+                    continue;
+
+                _logger?.LogDebug(
+                    "Checking profile '{ProfileName}' (used by {UsingCount} ports) for {CandidateCount} potential extensions",
+                    profileInfo.ProfileName, portsUsingThisProfile.Count, portsNotUsingThisProfile.Count);
+
+                // Filter compatible ports for this specific profile
+                var compatiblePorts = FilterCompatiblePortsForProfile(
+                    portsNotUsingThisProfile, profileInfo, portsUsingThisProfile);
+
+                if (compatiblePorts.Count > 0)
+                {
+                    var severity = compatiblePorts.Count >= 3
+                        ? PortProfileSuggestionSeverity.Recommendation
+                        : PortProfileSuggestionSeverity.Info;
+
+                    var extendSuggestion = new PortProfileSuggestion
+                    {
+                        Type = PortProfileSuggestionType.ExtendUsage,
+                        Severity = severity,
+                        MatchingProfileId = profileInfo.ProfileId,
+                        MatchingProfileName = profileInfo.ProfileName,
+                        Configuration = signature,
+                        AffectedPorts = portsUsingThisProfile.Select(p => p.Reference)
+                            .Concat(compatiblePorts.Select(p => p.Reference)).ToList(),
+                        PortsWithoutProfile = compatiblePorts.Count,
+                        PortsAlreadyUsingProfile = portsUsingThisProfile.Count,
+                        Recommendation = GenerateRecommendation(
+                            profileInfo.ProfileName,
+                            compatiblePorts.Select(p => p.Reference).ToList(),
+                            hasExistingUsage: true)
+                    };
+                    suggestions.Add(extendSuggestion);
+
+                    _logger?.LogDebug("Created ExtendUsage suggestion for '{ProfileName}' with {Count} new ports",
+                        profileInfo.ProfileName, compatiblePorts.Count);
+
+                    // Mark these ports as handled so we don't suggest them again
+                    foreach (var p in compatiblePorts)
+                        handledPortsForExtend.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                }
+            }
+
+            // SECOND: Process ports without any profile - existing logic
             var portsWithProfile = ports.Where(p => !string.IsNullOrEmpty(p.Reference.CurrentProfileId)).ToList();
-            var portsWithoutProfile = ports.Where(p => string.IsNullOrEmpty(p.Reference.CurrentProfileId)).ToList();
+            var portsWithoutProfile = ports
+                .Where(p => string.IsNullOrEmpty(p.Reference.CurrentProfileId))
+                .Where(p => !handledPortsForExtend.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
+                .ToList();
 
             // Check if there's an existing profile that matches this signature
             var matchingProfile = FindMatchingProfile(signature, profileSignatures);
 
             PortProfileSuggestion suggestion;
 
-            if (matchingProfile != null)
+            if (matchingProfile != null && portsWithoutProfile.Count > 0)
             {
+                // Skip if this profile is already being used by some ports (we handled it above)
+                if (profilesActuallyInUse.Contains(matchingProfile.Value.ProfileId))
+                {
+                    // We already processed this profile above, but there might be excluded ports
+                    // that need fallback suggestions - continue with existing logic
+                }
+
                 _logger?.LogDebug(
                     "Matching profile '{ProfileName}' found for {TotalPorts} ports: {WithProfile} already using profile, {WithoutProfile} candidates",
                     matchingProfile.Value.ProfileName, ports.Count, portsWithProfile.Count, portsWithoutProfile.Count);
 
                 if (portsWithProfile.Count > 0)
                 {
-                    _logger?.LogDebug("Ports already using '{ProfileName}': {Ports}",
-                        matchingProfile.Value.ProfileName,
-                        string.Join(", ", portsWithProfile.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} (speed={p.CurrentSpeed}, autoneg={p.PortAutoneg})")));
+                    _logger?.LogDebug("Ports already using profiles: {Ports}",
+                        string.Join(", ", portsWithProfile.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} (profile={p.Reference.CurrentProfileName}, speed={p.CurrentSpeed}, autoneg={p.PortAutoneg})")));
                 }
 
                 if (portsWithoutProfile.Count > 0)
@@ -594,6 +665,52 @@ public class PortProfileSuggestionAnalyzer
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Filter ports that are compatible with a specific profile.
+    /// Used to find which ports can extend an existing profile's usage.
+    /// </summary>
+    private static List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> FilterCompatiblePortsForProfile(
+        List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> candidatePorts,
+        (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed) profileInfo,
+        List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> portsAlreadyUsingProfile)
+    {
+        var compatiblePorts = candidatePorts.ToList();
+
+        // If profile forces PoE off, exclude ports with PoE enabled
+        if (profileInfo.ForcesPoEOff)
+        {
+            compatiblePorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
+        }
+
+        // If profile forces speed, check speed compatibility
+        if (profileInfo.ForcesSpeed && portsAlreadyUsingProfile.Count > 0)
+        {
+            // Match the speeds of ports already using the profile
+            var profileUserSpeeds = portsAlreadyUsingProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
+            compatiblePorts = compatiblePorts.Where(p => profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+        }
+        else if (profileInfo.ForcesSpeed)
+        {
+            // No ports using profile yet - group by speed
+            var speedGroups = compatiblePorts.GroupBy(p => p.CurrentSpeed).OrderByDescending(g => g.Count()).ToList();
+            if (speedGroups.Count > 0 && speedGroups[0].Count() >= 1)
+            {
+                compatiblePorts = speedGroups[0].ToList();
+            }
+            else
+            {
+                compatiblePorts = new List<(PortReference, PortConfigSignature, bool, int, bool)>();
+            }
+        }
+        else
+        {
+            // Profile uses autoneg - only include ports that also use autoneg
+            compatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
+        }
+
+        return compatiblePorts;
     }
 
     private static string? GetNetworkName(string? networkId, Dictionary<string, UniFiNetworkConfig> networksById)
