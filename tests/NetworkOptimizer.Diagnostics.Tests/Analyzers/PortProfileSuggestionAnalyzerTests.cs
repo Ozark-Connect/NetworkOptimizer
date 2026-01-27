@@ -2062,6 +2062,205 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_ExtendSuggestion_ExcludesPoEDisabledPortsWhenExistingUsersHavePoEEnabled()
+    {
+        // Arrange - existing profile users have PoE enabled, candidate has PoE disabled
+        // Should NOT suggest extending to the PoE-disabled port
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "AP PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",  // Doesn't force PoE off
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profile WITH PoE enabled
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // Port 2: no profile, PoE enabled - should be included
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // Port 3: no profile, PoE DISABLED - should NOT be included
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should only suggest port 2, not port 3 (PoE disabled)
+        var extendSuggestions = result.Where(s => s.Type == Models.PortProfileSuggestionType.ExtendUsage).ToList();
+        extendSuggestions.Should().HaveCount(1);
+        extendSuggestions[0].PortsWithoutProfile.Should().Be(1);
+        extendSuggestions[0].AffectedPorts.Should().Contain(p => p.PortIndex == 2);
+        extendSuggestions[0].AffectedPorts.Should().NotContain(p => p.PortIndex == 3);
+    }
+
+    [Fact]
+    public void Analyze_ExtendSuggestion_DoesNotSuggestForPortsWithDifferentProfile()
+    {
+        // Arrange - port 2 already has a different profile assigned
+        // Should NOT suggest extending profile A to port 2
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 }
+        };
+
+        var profileA = new UniFiPortProfile
+        {
+            Id = "profile-a",
+            Name = "Profile A",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var profileB = new UniFiPortProfile
+        {
+            Id = "profile-b",
+            Name = "Profile B",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profile A
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-a", PortPoe = false, Speed = 1000, Autoneg = true
+                },
+                // Port 2: using profile B (different profile) - should NOT be suggested to extend profile A
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-b", PortPoe = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileA, profileB }, networks);
+
+        // Assert - no extend suggestions (each profile has only 1 port, no ports without profiles)
+        var extendSuggestions = result.Where(s => s.Type == Models.PortProfileSuggestionType.ExtendUsage).ToList();
+        extendSuggestions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_ExtendSuggestion_OnlySuggestsForPortsWithoutAnyProfile()
+    {
+        // Arrange - port 2 has a different profile, port 3 has no profile
+        // Should ONLY suggest extending to port 3 (no profile), NOT port 2 (has profile B)
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Gaming", Vlan = 10 }
+        };
+
+        var profileA = new UniFiPortProfile
+        {
+            Id = "profile-a",
+            Name = "Profile A",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var profileB = new UniFiPortProfile
+        {
+            Id = "profile-b",
+            Name = "Profile B",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profile A
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-a", PortPoe = false, Speed = 1000, Autoneg = true
+                },
+                // Port 2: using profile B - should NOT be suggested
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-b", PortPoe = false, Speed = 1000, Autoneg = true
+                },
+                // Port 3: NO profile - should be suggested
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileA, profileB }, networks);
+
+        // Assert - profile A should extend to port 3 only
+        var profileASuggestion = result.FirstOrDefault(s =>
+            s.Type == Models.PortProfileSuggestionType.ExtendUsage &&
+            s.MatchingProfileName == "Profile A");
+
+        profileASuggestion.Should().NotBeNull();
+        profileASuggestion!.PortsWithoutProfile.Should().Be(1);
+        profileASuggestion.AffectedPorts.Should().Contain(p => p.PortIndex == 3);
+        profileASuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 2);
+    }
+
+    [Fact]
     public void Analyze_MultipleProfilesInSameVlanGroup_SuggestsExtendForEach()
     {
         // Arrange - 2 ports use profile A, 1 uses profile B, 1 uses neither

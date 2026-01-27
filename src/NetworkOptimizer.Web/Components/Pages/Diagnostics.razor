@@ -59,7 +59,7 @@
                     </label>
                     <label class="checkbox-label">
                         <input type="checkbox" @bind="_runPortProfileSuggestions" />
-                        <span>Port Profile Suggestions</span>
+                        <span>Ethernet Port Profile Suggestions</span>
                     </label>
                 </div>
             </div>
@@ -200,12 +200,12 @@
             }
         </div>
 
-        <!-- Port Profile Suggestions -->
+        <!-- Ethernet Port Profile Suggestions -->
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
                 <div class="card-header-left">
                     <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
-                    <h2 class="card-title">Port Profile Suggestions</h2>
+                    <h2 class="card-title">Ethernet Port Profile Suggestions</h2>
                 </div>
                 <span class="collapse-chevron @(_portProfileCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
             </div>

@@ -89,18 +89,19 @@ public class PortProfileSuggestionAnalyzer
             {
                 var profileInfo = profileSignatures[profileId];
                 var portsUsingThisProfile = ports.Where(p => p.Reference.CurrentProfileId == profileId).ToList();
-                var portsNotUsingThisProfile = ports.Where(p => p.Reference.CurrentProfileId != profileId).ToList();
+                // Only suggest extending to ports WITHOUT any profile - don't suggest changing ports that already have a different profile
+                var portsWithoutAnyProfile = ports.Where(p => string.IsNullOrEmpty(p.Reference.CurrentProfileId)).ToList();
 
-                if (portsNotUsingThisProfile.Count == 0)
+                if (portsWithoutAnyProfile.Count == 0)
                     continue;
 
                 _logger?.LogDebug(
-                    "Checking profile '{ProfileName}' (used by {UsingCount} ports) for {CandidateCount} potential extensions",
-                    profileInfo.ProfileName, portsUsingThisProfile.Count, portsNotUsingThisProfile.Count);
+                    "Checking profile '{ProfileName}' (used by {UsingCount} ports) for {CandidateCount} ports without profiles",
+                    profileInfo.ProfileName, portsUsingThisProfile.Count, portsWithoutAnyProfile.Count);
 
                 // Filter compatible ports for this specific profile
                 var compatiblePorts = FilterCompatiblePortsForProfile(
-                    portsNotUsingThisProfile, profileInfo, portsUsingThisProfile);
+                    portsWithoutAnyProfile, profileInfo, portsUsingThisProfile);
 
                 if (compatiblePorts.Count > 0)
                 {
@@ -147,15 +148,11 @@ public class PortProfileSuggestionAnalyzer
 
             PortProfileSuggestion suggestion;
 
+            // Check if this profile was already handled in the loop above (for extend suggestions)
+            var profileAlreadyHandled = matchingProfile != null && profilesActuallyInUse.Contains(matchingProfile.Value.ProfileId);
+
             if (matchingProfile != null && portsWithoutProfile.Count > 0)
             {
-                // Skip if this profile is already being used by some ports (we handled it above)
-                if (profilesActuallyInUse.Contains(matchingProfile.Value.ProfileId))
-                {
-                    // We already processed this profile above, but there might be excluded ports
-                    // that need fallback suggestions - continue with existing logic
-                }
-
                 _logger?.LogDebug(
                     "Matching profile '{ProfileName}' found for {TotalPorts} ports: {WithProfile} already using profile, {WithoutProfile} candidates",
                     matchingProfile.Value.ProfileName, ports.Count, portsWithProfile.Count, portsWithoutProfile.Count);
@@ -264,7 +261,8 @@ public class PortProfileSuggestionAnalyzer
                                                   c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
 
                     // Create suggestion for compatible ports if any
-                    if (compatiblePorts.Count > 0)
+                    // Skip if this profile was already handled in the first loop (extend suggestions)
+                    if (compatiblePorts.Count > 0 && !profileAlreadyHandled)
                     {
                         _logger?.LogDebug("Final compatible ports for '{ProfileName}': {Ports}",
                             matchingProfile.Value.ProfileName,
@@ -682,6 +680,25 @@ public class PortProfileSuggestionAnalyzer
         if (profileInfo.ForcesPoEOff)
         {
             compatiblePorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
+        }
+
+        // PoE consistency: if existing users all have PoE enabled/disabled, only extend to matching ports
+        if (portsAlreadyUsingProfile.Count > 0 && !profileInfo.ForcesPoEOff)
+        {
+            var existingHavePoE = portsAlreadyUsingProfile.All(p => p.HasPoEEnabled);
+            var existingNoPoE = portsAlreadyUsingProfile.All(p => !p.HasPoEEnabled);
+
+            if (existingHavePoE)
+            {
+                // All existing users have PoE enabled - only extend to ports with PoE enabled
+                compatiblePorts = compatiblePorts.Where(p => p.HasPoEEnabled).ToList();
+            }
+            else if (existingNoPoE)
+            {
+                // All existing users have PoE disabled - only extend to ports with PoE disabled
+                compatiblePorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
+            }
+            // Mixed PoE state among existing users - don't filter by PoE
         }
 
         // If profile forces speed, check speed compatibility
