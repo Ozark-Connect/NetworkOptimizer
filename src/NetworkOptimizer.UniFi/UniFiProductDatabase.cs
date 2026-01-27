@@ -93,6 +93,16 @@ public static class UniFiProductDatabase
         "UDB-Pro",
         "UDB-Pro-Sector",
         "UDB-IoT",
+
+        // UPS and Power devices (no iperf3)
+        "UPS-Tower",
+        "UPS-2U",
+        "USP-PDU-Pro",
+        "USP-PDU-HD",
+        "USP-RPS",
+        "USP-RPS-Pro",
+        "USP-Plug",
+        "USP-Strip",
     };
 
     /// <summary>
