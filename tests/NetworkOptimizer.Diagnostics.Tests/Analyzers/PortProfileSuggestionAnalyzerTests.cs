@@ -2731,5 +2731,223 @@ public class PortProfileSuggestionAnalyzerTests
         result[0].PortsWithoutProfile.Should().Be(4);
     }
 
+    [Fact]
+    public void Analyze_MixedPoEPorts_NoProfilesAssigned_PrefersPoEEnabledPorts()
+    {
+        // Arrange - ports with same VLAN signature, mixed PoE states, no profiles assigned
+        // Profile allows PoE (PoeMode=auto) - should prefer PoE-enabled ports
+        // PoE-enabled profiles are typically for devices that need PoE (APs, cameras)
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "AP PoE Profile",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",  // Allows PoE
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // 3 PoE-enabled ports - should get the PoE profile
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // 4 PoE-disabled ports (SFP+ or PoE off) - should get fallback suggestion
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 6, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 7, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - PoE-enabled ports should get the PoE profile suggestion
+        var mainSuggestion = result.FirstOrDefault(r => r.MatchingProfileId == "profile-1");
+        mainSuggestion.Should().NotBeNull();
+
+        // PoE-enabled ports (3) should get the profile
+        mainSuggestion!.AffectedPorts.Should().HaveCount(3);
+        mainSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2, 3 });
+
+        // PoE-disabled ports should NOT be in the PoE profile suggestion
+        mainSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex >= 4);
+
+        // PoE-disabled ports should get a fallback suggestion (CreateNew since no matching profile)
+        var fallbackSuggestion = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.CreateNew);
+        fallbackSuggestion.Should().NotBeNull("PoE-disabled ports should get a CreateNew fallback");
+        fallbackSuggestion!.AffectedPorts.Should().HaveCount(4);
+        fallbackSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 4, 5, 6, 7 });
+    }
+
+    [Fact]
+    public void Analyze_MixedPoEPorts_ProfileForcesPoEOff_ExcludesPoEEnabledPorts()
+    {
+        // Arrange - profile forces PoE off, should exclude PoE-enabled ports
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "off",  // Forces PoE off
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // 2 PoE-enabled ports - should be excluded
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // 3 PoE-disabled ports - should get the suggestion
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - only PoE-disabled ports should get the suggestion
+        var suggestion = result.FirstOrDefault(r => r.MatchingProfileId == "profile-1");
+        suggestion.Should().NotBeNull();
+        suggestion!.AffectedPorts.Should().HaveCount(3);
+        suggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 3, 4, 5 });
+
+        // PoE-enabled ports should NOT be included
+        suggestion.AffectedPorts.Should().NotContain(p => p.PortIndex <= 2);
+    }
+
+    [Fact]
+    public void Analyze_AllSamePoEState_NoGroupingSplitNeeded()
+    {
+        // Arrange - all ports have same PoE state, no split needed
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "AP PoE Profile",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "auto",
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // All PoE-enabled ports
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - all 3 ports should be in the suggestion (no split)
+        result.Should().HaveCount(1);
+        result[0].AffectedPorts.Should().HaveCount(3);
+        result[0].AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2, 3 });
+    }
+
     #endregion
 }

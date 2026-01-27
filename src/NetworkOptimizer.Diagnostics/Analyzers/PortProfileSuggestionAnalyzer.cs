@@ -189,33 +189,22 @@ public class PortProfileSuggestionAnalyzer
                     }
                     else
                     {
-                        // Profile allows PoE - group by PoE state to avoid mixing
-                        // PoE-enabled ports should be suggested together, PoE-disabled ports separately
+                        // Profile allows PoE (PoeMode=auto) - prefer PoE-enabled ports
+                        // PoE-enabled profiles are typically for devices that need PoE (APs, cameras)
+                        // PoE-disabled ports (SFP+ trunks) should get a separate/fallback suggestion
                         var poeEnabledPorts = compatiblePorts.Where(p => p.HasPoEEnabled).ToList();
                         var poeDisabledPorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
 
                         if (poeEnabledPorts.Count > 0 && poeDisabledPorts.Count > 0)
                         {
-                            // Mixed PoE states - choose the larger group for this profile
-                            // The other group will get a fallback suggestion
-                            if (poeEnabledPorts.Count >= poeDisabledPorts.Count)
-                            {
-                                _logger?.LogDebug(
-                                    "Profile '{ProfileName}' allows PoE - selecting {Count} PoE-enabled ports, excluding {ExcludedCount} PoE-disabled ports",
-                                    matchingProfile.Value.ProfileName,
-                                    poeEnabledPorts.Count,
-                                    poeDisabledPorts.Count);
-                                compatiblePorts = poeEnabledPorts;
-                            }
-                            else
-                            {
-                                _logger?.LogDebug(
-                                    "Profile '{ProfileName}' allows PoE - selecting {Count} PoE-disabled ports, excluding {ExcludedCount} PoE-enabled ports",
-                                    matchingProfile.Value.ProfileName,
-                                    poeDisabledPorts.Count,
-                                    poeEnabledPorts.Count);
-                                compatiblePorts = poeDisabledPorts;
-                            }
+                            // Mixed PoE states - prefer PoE-enabled ports for PoeMode=auto profiles
+                            // PoE-disabled ports will get a fallback suggestion
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' allows PoE - selecting {Count} PoE-enabled ports, excluding {ExcludedCount} PoE-disabled ports for fallback",
+                                matchingProfile.Value.ProfileName,
+                                poeEnabledPorts.Count,
+                                poeDisabledPorts.Count);
+                            compatiblePorts = poeEnabledPorts;
                         }
                     }
 
