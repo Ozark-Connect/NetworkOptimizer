@@ -206,22 +206,45 @@ public class PortProfileSuggestionAnalyzer
                     }
 
                     // ALSO create fallback suggestions for excluded ports grouped by speed compatibility
-                    // Ports with the same link speed can share a profile (autoneg setting doesn't matter for grouping)
+                    // Grouping logic (consistent with profile matching):
+                    // 1. Group by current speed - autoneg ports can join any speed group they're at
+                    // 2. Leftover autoneg ports (at unique speeds) can form their own autoneg group
                     if (excludedPorts.Count >= 2)
                     {
-                        // Group excluded ports by their current link speed
-                        // Ports at the same speed can share a profile regardless of autoneg setting
-                        var compatibilityGroups = excludedPorts
+                        var compatibilityGroups = new List<List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>>();
+                        var portsInSpeedGroups = new HashSet<(string Mac, int Port)>();
+
+                        // First pass: group by current speed (both autoneg and forced can share if at same speed)
+                        var speedGroups = excludedPorts
                             .GroupBy(p => p.CurrentSpeed)
-                            .Where(g => g.Count() >= 2) // Only groups with 2+ ports
+                            .Where(g => g.Count() >= 2)
                             .ToList();
 
-                        foreach (var speedGroup in compatibilityGroups)
+                        foreach (var speedGroup in speedGroups)
                         {
-                            var groupPorts = speedGroup.ToList();
+                            var groupList = speedGroup.ToList();
+                            compatibilityGroups.Add(groupList);
+                            foreach (var p in groupList)
+                                portsInSpeedGroups.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                        }
+
+                        // Second pass: leftover autoneg ports at unique speeds can share an autoneg profile
+                        var leftoverAutonegPorts = excludedPorts
+                            .Where(p => p.PortAutoneg && !portsInSpeedGroups.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
+                            .ToList();
+
+                        if (leftoverAutonegPorts.Count >= 2)
+                        {
+                            compatibilityGroups.Add(leftoverAutonegPorts);
+                        }
+
+                        foreach (var groupPorts in compatibilityGroups)
+                        {
+                            var isAutonegOnlyGroup = groupPorts.All(p => p.PortAutoneg) &&
+                                groupPorts.Select(p => p.CurrentSpeed).Distinct().Count() > 1;
                             _logger?.LogDebug(
-                                "Creating fallback suggestion for {Count} excluded ports at {Speed}Mbps",
-                                groupPorts.Count, speedGroup.Key);
+                                "Creating fallback suggestion for {Count} excluded ports ({Type})",
+                                groupPorts.Count, isAutonegOnlyGroup ? "autoneg (mixed speeds)" : $"{groupPorts[0].CurrentSpeed}Mbps");
 
                             var fallbackSeverity = groupPorts.Count >= 5
                                 ? PortProfileSuggestionSeverity.Recommendation

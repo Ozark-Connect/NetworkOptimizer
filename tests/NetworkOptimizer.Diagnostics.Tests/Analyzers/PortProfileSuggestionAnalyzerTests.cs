@@ -1121,10 +1121,10 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_ExcludedPortsDifferentSpeeds_NoFallbackSuggestion()
+    public void Analyze_ExcludedAutonegPortsDifferentSpeeds_CreatesFallbackSuggestion()
     {
-        // Arrange - excluded ports have different speeds (1G vs 10G)
-        // Even though both use autoneg, they're at different speeds so no fallback
+        // Arrange - excluded ports have different speeds (1G vs 10G) but BOTH use autoneg
+        // Autoneg ports can share a profile regardless of current speed
         var networks = new List<UniFiNetworkConfig>
         {
             new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
@@ -1155,13 +1155,13 @@ public class PortProfileSuggestionAnalyzerTests
                     PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
                     PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
                 },
-                // Port 2: PoE enabled, 1G - EXCLUDED
+                // Port 2: PoE enabled, 1G autoneg - EXCLUDED
                 new SwitchPort
                 {
                     PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
                     PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
                 },
-                // Port 3: PoE enabled, 10G (different speed)
+                // Port 3: PoE enabled, 10G autoneg (different speed but still autoneg)
                 new SwitchPort
                 {
                     PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
@@ -1176,8 +1176,12 @@ public class PortProfileSuggestionAnalyzerTests
             new[] { profile },
             networks);
 
-        // Assert - no fallback because ports have different speeds
-        result.Should().BeEmpty();
+        // Assert - fallback created because both autoneg ports can share an autoneg profile
+        result.Should().HaveCount(1);
+        result[0].Type.Should().Be(Models.PortProfileSuggestionType.CreateNew);
+        result[0].AffectedPorts.Should().HaveCount(2);
+        result[0].AffectedPorts.Should().Contain(p => p.PortIndex == 2);
+        result[0].AffectedPorts.Should().Contain(p => p.PortIndex == 3);
     }
 
     [Fact]
