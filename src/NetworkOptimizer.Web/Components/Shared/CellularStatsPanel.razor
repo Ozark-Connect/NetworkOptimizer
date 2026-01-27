@@ -437,10 +437,6 @@
         .metric-value {
             font-size: 1.2rem;
         }
-
-        .info-label {
-            min-width: 25%;
-        }
     }
 
     .cell-info {
@@ -461,6 +457,12 @@
     .info-label {
         color: var(--text-muted, #888);
         min-width: 20%;
+    }
+
+    @media (max-width: 768px) {
+        .info-label {
+            min-width: 25%;
+        }
     }
 
     .info-value {
