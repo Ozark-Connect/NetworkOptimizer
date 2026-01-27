@@ -187,6 +187,37 @@ public class PortProfileSuggestionAnalyzer
                         }
                         compatiblePorts = portsWithoutProfile.Where(p => !p.HasPoEEnabled).ToList();
                     }
+                    else
+                    {
+                        // Profile allows PoE - group by PoE state to avoid mixing
+                        // PoE-enabled ports should be suggested together, PoE-disabled ports separately
+                        var poeEnabledPorts = compatiblePorts.Where(p => p.HasPoEEnabled).ToList();
+                        var poeDisabledPorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
+
+                        if (poeEnabledPorts.Count > 0 && poeDisabledPorts.Count > 0)
+                        {
+                            // Mixed PoE states - choose the larger group for this profile
+                            // The other group will get a fallback suggestion
+                            if (poeEnabledPorts.Count >= poeDisabledPorts.Count)
+                            {
+                                _logger?.LogDebug(
+                                    "Profile '{ProfileName}' allows PoE - selecting {Count} PoE-enabled ports, excluding {ExcludedCount} PoE-disabled ports",
+                                    matchingProfile.Value.ProfileName,
+                                    poeEnabledPorts.Count,
+                                    poeDisabledPorts.Count);
+                                compatiblePorts = poeEnabledPorts;
+                            }
+                            else
+                            {
+                                _logger?.LogDebug(
+                                    "Profile '{ProfileName}' allows PoE - selecting {Count} PoE-disabled ports, excluding {ExcludedCount} PoE-enabled ports",
+                                    matchingProfile.Value.ProfileName,
+                                    poeDisabledPorts.Count,
+                                    poeEnabledPorts.Count);
+                                compatiblePorts = poeDisabledPorts;
+                            }
+                        }
+                    }
 
                     if (matchingProfile.Value.ForcesSpeed && portsWithProfile.Count > 0)
                     {
