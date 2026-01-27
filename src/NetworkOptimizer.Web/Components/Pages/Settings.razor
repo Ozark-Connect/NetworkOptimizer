@@ -531,7 +531,7 @@
                     <label class="form-label">Port</label>
                     <input type="number" class="form-control" @bind="tcMonitorPort" min="1" max="65535" />
                 </div>
-                <div class="form-group" style="flex: 0; align-self: flex-end;">
+                <div class="action-buttons">
                     <button class="btn btn-primary" @onclick="TestTcMonitor" disabled="@testingTcMonitor">
                         @if (testingTcMonitor)
                         {

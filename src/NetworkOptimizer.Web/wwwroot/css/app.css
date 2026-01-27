@@ -31,6 +31,8 @@
     --bg-tertiary: #334155;
     --bg-card: #242c39;
     --bg-hover: #334155;
+    --surface: #242c39;
+    --surface-secondary: #334155;
 
     /* Text Colors */
     --text-primary: #f1f5f9;
@@ -908,6 +910,12 @@ a.stat-card-link:active {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
     margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+    .sqm-metrics-grid {
+        gap: 0.5rem;
+    }
 }
 
 .metric-box {
@@ -4225,8 +4233,10 @@ select.form-control {
         margin-right: 0;
     }
 
-    .audit-options {
+    .audit-options,
+    .diagnostics-options {
         justify-content: center;
+        margin-top: 0.5rem;
     }
 }
 
@@ -4237,6 +4247,12 @@ select.form-control {
     align-items: center;
     gap: 3rem;
     place-content: center;
+}
+
+@media (max-width: 768px) {
+    .results-summary {
+        gap: 1rem;
+    }
 }
 
 .summary-score {
@@ -5695,10 +5711,6 @@ select.form-control {
     .diagnostics-controls {
         justify-content: center;
         padding-top: 0;
-    }
-
-    .diagnostics-options {
-        justify-content: center;
     }
 
     .summary-stats {
