@@ -5422,6 +5422,7 @@ select.form-control {
 .empty-section-text {
     color: var(--text-muted);
     margin: 0;
+    font-size: 0.875rem;
     font-style: italic;
 }
 

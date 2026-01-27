@@ -177,7 +177,7 @@
                                     </div>
                                     <div class="issue-body">
                                         <div class="issue-header">
-                                            <span class="issue-severity">@issue.Confidence Confidence</span>
+                                            <span class="issue-severity">@GetConfidenceDisplayName(issue.Confidence)</span>
                                         </div>
                                         <div class="issue-title">@issue.Link.DeviceAName ↔ @issue.Link.DeviceBName</div>
                                         <div class="issue-context">
@@ -294,7 +294,8 @@
         _apLockCollapsed = _result.ApLockIssues.Count == 0 ||
                           (_result.ApLockIssues.Count > 3 && !hasApLockRecommendations);
 
-        var hasTrunkRecommendations = _result.TrunkConsistencyIssues.Any(i => i.Confidence == DiagnosticConfidence.High);
+        var hasTrunkRecommendations = _result.TrunkConsistencyIssues.Any(i =>
+            i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium);
         _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
                          (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
 
@@ -385,15 +386,23 @@
     private static string GetConfidenceCssClass(DiagnosticConfidence confidence) => confidence switch
     {
         DiagnosticConfidence.High => "warning",
-        DiagnosticConfidence.Medium => "info",
+        DiagnosticConfidence.Medium => "warning",
         DiagnosticConfidence.Low => "info",
         _ => "info"
+    };
+
+    private static string GetConfidenceDisplayName(DiagnosticConfidence confidence) => confidence switch
+    {
+        DiagnosticConfidence.High => "Recommendation",
+        DiagnosticConfidence.Medium => "Recommendation",
+        DiagnosticConfidence.Low => "Info",
+        _ => confidence.ToString()
     };
 
     private static string GetConfidenceIcon(DiagnosticConfidence confidence) => confidence switch
     {
         DiagnosticConfidence.High => WarningIcon,
-        DiagnosticConfidence.Medium => InfoIcon,
+        DiagnosticConfidence.Medium => WarningIcon,
         DiagnosticConfidence.Low => InfoIcon,
         _ => InfoIcon
     };
