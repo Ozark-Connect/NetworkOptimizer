@@ -162,77 +162,90 @@ public class PortProfileSuggestionAnalyzer
                         compatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
                     }
 
-                    if (compatiblePorts.Count == 0)
+                    // Calculate excluded ports (candidates that didn't make it through filtering)
+                    var excludedPorts = portsWithoutProfile.Where(p =>
+                        !compatiblePorts.Any(c => c.Reference.DeviceMac == p.Reference.DeviceMac &&
+                                                  c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
+
+                    // Create suggestion for compatible ports if any
+                    if (compatiblePorts.Count > 0)
                     {
-                        // No compatible ports for the existing profile
-                        // But the excluded ports might still warrant their own new profile
-                        var excludedPorts = portsWithoutProfile.Where(p =>
-                            !compatiblePorts.Any(c => c.Reference.DeviceMac == p.Reference.DeviceMac &&
-                                                      c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
+                        _logger?.LogDebug("Final compatible ports for '{ProfileName}': {Ports}",
+                            matchingProfile.Value.ProfileName,
+                            string.Join(", ", compatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
 
-                        if (excludedPorts.Count >= 2)
+                        // Recommendation level if 3+ ports could be added to the profile
+                        var severity = compatiblePorts.Count >= 3
+                            ? PortProfileSuggestionSeverity.Recommendation
+                            : PortProfileSuggestionSeverity.Info;
+
+                        suggestion = new PortProfileSuggestion
                         {
-                            _logger?.LogDebug(
-                                "Creating fallback suggestion for {Count} ports excluded from '{ProfileName}' due to PoE/speed/autoneg incompatibility",
-                                excludedPorts.Count, matchingProfile.Value.ProfileName);
+                            Type = portsWithProfile.Count > 0
+                                ? PortProfileSuggestionType.ExtendUsage
+                                : PortProfileSuggestionType.ApplyExisting,
+                            Severity = severity,
+                            MatchingProfileId = matchingProfile.Value.ProfileId,
+                            MatchingProfileName = matchingProfile.Value.ProfileName,
+                            Configuration = signature,
+                            AffectedPorts = portsWithProfile.Select(p => p.Reference)
+                                .Concat(compatiblePorts.Select(p => p.Reference)).ToList(),
+                            PortsWithoutProfile = compatiblePorts.Count,
+                            PortsAlreadyUsingProfile = portsWithProfile.Count,
+                            Recommendation = GenerateRecommendation(
+                                matchingProfile.Value.ProfileName,
+                                compatiblePorts.Select(p => p.Reference).ToList(),
+                                portsWithProfile.Count > 0)
+                        };
+                        suggestions.Add(suggestion);
+                    }
+                    else
+                    {
+                        _logger?.LogDebug("No compatible ports remaining for '{ProfileName}' after filtering",
+                            matchingProfile.Value.ProfileName);
+                    }
 
-                            var fallbackSeverity = excludedPorts.Count >= 5
+                    // ALSO create fallback suggestions for excluded ports grouped by speed compatibility
+                    // Ports with the same link speed can share a profile (autoneg setting doesn't matter for grouping)
+                    if (excludedPorts.Count >= 2)
+                    {
+                        // Group excluded ports by their current link speed
+                        // Ports at the same speed can share a profile regardless of autoneg setting
+                        var compatibilityGroups = excludedPorts
+                            .GroupBy(p => p.CurrentSpeed)
+                            .Where(g => g.Count() >= 2) // Only groups with 2+ ports
+                            .ToList();
+
+                        foreach (var speedGroup in compatibilityGroups)
+                        {
+                            var groupPorts = speedGroup.ToList();
+                            _logger?.LogDebug(
+                                "Creating fallback suggestion for {Count} excluded ports at {Speed}Mbps",
+                                groupPorts.Count, speedGroup.Key);
+
+                            var fallbackSeverity = groupPorts.Count >= 5
                                 ? PortProfileSuggestionSeverity.Recommendation
                                 : PortProfileSuggestionSeverity.Info;
 
-                            suggestion = new PortProfileSuggestion
+                            var fallbackSuggestion = new PortProfileSuggestion
                             {
                                 Type = PortProfileSuggestionType.CreateNew,
                                 Severity = fallbackSeverity,
                                 SuggestedProfileName = GenerateProfileName(signature, networksById) + " (PoE)",
                                 Configuration = signature,
-                                AffectedPorts = excludedPorts.Select(p => p.Reference).ToList(),
-                                PortsWithoutProfile = excludedPorts.Count,
+                                AffectedPorts = groupPorts.Select(p => p.Reference).ToList(),
+                                PortsWithoutProfile = groupPorts.Count,
                                 PortsAlreadyUsingProfile = 0,
                                 Recommendation = GenerateCreateRecommendation(
-                                    excludedPorts.Count,
+                                    groupPorts.Count,
                                     signature,
                                     networksById)
                             };
-
-                            suggestions.Add(suggestion);
+                            suggestions.Add(fallbackSuggestion);
                         }
-                        else
-                        {
-                            _logger?.LogDebug("No compatible ports remaining for '{ProfileName}' after filtering",
-                                matchingProfile.Value.ProfileName);
-                        }
-                        continue;
                     }
 
-                    _logger?.LogDebug("Final compatible ports for '{ProfileName}': {Ports}",
-                        matchingProfile.Value.ProfileName,
-                        string.Join(", ", compatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
-
-                    // Some ports match an existing profile but don't use it
-                    // Recommendation level if 3+ ports could be added to the profile
-                    var severity = compatiblePorts.Count >= 3
-                        ? PortProfileSuggestionSeverity.Recommendation
-                        : PortProfileSuggestionSeverity.Info;
-
-                    suggestion = new PortProfileSuggestion
-                    {
-                        Type = portsWithProfile.Count > 0
-                            ? PortProfileSuggestionType.ExtendUsage
-                            : PortProfileSuggestionType.ApplyExisting,
-                        Severity = severity,
-                        MatchingProfileId = matchingProfile.Value.ProfileId,
-                        MatchingProfileName = matchingProfile.Value.ProfileName,
-                        Configuration = signature,
-                        AffectedPorts = portsWithProfile.Select(p => p.Reference)
-                            .Concat(compatiblePorts.Select(p => p.Reference)).ToList(),
-                        PortsWithoutProfile = compatiblePorts.Count,
-                        PortsAlreadyUsingProfile = portsWithProfile.Count,
-                        Recommendation = GenerateRecommendation(
-                            matchingProfile.Value.ProfileName,
-                            compatiblePorts.Select(p => p.Reference).ToList(),
-                            portsWithProfile.Count > 0)
-                    };
+                    continue; // Move to next group after processing this one
                 }
                 else
                 {
