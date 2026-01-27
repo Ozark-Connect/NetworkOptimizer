@@ -323,23 +323,58 @@ public class PortProfileSuggestionAnalyzer
                     // Strategy:
                     // 1. First, check if there's an autoneg profile that can take ALL autoneg ports together
                     //    (regardless of their current speeds - autoneg ports can adapt)
-                    // 2. If not, fall back to speed-based grouping
+                    // 2. If not, fall back to speed/PoE-based grouping
                     if (excludedPorts.Count >= 2)
                     {
                         var compatibilityGroups = new List<List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>>();
                         var handledPorts = new HashSet<(string Mac, int Port)>();
 
-                        // First: Try to find an autoneg profile for ALL autoneg ports together
-                        var allAutonegPorts = excludedPorts.Where(p => p.PortAutoneg).ToList();
-                        if (allAutonegPorts.Count >= 2)
+                        // Check if there are any forced-speed ports
+                        var hasForcedSpeedPorts = excludedPorts.Any(p => !p.PortAutoneg);
+
+                        if (hasForcedSpeedPorts)
                         {
+                            // Mixed autoneg/forced or all forced: group by speed first
+                            // Forced-speed ports can't adapt, so same-speed is required
+                            // Autoneg ports at same speed can join (they'll link at that speed)
+                            var speedGroups = excludedPorts
+                                .GroupBy(p => p.CurrentSpeed)
+                                .Where(g => g.Count() >= 2)
+                                .ToList();
+
+                            foreach (var speedGroup in speedGroups)
+                            {
+                                var groupList = speedGroup.ToList();
+                                compatibilityGroups.Add(groupList);
+                                foreach (var p in groupList)
+                                    handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                            }
+
+                            // Leftover autoneg ports at unique speeds can form their own group
+                            var leftoverAutonegPorts = excludedPorts
+                                .Where(p => p.PortAutoneg && !handledPorts.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
+                                .ToList();
+
+                            if (leftoverAutonegPorts.Count >= 2)
+                            {
+                                compatibilityGroups.Add(leftoverAutonegPorts);
+                                foreach (var p in leftoverAutonegPorts)
+                                    handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                            }
+                        }
+                        else
+                        {
+                            // All autoneg: group by PoE state (can adapt to any speed)
+                            var allAutonegPorts = excludedPorts.ToList();
+
+                            // Try to find an autoneg profile for all autoneg ports
                             var autonegProfile = FindCompatibleProfile(
                                 signature, allAutonegPorts, profileSignatures,
                                 matchingProfile.Value.ProfileId);
 
                             if (autonegProfile != null && !autonegProfile.Value.ForcesSpeed)
                             {
-                                // Found an autoneg profile - all autoneg ports can use it regardless of current speed
+                                // Found an autoneg profile - all autoneg ports can use it
                                 compatibilityGroups.Add(allAutonegPorts);
                                 foreach (var p in allAutonegPorts)
                                     handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
@@ -348,34 +383,31 @@ public class PortProfileSuggestionAnalyzer
                                     "All {Count} autoneg ports can use alternate profile '{ProfileName}'",
                                     allAutonegPorts.Count, autonegProfile.Value.ProfileName);
                             }
-                        }
+                            else
+                            {
+                                // No autoneg profile - group by PoE state for CreateNew
+                                var poeEnabledPorts = allAutonegPorts.Where(p => p.HasPoEEnabled).ToList();
+                                var poeDisabledPorts = allAutonegPorts.Where(p => !p.HasPoEEnabled).ToList();
 
-                        // Second: Group remaining ports by current speed
-                        var remainingPorts = excludedPorts
-                            .Where(p => !handledPorts.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
-                            .ToList();
+                                // Split by PoE only if both groups would be viable
+                                if (poeEnabledPorts.Count >= 2 && poeDisabledPorts.Count >= 2)
+                                {
+                                    compatibilityGroups.Add(poeEnabledPorts);
+                                    foreach (var p in poeEnabledPorts)
+                                        handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
 
-                        var speedGroups = remainingPorts
-                            .GroupBy(p => p.CurrentSpeed)
-                            .Where(g => g.Count() >= 2)
-                            .ToList();
-
-                        foreach (var speedGroup in speedGroups)
-                        {
-                            var groupList = speedGroup.ToList();
-                            compatibilityGroups.Add(groupList);
-                            foreach (var p in groupList)
-                                handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
-                        }
-
-                        // Third: Leftover autoneg ports at unique speeds can form their own autoneg group
-                        var leftoverAutonegPorts = remainingPorts
-                            .Where(p => p.PortAutoneg && !handledPorts.Contains((p.Reference.DeviceMac, p.Reference.PortIndex)))
-                            .ToList();
-
-                        if (leftoverAutonegPorts.Count >= 2)
-                        {
-                            compatibilityGroups.Add(leftoverAutonegPorts);
+                                    compatibilityGroups.Add(poeDisabledPorts);
+                                    foreach (var p in poeDisabledPorts)
+                                        handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                                }
+                                else if (allAutonegPorts.Count >= 2)
+                                {
+                                    // Keep together if splitting would create groups <2
+                                    compatibilityGroups.Add(allAutonegPorts);
+                                    foreach (var p in allAutonegPorts)
+                                        handledPorts.Add((p.Reference.DeviceMac, p.Reference.PortIndex));
+                                }
+                            }
                         }
 
                         foreach (var groupPorts in compatibilityGroups)
