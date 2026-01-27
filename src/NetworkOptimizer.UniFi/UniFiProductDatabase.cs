@@ -87,6 +87,12 @@ public static class UniFiProductDatabase
         "UAP-AC-IW",
         "UAP-AC-EDU",
         "UAP-AC-Outdoor",
+
+        // Device Bridges (no iperf3, except UDB-Switch which may have it)
+        "UDB",
+        "UDB-Pro",
+        "UDB-Pro-Sector",
+        "UDB-IoT",
     };
 
     /// <summary>
