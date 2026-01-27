@@ -228,7 +228,13 @@
                                         </div>
                                         <div class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</div>
                                         <div class="issue-context">
-                                            <span class="context-item"><strong>Ports:</strong> @FormatPortList(suggestion.AffectedPorts)</span>
+                                            @{
+                                                // For ExtendUsage, only show ports that need the profile (not already using it)
+                                                var portsToShow = suggestion.Type == PortProfileSuggestionType.ExtendUsage
+                                                    ? suggestion.AffectedPorts.Where(p => string.IsNullOrEmpty(p.CurrentProfileId)).ToList()
+                                                    : suggestion.AffectedPorts;
+                                            }
+                                            <span class="context-item"><strong>Ports:</strong> @FormatPortList(portsToShow)</span>
                                             @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
                                             {
                                                 <span class="context-item"><strong>VLANs:</strong> @string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(5))@(suggestion.Configuration.AllowedVlanNames.Count > 5 ? $" +{suggestion.Configuration.AllowedVlanNames.Count - 5} more" : "")</span>
