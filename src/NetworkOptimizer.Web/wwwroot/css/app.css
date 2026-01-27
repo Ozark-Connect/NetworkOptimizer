@@ -2015,9 +2015,12 @@ select.form-control {
     align-self: center;
     font-size: 0.75rem;
     color: var(--text-muted);
-    width: 2rem;
     flex-shrink: 0;
     margin-left: auto;
+}
+
+.issue-type-header .issue-type-chevron {
+    width: 2rem;
 }
 
 .issue-type-name {
