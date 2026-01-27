@@ -107,11 +107,24 @@ public class PortProfileSuggestionAnalyzer
 
                     if (matchingProfile.Value.ForcesSpeed && portsWithProfile.Count > 0)
                     {
-                        // Profile forces speed but some ports already use it successfully
-                        // Only suggest for ports with matching speed to existing profile users
+                        // Profile forces speed (autoneg=false) but some ports already use it successfully
+                        // Only suggest for ports that also have autoneg=false AND matching speed
                         var profileUserSpeeds = portsWithProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
-                        var incompatibleSpeedPorts = compatiblePorts.Where(p => !profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
 
+                        // Filter out ports that have autoneg=true (incompatible with forced speed profile)
+                        var autonegIncompatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
+                        if (autonegIncompatiblePorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces speed (autoneg=false) - excluding {Count} ports with autoneg=true: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                autonegIncompatiblePorts.Count,
+                                string.Join(", ", autonegIncompatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
+                        }
+                        compatiblePorts = compatiblePorts.Where(p => !p.PortAutoneg).ToList();
+
+                        // Also filter out ports with different speeds
+                        var incompatibleSpeedPorts = compatiblePorts.Where(p => !profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
                         if (incompatibleSpeedPorts.Count > 0)
                         {
                             _logger?.LogDebug(
@@ -129,7 +142,7 @@ public class PortProfileSuggestionAnalyzer
                         _logger?.LogDebug(
                             "Profile '{ProfileName}' forces speed (autoneg=false) and no ports use it - skipping",
                             matchingProfile.Value.ProfileName);
-                        compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed)>();
+                        compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>();
                     }
 
                     if (compatiblePorts.Count == 0)
@@ -198,13 +211,13 @@ public class PortProfileSuggestionAnalyzer
         return suggestions;
     }
 
-    private List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed)> CollectTrunkPorts(
+    private List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> CollectTrunkPorts(
         IEnumerable<UniFiDeviceResponse> devices,
         Dictionary<string, UniFiPortProfile> profilesById,
         Dictionary<string, UniFiNetworkConfig> networksById,
         HashSet<string> allNetworkIds)
     {
-        var trunkPorts = new List<(PortReference, PortConfigSignature, bool, int)>();
+        var trunkPorts = new List<(PortReference, PortConfigSignature, bool, int, bool)>();
 
         foreach (var device in devices)
         {
@@ -247,17 +260,18 @@ public class PortProfileSuggestionAnalyzer
                     CurrentProfileName = profile?.Name
                 };
 
-                // Capture port's PoE state and current speed
+                // Capture port's PoE state, current speed, and autoneg setting
                 // PortPoe = port has PoE capability (false for SFP ports)
                 // PoeEnable = PoE is enabled on this port
                 // Only consider PoE "enabled" if the port supports it AND has it turned on
                 var hasPoEEnabled = port.PortPoe && port.PoeEnable;
                 var currentSpeed = port.Speed;
+                var portAutoneg = port.Autoneg;
 
-                _logger?.LogDebug("Port {Device} port {Port}: PortPoe={PortPoe}, PoeEnable={PoeEnable}, HasPoEEnabled={HasPoEEnabled}, Speed={Speed}, Media={Media}",
-                    device.Name, port.PortIdx, port.PortPoe, port.PoeEnable, hasPoEEnabled, port.Speed, port.Media);
+                _logger?.LogDebug("Port {Device} port {Port}: PortPoe={PortPoe}, PoeEnable={PoeEnable}, HasPoEEnabled={HasPoEEnabled}, Speed={Speed}, Autoneg={Autoneg}, Media={Media}",
+                    device.Name, port.PortIdx, port.PortPoe, port.PoeEnable, hasPoEEnabled, port.Speed, port.Autoneg, port.Media);
 
-                trunkPorts.Add((reference, signature, hasPoEEnabled, currentSpeed));
+                trunkPorts.Add((reference, signature, hasPoEEnabled, currentSpeed, portAutoneg));
             }
         }
 

@@ -170,6 +170,13 @@ public class SwitchPort
     [JsonPropertyName("speed")]
     public int Speed { get; set; }
 
+    /// <summary>
+    /// Whether auto-negotiation is enabled for this port.
+    /// When false, speed is forced/manually configured.
+    /// </summary>
+    [JsonPropertyName("autoneg")]
+    public bool Autoneg { get; set; } = true;
+
     [JsonPropertyName("up")]
     public bool Up { get; set; }
 
