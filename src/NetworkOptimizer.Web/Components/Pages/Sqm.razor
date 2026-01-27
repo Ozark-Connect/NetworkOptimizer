@@ -358,14 +358,21 @@
     @if (sqmEligibleWans.Any())
     {
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">@(sqmEligibleWans.Count == 1 ? "WAN Configuration" : "Primary WAN Configuration")</h2>
-            <label class="toggle-label">
-                <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" />
-                <span>Enable Adaptive SQM</span>
-            </label>
+        <div class="card-header card-header-collapsible" @onclick="ToggleWan1Section">
+            <div class="card-header-left">
+                <h2 class="card-title">@(sqmEligibleWans.Count == 1 ? "WAN Configuration" : "Primary WAN Configuration")</h2>
+            </div>
+            <div class="card-header-right">
+                <label class="toggle-label" @onclick:stopPropagation>
+                    <input type="checkbox" @bind="wan1Config.Enabled" @bind:after="() => OnEnabledChanged(wan1Config, wan1AvailableInterfaces)" />
+                    <span>Enable Adaptive SQM</span>
+                </label>
+                <span class="issue-type-chevron">@(_wan1Collapsed ? "▼" : "▲")</span>
+            </div>
         </div>
-        <div class="card-body @(!wan1Config.Enabled ? "disabled-section" : "")">
+        <div class="expand-wrapper @(!_wan1Collapsed ? "expanded" : "")">
+            <div class="expand-content">
+                <div class="card-body @(!wan1Config.Enabled ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -490,6 +497,8 @@
                     <small class="form-hint">Daily speedtest time (24h format)</small>
                 </div>
             </div>
+                </div>
+            </div>
         </div>
     </div>
     }
@@ -498,14 +507,21 @@
     @if (sqmEligibleWans.Count >= 2)
     {
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Secondary WAN Configuration</h2>
-            <label class="toggle-label">
-                <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" />
-                <span>Enable Adaptive SQM</span>
-            </label>
+        <div class="card-header card-header-collapsible" @onclick="ToggleWan2Section">
+            <div class="card-header-left">
+                <h2 class="card-title">Secondary WAN Configuration</h2>
+            </div>
+            <div class="card-header-right">
+                <label class="toggle-label" @onclick:stopPropagation>
+                    <input type="checkbox" @bind="wan2Config.Enabled" @bind:after="() => OnEnabledChanged(wan2Config, wan2AvailableInterfaces)" />
+                    <span>Enable Adaptive SQM</span>
+                </label>
+                <span class="issue-type-chevron">@(_wan2Collapsed ? "▼" : "▲")</span>
+            </div>
         </div>
-        <div class="card-body @(!wan2Config.Enabled ? "disabled-section" : "")">
+        <div class="expand-wrapper @(!_wan2Collapsed ? "expanded" : "")">
+            <div class="expand-content">
+                <div class="card-body @(!wan2Config.Enabled ? "disabled-section" : "")">
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Connection Name</label>
@@ -626,6 +642,8 @@
                                @onchange="@(e => wan2Config.EveningMinute = ParseTimeValue(e.Value?.ToString(), 0, 59))" />
                     </div>
                     <small class="form-hint">Staggered from WAN1 to avoid conflicts</small>
+                </div>
+            </div>
                 </div>
             </div>
         </div>
@@ -1213,6 +1231,13 @@
     private TcMonitorResponse? sqmMonitorData;
     private bool isRefreshingDashboard = false;
 
+    // Collapse state for WAN config panels (collapsed when config exists, expanded when needs setup)
+    private bool _wan1Collapsed = false;
+    private bool _wan2Collapsed = false;
+
+    private void ToggleWan1Section() => _wan1Collapsed = !_wan1Collapsed;
+    private void ToggleWan2Section() => _wan2Collapsed = !_wan2Collapsed;
+
     // Auto-refresh timer (1 minute interval)
     private System.Threading.Timer? _refreshTimer;
 
@@ -1378,6 +1403,10 @@
                         loadedInterfaces.Add(saved.Interface);
                 }
             }
+
+            // Set initial collapsed state: collapsed if config exists, expanded if needs setup
+            _wan1Collapsed = wan1HasSavedConfig;
+            _wan2Collapsed = wan2HasSavedConfig;
         }
         catch
         {
