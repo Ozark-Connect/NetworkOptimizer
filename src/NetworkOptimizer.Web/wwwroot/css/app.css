@@ -4169,8 +4169,7 @@ select.form-control {
 @media (max-width: 768px) {
     .audit-controls,
     .gateway-actions {
-        flex-direction: column;
-        align-items: center;
+        justify-content: center;
         padding-top: 0;
     }
 
