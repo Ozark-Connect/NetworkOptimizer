@@ -115,7 +115,7 @@ public static class DeviceTypeExtensions
         DeviceType.CellularModem => "Cellular Modem",
         DeviceType.BuildingBridge => "Building Bridge",
         DeviceType.DeviceBridge => "Device Bridge",
-        DeviceType.CloudKey => "Cloud Key",
+        DeviceType.CloudKey => "CloudKey",
         DeviceType.ProtectDevice => "Protect Device",
         DeviceType.TalkDevice => "Talk Device",
         DeviceType.AccessDevice => "Access Device",
