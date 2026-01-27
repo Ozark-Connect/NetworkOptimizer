@@ -36,9 +36,6 @@
 <div class="audit-container">
     <!-- Audit Controls -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Audit Controls</h2>
-        </div>
         <div class="card-body">
             <div class="audit-controls">
                 <button class="btn btn-primary" @onclick="RunAudit" disabled="@(isRunning || !ConnectionService.IsConnected)" style="min-width: 140px;">

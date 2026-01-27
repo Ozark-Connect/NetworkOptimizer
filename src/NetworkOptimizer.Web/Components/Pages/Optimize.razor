@@ -31,9 +31,6 @@
 <div class="diagnostics-container">
     <!-- Analyze Controls -->
     <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">Analyzers</h2>
-        </div>
         <div class="card-body">
             <div class="diagnostics-controls">
                 <button class="btn btn-primary" @onclick="RunDiagnostics" disabled="@(_isRunning || !ConnectionService.IsConnected)" style="min-width: 160px;">
