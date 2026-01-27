@@ -217,13 +217,14 @@
                         <div class="issues-list">
                             @foreach (var suggestion in _result.PortProfileSuggestions)
                             {
-                                <div class="issue-item issue-info">
+                                var isRecommendation = suggestion.Severity == PortProfileSuggestionSeverity.Recommendation;
+                                <div class="issue-item @(isRecommendation ? "issue-warning" : "issue-info")">
                                     <div class="issue-icon">
-                                        @((MarkupString)InfoIcon)
+                                        @((MarkupString)(isRecommendation ? WarningIcon : InfoIcon))
                                     </div>
                                     <div class="issue-body">
                                         <div class="issue-header">
-                                            <span class="issue-severity">@GetSuggestionTypeDisplay(suggestion.Type)</span>
+                                            <span class="issue-severity">@(isRecommendation ? "Recommendation" : GetSuggestionTypeDisplay(suggestion.Type))</span>
                                         </div>
                                         <div class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</div>
                                         <div class="issue-context">
@@ -298,9 +299,10 @@
         _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
                          (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
 
-        // Port profile suggestions are all informational
+        var hasProfileRecommendations = _result.PortProfileSuggestions.Any(s =>
+            s.Severity == PortProfileSuggestionSeverity.Recommendation);
         _portProfileCollapsed = _result.PortProfileSuggestions.Count == 0 ||
-                               _result.PortProfileSuggestions.Count > 3;
+                               (_result.PortProfileSuggestions.Count > 3 && !hasProfileRecommendations);
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;

@@ -1,6 +1,23 @@
 namespace NetworkOptimizer.Diagnostics.Models;
 
 /// <summary>
+/// Severity level of a port profile suggestion.
+/// </summary>
+public enum PortProfileSuggestionSeverity
+{
+    /// <summary>
+    /// Informational - nice to have optimization
+    /// </summary>
+    Info,
+
+    /// <summary>
+    /// Recommendation - significant simplification opportunity
+    /// (5+ ports need profile, or 3+ ports could extend existing profile)
+    /// </summary>
+    Recommendation
+}
+
+/// <summary>
 /// Type of port profile suggestion.
 /// </summary>
 public enum PortProfileSuggestionType
@@ -156,6 +173,11 @@ public class PortProfileSuggestion
     /// Type of suggestion (create new, apply existing, or extend usage)
     /// </summary>
     public PortProfileSuggestionType Type { get; set; }
+
+    /// <summary>
+    /// Severity level - Recommendation for significant opportunities, Info otherwise
+    /// </summary>
+    public PortProfileSuggestionSeverity Severity { get; set; } = PortProfileSuggestionSeverity.Info;
 
     /// <summary>
     /// Suggested name for a new profile (if Type is CreateNew)

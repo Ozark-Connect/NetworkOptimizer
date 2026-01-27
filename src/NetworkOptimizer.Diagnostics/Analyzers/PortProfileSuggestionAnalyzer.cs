@@ -164,9 +164,44 @@ public class PortProfileSuggestionAnalyzer
 
                     if (compatiblePorts.Count == 0)
                     {
-                        // No compatible ports without profile
-                        _logger?.LogDebug("No compatible ports remaining for '{ProfileName}' after filtering",
-                            matchingProfile.Value.ProfileName);
+                        // No compatible ports for the existing profile
+                        // But the excluded ports might still warrant their own new profile
+                        var excludedPorts = portsWithoutProfile.Where(p =>
+                            !compatiblePorts.Any(c => c.Reference.DeviceMac == p.Reference.DeviceMac &&
+                                                      c.Reference.PortIndex == p.Reference.PortIndex)).ToList();
+
+                        if (excludedPorts.Count >= 2)
+                        {
+                            _logger?.LogDebug(
+                                "Creating fallback suggestion for {Count} ports excluded from '{ProfileName}' due to PoE/speed/autoneg incompatibility",
+                                excludedPorts.Count, matchingProfile.Value.ProfileName);
+
+                            var fallbackSeverity = excludedPorts.Count >= 5
+                                ? PortProfileSuggestionSeverity.Recommendation
+                                : PortProfileSuggestionSeverity.Info;
+
+                            suggestion = new PortProfileSuggestion
+                            {
+                                Type = PortProfileSuggestionType.CreateNew,
+                                Severity = fallbackSeverity,
+                                SuggestedProfileName = GenerateProfileName(signature, networksById) + " (PoE)",
+                                Configuration = signature,
+                                AffectedPorts = excludedPorts.Select(p => p.Reference).ToList(),
+                                PortsWithoutProfile = excludedPorts.Count,
+                                PortsAlreadyUsingProfile = 0,
+                                Recommendation = GenerateCreateRecommendation(
+                                    excludedPorts.Count,
+                                    signature,
+                                    networksById)
+                            };
+
+                            suggestions.Add(suggestion);
+                        }
+                        else
+                        {
+                            _logger?.LogDebug("No compatible ports remaining for '{ProfileName}' after filtering",
+                                matchingProfile.Value.ProfileName);
+                        }
                         continue;
                     }
 
@@ -175,11 +210,17 @@ public class PortProfileSuggestionAnalyzer
                         string.Join(", ", compatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
 
                     // Some ports match an existing profile but don't use it
+                    // Recommendation level if 3+ ports could be added to the profile
+                    var severity = compatiblePorts.Count >= 3
+                        ? PortProfileSuggestionSeverity.Recommendation
+                        : PortProfileSuggestionSeverity.Info;
+
                     suggestion = new PortProfileSuggestion
                     {
                         Type = portsWithProfile.Count > 0
                             ? PortProfileSuggestionType.ExtendUsage
                             : PortProfileSuggestionType.ApplyExisting,
+                        Severity = severity,
                         MatchingProfileId = matchingProfile.Value.ProfileId,
                         MatchingProfileName = matchingProfile.Value.ProfileName,
                         Configuration = signature,
@@ -202,9 +243,15 @@ public class PortProfileSuggestionAnalyzer
             else if (ports.Count >= 2 && portsWithoutProfile.Count > 0)
             {
                 // No matching profile and enough ports to warrant creating one
+                // Recommendation level if 5+ ports need the profile
+                var severity = portsWithoutProfile.Count >= 5
+                    ? PortProfileSuggestionSeverity.Recommendation
+                    : PortProfileSuggestionSeverity.Info;
+
                 suggestion = new PortProfileSuggestion
                 {
                     Type = PortProfileSuggestionType.CreateNew,
+                    Severity = severity,
                     SuggestedProfileName = GenerateProfileName(signature, networksById),
                     Configuration = signature,
                     AffectedPorts = ports.Select(p => p.Reference).ToList(),
