@@ -5379,12 +5379,12 @@ select.form-control {
 .expand-wrapper {
     display: grid;
     grid-template-rows: 0fr;
-    transition: grid-template-rows 0.15s ease-in;
+    transition: grid-template-rows 0.2s ease-in;
 }
 
 .expand-wrapper.expanded {
     grid-template-rows: 1fr;
-    transition: grid-template-rows 0.2s ease-out;
+    transition: grid-template-rows 0.3s ease-out;
 }
 
 .expand-wrapper > .expand-content {
