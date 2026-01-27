@@ -3716,5 +3716,271 @@ public class PortProfileSuggestionAnalyzerTests
         createSuggestion!.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 3, 4 });
     }
 
+    #region Fallback Grouping Tests
+
+    [Fact]
+    public void Analyze_FallbackGrouping_AllAutonegDifferentSpeeds_GroupsByPoE()
+    {
+        // Arrange - all autoneg ports at different speeds with PoE enabled
+        // Should group together since autoneg can adapt to any speed
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        // Profile that forces PoE off - will exclude all our PoE-enabled ports
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "No PoE Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "off",
+            Autoneg = true,
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port using the profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                // Excluded: PoE enabled, autoneg, 10G
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = true
+                },
+                // Excluded: PoE enabled, autoneg, 2.5G
+                new()
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Excluded: PoE enabled, autoneg, 1G
+                new()
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - all 3 excluded ports grouped together (all autoneg, same PoE state)
+        var fallback = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.CreateNew);
+        fallback.Should().NotBeNull();
+        fallback!.AffectedPorts.Should().HaveCount(3);
+        fallback.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3, 4 });
+    }
+
+    [Fact]
+    public void Analyze_FallbackGrouping_MixedAutonegForcedSameSpeed_GroupsTogether()
+    {
+        // Arrange - autoneg and forced-speed ports at same speed
+        // Should group together since they can share a forced-speed profile
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "No PoE Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "off",
+            Autoneg = true,
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port using the profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                // Excluded: PoE enabled, autoneg, 10G
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = true
+                },
+                // Excluded: PoE enabled, forced 10G
+                new()
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = false
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - both excluded ports grouped (same speed, can share forced-speed profile)
+        var fallback = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.CreateNew);
+        fallback.Should().NotBeNull();
+        fallback!.AffectedPorts.Should().HaveCount(2);
+        fallback.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3 });
+    }
+
+    [Fact]
+    public void Analyze_FallbackGrouping_ForcedSpeedDifferentSpeeds_SeparateGroups()
+    {
+        // Arrange - forced-speed ports at different speeds
+        // Should NOT group together since they can't adapt
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "No PoE Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "off",
+            Autoneg = true,
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port using the profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                // Excluded: PoE enabled, forced 10G
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = false
+                },
+                // Excluded: PoE enabled, forced 1G (different speed!)
+                new()
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = false
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - no fallback because each speed has only 1 port (need 2+)
+        var fallback = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.CreateNew);
+        fallback.Should().BeNull();
+    }
+
+    [Fact]
+    public void Analyze_FallbackGrouping_AutonegLeftoversGroupTogether()
+    {
+        // Arrange - some forced-speed ports grouped, leftover autoneg ports should group
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "No PoE Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "off",
+            Autoneg = true,
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port using the profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                // Excluded: forced 10G pair
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = false
+                },
+                new()
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 10000, Autoneg = false
+                },
+                // Excluded: autoneg at unique speeds (leftover)
+                new()
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                new()
+                {
+                    PortIdx = 5, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - two CreateNew suggestions
+        var createSuggestions = result.Where(r => r.Type == Models.PortProfileSuggestionType.CreateNew).ToList();
+        createSuggestions.Should().HaveCount(2);
+
+        // One for 10G forced-speed ports
+        var forcedGroup = createSuggestions.FirstOrDefault(r => r.AffectedPorts.Any(p => p.PortIndex == 2));
+        forcedGroup.Should().NotBeNull();
+        forcedGroup!.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3 });
+
+        // One for autoneg leftovers at different speeds
+        var autonegGroup = createSuggestions.FirstOrDefault(r => r.AffectedPorts.Any(p => p.PortIndex == 4));
+        autonegGroup.Should().NotBeNull();
+        autonegGroup!.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 4, 5 });
+    }
+
+    #endregion
+
     #endregion
 }
