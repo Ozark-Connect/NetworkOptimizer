@@ -230,11 +230,14 @@ public class PortProfileSuggestionAnalyzer
                 };
 
                 // Capture port's PoE state and current speed
-                var hasPoEEnabled = port.PoeEnable || port.PortPoe;
+                // PortPoe = port has PoE capability (false for SFP ports)
+                // PoeEnable = PoE is enabled on this port
+                // Only consider PoE "enabled" if the port supports it AND has it turned on
+                var hasPoEEnabled = port.PortPoe && port.PoeEnable;
                 var currentSpeed = port.Speed;
 
-                _logger?.LogDebug("Port {Device} port {Port}: PoeEnable={PoeEnable}, PortPoe={PortPoe}, Speed={Speed}",
-                    device.Name, port.PortIdx, port.PoeEnable, port.PortPoe, port.Speed);
+                _logger?.LogDebug("Port {Device} port {Port}: PortPoe={PortPoe}, PoeEnable={PoeEnable}, HasPoEEnabled={HasPoEEnabled}, Speed={Speed}, Media={Media}",
+                    device.Name, port.PortIdx, port.PortPoe, port.PoeEnable, hasPoEEnabled, port.Speed, port.Media);
 
                 trunkPorts.Add((reference, signature, hasPoEEnabled, currentSpeed));
             }
