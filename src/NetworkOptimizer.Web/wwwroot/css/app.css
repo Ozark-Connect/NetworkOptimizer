@@ -2497,7 +2497,8 @@ select.form-control {
 }
 
 @media (max-width: 768px) {
-    .hidden-placeholder {
+    .hidden-placeholder,
+    .action-buttons .btn.hidden-placeholder {
         display: none;
     }
 }
