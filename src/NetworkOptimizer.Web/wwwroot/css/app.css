@@ -5419,6 +5419,12 @@ select.form-control {
     gap: 0.625rem;
 }
 
+.empty-section-text {
+    color: var(--text-muted);
+    margin: 0;
+    font-style: italic;
+}
+
 /* Diagnostics Summary Stats */
 .diagnostics-summary {
     display: flex;

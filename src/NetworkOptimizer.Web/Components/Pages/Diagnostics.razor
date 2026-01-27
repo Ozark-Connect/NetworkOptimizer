@@ -91,19 +91,23 @@
         </div>
 
         <!-- AP Lock Issues -->
-        @if (_result.ApLockIssues.Count > 0)
-        {
-            <div class="card">
-                <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
-                    <div class="card-header-left">
-                        <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
-                        <h2 class="card-title">AP Lock Issues</h2>
-                    </div>
-                    <span class="collapse-chevron @(_apLockCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+        <div class="card">
+            <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
+                    <h2 class="card-title">AP Lock Issues</h2>
                 </div>
-                @if (!_apLockCollapsed)
-                {
-                    <div class="card-body">
+                <span class="collapse-chevron @(_apLockCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+            </div>
+            @if (!_apLockCollapsed)
+            {
+                <div class="card-body">
+                    @if (_result.ApLockIssues.Count == 0)
+                    {
+                        <p class="empty-section-text">No AP lock issues detected.</p>
+                    }
+                    else
+                    {
                         <div class="issues-list">
                             @foreach (var issue in GetSortedApLockIssues())
                             {
@@ -141,25 +145,29 @@
                                 </div>
                             }
                         </div>
-                    </div>
-                }
-            </div>
-        }
+                    }
+                </div>
+            }
+        </div>
 
         <!-- Trunk Consistency Issues -->
-        @if (_result.TrunkConsistencyIssues.Count > 0)
-        {
-            <div class="card">
-                <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
-                    <div class="card-header-left">
-                        <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
-                        <h2 class="card-title">Trunk VLAN Consistency</h2>
-                    </div>
-                    <span class="collapse-chevron @(_trunkCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+        <div class="card">
+            <div class="card-header card-header-collapsible" @onclick="ToggleTrunkSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge">@_result.TrunkConsistencyIssues.Count</span>
+                    <h2 class="card-title">Trunk VLAN Consistency</h2>
                 </div>
-                @if (!_trunkCollapsed)
-                {
-                    <div class="card-body">
+                <span class="collapse-chevron @(_trunkCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+            </div>
+            @if (!_trunkCollapsed)
+            {
+                <div class="card-body">
+                    @if (_result.TrunkConsistencyIssues.Count == 0)
+                    {
+                        <p class="empty-section-text">No trunk VLAN consistency issues detected.</p>
+                    }
+                    else
+                    {
                         <div class="issues-list">
                             @foreach (var issue in _result.TrunkConsistencyIssues.OrderBy(i => GetConfidenceOrder(i.Confidence)))
                             {
@@ -183,25 +191,29 @@
                                 </div>
                             }
                         </div>
-                    </div>
-                }
-            </div>
-        }
+                    }
+                </div>
+            }
+        </div>
 
         <!-- Port Profile Suggestions -->
-        @if (_result.PortProfileSuggestions.Count > 0)
-        {
-            <div class="card">
-                <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
-                    <div class="card-header-left">
-                        <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
-                        <h2 class="card-title">Port Profile Suggestions</h2>
-                    </div>
-                    <span class="collapse-chevron @(_portProfileCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+        <div class="card">
+            <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
+                    <h2 class="card-title">Port Profile Suggestions</h2>
                 </div>
-                @if (!_portProfileCollapsed)
-                {
-                    <div class="card-body">
+                <span class="collapse-chevron @(_portProfileCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
+            </div>
+            @if (!_portProfileCollapsed)
+            {
+                <div class="card-body">
+                    @if (_result.PortProfileSuggestions.Count == 0)
+                    {
+                        <p class="empty-section-text">No port profile suggestions.</p>
+                    }
+                    else
+                    {
                         <div class="issues-list">
                             @foreach (var suggestion in _result.PortProfileSuggestions)
                             {
@@ -229,25 +241,11 @@
                                 </div>
                             }
                         </div>
-                    </div>
-                }
-            </div>
-        }
-
-        <!-- No Issues Found -->
-        @if (_result.TotalIssueCount == 0)
-        {
-            <div class="card">
-                <div class="card-body text-center">
-                    <div class="empty-state">
-                        <div class="empty-icon-img"><img src="/icons/check-circle.png" alt="" onerror="this.style.display='none'" /></div>
-                        <div class="no-issues-icon">@((MarkupString)SuccessIcon)</div>
-                        <h3>No Issues Found</h3>
-                        <p>Your network configuration looks good!</p>
-                    </div>
+                    }
                 </div>
-            </div>
-        }
+            }
+        </div>
+
     }
     else if (!_isRunning)
     {
@@ -291,10 +289,18 @@
     {
         if (_result == null) return;
 
-        // Default collapsed if > 3 issues
-        _apLockCollapsed = _result.ApLockIssues.Count > 3;
-        _trunkCollapsed = _result.TrunkConsistencyIssues.Count > 3;
-        _portProfileCollapsed = _result.PortProfileSuggestions.Count > 3;
+        // Collapse if empty, or if > 3 items with no recommendations
+        var hasApLockRecommendations = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Warning);
+        _apLockCollapsed = _result.ApLockIssues.Count == 0 ||
+                          (_result.ApLockIssues.Count > 3 && !hasApLockRecommendations);
+
+        var hasTrunkRecommendations = _result.TrunkConsistencyIssues.Any(i => i.Confidence == DiagnosticConfidence.High);
+        _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
+                         (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
+
+        // Port profile suggestions are all informational
+        _portProfileCollapsed = _result.PortProfileSuggestions.Count == 0 ||
+                               _result.PortProfileSuggestions.Count > 3;
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;
