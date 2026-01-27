@@ -1,17 +1,17 @@
-@page "/diagnostics"
+@page "/optimize"
 @using NetworkOptimizer.Diagnostics
 @using NetworkOptimizer.Diagnostics.Models
 @using NetworkOptimizer.Core.Enums
 @inject DiagnosticsService DiagnosticsService
 @inject UniFiConnectionService ConnectionService
-@inject ILogger<Diagnostics> Logger
+@inject ILogger<Optimize> Logger
 @rendermode InteractiveServer
 
-<PageTitle>Diagnostics - Network Optimizer</PageTitle>
+<PageTitle>Optimize - Network Optimizer</PageTitle>
 
 <div class="page-header">
-    <h1>Network Diagnostics</h1>
-    <p class="page-description">Analyze network configuration for potential issues</p>
+    <h1>Optimize</h1>
+    <p class="page-description">Get optimization suggestions for your network</p>
 </div>
 
 @if (!ConnectionService.IsConnected && ConnectionService.IsInitialized)
@@ -21,7 +21,7 @@
             <span class="banner-icon">!</span>
             <div class="banner-text">
                 <strong>Not Connected</strong>
-                <span>Connect to your UniFi Console to run diagnostics.</span>
+                <span>Connect to your UniFi Console to analyze your network.</span>
             </div>
             <a href="/settings" class="btn btn-primary">Connect Now</a>
         </div>
@@ -29,10 +29,10 @@
 }
 
 <div class="diagnostics-container">
-    <!-- Diagnostics Controls -->
+    <!-- Analyze Controls -->
     <div class="card">
         <div class="card-header">
-            <h2 class="card-title">Diagnostics Controls</h2>
+            <h2 class="card-title">Analyzers</h2>
         </div>
         <div class="card-body">
             <div class="diagnostics-controls">
@@ -40,11 +40,11 @@
                     @if (_isRunning)
                     {
                         <span class="spinner"></span>
-                        <span>Running...</span>
+                        <span>Analyzing...</span>
                     }
                     else
                     {
-                        <span>Run Diagnostics</span>
+                        <span>Analyze</span>
                     }
                 </button>
 
@@ -66,12 +66,12 @@
         </div>
     </div>
 
-    <!-- Diagnostics Results Summary -->
+    <!-- Results Summary -->
     @if (_result != null)
     {
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Diagnostics Summary</h2>
+                <h2 class="card-title">Summary</h2>
                 <span class="audit-timestamp"><span class="timestamp-label">Last run: </span>@_result.Timestamp.ToLocalTime().ToString("g")</span>
             </div>
             <div class="card-body">
@@ -263,8 +263,8 @@
             <div class="card-body text-center">
                 <div class="empty-state">
                     <div class="empty-icon-img"><img src="/icons/warning-v2.png" alt="" /></div>
-                    <h3>No Diagnostics Results</h3>
-                    <p>Run diagnostics to analyze your network configuration.</p>
+                    <h3>No Results Yet</h3>
+                    <p>Click Analyze to get optimization suggestions for your network.</p>
                 </div>
             </div>
         </div>
