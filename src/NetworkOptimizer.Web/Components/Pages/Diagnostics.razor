@@ -77,25 +77,29 @@
             <div class="card-body">
                 <div class="diagnostics-summary">
                     <div class="summary-stats">
-                        <div class="stat-item @(_result.WarningCount > 0 ? "has-warnings" : "")">
-                            <span class="stat-value">@_result.WarningCount</span>
-                            <span class="stat-label">Recommendations</span>
-                        </div>
                         <div class="stat-item">
                             <span class="stat-value">@_result.TotalIssueCount</span>
-                            <span class="stat-label">Total Issues</span>
+                            <span class="stat-label">Findings</span>
+                        </div>
+                        <div class="stat-item @(_result.WarningCount > 0 ? "has-warnings" : "")">
+                            <span class="stat-value">@_result.WarningCount</span>
+                            <span class="stat-label">Recommended</span>
+                        </div>
+                        <div class="stat-item has-info">
+                            <span class="stat-value">@_result.InfoCount</span>
+                            <span class="stat-label">Info</span>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- AP Lock Issues -->
+        <!-- AP Locked Devices -->
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="ToggleApLockSection">
                 <div class="card-header-left">
                     <span class="issue-count-badge">@_result.ApLockIssues.Count</span>
-                    <h2 class="card-title">AP Lock Issues</h2>
+                    <h2 class="card-title">AP Locked Devices</h2>
                 </div>
                 <span class="collapse-chevron @(_apLockCollapsed ? "" : "expanded")">@((MarkupString)ChevronIcon)</span>
             </div>

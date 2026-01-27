@@ -265,35 +265,71 @@ public class PortProfileSuggestionAnalyzer
 
                         foreach (var groupPorts in compatibilityGroups)
                         {
-                            var isAutonegOnlyGroup = groupPorts.All(p => p.PortAutoneg) &&
-                                groupPorts.Select(p => p.CurrentSpeed).Distinct().Count() > 1;
-                            _logger?.LogDebug(
-                                "Creating fallback suggestion for {Count} excluded ports ({Type})",
-                                groupPorts.Count, isAutonegOnlyGroup ? "autoneg (mixed speeds)" : $"{groupPorts[0].CurrentSpeed}Mbps");
+                            // Check if there's ANOTHER profile that matches these excluded ports
+                            var alternateProfile = FindCompatibleProfile(
+                                signature, groupPorts, profileSignatures,
+                                matchingProfile.Value.ProfileId);
 
-                            var fallbackSeverity = groupPorts.Count >= 5
-                                ? PortProfileSuggestionSeverity.Recommendation
-                                : PortProfileSuggestionSeverity.Info;
-
-                            // Only add "(PoE)" suffix if ports actually have PoE enabled
-                            var hasPoEPorts = groupPorts.Any(p => p.HasPoEEnabled);
-                            var profileNameSuffix = hasPoEPorts ? " (PoE)" : "";
-
-                            var fallbackSuggestion = new PortProfileSuggestion
+                            if (alternateProfile != null)
                             {
-                                Type = PortProfileSuggestionType.CreateNew,
-                                Severity = fallbackSeverity,
-                                SuggestedProfileName = GenerateProfileName(signature, networksById) + profileNameSuffix,
-                                Configuration = signature,
-                                AffectedPorts = groupPorts.Select(p => p.Reference).ToList(),
-                                PortsWithoutProfile = groupPorts.Count,
-                                PortsAlreadyUsingProfile = 0,
-                                Recommendation = GenerateCreateRecommendation(
-                                    groupPorts.Count,
-                                    signature,
-                                    networksById)
-                            };
-                            suggestions.Add(fallbackSuggestion);
+                                _logger?.LogDebug(
+                                    "Found alternate profile '{ProfileName}' for {Count} excluded ports",
+                                    alternateProfile.Value.ProfileName, groupPorts.Count);
+
+                                var altSeverity = groupPorts.Count >= 3
+                                    ? PortProfileSuggestionSeverity.Recommendation
+                                    : PortProfileSuggestionSeverity.Info;
+
+                                var altSuggestion = new PortProfileSuggestion
+                                {
+                                    Type = PortProfileSuggestionType.ApplyExisting,
+                                    Severity = altSeverity,
+                                    MatchingProfileId = alternateProfile.Value.ProfileId,
+                                    MatchingProfileName = alternateProfile.Value.ProfileName,
+                                    Configuration = signature,
+                                    AffectedPorts = groupPorts.Select(p => p.Reference).ToList(),
+                                    PortsWithoutProfile = groupPorts.Count,
+                                    PortsAlreadyUsingProfile = 0,
+                                    Recommendation = GenerateRecommendation(
+                                        alternateProfile.Value.ProfileName,
+                                        groupPorts.Select(p => p.Reference).ToList(),
+                                        hasExistingUsage: false)
+                                };
+                                suggestions.Add(altSuggestion);
+                            }
+                            else
+                            {
+                                // No compatible alternate profile - create fallback suggestion
+                                var isAutonegOnlyGroup = groupPorts.All(p => p.PortAutoneg) &&
+                                    groupPorts.Select(p => p.CurrentSpeed).Distinct().Count() > 1;
+                                _logger?.LogDebug(
+                                    "Creating fallback suggestion for {Count} excluded ports ({Type})",
+                                    groupPorts.Count, isAutonegOnlyGroup ? "autoneg (mixed speeds)" : $"{groupPorts[0].CurrentSpeed}Mbps");
+
+                                var fallbackSeverity = groupPorts.Count >= 5
+                                    ? PortProfileSuggestionSeverity.Recommendation
+                                    : PortProfileSuggestionSeverity.Info;
+
+                                // Only add "(PoE)" suffix if ports actually have PoE enabled
+                                var hasPoEPorts = groupPorts.Any(p => p.HasPoEEnabled);
+                                var profileNameSuffix = hasPoEPorts ? " (PoE)" : "";
+
+                                var fallbackSuggestion = new PortProfileSuggestion
+                                {
+                                    Type = PortProfileSuggestionType.CreateNew,
+                                    Severity = fallbackSeverity,
+                                    SuggestedProfileName = GenerateProfileName(signature, networksById) + profileNameSuffix,
+                                    Configuration = signature,
+                                    AffectedPorts = groupPorts.Select(p => p.Reference).ToList(),
+                                    PortsWithoutProfile = groupPorts.Count,
+                                    PortsAlreadyUsingProfile = 0,
+                                    Recommendation = GenerateCreateRecommendation(
+                                        groupPorts.Count,
+                                        signature,
+                                        networksById)
+                                };
+                                suggestions.Add(fallbackSuggestion);
+                            }
                         }
                     }
 
@@ -467,6 +503,65 @@ public class PortProfileSuggestionAnalyzer
         foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed) in profileSignatures.Values)
         {
             if (portSignature.Equals(profileSig))
+            {
+                return (id, name, forcesPoEOff, forcesSpeed);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Find an alternate profile that matches the VLAN signature AND is compatible with the given ports.
+    /// Used when ports are excluded from one profile but might work with another.
+    /// </summary>
+    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed)? FindCompatibleProfile(
+        PortConfigSignature portSignature,
+        List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> ports,
+        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> profileSignatures,
+        string excludeProfileId)
+    {
+        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed) in profileSignatures.Values)
+        {
+            // Skip the profile we already matched
+            if (id == excludeProfileId)
+                continue;
+
+            // Must have same VLAN signature
+            if (!portSignature.Equals(profileSig))
+                continue;
+
+            // Check if profile is compatible with ALL ports in the group
+            var isCompatible = true;
+
+            // If profile forces PoE off, it's incompatible with PoE-enabled ports
+            if (forcesPoEOff && ports.Any(p => p.HasPoEEnabled))
+            {
+                isCompatible = false;
+            }
+
+            // If profile forces speed, check port compatibility
+            if (isCompatible && forcesSpeed)
+            {
+                // For forced speed profiles, ports need to be at a consistent speed
+                var speeds = ports.Select(p => p.CurrentSpeed).Distinct().ToList();
+                if (speeds.Count > 1)
+                {
+                    // Multiple speeds - only compatible if all ports use autoneg
+                    isCompatible = ports.All(p => p.PortAutoneg);
+                }
+            }
+
+            // If profile uses autoneg, it's incompatible with forced-speed ports
+            if (isCompatible && !forcesSpeed)
+            {
+                if (ports.Any(p => !p.PortAutoneg))
+                {
+                    isCompatible = false;
+                }
+            }
+
+            if (isCompatible)
             {
                 return (id, name, forcesPoEOff, forcesSpeed);
             }

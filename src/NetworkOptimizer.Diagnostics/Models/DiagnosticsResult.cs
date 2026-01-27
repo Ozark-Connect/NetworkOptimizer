@@ -45,10 +45,20 @@ public class DiagnosticsResult
         AccessPortVlanIssues.Count;
 
     /// <summary>
-    /// Count of warning-level issues
+    /// Count of warning/recommendation-level issues
     /// </summary>
     public int WarningCount =>
         ApLockIssues.Count(i => i.Severity == ApLockSeverity.Warning) +
         AccessPortVlanIssues.Count(i => i.Severity == DiagnosticSeverity.Warning) +
-        TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.High);
+        TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium) +
+        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Recommendation);
+
+    /// <summary>
+    /// Count of info-level issues
+    /// </summary>
+    public int InfoCount =>
+        ApLockIssues.Count(i => i.Severity == ApLockSeverity.Info) +
+        AccessPortVlanIssues.Count(i => i.Severity == DiagnosticSeverity.Info) +
+        TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.Low) +
+        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Info);
 }

@@ -1604,5 +1604,215 @@ public class PortProfileSuggestionAnalyzerTests
         applyExisting.Should().BeNull();
     }
 
+    [Fact]
+    public void Analyze_ExcludedPortsMatchAlternateProfile_SuggestsAlternateProfileInsteadOfCreate()
+    {
+        // Arrange - two profiles with same VLAN signature:
+        // 1. "Trunk 10G No PoE" - forces PoE off (matches first)
+        // 2. "AP PoE Autoneg" - allows PoE (should match excluded ports)
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Management", Vlan = 99 },
+            new UniFiNetworkConfig { Id = "network-2", Name = "IoT", Vlan = 64 }
+        };
+
+        var profileNoPoE = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk 10G No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // All VLANs included
+            PoeMode = "off", // Forces PoE off
+            Autoneg = false  // Forces speed
+        };
+
+        var profileWithPoE = new UniFiPortProfile
+        {
+            Id = "profile-2",
+            Name = "AP PoE Autoneg",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // Same VLANs as profileNoPoE
+            PoeMode = "auto", // Allows PoE
+            Autoneg = true    // Uses autoneg
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profileNoPoE
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = false
+                },
+                // Port 2: PoE enabled, autoneg - EXCLUDED from profileNoPoE, should match profileWithPoE
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 3: PoE enabled, autoneg - EXCLUDED from profileNoPoE, should match profileWithPoE
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileNoPoE, profileWithPoE }, networks);
+
+        // Assert - should have ApplyExisting suggestion for profileWithPoE, NOT CreateNew
+        result.Should().HaveCount(1);
+
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.ApplyExisting);
+        suggestion.MatchingProfileName.Should().Be("AP PoE Autoneg");
+        suggestion.MatchingProfileId.Should().Be("profile-2");
+        suggestion.AffectedPorts.Should().HaveCount(2); // Ports 2 and 3
+        suggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 2, 3 });
+    }
+
+    [Fact]
+    public void Analyze_ExcludedPortsNoAlternateProfile_CreatesFallbackSuggestion()
+    {
+        // Arrange - only one profile exists, excluded ports should get CreateNew suggestion
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Management", Vlan = 99 },
+            new UniFiNetworkConfig { Id = "network-2", Name = "IoT", Vlan = 64 }
+        };
+
+        var profileNoPoE = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "off", // Forces PoE off
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profileNoPoE
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 1000, Autoneg = true
+                },
+                // Port 2: PoE enabled - EXCLUDED, no alternate profile available
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                },
+                // Port 3: PoE enabled - EXCLUDED, no alternate profile available
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profileNoPoE }, networks);
+
+        // Assert - should have CreateNew suggestion since no alternate profile exists
+        result.Should().HaveCount(1);
+
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.CreateNew);
+        suggestion.SuggestedProfileName.Should().Contain("(PoE)");
+        suggestion.AffectedPorts.Should().HaveCount(2); // Ports 2 and 3
+    }
+
+    [Fact]
+    public void Analyze_ExcludedPortsAlternateProfileIncompatiblePoE_CreatesFallbackSuggestion()
+    {
+        // Arrange - two profiles exist but both force PoE off, so excluded ports can't use either
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "network-1", Name = "Management", Vlan = 99 }
+        };
+
+        var profile1 = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk 10G No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(),
+            PoeMode = "off",
+            Autoneg = false
+        };
+
+        var profile2 = new UniFiPortProfile
+        {
+            Id = "profile-2",
+            Name = "Trunk 1G No PoE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            ExcludedNetworkConfIds = new List<string>(), // Same VLANs
+            PoeMode = "off", // Also forces PoE off
+            Autoneg = true
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Port 1: using profile1
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortConfId = "profile-1", PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = false
+                },
+                // Port 2: PoE enabled - EXCLUDED from both profiles
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                // Port 3: PoE enabled - EXCLUDED from both profiles
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile1, profile2 }, networks);
+
+        // Assert - should have CreateNew suggestion since no compatible alternate profile
+        result.Should().HaveCount(1);
+
+        var suggestion = result[0];
+        suggestion.Type.Should().Be(Models.PortProfileSuggestionType.CreateNew);
+        suggestion.SuggestedProfileName.Should().Contain("(PoE)");
+    }
+
     #endregion
 }
