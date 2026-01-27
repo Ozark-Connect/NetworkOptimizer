@@ -1380,8 +1380,14 @@ a.btn-lg {
 .action-buttons {
     display: flex;
     gap: 0.5rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
+}
+
+@media (max-width: 768px) {
+    .action-buttons {
+        flex-wrap: wrap;
+    }
 }
 
 .action-buttons .btn {
