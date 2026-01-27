@@ -227,8 +227,7 @@
                                         </div>
                                         <div class="issue-title">@(suggestion.MatchingProfileName ?? suggestion.SuggestedProfileName)</div>
                                         <div class="issue-context">
-                                            <span class="context-item"><strong>Ports:</strong> @suggestion.AffectedPorts.Count affected</span>
-                                            <span class="context-item"><strong>Without Profile:</strong> @suggestion.PortsWithoutProfile</span>
+                                            <span class="context-item"><strong>Ports:</strong> @FormatPortList(suggestion.AffectedPorts)</span>
                                             @if (suggestion.Configuration.AllowedVlanNames.Count > 0)
                                             {
                                                 <span class="context-item"><strong>VLANs:</strong> @string.Join(", ", suggestion.Configuration.AllowedVlanNames.Take(5))@(suggestion.Configuration.AllowedVlanNames.Count > 5 ? $" +{suggestion.Configuration.AllowedVlanNames.Count - 5} more" : "")</span>
@@ -414,6 +413,24 @@
         PortProfileSuggestionType.ExtendUsage => "Extend Profile",
         _ => type.ToString()
     };
+
+    private static string FormatPortList(List<NetworkOptimizer.Diagnostics.Models.PortReference> ports)
+    {
+        if (ports.Count == 0)
+            return "None";
+
+        // Format as "DeviceName port X" for each port, limit to 5
+        var formatted = ports.Take(5)
+            .Select(p => $"{p.DeviceName} port {p.PortIndex}")
+            .ToList();
+
+        var result = string.Join(", ", formatted);
+
+        if (ports.Count > 5)
+            result += $" +{ports.Count - 5} more";
+
+        return result;
+    }
 
     private static string FormatLastSeen(DateTime lastSeen)
     {
