@@ -364,6 +364,7 @@ public class PortProfileSuggestionAnalyzerTests
             TaggedVlanMgmt = "custom",
             PoeMode = "auto",
             Autoneg = false, // Forces speed
+            Speed = 10000, // 10G forced speed
             ExcludedNetworkConfIds = new List<string>()
         };
 
@@ -489,6 +490,7 @@ public class PortProfileSuggestionAnalyzerTests
             TaggedVlanMgmt = "custom",
             PoeMode = "auto",
             Autoneg = false, // Forces speed
+            Speed = 10000, // 10G forced speed
             ExcludedNetworkConfIds = new List<string>()
         };
 
@@ -740,6 +742,7 @@ public class PortProfileSuggestionAnalyzerTests
             TaggedVlanMgmt = "custom",
             PoeMode = "off",
             Autoneg = false, // Forces speed
+            Speed = 10000, // 10G forced speed
             ExcludedNetworkConfIds = new List<string>()
         };
 
@@ -1499,6 +1502,7 @@ public class PortProfileSuggestionAnalyzerTests
             TaggedVlanMgmt = "custom",
             PoeMode = "auto",
             Autoneg = false, // Forces speed
+            Speed = 10000, // 10G forced speed
             ExcludedNetworkConfIds = new List<string>()
         };
 
@@ -3586,6 +3590,130 @@ public class PortProfileSuggestionAnalyzerTests
         result.Should().HaveCount(1);
         result[0].AffectedPorts.Should().HaveCount(2);
         result[0].SuggestedProfileName.Should().NotContain("(PoE)");
+    }
+
+    [Fact]
+    public void Analyze_ForcedSpeedProfile_NoExistingUsers_UsesProfileSpeedNotPortSpeed()
+    {
+        // Arrange - profile forces 10G, but candidate ports are at 2.5G
+        // This was a bug: without existing users, code picked largest port group
+        // instead of using the profile's actual forced speed
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-10g",
+            Name = "[Trunk] 10 GbE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "auto",
+            Autoneg = false,
+            Speed = 10000, // Forces 10G
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Two 2.5G ports - should NOT match 10G profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should NOT suggest applying 10G profile to 2.5G ports
+        // Instead should suggest creating a new profile
+        result.Should().HaveCount(1);
+        result[0].Type.Should().Be(Models.PortProfileSuggestionType.CreateNew);
+        result[0].MatchingProfileId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Analyze_ForcedSpeedProfile_NoExistingUsers_MatchesCorrectSpeedPorts()
+    {
+        // Arrange - profile forces 10G, some ports at 10G, some at 2.5G
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-10g",
+            Name = "[Trunk] 10 GbE",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "auto",
+            Autoneg = false,
+            Speed = 10000, // Forces 10G
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "device1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Device 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Two 10G ports - should match profile
+                new()
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = false
+                },
+                new()
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 10000, Autoneg = false
+                },
+                // Two 2.5G ports - should NOT match profile
+                new()
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = true, PoeEnable = true, Speed = 2500, Autoneg = true
+                },
+                new()
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, PoeEnable = false, Speed = 2500, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should suggest applying 10G profile only to 10G ports
+        var applySuggestion = result.FirstOrDefault(r => r.MatchingProfileId == "profile-10g");
+        applySuggestion.Should().NotBeNull();
+        applySuggestion!.AffectedPorts.Should().HaveCount(2);
+        applySuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2 });
+
+        // 2.5G ports should get a separate CreateNew suggestion
+        var createSuggestion = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.CreateNew);
+        createSuggestion.Should().NotBeNull();
+        createSuggestion!.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 3, 4 });
     }
 
     #endregion

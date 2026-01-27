@@ -45,6 +45,18 @@ public class UniFiPortProfile
     [JsonPropertyName("autoneg")]
     public bool Autoneg { get; set; }
 
+    /// <summary>
+    /// Forced speed in Mbps when Autoneg is false.
+    /// </summary>
+    [JsonPropertyName("speed")]
+    public int? Speed { get; set; }
+
+    /// <summary>
+    /// Full duplex mode when Autoneg is false.
+    /// </summary>
+    [JsonPropertyName("full_duplex")]
+    public bool? FullDuplex { get; set; }
+
     [JsonPropertyName("setting_preference")]
     public string? SettingPreference { get; set; }
 

@@ -173,10 +173,67 @@ public class PortProfileSuggestionAnalyzer
                     // Filter out ports where applying the profile would cause issues
                     var compatiblePorts = portsWithoutProfile;
 
+                    // FIRST: Filter by speed if profile forces a specific speed
+                    // This must happen before PoE filtering so we don't lose valid candidates
+                    if (matchingProfile.Value.ForcesSpeed && portsWithProfile.Count > 0)
+                    {
+                        // Profile forces speed (autoneg=false) - match existing users' speed
+                        var profileUserSpeeds = portsWithProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
+                        var incompatibleSpeedPorts = compatiblePorts.Where(p => !profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+                        if (incompatibleSpeedPorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces speed - excluding {Count} ports with different speeds: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                incompatibleSpeedPorts.Count,
+                                string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
+                        }
+                        compatiblePorts = compatiblePorts.Where(p => profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+                    }
+                    else if (matchingProfile.Value.ForcesSpeed && matchingProfile.Value.ForcedSpeedMbps.HasValue)
+                    {
+                        // Profile forces speed but no ports currently use it - use profile's speed
+                        var targetSpeed = matchingProfile.Value.ForcedSpeedMbps.Value;
+                        var incompatibleSpeedPorts = compatiblePorts.Where(p => p.CurrentSpeed != targetSpeed).ToList();
+                        if (incompatibleSpeedPorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces {Speed}Mbps - excluding {Count} ports at different speeds: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                targetSpeed,
+                                incompatibleSpeedPorts.Count,
+                                string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
+                        }
+                        compatiblePorts = compatiblePorts.Where(p => p.CurrentSpeed == targetSpeed).ToList();
+                    }
+                    else if (matchingProfile.Value.ForcesSpeed)
+                    {
+                        // ForcesSpeed but no speed value - can't determine compatibility
+                        _logger?.LogDebug(
+                            "Profile '{ProfileName}' forces speed but speed value unknown - skipping",
+                            matchingProfile.Value.ProfileName);
+                        compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>();
+                    }
+                    else
+                    {
+                        // Profile uses autoneg - only suggest to ports that also use autoneg
+                        var forcedSpeedPorts = compatiblePorts.Where(p => !p.PortAutoneg).ToList();
+                        if (forcedSpeedPorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' uses autoneg - excluding {Count} ports with forced speed: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                forcedSpeedPorts.Count,
+                                string.Join(", ", forcedSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
+                        }
+                        compatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
+                    }
+
+                    // SECOND: Filter by PoE
                     if (matchingProfile.Value.ForcesPoEOff)
                     {
                         // Don't suggest applying to ports with PoE enabled
-                        var incompatiblePorts = portsWithoutProfile.Where(p => p.HasPoEEnabled).ToList();
+                        var incompatiblePorts = compatiblePorts.Where(p => p.HasPoEEnabled).ToList();
                         if (incompatiblePorts.Count > 0)
                         {
                             _logger?.LogDebug(
@@ -185,9 +242,9 @@ public class PortProfileSuggestionAnalyzer
                                 incompatiblePorts.Count,
                                 string.Join(", ", incompatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
                         }
-                        compatiblePorts = portsWithoutProfile.Where(p => !p.HasPoEEnabled).ToList();
+                        compatiblePorts = compatiblePorts.Where(p => !p.HasPoEEnabled).ToList();
                     }
-                    else
+                    else if (compatiblePorts.Count > 0)
                     {
                         // Profile allows PoE (PoeMode=auto) - prefer PoE-enabled ports
                         // PoE-enabled profiles are typically for devices that need PoE (APs, cameras)
@@ -206,73 +263,6 @@ public class PortProfileSuggestionAnalyzer
                                 poeDisabledPorts.Count);
                             compatiblePorts = poeEnabledPorts;
                         }
-                    }
-
-                    if (matchingProfile.Value.ForcesSpeed && portsWithProfile.Count > 0)
-                    {
-                        // Profile forces speed (autoneg=false) - this is fine for trunks
-                        // Just ensure the port's current speed matches (autoneg setting doesn't matter)
-                        var profileUserSpeeds = portsWithProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
-
-                        var incompatibleSpeedPorts = compatiblePorts.Where(p => !profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
-                        if (incompatibleSpeedPorts.Count > 0)
-                        {
-                            _logger?.LogDebug(
-                                "Profile '{ProfileName}' forces speed - excluding {Count} ports with different speeds: {Ports}",
-                                matchingProfile.Value.ProfileName,
-                                incompatibleSpeedPorts.Count,
-                                string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
-                        }
-
-                        compatiblePorts = compatiblePorts.Where(p => profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
-                    }
-                    else if (matchingProfile.Value.ForcesSpeed)
-                    {
-                        // Profile forces speed but no ports currently use it
-                        // Group by current speed and suggest to the largest group at a single speed
-                        var speedGroups = compatiblePorts
-                            .GroupBy(p => p.CurrentSpeed)
-                            .OrderByDescending(g => g.Count())
-                            .ToList();
-
-                        if (speedGroups.Count > 0 && speedGroups[0].Count() >= 2)
-                        {
-                            var targetSpeed = speedGroups[0].Key;
-                            var incompatibleSpeedPorts = compatiblePorts.Where(p => p.CurrentSpeed != targetSpeed).ToList();
-                            if (incompatibleSpeedPorts.Count > 0)
-                            {
-                                _logger?.LogDebug(
-                                    "Profile '{ProfileName}' forces speed - using {Speed}Mbps ports, excluding {Count} ports at different speeds: {Ports}",
-                                    matchingProfile.Value.ProfileName,
-                                    targetSpeed,
-                                    incompatibleSpeedPorts.Count,
-                                    string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
-                            }
-                            compatiblePorts = speedGroups[0].ToList();
-                        }
-                        else
-                        {
-                            // Not enough ports at any single speed
-                            _logger?.LogDebug(
-                                "Profile '{ProfileName}' forces speed (autoneg=false) - not enough ports at any single speed",
-                                matchingProfile.Value.ProfileName);
-                            compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)>();
-                        }
-                    }
-                    else
-                    {
-                        // Profile uses autoneg - only suggest to ports that also use autoneg
-                        // Don't change a port from forced speed to autoneg
-                        var forcedSpeedPorts = compatiblePorts.Where(p => !p.PortAutoneg).ToList();
-                        if (forcedSpeedPorts.Count > 0)
-                        {
-                            _logger?.LogDebug(
-                                "Profile '{ProfileName}' uses autoneg - excluding {Count} ports with forced speed: {Ports}",
-                                matchingProfile.Value.ProfileName,
-                                forcedSpeedPorts.Count,
-                                string.Join(", ", forcedSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
-                        }
-                        compatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
                     }
 
                     // Calculate excluded ports (candidates that didn't make it through filtering)
@@ -644,12 +634,12 @@ public class PortProfileSuggestionAnalyzer
         return trunkPorts;
     }
 
-    private Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> BuildProfileSignatures(
+    private Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps)> BuildProfileSignatures(
         List<UniFiPortProfile> profiles,
         Dictionary<string, UniFiNetworkConfig> networksById,
         HashSet<string> allNetworkIds)
     {
-        var signatures = new Dictionary<string, (string, string, PortConfigSignature, bool, bool)>();
+        var signatures = new Dictionary<string, (string, string, PortConfigSignature, bool, bool, int?)>();
 
         foreach (var profile in profiles)
         {
@@ -663,9 +653,10 @@ public class PortProfileSuggestionAnalyzer
             // Check if profile forces PoE off or forces specific speed
             var forcesPoEOff = profile.PoeMode == "off";
             var forcesSpeed = profile.Autoneg == false;
+            var forcedSpeedMbps = forcesSpeed ? profile.Speed : null;
 
-            _logger?.LogDebug("Profile '{Name}': PoeMode={PoeMode}, Autoneg={Autoneg}, ForcesPoEOff={ForcesPoEOff}, ForcesSpeed={ForcesSpeed}, AllowedVlans=[{Vlans}]",
-                profile.Name, profile.PoeMode, profile.Autoneg, forcesPoEOff, forcesSpeed,
+            _logger?.LogDebug("Profile '{Name}': PoeMode={PoeMode}, Autoneg={Autoneg}, ForcesPoEOff={ForcesPoEOff}, ForcesSpeed={ForcesSpeed}, ForcedSpeedMbps={ForcedSpeedMbps}, AllowedVlans=[{Vlans}]",
+                profile.Name, profile.PoeMode, profile.Autoneg, forcesPoEOff, forcesSpeed, forcedSpeedMbps,
                 string.Join(", ", allowedVlans.Select(id => GetNetworkName(id, networksById) ?? id).OrderBy(n => n)));
 
             var signature = new PortConfigSignature
@@ -683,21 +674,21 @@ public class PortProfileSuggestionAnalyzer
                 Isolation = profile.Isolation ? true : null
             };
 
-            signatures[profile.Id] = (profile.Id, profile.Name, signature, forcesPoEOff, forcesSpeed);
+            signatures[profile.Id] = (profile.Id, profile.Name, signature, forcesPoEOff, forcesSpeed, forcedSpeedMbps);
         }
 
         return signatures;
     }
 
-    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed)? FindMatchingProfile(
+    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps)? FindMatchingProfile(
         PortConfigSignature portSignature,
-        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> profileSignatures)
+        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps)> profileSignatures)
     {
-        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed) in profileSignatures.Values)
+        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed, forcedSpeedMbps) in profileSignatures.Values)
         {
             if (portSignature.Equals(profileSig))
             {
-                return (id, name, forcesPoEOff, forcesSpeed);
+                return (id, name, forcesPoEOff, forcesSpeed, forcedSpeedMbps);
             }
         }
 
@@ -708,13 +699,13 @@ public class PortProfileSuggestionAnalyzer
     /// Find an alternate profile that matches the VLAN signature AND is compatible with the given ports.
     /// Used when ports are excluded from one profile but might work with another.
     /// </summary>
-    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed)? FindCompatibleProfile(
+    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps)? FindCompatibleProfile(
         PortConfigSignature portSignature,
         List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> ports,
-        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> profileSignatures,
+        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps)> profileSignatures,
         string excludeProfileId)
     {
-        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed) in profileSignatures.Values)
+        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed, forcedSpeedMbps) in profileSignatures.Values)
         {
             // Skip the profile we already matched
             if (id == excludeProfileId)
@@ -733,16 +724,11 @@ public class PortProfileSuggestionAnalyzer
                 isCompatible = false;
             }
 
-            // If profile forces speed, check port compatibility
-            if (isCompatible && forcesSpeed)
+            // If profile forces speed, ports must match that speed
+            if (isCompatible && forcesSpeed && forcedSpeedMbps.HasValue)
             {
-                // For forced speed profiles, ports need to be at a consistent speed
-                var speeds = ports.Select(p => p.CurrentSpeed).Distinct().ToList();
-                if (speeds.Count > 1)
-                {
-                    // Multiple speeds - only compatible if all ports use autoneg
-                    isCompatible = ports.All(p => p.PortAutoneg);
-                }
+                // All ports must be running at the profile's forced speed
+                isCompatible = ports.All(p => p.CurrentSpeed == forcedSpeedMbps.Value);
             }
 
             // If profile uses autoneg, it's incompatible with forced-speed ports
@@ -756,7 +742,7 @@ public class PortProfileSuggestionAnalyzer
 
             if (isCompatible)
             {
-                return (id, name, forcesPoEOff, forcesSpeed);
+                return (id, name, forcesPoEOff, forcesSpeed, forcedSpeedMbps);
             }
         }
 
@@ -769,7 +755,7 @@ public class PortProfileSuggestionAnalyzer
     /// </summary>
     private static List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> FilterCompatiblePortsForProfile(
         List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> candidatePorts,
-        (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed) profileInfo,
+        (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed, int? ForcedSpeedMbps) profileInfo,
         List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed, bool PortAutoneg)> portsAlreadyUsingProfile)
     {
         var compatiblePorts = candidatePorts.ToList();
@@ -800,26 +786,12 @@ public class PortProfileSuggestionAnalyzer
         }
 
         // If profile forces speed, check speed compatibility
-        if (profileInfo.ForcesSpeed && portsAlreadyUsingProfile.Count > 0)
+        if (profileInfo.ForcesSpeed && profileInfo.ForcedSpeedMbps.HasValue)
         {
-            // Match the speeds of ports already using the profile
-            var profileUserSpeeds = portsAlreadyUsingProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
-            compatiblePorts = compatiblePorts.Where(p => profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+            // Use the profile's actual forced speed - only match ports at that speed
+            compatiblePorts = compatiblePorts.Where(p => p.CurrentSpeed == profileInfo.ForcedSpeedMbps.Value).ToList();
         }
-        else if (profileInfo.ForcesSpeed)
-        {
-            // No ports using profile yet - group by speed
-            var speedGroups = compatiblePorts.GroupBy(p => p.CurrentSpeed).OrderByDescending(g => g.Count()).ToList();
-            if (speedGroups.Count > 0 && speedGroups[0].Count() >= 1)
-            {
-                compatiblePorts = speedGroups[0].ToList();
-            }
-            else
-            {
-                compatiblePorts = new List<(PortReference, PortConfigSignature, bool, int, bool)>();
-            }
-        }
-        else
+        else if (!profileInfo.ForcesSpeed)
         {
             // Profile uses autoneg - only include ports that also use autoneg
             compatiblePorts = compatiblePorts.Where(p => p.PortAutoneg).ToList();
