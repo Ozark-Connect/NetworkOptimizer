@@ -100,9 +100,9 @@
                 </div>
                 <span class="issue-type-chevron">@(_apLockCollapsed ? "▼" : "▲")</span>
             </div>
-            @if (!_apLockCollapsed)
-            {
-                <div class="card-body">
+            <div class="expand-wrapper @(!_apLockCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
                     @if (_result.ApLockIssues.Count == 0)
                     {
                         <p class="empty-section-text">No AP lock issues detected.</p>
@@ -147,8 +147,9 @@
                             }
                         </div>
                     }
+                    </div>
                 </div>
-            }
+            </div>
         </div>
 
         <!-- Trunk Consistency Issues -->
@@ -160,9 +161,9 @@
                 </div>
                 <span class="issue-type-chevron">@(_trunkCollapsed ? "▼" : "▲")</span>
             </div>
-            @if (!_trunkCollapsed)
-            {
-                <div class="card-body">
+            <div class="expand-wrapper @(!_trunkCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
                     @if (_result.TrunkConsistencyIssues.Count == 0)
                     {
                         <p class="empty-section-text">No trunk VLAN consistency issues detected.</p>
@@ -193,8 +194,9 @@
                             }
                         </div>
                     }
+                    </div>
                 </div>
-            }
+            </div>
         </div>
 
         <!-- Ethernet Port Profile Suggestions -->
@@ -206,9 +208,9 @@
                 </div>
                 <span class="issue-type-chevron">@(_portProfileCollapsed ? "▼" : "▲")</span>
             </div>
-            @if (!_portProfileCollapsed)
-            {
-                <div class="card-body">
+            <div class="expand-wrapper @(!_portProfileCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
                     @if (_result.PortProfileSuggestions.Count == 0)
                     {
                         <p class="empty-section-text">No port profile suggestions.</p>
@@ -249,8 +251,9 @@
                             }
                         </div>
                     }
+                    </div>
                 </div>
-            }
+            </div>
         </div>
 
     }
