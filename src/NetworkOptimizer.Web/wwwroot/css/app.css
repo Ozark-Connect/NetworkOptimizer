@@ -4284,7 +4284,7 @@ select.form-control {
 }
 
 .issue-count.info .count {
-    color: var(--text-secondary);
+    color: var(--info-color);
 }
 
 /* Audit Timestamp */
