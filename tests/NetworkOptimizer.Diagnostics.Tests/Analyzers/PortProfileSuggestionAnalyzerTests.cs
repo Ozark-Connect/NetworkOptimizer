@@ -1479,4 +1479,130 @@ public class PortProfileSuggestionAnalyzerTests
     }
 
     #endregion
+
+    #region Speed Filtering Edge Cases
+
+    [Fact]
+    public void Analyze_ForcedSpeedProfileExcludesDifferentSpeedPorts()
+    {
+        // Arrange - profile forces speed, some ports at different speeds get excluded
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "10G Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "auto",
+            Autoneg = false, // Forces speed
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Three ports at 10G - will be suggested
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 10000, Autoneg = true
+                },
+                // One port at 1G - should be excluded
+                new SwitchPort
+                {
+                    PortIdx = 4, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - should suggest profile to 10G ports only, 1G port excluded
+        // No fallback suggestion since only 1 port at 1G (need 2+ for fallback)
+        result.Should().HaveCount(1);
+
+        var applyExisting = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.ApplyExisting);
+        applyExisting.Should().NotBeNull();
+        applyExisting!.AffectedPorts.Should().HaveCount(3); // Only 10G ports
+        applyExisting.AffectedPorts.Should().OnlyContain(p => p.PortIndex != 4); // Port 4 excluded
+    }
+
+    [Fact]
+    public void Analyze_ForcedSpeedProfileNotEnoughPortsAtSingleSpeed_ReturnsEmpty()
+    {
+        // Arrange - profile forces speed but only 1 port at each speed
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new UniFiNetworkConfig { Id = "net-1", Name = "VLAN 10", Vlan = 10, Purpose = "corporate" }
+        };
+
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-1",
+            Name = "Trunk",
+            Forward = "customize",
+            TaggedVlanMgmt = "custom",
+            PoeMode = "auto",
+            Autoneg = false, // Forces speed
+            ExcludedNetworkConfIds = new List<string>()
+        };
+
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // One port at each speed - not enough at any single speed
+                new SwitchPort
+                {
+                    PortIdx = 1, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 10000, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 2, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 2500, Autoneg = true
+                },
+                new SwitchPort
+                {
+                    PortIdx = 3, Forward = "customize", TaggedVlanMgmt = "custom",
+                    PortPoe = false, Speed = 1000, Autoneg = true
+                }
+            }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(new[] { device }, new[] { profile }, networks);
+
+        // Assert - not enough ports at any single speed for the profile
+        // Should get a CreateNew fallback suggestion instead
+        var applyExisting = result.FirstOrDefault(r => r.Type == Models.PortProfileSuggestionType.ApplyExisting);
+        applyExisting.Should().BeNull();
+    }
+
+    #endregion
 }

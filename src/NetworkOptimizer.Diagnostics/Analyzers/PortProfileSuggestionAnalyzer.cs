@@ -433,8 +433,9 @@ public class PortProfileSuggestionAnalyzer
             var forcesPoEOff = profile.PoeMode == "off";
             var forcesSpeed = profile.Autoneg == false;
 
-            _logger?.LogDebug("Profile '{Name}': PoeMode={PoeMode}, Autoneg={Autoneg}, ForcesPoEOff={ForcesPoEOff}, ForcesSpeed={ForcesSpeed}",
-                profile.Name, profile.PoeMode, profile.Autoneg, forcesPoEOff, forcesSpeed);
+            _logger?.LogDebug("Profile '{Name}': PoeMode={PoeMode}, Autoneg={Autoneg}, ForcesPoEOff={ForcesPoEOff}, ForcesSpeed={ForcesSpeed}, AllowedVlans=[{Vlans}]",
+                profile.Name, profile.PoeMode, profile.Autoneg, forcesPoEOff, forcesSpeed,
+                string.Join(", ", allowedVlans.Select(id => GetNetworkName(id, networksById) ?? id).OrderBy(n => n)));
 
             var signature = new PortConfigSignature
             {
