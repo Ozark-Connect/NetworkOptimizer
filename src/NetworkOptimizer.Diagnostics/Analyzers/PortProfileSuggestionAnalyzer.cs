@@ -469,21 +469,25 @@ public class PortProfileSuggestionAnalyzer
             else if (ports.Count >= 2 && portsWithoutProfile.Count > 0)
             {
                 // No matching profile - suggest creating new profile(s)
-                // Split by PoE state to avoid mixing PoE and non-PoE ports
+                // Split by PoE state only if BOTH groups would be viable (2+ each)
+                // Otherwise keep together - PoeMode=Auto works for both PoE and non-PoE ports
                 var poeEnabledPorts = portsWithoutProfile.Where(p => p.HasPoEEnabled).ToList();
                 var poeDisabledPorts = portsWithoutProfile.Where(p => !p.HasPoEEnabled).ToList();
 
-                // Create suggestion for PoE-enabled ports if 2+
-                if (poeEnabledPorts.Count >= 2)
+                // Only split if both groups would have 2+ ports
+                var shouldSplitByPoe = poeEnabledPorts.Count >= 2 && poeDisabledPorts.Count >= 2;
+
+                if (shouldSplitByPoe)
                 {
-                    var severity = poeEnabledPorts.Count >= 5
+                    // Create separate suggestions for each PoE group
+                    var poeSeverity = poeEnabledPorts.Count >= 5
                         ? PortProfileSuggestionSeverity.Recommendation
                         : PortProfileSuggestionSeverity.Info;
 
                     var poeSuggestion = new PortProfileSuggestion
                     {
                         Type = PortProfileSuggestionType.CreateNew,
-                        Severity = severity,
+                        Severity = poeSeverity,
                         SuggestedProfileName = GenerateProfileName(signature, networksById) + " (PoE)",
                         Configuration = signature,
                         AffectedPorts = poeEnabledPorts.Select(p => p.Reference).ToList(),
@@ -500,19 +504,15 @@ public class PortProfileSuggestionAnalyzer
                         "Port profile suggestion: CreateNew (PoE) - {Count} ports, {ProfileName}",
                         poeSuggestion.AffectedPorts.Count,
                         poeSuggestion.SuggestedProfileName);
-                }
 
-                // Create suggestion for PoE-disabled ports if 2+
-                if (poeDisabledPorts.Count >= 2)
-                {
-                    var severity = poeDisabledPorts.Count >= 5
+                    var noPoeSeverity = poeDisabledPorts.Count >= 5
                         ? PortProfileSuggestionSeverity.Recommendation
                         : PortProfileSuggestionSeverity.Info;
 
                     var noPoeSuggestion = new PortProfileSuggestion
                     {
                         Type = PortProfileSuggestionType.CreateNew,
-                        Severity = severity,
+                        Severity = noPoeSeverity,
                         SuggestedProfileName = GenerateProfileName(signature, networksById),
                         Configuration = signature,
                         AffectedPorts = poeDisabledPorts.Select(p => p.Reference).ToList(),
@@ -529,6 +529,38 @@ public class PortProfileSuggestionAnalyzer
                         "Port profile suggestion: CreateNew - {Count} ports, {ProfileName}",
                         noPoeSuggestion.AffectedPorts.Count,
                         noPoeSuggestion.SuggestedProfileName);
+                }
+                else if (portsWithoutProfile.Count >= 2)
+                {
+                    // Keep all ports together - PoeMode=Auto works for mixed PoE states
+                    var severity = portsWithoutProfile.Count >= 5
+                        ? PortProfileSuggestionSeverity.Recommendation
+                        : PortProfileSuggestionSeverity.Info;
+
+                    // Use "(PoE)" suffix if any ports have PoE enabled
+                    var hasAnyPoE = poeEnabledPorts.Count > 0;
+                    var profileName = GenerateProfileName(signature, networksById) + (hasAnyPoE ? " (PoE)" : "");
+
+                    var combinedSuggestion = new PortProfileSuggestion
+                    {
+                        Type = PortProfileSuggestionType.CreateNew,
+                        Severity = severity,
+                        SuggestedProfileName = profileName,
+                        Configuration = signature,
+                        AffectedPorts = portsWithoutProfile.Select(p => p.Reference).ToList(),
+                        PortsWithoutProfile = portsWithoutProfile.Count,
+                        PortsAlreadyUsingProfile = 0,
+                        Recommendation = GenerateCreateRecommendation(
+                            portsWithoutProfile.Count,
+                            signature,
+                            networksById)
+                    };
+                    suggestions.Add(combinedSuggestion);
+
+                    _logger?.LogDebug(
+                        "Port profile suggestion: CreateNew (mixed PoE) - {Count} ports, {ProfileName}",
+                        combinedSuggestion.AffectedPorts.Count,
+                        combinedSuggestion.SuggestedProfileName);
                 }
 
                 continue;
