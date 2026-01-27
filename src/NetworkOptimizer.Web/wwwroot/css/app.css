@@ -1067,8 +1067,6 @@ a.stat-card-link:active {
 .table-responsive {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    margin: 0 -1rem;
-    padding: 0 1rem;
 }
 
 .data-table {
@@ -2228,7 +2226,7 @@ select.form-control {
     }
 
     .card-header {
-        padding: 0.75rem 1rem;
+        padding: 0 0 0.75rem;
         flex-wrap: wrap;
         gap: 0.5rem;
     }
@@ -2246,7 +2244,7 @@ select.form-control {
     }
 
     .card-body {
-        padding: 1rem;
+        padding: 1rem 0;
     }
 
     /* Footer adjustments */
