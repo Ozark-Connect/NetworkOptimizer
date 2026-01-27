@@ -105,11 +105,29 @@ public class PortProfileSuggestionAnalyzer
                         compatiblePorts = portsWithoutProfile.Where(p => !p.HasPoEEnabled).ToList();
                     }
 
-                    if (matchingProfile.Value.ForcesSpeed)
+                    if (matchingProfile.Value.ForcesSpeed && portsWithProfile.Count > 0)
                     {
-                        // Don't suggest applying profiles that force speed - too risky
+                        // Profile forces speed but some ports already use it successfully
+                        // Only suggest for ports with matching speed to existing profile users
+                        var profileUserSpeeds = portsWithProfile.Select(p => p.CurrentSpeed).Distinct().ToHashSet();
+                        var incompatibleSpeedPorts = compatiblePorts.Where(p => !profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+
+                        if (incompatibleSpeedPorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces speed - excluding {Count} ports with different speeds: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                incompatibleSpeedPorts.Count,
+                                string.Join(", ", incompatibleSpeedPorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} ({p.CurrentSpeed}Mbps)")));
+                        }
+
+                        compatiblePorts = compatiblePorts.Where(p => profileUserSpeeds.Contains(p.CurrentSpeed)).ToList();
+                    }
+                    else if (matchingProfile.Value.ForcesSpeed)
+                    {
+                        // Profile forces speed and NO ports currently use it - too risky to suggest
                         _logger?.LogDebug(
-                            "Profile '{ProfileName}' forces speed (autoneg=false) - skipping suggestion for ports without profile",
+                            "Profile '{ProfileName}' forces speed (autoneg=false) and no ports use it - skipping",
                             matchingProfile.Value.ProfileName);
                         compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed)>();
                     }
