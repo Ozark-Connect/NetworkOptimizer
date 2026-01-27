@@ -84,8 +84,23 @@ public class PortProfileSuggestionAnalyzer
 
             if (matchingProfile != null)
             {
+                _logger?.LogDebug(
+                    "Matching profile '{ProfileName}' found for {TotalPorts} ports: {WithProfile} already using profile, {WithoutProfile} candidates",
+                    matchingProfile.Value.ProfileName, ports.Count, portsWithProfile.Count, portsWithoutProfile.Count);
+
+                if (portsWithProfile.Count > 0)
+                {
+                    _logger?.LogDebug("Ports already using '{ProfileName}': {Ports}",
+                        matchingProfile.Value.ProfileName,
+                        string.Join(", ", portsWithProfile.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} (speed={p.CurrentSpeed}, autoneg={p.PortAutoneg})")));
+                }
+
                 if (portsWithoutProfile.Count > 0)
                 {
+                    _logger?.LogDebug("Candidate ports for '{ProfileName}': {Ports}",
+                        matchingProfile.Value.ProfileName,
+                        string.Join(", ", portsWithoutProfile.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex} (speed={p.CurrentSpeed}, autoneg={p.PortAutoneg}, poe={p.HasPoEEnabled})")));
+
                     // Check if profile is compatible with ports that don't have it
                     // Filter out ports where applying the profile would cause issues
                     var compatiblePorts = portsWithoutProfile;
@@ -148,8 +163,14 @@ public class PortProfileSuggestionAnalyzer
                     if (compatiblePorts.Count == 0)
                     {
                         // No compatible ports without profile
+                        _logger?.LogDebug("No compatible ports remaining for '{ProfileName}' after filtering",
+                            matchingProfile.Value.ProfileName);
                         continue;
                     }
+
+                    _logger?.LogDebug("Final compatible ports for '{ProfileName}': {Ports}",
+                        matchingProfile.Value.ProfileName,
+                        string.Join(", ", compatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
 
                     // Some ports match an existing profile but don't use it
                     suggestion = new PortProfileSuggestion
