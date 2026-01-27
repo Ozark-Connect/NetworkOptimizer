@@ -85,7 +85,7 @@
                             <span class="stat-value">@_result.WarningCount</span>
                             <span class="stat-label">Recommended</span>
                         </div>
-                        <div class="stat-item has-info">
+                        <div class="stat-item @(_result.InfoCount > 0 ? "has-info" : "")">
                             <span class="stat-value">@_result.InfoCount</span>
                             <span class="stat-label">Info</span>
                         </div>

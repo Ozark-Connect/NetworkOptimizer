@@ -5469,6 +5469,10 @@ select.form-control {
     color: var(--warning-color);
 }
 
+.stat-item.has-info .stat-value {
+    color: var(--info-color);
+}
+
 /* Diagnostics Issues List */
 .issues-list {
     display: flex;
