@@ -86,6 +86,40 @@ public class PortProfileSuggestionAnalyzer
             {
                 if (portsWithoutProfile.Count > 0)
                 {
+                    // Check if profile is compatible with ports that don't have it
+                    // Filter out ports where applying the profile would cause issues
+                    var compatiblePorts = portsWithoutProfile;
+
+                    if (matchingProfile.Value.ForcesPoEOff)
+                    {
+                        // Don't suggest applying to ports with PoE enabled
+                        var incompatiblePorts = portsWithoutProfile.Where(p => p.HasPoEEnabled).ToList();
+                        if (incompatiblePorts.Count > 0)
+                        {
+                            _logger?.LogDebug(
+                                "Profile '{ProfileName}' forces PoE off - excluding {Count} ports with PoE enabled: {Ports}",
+                                matchingProfile.Value.ProfileName,
+                                incompatiblePorts.Count,
+                                string.Join(", ", incompatiblePorts.Select(p => $"{p.Reference.DeviceName} port {p.Reference.PortIndex}")));
+                        }
+                        compatiblePorts = portsWithoutProfile.Where(p => !p.HasPoEEnabled).ToList();
+                    }
+
+                    if (matchingProfile.Value.ForcesSpeed)
+                    {
+                        // Don't suggest applying profiles that force speed - too risky
+                        _logger?.LogDebug(
+                            "Profile '{ProfileName}' forces speed (autoneg=false) - skipping suggestion for ports without profile",
+                            matchingProfile.Value.ProfileName);
+                        compatiblePorts = new List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed)>();
+                    }
+
+                    if (compatiblePorts.Count == 0)
+                    {
+                        // No compatible ports without profile
+                        continue;
+                    }
+
                     // Some ports match an existing profile but don't use it
                     suggestion = new PortProfileSuggestion
                     {
@@ -95,12 +129,13 @@ public class PortProfileSuggestionAnalyzer
                         MatchingProfileId = matchingProfile.Value.ProfileId,
                         MatchingProfileName = matchingProfile.Value.ProfileName,
                         Configuration = signature,
-                        AffectedPorts = ports.Select(p => p.Reference).ToList(),
-                        PortsWithoutProfile = portsWithoutProfile.Count,
+                        AffectedPorts = portsWithProfile.Select(p => p.Reference)
+                            .Concat(compatiblePorts.Select(p => p.Reference)).ToList(),
+                        PortsWithoutProfile = compatiblePorts.Count,
                         PortsAlreadyUsingProfile = portsWithProfile.Count,
                         Recommendation = GenerateRecommendation(
                             matchingProfile.Value.ProfileName,
-                            portsWithoutProfile.Select(p => p.Reference).ToList(),
+                            compatiblePorts.Select(p => p.Reference).ToList(),
                             portsWithProfile.Count > 0)
                     };
                 }
@@ -145,13 +180,13 @@ public class PortProfileSuggestionAnalyzer
         return suggestions;
     }
 
-    private List<(PortReference Reference, PortConfigSignature Signature)> CollectTrunkPorts(
+    private List<(PortReference Reference, PortConfigSignature Signature, bool HasPoEEnabled, int CurrentSpeed)> CollectTrunkPorts(
         IEnumerable<UniFiDeviceResponse> devices,
         Dictionary<string, UniFiPortProfile> profilesById,
         Dictionary<string, UniFiNetworkConfig> networksById,
         HashSet<string> allNetworkIds)
     {
-        var trunkPorts = new List<(PortReference, PortConfigSignature)>();
+        var trunkPorts = new List<(PortReference, PortConfigSignature, bool, int)>();
 
         foreach (var device in devices)
         {
@@ -194,19 +229,26 @@ public class PortProfileSuggestionAnalyzer
                     CurrentProfileName = profile?.Name
                 };
 
-                trunkPorts.Add((reference, signature));
+                // Capture port's PoE state and current speed
+                var hasPoEEnabled = port.PoeEnable || port.PortPoe;
+                var currentSpeed = port.Speed;
+
+                _logger?.LogDebug("Port {Device} port {Port}: PoeEnable={PoeEnable}, PortPoe={PortPoe}, Speed={Speed}",
+                    device.Name, port.PortIdx, port.PoeEnable, port.PortPoe, port.Speed);
+
+                trunkPorts.Add((reference, signature, hasPoEEnabled, currentSpeed));
             }
         }
 
         return trunkPorts;
     }
 
-    private Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature)> BuildProfileSignatures(
+    private Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> BuildProfileSignatures(
         List<UniFiPortProfile> profiles,
         Dictionary<string, UniFiNetworkConfig> networksById,
         HashSet<string> allNetworkIds)
     {
-        var signatures = new Dictionary<string, (string, string, PortConfigSignature)>();
+        var signatures = new Dictionary<string, (string, string, PortConfigSignature, bool, bool)>();
 
         foreach (var profile in profiles)
         {
@@ -216,6 +258,13 @@ public class PortProfileSuggestionAnalyzer
 
             var excludedSet = new HashSet<string>(profile.ExcludedNetworkConfIds ?? new List<string>());
             var allowedVlans = allNetworkIds.Where(id => !excludedSet.Contains(id)).ToHashSet();
+
+            // Check if profile forces PoE off or forces specific speed
+            var forcesPoEOff = profile.PoeMode == "off";
+            var forcesSpeed = profile.Autoneg == false;
+
+            _logger?.LogDebug("Profile '{Name}': PoeMode={PoeMode}, Autoneg={Autoneg}, ForcesPoEOff={ForcesPoEOff}, ForcesSpeed={ForcesSpeed}",
+                profile.Name, profile.PoeMode, profile.Autoneg, forcesPoEOff, forcesSpeed);
 
             var signature = new PortConfigSignature
             {
@@ -232,21 +281,21 @@ public class PortProfileSuggestionAnalyzer
                 Isolation = profile.Isolation ? true : null
             };
 
-            signatures[profile.Id] = (profile.Id, profile.Name, signature);
+            signatures[profile.Id] = (profile.Id, profile.Name, signature, forcesPoEOff, forcesSpeed);
         }
 
         return signatures;
     }
 
-    private static (string ProfileId, string ProfileName)? FindMatchingProfile(
+    private static (string ProfileId, string ProfileName, bool ForcesPoEOff, bool ForcesSpeed)? FindMatchingProfile(
         PortConfigSignature portSignature,
-        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature)> profileSignatures)
+        Dictionary<string, (string ProfileId, string ProfileName, PortConfigSignature Signature, bool ForcesPoEOff, bool ForcesSpeed)> profileSignatures)
     {
-        foreach (var (id, name, profileSig) in profileSignatures.Values)
+        foreach (var (id, name, profileSig, forcesPoEOff, forcesSpeed) in profileSignatures.Values)
         {
             if (portSignature.Equals(profileSig))
             {
-                return (id, name);
+                return (id, name, forcesPoEOff, forcesSpeed);
             }
         }
 
