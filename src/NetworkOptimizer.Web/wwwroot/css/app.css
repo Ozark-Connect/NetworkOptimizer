@@ -5375,16 +5375,20 @@ select.form-control {
     opacity: 0.5;
 }
 
-/* Expand/collapse animation */
+/* Expand/collapse animation using CSS grid for true auto-height */
 .expand-wrapper {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.25s ease-out;
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease-out;
 }
 
 .expand-wrapper.expanded {
-    max-height: 2000px;
-    transition: max-height 0.4s ease-in;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.4s ease-in;
+}
+
+.expand-wrapper > .expand-content {
+    overflow: hidden;
 }
 
 /* Mobile responsive */
