@@ -1387,6 +1387,7 @@ a.btn-lg {
 @media (max-width: 768px) {
     .action-buttons {
         flex-wrap: wrap;
+        justify-content: center;
     }
 }
 
