@@ -4177,6 +4177,10 @@ select.form-control {
     .gateway-actions .btn {
         margin-right: 0;
     }
+
+    .audit-options {
+        justify-content: center;
+    }
 }
 
 /* Audit Results Summary */
@@ -5638,13 +5642,12 @@ select.form-control {
 /* Responsive adjustments for diagnostics */
 @media (max-width: 768px) {
     .diagnostics-controls {
-        flex-direction: column;
+        justify-content: center;
         padding-top: 0;
     }
 
     .diagnostics-options {
-        flex-direction: column;
-        align-items: flex-start;
+        justify-content: center;
     }
 
     .summary-stats {
