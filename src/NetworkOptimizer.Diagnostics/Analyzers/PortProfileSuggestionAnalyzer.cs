@@ -403,8 +403,10 @@ public class PortProfileSuggestionAnalyzer
                 var currentSpeed = port.Speed;
                 var portAutoneg = port.Autoneg;
 
-                _logger?.LogDebug("Port {Device} port {Port}: PortPoe={PortPoe}, PoeEnable={PoeEnable}, HasPoEEnabled={HasPoEEnabled}, Speed={Speed}, Autoneg={Autoneg}, Media={Media}",
-                    device.Name, port.PortIdx, port.PortPoe, port.PoeEnable, hasPoEEnabled, port.Speed, port.Autoneg, port.Media);
+                _logger?.LogDebug("Port {Device} port {Port}: PortPoe={PortPoe}, PoeEnable={PoeEnable}, HasPoEEnabled={HasPoEEnabled}, Speed={Speed}, Autoneg={Autoneg}, Media={Media}, NativeNetwork={Native}, AllowedVlans=[{Vlans}]",
+                    device.Name, port.PortIdx, port.PortPoe, port.PoeEnable, hasPoEEnabled, port.Speed, port.Autoneg, port.Media,
+                    signature.NativeNetworkName ?? signature.NativeNetworkId ?? "(none)",
+                    string.Join(", ", signature.AllowedVlanNames));
 
                 trunkPorts.Add((reference, signature, hasPoEEnabled, currentSpeed, portAutoneg));
             }
