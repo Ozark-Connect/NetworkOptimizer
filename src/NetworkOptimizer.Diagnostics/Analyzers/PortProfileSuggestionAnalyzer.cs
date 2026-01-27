@@ -199,7 +199,7 @@ public class PortProfileSuggestionAnalyzer
                     continue;
                 }
             }
-            else if (ports.Count >= 3 && portsWithoutProfile.Count > 0)
+            else if (ports.Count >= 2 && portsWithoutProfile.Count > 0)
             {
                 // No matching profile and enough ports to warrant creating one
                 suggestion = new PortProfileSuggestion
