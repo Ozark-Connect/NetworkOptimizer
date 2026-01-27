@@ -1235,6 +1235,12 @@ a.btn-sm {
     line-height: 28px;
 }
 
+.btn-group-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
 .btn-lg {
     height: 44px;
     padding: 0 24px;
