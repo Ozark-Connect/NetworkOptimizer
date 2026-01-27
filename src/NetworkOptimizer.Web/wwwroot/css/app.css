@@ -2241,6 +2241,12 @@ select.form-control {
         padding: 0 0 0.75rem;
         flex-wrap: wrap;
         gap: 0.5rem;
+        position: relative;
+    }
+
+    .card-header .issue-type-chevron {
+        position: static;
+        transform: none;
     }
 
     /* Filter tabs mobile - wrap below title, compact sizing */
