@@ -103,6 +103,15 @@ public static class UniFiProductDatabase
         "USP-RPS-Pro",
         "USP-Plug",
         "USP-Strip",
+
+        // NAS devices (storage, no iperf3)
+        "UNAS-Pro",
+        "UNAS-Pro-4",
+        "UNAS-Pro-8",
+        "UNAS-2-B",
+        "UNAS-2-W",
+        "UNAS-4-B",
+        "UNAS-4-W",
     };
 
     /// <summary>
