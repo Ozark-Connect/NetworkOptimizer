@@ -317,8 +317,9 @@ public class PathAnalysisResult
 
             if (wirelessHop != null)
             {
-                // RX = parent receives from mesh AP = FromDevice, TX = parent transmits to mesh AP = ToDevice
-                return (wirelessHop.WirelessRxRateMbps!.Value * 1000L, wirelessHop.WirelessTxRateMbps!.Value * 1000L);
+                // Flip child AP's perspective to match direction mapping:
+                // Child TX (sends to parent) = FromDevice, Child RX (receives from parent) = ToDevice
+                return (wirelessHop.WirelessTxRateMbps!.Value * 1000L, wirelessHop.WirelessRxRateMbps!.Value * 1000L);
             }
         }
 
