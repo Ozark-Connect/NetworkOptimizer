@@ -656,14 +656,15 @@
 
         lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
 
-        // RX/TX speeds (RX first = "from device", TX = "to device")
+        // RX/TX speeds from parent AP's perspective (RX = FromDevice, TX = ToDevice)
+        // Mesh hop stores child's perspective, so flip: child TX → parent RX, child RX → parent TX
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
             var speedParts = new List<string>();
-            if (meshHop.WirelessRxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
             if (meshHop.WirelessTxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+            if (meshHop.WirelessRxRateMbps.HasValue)
+                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
