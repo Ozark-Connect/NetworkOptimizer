@@ -165,7 +165,8 @@
                                                            class="note-input"
                                                            placeholder="Add notes..."
                                                            value="@GetNote(GetNoteKey(rule))"
-                                                           @onchange="@(e => OnNoteChanged(rule, e.Value?.ToString()))"
+                                                           @oninput="@(e => OnNoteInput(rule, e.Value?.ToString()))"
+                                                           @onkeyup="@(e => OnNoteKeyUp(rule))"
                                                            @onfocus="@(() => currentEditingNote = GetNoteKey(rule))"
                                                            @onblur="@(() => { var k = GetNoteKey(rule); if (currentEditingNote == k) currentEditingNote = null; })" />
                                                     @if (IsNoteSaving(GetNoteKey(rule)))
@@ -292,8 +293,13 @@
     // Notes state
     private Dictionary<string, string> notes = new();
     private HashSet<string> savingNotes = new();
-    private Dictionary<string, DateTime> savedNotes = new();
+    private HashSet<string> savedNotes = new();
     private string? currentEditingNote;
+    private bool _disposed;
+
+    // Debounce timers per note key
+    private Dictionary<string, System.Timers.Timer> _noteDebounceTimers = new();
+    private Dictionary<string, System.Timers.Timer> _noteSavedTimers = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -337,27 +343,48 @@
 
     private bool IsNoteSaving(string noteKey) => savingNotes.Contains(noteKey);
 
-    private bool IsNoteJustSaved(string noteKey)
-    {
-        return savedNotes.TryGetValue(noteKey, out var savedTime)
-            && (DateTime.UtcNow - savedTime).TotalSeconds < 2;
-    }
+    private bool IsNoteJustSaved(string noteKey) => savedNotes.Contains(noteKey);
 
-    private async Task OnNoteChanged(UniFiPortForwardRule rule, string? newNote)
+    private void OnNoteInput(UniFiPortForwardRule rule, string? newNote)
     {
         var noteKey = GetNoteKey(rule);
+        // Update local state immediately for responsive UI
+        if (string.IsNullOrEmpty(newNote?.Trim()))
+            notes.Remove(noteKey);
+        else
+            notes[noteKey] = newNote ?? "";
+    }
+
+    private void OnNoteKeyUp(UniFiPortForwardRule rule)
+    {
+        var noteKey = GetNoteKey(rule);
+
+        // Reset debounce timer on each keystroke
+        if (_noteDebounceTimers.TryGetValue(noteKey, out var existingTimer))
+        {
+            existingTimer.Stop();
+            existingTimer.Dispose();
+        }
+        savedNotes.Remove(noteKey);
+
+        var timer = new System.Timers.Timer(800); // Match SpeedTestDetails debounce
+        timer.AutoReset = false;
+        timer.Elapsed += async (s, e) => await InvokeAsync(() => SaveNoteAsync(rule));
+        _noteDebounceTimers[noteKey] = timer;
+        timer.Start();
+    }
+
+    private async Task SaveNoteAsync(UniFiPortForwardRule rule)
+    {
+        if (_disposed) return;
+
+        var noteKey = GetNoteKey(rule);
+        var newNote = GetNote(noteKey);
         var trimmedNote = newNote?.Trim() ?? "";
         var hostIp = rule.Fwd ?? "";
         var port = rule.DstPort ?? "";
         var protocol = rule.Proto?.ToLowerInvariant() ?? "tcp";
 
-        // Update local state immediately
-        if (string.IsNullOrEmpty(trimmedNote))
-            notes.Remove(noteKey);
-        else
-            notes[noteKey] = trimmedNote;
-
-        // Save to database
         savingNotes.Add(noteKey);
         savedNotes.Remove(noteKey);
         StateHasChanged();
@@ -393,7 +420,30 @@
             }
 
             await Db.SaveChangesAsync();
-            savedNotes[noteKey] = DateTime.UtcNow;
+            savedNotes.Add(noteKey);
+
+            // Clear "Saved" indicator after 2 seconds using timer
+            if (_noteSavedTimers.TryGetValue(noteKey, out var existingSavedTimer))
+            {
+                existingSavedTimer.Stop();
+                existingSavedTimer.Dispose();
+            }
+
+            var savedTimer = new System.Timers.Timer(2000);
+            savedTimer.AutoReset = false;
+            savedTimer.Elapsed += async (s, e) =>
+            {
+                if (!_disposed)
+                {
+                    await InvokeAsync(() =>
+                    {
+                        savedNotes.Remove(noteKey);
+                        StateHasChanged();
+                    });
+                }
+            };
+            _noteSavedTimers[noteKey] = savedTimer;
+            savedTimer.Start();
         }
         catch (Exception ex)
         {
@@ -401,19 +451,11 @@
         }
         finally
         {
-            savingNotes.Remove(noteKey);
-            StateHasChanged();
-
-            // Clear "Saved" indicator after 2 seconds
-            _ = Task.Delay(2000).ContinueWith(_ => InvokeAsync(() =>
+            if (!_disposed)
             {
-                if (savedNotes.TryGetValue(noteKey, out var savedTime)
-                    && (DateTime.UtcNow - savedTime).TotalSeconds >= 2)
-                {
-                    savedNotes.Remove(noteKey);
-                    StateHasChanged();
-                }
-            }));
+                savingNotes.Remove(noteKey);
+                StateHasChanged();
+            }
         }
     }
 
@@ -657,6 +699,15 @@
 
     public void Dispose()
     {
+        _disposed = true;
         autoRefreshTimer?.Dispose();
+
+        foreach (var timer in _noteDebounceTimers.Values)
+            timer.Dispose();
+        _noteDebounceTimers.Clear();
+
+        foreach (var timer in _noteSavedTimers.Values)
+            timer.Dispose();
+        _noteSavedTimers.Clear();
     }
 }
