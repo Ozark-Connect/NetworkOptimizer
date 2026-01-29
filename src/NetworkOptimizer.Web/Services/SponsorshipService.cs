@@ -20,7 +20,7 @@ public class SponsorshipService : ISponsorshipService
     private static readonly (string Quip, string ActionText)[] Tiers =
     [
         // Level 1: 1-2 uses
-        ("The corgis say hi. They don't understand what GitHub Sponsors is either.", "Pat the corgis"),
+        ("The corgis say hi. They don't understand what GitHub Sponsors is either.", "Sponsor some treats"),
 
         // Level 2: 3-5 uses
         ("Still free. Still no VC funding. Still powered by coffee and spite.", "Fund the spite"),
@@ -32,19 +32,19 @@ public class SponsorshipService : ISponsorshipService
         ("At this point you've used this more than my wife talks to me. Sponsorship is cheaper than therapy.", "Fund my therapy"),
 
         // Level 5: 16-20 uses
-        ("You paid $15 to ship a patch cable from the UI Store. I'm just saying.", "Be the patch cable"),
+        ("You paid $15 to ship a patch cable from the UI Store. I'm just saying.", "Spare $5?"),
 
         // Level 6: 21-30 uses
-        ("Your Watchtower is working. I see you. I appreciate you.", "Keep the Watchtower lit"),
+        ("Your Watchtower is working. I see you. I appreciate you.", "Power the homelab"),
 
-        // Level 7: 31-40 uses (stats will be interpolated)
-        ("147,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Feed the Arkansas guy"),
+        // Level 7: 31-40 uses
+        ("147,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
         // Level 8: 41-50 uses
-        ("You've used this more than some former employers who paid me. Just saying.", "Pay me better"),
+        ("You've used this more than some former employers who paid me. Just saying.", "Money me"),
 
         // Level 9: 51-75 uses
-        ("A year of sponsorship costs less than shipping one sensor from the UI store. And I won't charge you $40 for Ground.", "Save on shipping"),
+        ("A year of sponsorship costs less than shipping one sensor from the UI store. And I won't charge you $40 for Ground.", "Combine orders, PIF"),
 
         // Level 10: 76+ uses
         ("We've been through a lot together. I expect you at Thanksgiving. Bring a side dish. And maybe sponsor me, idk.", "Become family"),
