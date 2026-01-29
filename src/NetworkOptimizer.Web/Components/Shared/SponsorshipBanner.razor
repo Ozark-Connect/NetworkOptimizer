@@ -48,11 +48,6 @@
 
             if (_nag != null)
             {
-                // Mark as shown (updates timestamp and level for daily limit)
-                if (!AlwaysShow)
-                {
-                    await SponsorshipService.MarkNagShownAsync();
-                }
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -64,6 +59,17 @@
 
     private async Task DismissAsync()
     {
+        if (_nag != null && !AlwaysShow)
+        {
+            try
+            {
+                await SponsorshipService.MarkNagDismissedAsync(_nag.Level);
+            }
+            catch
+            {
+                // Still hide it
+            }
+        }
         _nag = null;
         StateHasChanged();
     }

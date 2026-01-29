@@ -23,10 +23,11 @@ public interface ISponsorshipService
     Task<SponsorshipNag?> GetCurrentNagAsync(bool alwaysShow = false);
 
     /// <summary>
-    /// Marks the current nag level as shown, updating the timestamp.
-    /// Call this after displaying the nag to the user.
+    /// Marks the specified nag level as dismissed, updating the timestamp.
+    /// Call this when the user clicks Dismiss.
     /// </summary>
-    Task MarkNagShownAsync();
+    /// <param name="level">The level that was dismissed.</param>
+    Task MarkNagDismissedAsync(int level);
 
     /// <summary>
     /// Gets the current usage count (audits + speed tests + SQM bonus).

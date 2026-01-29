@@ -132,27 +132,22 @@ public class SponsorshipService : ISponsorshipService
         }
     }
 
-    public async Task MarkNagShownAsync()
+    public async Task MarkNagDismissedAsync(int level)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
 
-            // Get current shown level
-            var lastShownLevelStr = await settingsService.GetAsync(SystemSettingKeys.SponsorshipLastShownLevel);
-            var lastShownLevel = int.TryParse(lastShownLevelStr, out var level) ? level : 0;
-
-            // Increment and save
-            var newLevel = lastShownLevel + 1;
-            await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastShownLevel, newLevel.ToString());
+            // Save the dismissed level and timestamp
+            await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastShownLevel, level.ToString());
             await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastNagTime, DateTime.UtcNow.ToString("O"));
 
-            _logger.LogDebug("Marked sponsorship nag level {Level} as shown", newLevel);
+            _logger.LogDebug("Marked sponsorship nag level {Level} as dismissed", level);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error marking sponsorship nag as shown");
+            _logger.LogError(ex, "Error marking sponsorship nag as dismissed");
         }
     }
 
