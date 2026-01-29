@@ -101,7 +101,9 @@ public class VlanAnalyzer
                     DnsServers = vlan1Network.DnsServers,
                     DhcpEnabled = vlan1Network.DhcpEnabled,
                     NetworkIsolationEnabled = vlan1Network.NetworkIsolationEnabled,
-                    InternetAccessEnabled = vlan1Network.InternetAccessEnabled
+                    InternetAccessEnabled = vlan1Network.InternetAccessEnabled,
+                    UpnpLanEnabled = vlan1Network.UpnpLanEnabled,
+                    Enabled = vlan1Network.Enabled
                 };
             }
         }
@@ -124,6 +126,8 @@ public class VlanAnalyzer
         var dhcpEnabled = network.GetBoolOrDefault("dhcpd_enabled");
         var networkIsolationEnabled = network.GetBoolOrDefault("network_isolation_enabled");
         var internetAccessEnabled = network.GetBoolOrDefault("internet_access_enabled");
+        var upnpLanEnabled = network.GetBoolOrDefault("upnp_lan_enabled");
+        var networkEnabled = network.GetBoolOrDefault("enabled", true); // Defaults to true if not specified
         var firewallZoneId = network.GetStringOrNull("firewall_zone_id");
         // Network group: "LAN" for internal networks, "WAN"/"WAN2" for external
         var networkGroup = network.GetStringFromAny("networkgroup", "wan_networkgroup");
@@ -174,7 +178,9 @@ public class VlanAnalyzer
             InternetAccessEnabled = internetAccessEnabled,
             IsUniFiGuestNetwork = isUniFiGuestNetwork,
             FirewallZoneId = firewallZoneId,
-            NetworkGroup = networkGroup
+            NetworkGroup = networkGroup,
+            UpnpLanEnabled = upnpLanEnabled,
+            Enabled = networkEnabled
         };
     }
 
