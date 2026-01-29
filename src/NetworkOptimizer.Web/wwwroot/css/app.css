@@ -2626,6 +2626,10 @@ select.form-control {
         flex-wrap: wrap;
     }
 
+    .sponsorship-banner .banner-icon {
+        display: none;
+    }
+
     .sponsorship-banner .banner-separator {
         display: none;
     }
