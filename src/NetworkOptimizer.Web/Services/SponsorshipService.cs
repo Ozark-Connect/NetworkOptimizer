@@ -26,26 +26,26 @@ public class SponsorshipService : ISponsorshipService
         // Level 2: 3-5 uses - self-deprecating
         ("You've run more audits than I've had hot meals this week.", "Buy me a hot meal"),
 
-        // Level 3: 6-10 uses - appreciative
-        ("Your Watchtower is working. I see you. I appreciate you.", "Power the homelab"),
-
-        // Level 4: 11-15 uses - relatable UI Store dig
+        // Level 3: 6-10 uses - relatable UI Store dig
         ("You paid $15 to ship a patch cable from the UI Store. I'm just saying.", "Spare $5?"),
 
-        // Level 5: 16-20 uses - getting personal
+        // Level 4: 11-15 uses - getting personal
         ("At this point you've used this more than my wife talks to me. Sponsorship is cheaper than therapy.", "Fund my therapy"),
 
-        // Level 6: 21-30 uses - earned the edge
+        // Level 5: 16-20 uses - earned the edge
         ("Still free. Still no VC funding. Still powered by coffee and spite.", "Fund the spite"),
 
-        // Level 7: 31-40 uses - stats flex
+        // Level 6: 21-30 uses - stats flex
         ("147,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
-        // Level 8: 41-50 uses - former employer dig
+        // Level 7: 31-40 uses - former employer dig
         ("You've used this more than some former employers who paid me. Just saying.", "Money me"),
 
-        // Level 9: 51-75 uses - another UI Store dig
+        // Level 8: 41-50 uses - another UI Store dig
         ("A year of sponsorship costs less than shipping one sensor from the UI store. And I won't charge you $40 for Ground.", "Combine orders, PIF"),
+
+        // Level 9: 51-75 uses - appreciative (for heavy users)
+        ("Your Watchtower is working. I see you. I appreciate you.", "Power the homelab"),
 
         // Level 10: 76+ uses - we're family now
         ("We've been through a lot together. I expect you at Thanksgiving. Bring a side dish. And maybe sponsor me, idk.", "Become family"),
