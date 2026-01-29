@@ -1587,6 +1587,15 @@ select.form-control {
     color: var(--warning-color);
 }
 
+.alert-warning a {
+    color: #fbbf24;
+    text-decoration: underline;
+}
+
+.alert-warning a:hover {
+    color: #fcd34d;
+}
+
 .alert-danger {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid var(--danger-color);

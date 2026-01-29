@@ -620,31 +620,6 @@ public class SqmService : ISqmService
 
         return true;
     }
-
-    public async Task<SpeedtestResult> RunSpeedtestAsync()
-    {
-        _logger.LogInformation("Running speedtest");
-
-        if (!_connectionService.IsConnected)
-        {
-            throw new InvalidOperationException("Cannot run speedtest: controller not connected");
-        }
-
-        // TODO(agent-infrastructure): Trigger speedtest on gateway agent.
-        // Requires: Agent with iperf3/speedtest-cli installed, endpoint to trigger test,
-        // and callback to report results. Consider using existing Iperf3SpeedTestService.
-
-        await Task.Delay(15000); // Simulate speedtest duration
-
-        return new SpeedtestResult
-        {
-            Timestamp = DateTime.UtcNow,
-            Download = 285.4,
-            Upload = 35.2,
-            Latency = 12.5,
-            Server = "Speedtest Server"
-        };
-    }
 }
 
 public class SqmStatusData

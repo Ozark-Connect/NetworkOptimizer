@@ -138,14 +138,6 @@ public class SpeedtestIntegration
     }
 
     /// <summary>
-    /// Generate speedtest command for shell script
-    /// </summary>
-    public string GenerateSpeedtestCommand()
-    {
-        return $"speedtest --accept-license --format=json --interface={_config.Interface}";
-    }
-
-    /// <summary>
     /// Calculate variance from baseline as percentage
     /// </summary>
     public double CalculateVariancePercent(double measuredSpeed, double baselineSpeed)

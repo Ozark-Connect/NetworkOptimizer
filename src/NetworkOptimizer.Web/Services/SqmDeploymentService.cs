@@ -679,60 +679,6 @@ WantedBy=multi-user.target
     }
 
     /// <summary>
-    /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment)
-    /// </summary>
-    public async Task<SpeedtestResult?> RunSpeedtestAsync(SqmConfig config)
-    {
-        var settings = await GetGatewaySettingsAsync();
-        if (settings == null || string.IsNullOrEmpty(settings.Host))
-        {
-            return null;
-        }
-
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
-
-        try
-        {
-            var cmd = $"speedtest --accept-license --format=json --interface={config.Interface}";
-            if (!string.IsNullOrEmpty(config.PreferredSpeedtestServerId))
-            {
-                cmd += $" --server-id={config.PreferredSpeedtestServerId}";
-            }
-
-            var result = await RunCommandAsync(cmd);
-            if (!result.success)
-            {
-                _logger.LogError("Speedtest failed: {Error}", result.output);
-                return null;
-            }
-
-            // Parse JSON result
-            var json = System.Text.Json.JsonDocument.Parse(result.output);
-            var root = json.RootElement;
-
-            return new SpeedtestResult
-            {
-                Timestamp = DateTime.UtcNow,
-                Download = root.GetProperty("download").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000,
-                Upload = root.GetProperty("upload").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000,
-                Latency = root.GetProperty("ping").GetProperty("latency").GetDouble(),
-                Server = root.GetProperty("server").GetProperty("name").GetString() ?? ""
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to run speedtest");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Generate a baseline based on connection type patterns.
     /// Uses empirical data patterns scaled to the nominal speed.
     /// </summary>

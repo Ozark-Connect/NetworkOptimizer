@@ -68,11 +68,4 @@ public interface ISqmService
     /// </summary>
     /// <returns>True if SQM was successfully disabled, false otherwise.</returns>
     Task<bool> DisableSqmAsync();
-
-    /// <summary>
-    /// Run a speedtest on the gateway.
-    /// </summary>
-    /// <returns>A <see cref="SpeedtestResult"/> with the speedtest results.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the controller is not connected.</exception>
-    Task<SpeedtestResult> RunSpeedtestAsync();
 }

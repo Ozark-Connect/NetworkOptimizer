@@ -258,7 +258,7 @@ public class ScriptGenerator
             ? ""
             : $" --server-id={_config.PreferredSpeedtestServerId}";
         sb.AppendLine("# Run speedtest");
-        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --format=json --interface=$INTERFACE{serverIdArg})");
+        sb.AppendLine($"speedtest_output=$(speedtest --accept-license --accept-gdpr --format=json --interface=$INTERFACE{serverIdArg})");
         sb.AppendLine();
         sb.AppendLine("# Parse download speed (bytes/sec to Mbps)");
         sb.AppendLine("download_speed_bytes=$(echo \"$speedtest_output\" | jq .download.bandwidth)");
