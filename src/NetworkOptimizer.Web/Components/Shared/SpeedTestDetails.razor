@@ -959,7 +959,7 @@
     }
 
     /// <summary>
-    /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 10%)
+    /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 9%)
     /// </summary>
     private bool IsLinkAsymmetric()
     {
@@ -1041,6 +1041,13 @@
 
         if (!IsLinkAsymmetric())
         {
+            // Symmetric: use the higher of the two rates (typically Tx/ToDevice)
+            var (rxKbps, txKbps) = GetDirectionalRates();
+            if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
+            {
+                var maxRateKbps = Math.Max(rxKbps.Value, txKbps.Value);
+                return new MarkupString(FormatSpeed((int)(maxRateKbps / 1000)));
+            }
             return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));
         }
 
@@ -1106,7 +1113,31 @@
             return $"{speedStr} link{devicePart}";
         }
 
-        // Fall back to existing description for symmetric links
+        // Symmetric: use the higher of the two rates for consistency with max speed display
+        if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
+        {
+            var maxRateMbps = Math.Max(rxKbps.Value, txKbps.Value) / 1000.0;
+
+            // Format speed with appropriate unit
+            string speedStr;
+            if (maxRateMbps >= 1000)
+            {
+                speedStr = $"{maxRateMbps / 1000.0:F1} Gbps";
+            }
+            else
+            {
+                speedStr = $"{maxRateMbps:F0} Mbps";
+            }
+
+            // Extract device info from existing description (after " at ")
+            var description = PathAnalysis.Path.BottleneckDescription;
+            var atIndex = description.IndexOf(" at ", StringComparison.Ordinal);
+            var devicePart = atIndex >= 0 ? description.Substring(atIndex) : "";
+
+            return $"{speedStr} link{devicePart}";
+        }
+
+        // Fall back to existing description if no directional rates
         return PathAnalysis.Path.BottleneckDescription;
     }
 

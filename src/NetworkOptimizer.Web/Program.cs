@@ -181,6 +181,9 @@ builder.Services.AddSingleton<GatewaySpeedTestService>();
 // Register Client Speed Test service (singleton - receives browser/iperf3 client results)
 builder.Services.AddSingleton<ClientSpeedTestService>();
 
+// Register Topology Snapshot service (singleton - captures wireless rate snapshots during speed tests)
+builder.Services.AddSingleton<TopologySnapshotService>();
+
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
 // Enable via environment variable: Iperf3Server__Enabled=true
 // Registered as singleton so it can be injected to check status (e.g., startup failure)
@@ -666,6 +669,24 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
         download = result.DownloadMbps,
         upload = result.UploadMbps
     });
+}).RequireCors("SpeedTestCors");
+
+// Public endpoint for capturing topology snapshots during speed tests
+// Called by OpenSpeedTest ~3 seconds into a test to capture wireless rates mid-test
+app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext context, TopologySnapshotService snapshotService) =>
+{
+    // Get client IP (handle proxies)
+    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(forwardedFor))
+    {
+        clientIp = forwardedFor.Split(',')[0].Trim();
+    }
+
+    // Fire-and-forget - capture snapshot asynchronously, don't block response
+    _ = snapshotService.CaptureSnapshotAsync(clientIp);
+
+    return Results.Ok(new { success = true });
 }).RequireCors("SpeedTestCors");
 
 // Authenticated endpoint for viewing client speed test results
