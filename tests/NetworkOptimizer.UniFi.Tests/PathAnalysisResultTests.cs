@@ -775,8 +775,9 @@ public class PathAnalysisResultTests
     [Theory]
     [InlineData(1000_000, 1000_000, false)]  // Equal
     [InlineData(1000_000, 950_000, false)]   // 5% difference
-    [InlineData(1000_000, 900_000, false)]   // 10% difference - exactly at threshold (not >10%)
-    [InlineData(1000_000, 899_000, true)]    // 10.1% difference - just over threshold
+    [InlineData(1000_000, 910_000, false)]   // 9% difference - exactly at threshold (not >9%)
+    [InlineData(1000_000, 909_000, true)]    // 9.1% difference - just over threshold
+    [InlineData(1000_000, 900_000, true)]    // 10% difference
     [InlineData(1000_000, 800_000, true)]    // 20% difference
     [InlineData(1200_000, 600_000, true)]    // 50% difference
     public void IsAsymmetric_VariousDifferences_ReturnsCorrectly(long rx, long tx, bool expected)
