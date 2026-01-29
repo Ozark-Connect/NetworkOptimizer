@@ -90,36 +90,33 @@ public class SponsorshipService : ISponsorshipService
                 return null;
             }
 
-            // Determine the next level to show
-            var nextLevel = lastShownLevel + 1;
+            var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
 
-            // If we've shown all earned levels, we're done (until usage increases)
-            if (nextLevel > earnedLevel)
+            // Within 24h of last dismiss - stay hidden (unless alwaysShow for Settings preview)
+            if (hoursSinceLastNag < 24 && lastShownLevel > 0 && !alwaysShow)
+            {
+                return null;
+            }
+
+            // Determine level to show (next level after last dismissed)
+            var levelToShow = lastShownLevel + 1;
+
+            // Check if we've earned this level
+            if (levelToShow > earnedLevel)
             {
                 if (!alwaysShow)
                 {
-                    return null;
+                    return null; // All earned levels shown
                 }
-                // For alwaysShow (Settings page), show the highest earned level
-                nextLevel = earnedLevel;
+                levelToShow = earnedLevel; // For Settings preview
             }
 
-            // Check if 24 hours have passed since last nag (unless alwaysShow)
-            if (!alwaysShow)
-            {
-                var hoursSinceLastNag = (DateTime.UtcNow - lastNagTime).TotalHours;
-                if (hoursSinceLastNag < 24)
-                {
-                    return null;
-                }
-            }
-
-            // Return the nag for the next level
-            var tierIndex = Math.Clamp(nextLevel - 1, 0, Tiers.Length - 1);
+            // Return the nag
+            var tierIndex = Math.Clamp(levelToShow - 1, 0, Tiers.Length - 1);
             var tier = Tiers[tierIndex];
 
             return new SponsorshipNag(
-                Level: nextLevel,
+                Level: levelToShow,
                 Quip: tier.Quip,
                 ActionText: tier.ActionText,
                 ActionUrl: SponsorUrl
@@ -132,22 +129,22 @@ public class SponsorshipService : ISponsorshipService
         }
     }
 
-    public async Task MarkNagDismissedAsync(int level)
+    public async Task MarkLevelShownAsync(int level)
     {
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var settingsService = scope.ServiceProvider.GetRequiredService<ISystemSettingsService>();
 
-            // Save the dismissed level and timestamp
+            // Save the shown level and timestamp
             await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastShownLevel, level.ToString());
             await settingsService.SetAsync(SystemSettingKeys.SponsorshipLastNagTime, DateTime.UtcNow.ToString("O"));
 
-            _logger.LogDebug("Marked sponsorship nag level {Level} as dismissed", level);
+            _logger.LogDebug("Marked sponsorship nag level {Level} as shown", level);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error marking sponsorship nag as dismissed");
+            _logger.LogError(ex, "Error marking sponsorship nag level as shown");
         }
     }
 
