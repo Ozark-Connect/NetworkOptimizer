@@ -173,7 +173,8 @@ public class SponsorshipService : ISponsorshipService
 
         await Task.WhenAll(auditCountTask, speedTestCountTask, sqmWan1Task, sqmWan2Task);
 
-        var count = auditCountTask.Result + speedTestCountTask.Result;
+        // Audits count as 1, speed tests count as 0.5
+        var count = auditCountTask.Result + (speedTestCountTask.Result / 2);
 
         // Add SQM bonus if enabled on either WAN
         var sqmEnabled = sqmWan1Task.Result?.Enabled == true || sqmWan2Task.Result?.Enabled == true;
