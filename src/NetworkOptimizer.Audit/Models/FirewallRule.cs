@@ -195,4 +195,42 @@ public class FirewallRule
     /// When true, destination ports are INVERTED (means "all ports EXCEPT these")
     /// </summary>
     public bool DestinationMatchOppositePorts { get; init; }
+
+    // === Connection State Matching ===
+
+    /// <summary>
+    /// Connection state type: ALL, CUSTOM, or null (defaults to ALL behavior)
+    /// </summary>
+    public string? ConnectionStateType { get; init; }
+
+    /// <summary>
+    /// Specific connection states when ConnectionStateType is CUSTOM.
+    /// Values: NEW, ESTABLISHED, RELATED, INVALID
+    /// </summary>
+    public List<string>? ConnectionStates { get; init; }
+
+    /// <summary>
+    /// Returns true if this rule blocks NEW connections (not just INVALID).
+    /// Rules that only block INVALID connections don't provide inter-VLAN isolation.
+    /// </summary>
+    public bool BlocksNewConnections()
+    {
+        // If no connection state type specified, assume ALL (blocks everything including NEW)
+        if (string.IsNullOrEmpty(ConnectionStateType))
+            return true;
+
+        // ALL means it blocks all connection states including NEW
+        if (ConnectionStateType.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // CUSTOM - check if NEW is in the list
+        if (ConnectionStateType.Equals("CUSTOM", StringComparison.OrdinalIgnoreCase))
+        {
+            return ConnectionStates?.Any(s =>
+                s.Equals("NEW", StringComparison.OrdinalIgnoreCase)) == true;
+        }
+
+        // Unknown type - be conservative and assume it might block NEW
+        return true;
+    }
 }

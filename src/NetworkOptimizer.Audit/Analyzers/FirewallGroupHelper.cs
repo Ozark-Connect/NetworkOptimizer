@@ -172,18 +172,25 @@ public static class FirewallGroupHelper
     /// <returns>True if the rule effectively blocks traffic on the specified port and protocol</returns>
     public static bool RuleBlocksPortAndProtocol(Models.FirewallRule rule, string port, string protocol)
     {
-        // If ports are inverted, specified ports are NOT blocked
-        if (rule.DestinationMatchOppositePorts)
+        // No port restriction means all ports are affected
+        var hasPortRestriction = !string.IsNullOrEmpty(rule.DestinationPort);
+
+        if (hasPortRestriction)
         {
-            if (IncludesPort(rule.DestinationPort, port))
-                return false; // Port is explicitly excluded from blocking
+            if (rule.DestinationMatchOppositePorts)
+            {
+                // Inverted: specified ports are NOT blocked
+                if (IncludesPort(rule.DestinationPort, port))
+                    return false; // Port is explicitly excluded from blocking
+            }
+            else
+            {
+                // Normal mode: only specified ports are blocked
+                if (!IncludesPort(rule.DestinationPort, port))
+                    return false; // Port not in the blocked list
+            }
         }
-        else
-        {
-            // Normal mode - port must be specified to be blocked
-            if (!IncludesPort(rule.DestinationPort, port))
-                return false;
-        }
+        // If no port restriction, all ports are blocked - continue to check protocol
 
         // Check if protocol is blocked
         return BlocksProtocol(rule.Protocol, rule.MatchOppositeProtocol, protocol);

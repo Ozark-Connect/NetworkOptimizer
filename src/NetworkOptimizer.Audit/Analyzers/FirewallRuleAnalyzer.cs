@@ -272,18 +272,18 @@ public class FirewallRuleAnalyzer
                 if (isAnySource && (hasSpecificPorts || hasWebDomains))
                     continue;
 
-                var direction = isAnySource ? "any source" : "any destination";
+                var directionDesc = isAnySource ? "from any source" : "to any destination";
                 issues.Add(new AuditIssue
                 {
                     Type = IssueTypes.BroadRule,
                     Severity = AuditSeverity.Recommended,
-                    Message = $"Broad rule '{rule.Name}' allows traffic from/to {direction}",
+                    Message = $"Broad rule '{rule.Name}' allows traffic {directionDesc}",
                     Metadata = new Dictionary<string, object>
                     {
                         { "rule_name", rule.Name ?? rule.Id },
                         { "rule_index", rule.Index },
                         { "ruleset", rule.Ruleset ?? "default" },
-                        { "direction", direction }
+                        { "direction", directionDesc }
                     },
                     RuleId = "FW-BROAD-001",
                     ScoreImpact = 5
@@ -357,8 +357,15 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Check for missing inter-VLAN isolation rules.
-    /// Networks with NetworkIsolationEnabled are already isolated by the system "Isolated Networks" rule.
-    /// UniFi Guest networks (purpose="guest") have implicit isolation at switch/AP level.
+    ///
+    /// IMPORTANT: UniFi's "Network Isolation" feature only blocks OUTBOUND traffic FROM the isolated network.
+    /// It does NOT block INBOUND traffic TO the isolated network. Therefore:
+    /// - For SOURCE networks (IoT, Guest): we filter by !NetworkIsolationEnabled because if they have
+    ///   isolation enabled, they can't initiate outbound connections anyway.
+    /// - For DESTINATION networks (Management, Security): we must check ALL networks regardless of their
+    ///   isolation status, because isolation doesn't protect them from inbound access.
+    ///
+    /// UniFi Guest networks (purpose="guest") have implicit isolation at switch/AP level, so skip them.
     /// </summary>
     /// <param name="rules">Firewall rules to analyze</param>
     /// <param name="networks">Network configurations</param>
@@ -367,19 +374,25 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // Find networks by purpose (only those without system isolation enabled need manual firewall rules)
-        // UniFi Guest networks have implicit isolation at switch/AP level, so skip them too
+        // SOURCE networks: filter by !NetworkIsolationEnabled because if they have isolation enabled,
+        // they can't initiate outbound connections anyway (isolation blocks outbound).
+        // UniFi Guest networks have implicit isolation at switch/AP level, so skip them too.
         var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
         var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
-        var securityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security && !n.NetworkIsolationEnabled).ToList();
+        // Security networks as SOURCE (for checking Security -> Management)
+        var securityNetworksAsSource = networks.Where(n => n.Purpose == NetworkPurpose.Security && !n.NetworkIsolationEnabled).ToList();
 
-        // Trusted networks that untrusted networks should be isolated FROM
+        // DESTINATION networks: do NOT filter by isolation status because UniFi isolation only blocks
+        // outbound, not inbound. We need to verify other networks can't reach these sensitive networks.
+        var allSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security).ToList();
+        var allManagementNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
+
+        // Other trusted networks
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
         var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
-        var managementNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
 
-        // Combine trusted networks for easier iteration
-        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(managementNetworks).ToList();
+        // Combine trusted networks for easier iteration (includes Management)
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(allManagementNetworks).ToList();
 
         // IoT should be isolated from: Corporate, Home, Management, Security
         foreach (var iot in iotNetworks)
@@ -391,7 +404,8 @@ public class FirewallRuleAnalyzer
             }
 
             // IoT should also be isolated from Security (cameras)
-            foreach (var security in securityNetworks)
+            // Use allSecurityNetworks because isolation doesn't block inbound to Security
+            foreach (var security in allSecurityNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, iot, security, "FW-ISOLATION-IOT-SEC");
             }
@@ -407,7 +421,8 @@ public class FirewallRuleAnalyzer
             }
 
             // Guest should be isolated from Security (cameras)
-            foreach (var security in securityNetworks)
+            // Use allSecurityNetworks because isolation doesn't block inbound to Security
+            foreach (var security in allSecurityNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, guest, security, "FW-ISOLATION-GUEST-SEC");
             }
@@ -419,9 +434,29 @@ public class FirewallRuleAnalyzer
             }
         }
 
+        // Security should be isolated from: Corporate, Home
+        // (IoT -> Security and Guest -> Security already checked above)
+        // Security networks contain cameras and NVRs - protect them from lateral movement.
+        // Check ALL Security networks regardless of isolation status - isolation only blocks outbound,
+        // not inbound access from other networks.
+        foreach (var security in allSecurityNetworks)
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, corp, security, "FW-ISOLATION-SEC");
+            }
+            foreach (var home in homeNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, home, security, "FW-ISOLATION-SEC");
+            }
+        }
+
         // Management should be isolated from: Corporate, Home, Security
-        // Management networks should only be accessible to specific admin devices, not entire networks
-        foreach (var mgmt in managementNetworks.Where(n => !n.NetworkIsolationEnabled))
+        // (IoT -> Management is already checked above via trustedNetworks)
+        // Management networks should only be accessible to specific admin devices, not entire networks.
+        // Check ALL Management networks regardless of isolation status - isolation only blocks outbound,
+        // not inbound access from other networks.
+        foreach (var mgmt in allManagementNetworks)
         {
             foreach (var corp in corporateNetworks)
             {
@@ -431,7 +466,9 @@ public class FirewallRuleAnalyzer
             {
                 CheckAndAddIsolationIssue(issues, rules, home, mgmt, "FW-ISOLATION-MGMT");
             }
-            foreach (var security in securityNetworks)
+            // Use securityNetworksAsSource - only check Security networks without isolation as source
+            // (if Security has isolation, it can't reach Management anyway)
+            foreach (var security in securityNetworksAsSource)
             {
                 CheckAndAddIsolationIssue(issues, rules, security, mgmt, "FW-ISOLATION-SEC-MGMT");
             }
@@ -441,7 +478,7 @@ public class FirewallRuleAnalyzer
         // This catches rules that explicitly open up traffic between isolated network types
         var allIotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
         var allGuestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest).ToList();
-        var allSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security).ToList();
+        // allSecurityNetworks and allManagementNetworks already defined above
 
         // Check for allow rules between IoT and trusted/security networks
         foreach (var iot in allIotNetworks)
@@ -474,7 +511,7 @@ public class FirewallRuleAnalyzer
         }
 
         // Check for allow rules between Corporate/Home/Security and Management
-        foreach (var mgmt in managementNetworks)
+        foreach (var mgmt in allManagementNetworks)
         {
             foreach (var corp in corporateNetworks)
             {
@@ -487,6 +524,19 @@ public class FirewallRuleAnalyzer
             foreach (var security in allSecurityNetworks)
             {
                 CheckForProblematicAllowRules(issues, rules, security, mgmt, externalZoneId);
+            }
+        }
+
+        // Check for allow rules between Corporate/Home and Security
+        foreach (var security in allSecurityNetworks)
+        {
+            foreach (var corp in corporateNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, corp, security, externalZoneId);
+            }
+            foreach (var home in homeNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, home, security, externalZoneId);
             }
         }
 
@@ -723,82 +773,140 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Helper to find and flag ALLOW rules between networks that should be isolated.
     /// Rules targeting the External zone are skipped - they're for outbound internet access, not inter-VLAN traffic.
+    /// Uses FirewallRuleEvaluator to account for rule ordering - only flags allow rules that actually take effect.
+    ///
+    /// Note: This is unidirectional - checks sourceNetwork → destNetwork only.
+    /// The caller must specify the correct direction based on the isolation requirement:
+    /// - For isolated networks (IoT, Guest): Check isolated → other (outbound from isolated)
+    /// - For protected networks (Management, Security): Check other → protected (inbound to protected)
     /// </summary>
     private void CheckForProblematicAllowRules(
         List<AuditIssue> issues,
         List<FirewallRule> rules,
-        NetworkInfo network1,
-        NetworkInfo network2,
+        NetworkInfo sourceNetwork,
+        NetworkInfo destNetwork,
         string? externalZoneId)
     {
         // Don't check network against itself
-        if (network1.Id == network2.Id)
+        if (sourceNetwork.Id == destNetwork.Id)
             return;
 
-        // Find all ALLOW rules between these two networks (either direction)
-        // Skip rules that explicitly target the External zone - they're for outbound internet, not inter-VLAN
-        // Also checks if IP-based source/destination CIDRs cover the network's subnet
-        var allowRules = rules.Where(r =>
-            r.Enabled &&
+        // Filter to non-predefined, non-external-zone rules for evaluation
+        var relevantRules = rules.Where(r =>
             !r.Predefined &&
-            r.ActionType.IsAllowAction() &&
-            !IsExternalZoneRule(r, externalZoneId) &&
-            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)))
+            !IsExternalZoneRule(r, externalZoneId))
             .ToList();
 
-        foreach (var rule in allowRules)
-        {
-            // Determine direction for the message
-            var isForward = HasNetworkPair(rule, network1, network2);
-            var sourceNet = isForward ? network1 : network2;
-            var destNet = isForward ? network2 : network1;
-
-            issues.Add(new AuditIssue
-            {
-                Type = IssueTypes.IsolationBypassed,
-                Severity = AuditSeverity.Critical,
-                Message = $"Rule '{rule.Name}' allows traffic from {sourceNet.Name} ({sourceNet.Purpose}) to {destNet.Name} ({destNet.Purpose}) which should be isolated",
-                Metadata = new Dictionary<string, object>
-                {
-                    { "rule_name", rule.Name ?? rule.Id },
-                    { "rule_index", rule.Index },
-                    { "source_network", sourceNet.Name },
-                    { "source_purpose", sourceNet.Purpose.ToString() },
-                    { "dest_network", destNet.Name },
-                    { "dest_purpose", destNet.Purpose.ToString() },
-                    { "recommendation", "Delete this rule or restrict to specific ports/protocols if necessary" }
-                },
-                RuleId = "FW-ISOLATION-BYPASS",
-                ScoreImpact = 12
-            });
-        }
+        // Check only the specified direction (source → dest)
+        CheckDirectionForProblematicAllowRule(issues, relevantRules, sourceNetwork, destNetwork);
     }
 
     /// <summary>
-    /// Helper to check for isolation rule between two networks and add issue if missing
+    /// Check a single direction (source → dest) for problematic allow rules.
+    /// </summary>
+    private void CheckDirectionForProblematicAllowRule(
+        List<AuditIssue> issues,
+        List<FirewallRule> rules,
+        NetworkInfo sourceNet,
+        NetworkInfo destNet)
+    {
+        // Use FirewallRuleEvaluator to find the effective rule for this traffic direction
+        var evalResult = FirewallRuleEvaluator.Evaluate(rules,
+            r => HasNetworkPair(r, sourceNet, destNet));
+
+        // Only flag if traffic is effectively allowed (allow rule takes effect)
+        if (!evalResult.IsAllowed)
+            return;
+
+        var effectiveRule = evalResult.EffectiveRule!;
+
+        issues.Add(new AuditIssue
+        {
+            Type = IssueTypes.IsolationBypassed,
+            Severity = AuditSeverity.Critical,
+            Message = $"Rule '{effectiveRule.Name}' allows traffic from {sourceNet.Name} ({sourceNet.Purpose}) to {destNet.Name} ({destNet.Purpose}) which should be isolated",
+            Metadata = new Dictionary<string, object>
+            {
+                { "rule_name", effectiveRule.Name ?? effectiveRule.Id },
+                { "rule_index", effectiveRule.Index },
+                { "source_network", sourceNet.Name },
+                { "source_purpose", sourceNet.Purpose.ToString() },
+                { "dest_network", destNet.Name },
+                { "dest_purpose", destNet.Purpose.ToString() },
+                { "recommendation", "Delete this rule or restrict to specific ports/protocols if necessary" }
+            },
+            RuleId = "FW-ISOLATION-BYPASS",
+            ScoreImpact = 12
+        });
+    }
+
+    /// <summary>
+    /// Helper to check for isolation rule between two networks and add issue if missing.
+    /// Checks if sourceNetwork can reach destNetwork.
+    ///
+    /// Protection can come from:
+    /// 1. Source network has isolation enabled (blocks all outbound from source)
+    /// 2. A firewall rule specifically blocking sourceNetwork → destNetwork
+    ///
+    /// Note: Destination's isolation status is irrelevant - it only blocks the destination's outbound,
+    /// not incoming traffic from other networks.
     /// </summary>
     private void CheckAndAddIsolationIssue(
         List<AuditIssue> issues,
         List<FirewallRule> rules,
-        NetworkInfo network1,
-        NetworkInfo network2,
+        NetworkInfo sourceNetwork,
+        NetworkInfo destNetwork,
         string ruleIdPrefix)
     {
         // Don't check network against itself
-        if (network1.Id == network2.Id)
+        if (sourceNetwork.Id == destNetwork.Id)
             return;
 
-        // Check for isolation rules using both network IDs and CIDR coverage
-        var hasIsolationRule = rules.Any(r =>
-            r.Enabled &&
-            r.ActionType.IsBlockAction() &&
-            (HasNetworkPair(r, network1, network2) || HasNetworkPair(r, network2, network1)));
+        // If source network has isolation enabled, it can't reach the destination (or anywhere)
+        if (sourceNetwork.NetworkIsolationEnabled)
+            return;
+
+        // Evaluate firewall rules considering rule ordering (lower index = higher priority)
+        var evalResult = FirewallRuleEvaluator.Evaluate(rules,
+            r => HasNetworkPair(r, sourceNetwork, destNetwork));
+
+        // For isolation, the rule must:
+        // 1. Be a block action (checked by IsBlocked)
+        // 2. Block NEW connections (checked by IsBlocked via BlocksNewConnections)
+        // 3. Block ALL traffic, not just specific ports/protocols/domains
+        var hasIsolationRule = evalResult.IsBlocked && BlocksAllTraffic(evalResult.EffectiveRule!);
+
+        if (evalResult.BlockRuleEclipsed)
+        {
+            _logger.LogDebug("Isolation {Source} → {Dest}: Allow rule '{AllowRule}' (index={AllowIndex}) eclipses block rule '{BlockRule}' (index={BlockIndex})",
+                sourceNetwork.Name, destNetwork.Name,
+                evalResult.EffectiveRule?.Name, evalResult.EffectiveRule?.Index,
+                evalResult.EclipsedBlockRule?.Name, evalResult.EclipsedBlockRule?.Index);
+        }
+
+        if (hasIsolationRule)
+        {
+            _logger.LogDebug("Isolation {Source} → {Dest} satisfied by rule '{RuleName}' (src={SrcTarget}, dst={DstTarget}, index={Index})",
+                sourceNetwork.Name, destNetwork.Name, evalResult.EffectiveRule!.Name,
+                evalResult.EffectiveRule.SourceMatchingTarget, evalResult.EffectiveRule.DestinationMatchingTarget, evalResult.EffectiveRule.Index);
+        }
 
         if (!hasIsolationRule)
         {
+            // If there's a non-predefined effective allow rule, CheckForProblematicAllowRules will catch it
+            // with a more specific "Isolation Bypassed" message - skip the generic "Missing Isolation".
+            // But if the allow rule is predefined (like "Allow All Traffic"), we must report "Missing Isolation"
+            // because CheckForProblematicAllowRules filters out predefined rules.
+            if (evalResult.IsAllowed && evalResult.EffectiveRule?.Predefined != true)
+            {
+                _logger.LogDebug("Isolation {Source} → {Dest}: Skipping 'Missing Isolation' - non-predefined allow rule '{RuleName}' will be reported as 'Isolation Bypassed'",
+                    sourceNetwork.Name, destNetwork.Name, evalResult.EffectiveRule?.Name);
+                return;
+            }
+
             // Determine severity based on network types
-            // Critical: Guest to sensitive networks, IoT to Management
-            var isCritical = IsCriticalIsolationMissing(network1.Purpose, network2.Purpose);
+            // Critical: Guest to sensitive networks, anything to Management
+            var isCritical = IsCriticalIsolationMissing(sourceNetwork.Purpose, destNetwork.Purpose);
             var severity = isCritical ? AuditSeverity.Critical : AuditSeverity.Recommended;
             var scoreImpact = isCritical ? 12 : 7;
 
@@ -806,14 +914,14 @@ public class FirewallRuleAnalyzer
             {
                 Type = IssueTypes.MissingIsolation,
                 Severity = severity,
-                Message = $"No explicit isolation rule between {network1.Name} ({network1.Purpose}) and {network2.Name} ({network2.Purpose})",
+                Message = $"No rule blocking {sourceNetwork.Name} ({sourceNetwork.Purpose}) from reaching {destNetwork.Name} ({destNetwork.Purpose})",
                 Metadata = new Dictionary<string, object>
                 {
-                    { "network1", network1.Name },
-                    { "network1Purpose", network1.Purpose.ToString() },
-                    { "network2", network2.Name },
-                    { "network2Purpose", network2.Purpose.ToString() },
-                    { "recommendation", "Enable network isolation or add firewall rule to block inter-VLAN traffic" }
+                    { "source_network", sourceNetwork.Name },
+                    { "source_purpose", sourceNetwork.Purpose.ToString() },
+                    { "dest_network", destNetwork.Name },
+                    { "dest_purpose", destNetwork.Purpose.ToString() },
+                    { "recommendation", $"Add firewall rule to block {sourceNetwork.Name} → {destNetwork.Name}, or enable isolation on {sourceNetwork.Name}" }
                 },
                 RuleId = ruleIdPrefix,
                 ScoreImpact = scoreImpact
@@ -876,12 +984,15 @@ public class FirewallRuleAnalyzer
         {
             // Find allow rules from this network that permit broad external access
             // Skip predefined/system rules (like "Allow Return Traffic")
+            // Also filter out allow rules that are eclipsed by block rules with lower index
             var broadAllowRules = rules.Where(rule =>
                 rule.Enabled &&
                 !rule.Predefined &&
                 rule.ActionType.IsAllowAction() &&
                 RuleAppliesToNetwork(rule, network) &&
-                IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds)).ToList();
+                IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds) &&
+                // Only report if the allow rule actually takes effect (not eclipsed by a block rule)
+                !IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId)).ToList();
 
             foreach (var rule in broadAllowRules)
             {
@@ -1130,16 +1241,31 @@ public class FirewallRuleAnalyzer
 
         foreach (var mgmtNetwork in isolatedMgmtNetworks)
         {
-            _logger.LogDebug("Checking firewall access for isolated management network '{Name}'", mgmtNetwork.Name);
+            _logger.LogDebug("Checking firewall access for isolated management network '{Name}' (ID: {Id})", mgmtNetwork.Name, mgmtNetwork.Id);
 
             // Check for UniFi cloud access rule (config-based only)
             // Must have: source = management network, destination web domain = ui.com, TCP allowed
-            var hasUniFiAccess = rules.Any(r =>
+            // Also check if the allow rule is eclipsed by a block rule with lower index
+
+            // Debug: log all rules with ui.com domain
+            foreach (var r in rules.Where(r => r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true))
+            {
+                var appliesToSource = AppliesToSourceNetwork(r, mgmtNetwork.Id);
+                var allowsTcp = FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp");
+                _logger.LogDebug("UniFi rule candidate '{Name}': enabled={Enabled}, isAllow={IsAllow}, appliesToMgmt={AppliesTo}, allowsTcp={AllowsTcp}, sourceTarget={SourceTarget}, sourceNets={SourceNets}",
+                    r.Name, r.Enabled, r.ActionType.IsAllowAction(), appliesToSource, allowsTcp,
+                    r.SourceMatchingTarget, string.Join(",", r.SourceNetworkIds ?? new List<string>()));
+            }
+
+            var unifiAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 r.WebDomains?.Any(d => d.Contains("ui.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
+
+            var hasUniFiAccess = unifiAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, unifiAllowRule, mgmtNetwork.Id, externalZoneId);
+            _logger.LogDebug("UniFi access check: foundRule={FoundRule}, hasAccess={HasAccess}", unifiAllowRule?.Name, hasUniFiAccess);
 
             if (!hasUniFiAccess)
             {
@@ -1158,18 +1284,21 @@ public class FirewallRuleAnalyzer
                     },
                     RuleId = "FW-MGMT-001",
                     ScoreImpact = 0,
-                    RecommendedAction = "Add firewall rule allowing TCP 443 to ui.com for UniFi cloud management"
+                    RecommendedAction = "Add firewall rule allowing TCP 443 to ui.com for UniFi cloud management. If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
                 });
             }
 
             // Check for AFC (Automated Frequency Coordination) traffic rule - needed for 6GHz WiFi
             // Must have: source = management network, destination web domain = qcs.qualcomm.com, TCP allowed
-            var hasAfcAccess = rules.Any(r =>
+            // Also check if the allow rule is eclipsed by a block rule with lower index
+            var afcAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 r.WebDomains?.Any(d => d.Contains("qcs.qualcomm.com", StringComparison.OrdinalIgnoreCase)) == true &&
                 FirewallGroupHelper.AllowsProtocol(r.Protocol, r.MatchOppositeProtocol, "tcp"));
+
+            var hasAfcAccess = afcAllowRule != null && !IsAllowRuleEclipsedByBlockRule(rules, afcAllowRule, mgmtNetwork.Id, externalZoneId);
 
             if (!hasAfcAccess)
             {
@@ -1188,18 +1317,22 @@ public class FirewallRuleAnalyzer
                     },
                     RuleId = "FW-MGMT-002",
                     ScoreImpact = 0,
-                    RecommendedAction = "Add firewall rule allowing AFC traffic for 6GHz WiFi coordination"
+                    RecommendedAction = "Add firewall rule allowing AFC traffic for 6GHz WiFi coordination. If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
                 });
             }
 
             // Check for NTP access rule - needed for time sync (required for AFC)
             // NTP uses UDP port 123 - domain filtering doesn't help since NTP talks directly to IP addresses
-            var hasNtpAccess = rules.Any(r =>
+            // Also check if the allow rule is eclipsed by a block rule with lower index
+            var ntpAllowRule = rules.FirstOrDefault(r =>
                 r.Enabled &&
                 r.ActionType.IsAllowAction() &&
                 AppliesToSourceNetwork(r, mgmtNetwork.Id) &&
                 FirewallGroupHelper.RuleAllowsPortAndProtocol(r, "123", "udp") &&
                 TargetsExternalZone(r, externalZoneId));
+
+            var hasNtpAccess = ntpAllowRule != null &&
+                !IsNonWebAllowRuleEclipsed(rules, ntpAllowRule, mgmtNetwork.Id, externalZoneId, "123", "udp");
 
             if (!hasNtpAccess)
             {
@@ -1218,7 +1351,7 @@ public class FirewallRuleAnalyzer
                     },
                     RuleId = "FW-MGMT-004",
                     ScoreImpact = 0,
-                    RecommendedAction = "Add firewall rule allowing NTP traffic (UDP port 123 to External zone)"
+                    RecommendedAction = "Add firewall rule allowing NTP traffic (UDP port 123 to External zone). If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
                 });
             }
 
@@ -1231,9 +1364,10 @@ public class FirewallRuleAnalyzer
             // Known carrier domains - add more as we discover them for different carriers:
             // - T-Mobile: trafficmanager.net, t-mobile.com
             // - Generic: gsma.com (used by multiple carriers)
+            // Also check if the allow rule is eclipsed by a block rule with lower index
             if (has5GDevice)
             {
-                var has5GModemAccess = rules.Any(r =>
+                var modem5GAllowRule = rules.FirstOrDefault(r =>
                     r.Enabled &&
                     r.ActionType.IsAllowAction() &&
                     Allows5GRegistrationDomains(r) &&
@@ -1243,6 +1377,9 @@ public class FirewallRuleAnalyzer
                      IsSourceIpBased(r) ||
                      IsSourceMacBased(r) ||
                      IsAnySource(r)));
+
+                var has5GModemAccess = modem5GAllowRule != null &&
+                    !Is5GModemAllowRuleEclipsed(rules, modem5GAllowRule, mgmtNetwork, externalZoneId);
 
                 if (!has5GModemAccess)
                 {
@@ -1261,7 +1398,7 @@ public class FirewallRuleAnalyzer
                         },
                         RuleId = "FW-MGMT-003",
                         ScoreImpact = 0,
-                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic (trafficmanager.net, t-mobile.com, gsma.com)"
+                        RecommendedAction = "Add firewall rule allowing 5G/LTE modem registration traffic (trafficmanager.net, t-mobile.com, gsma.com). If rule exists, ensure it isn't overridden by a block rule higher in the rule order."
                     });
                 }
             }
@@ -1320,6 +1457,72 @@ public class FirewallRuleAnalyzer
     {
         return rule.SourceMatchingTarget?.Equals("CLIENT", StringComparison.OrdinalIgnoreCase) == true
             && rule.SourceClientMacs?.Count > 0;
+    }
+
+    /// <summary>
+    /// Checks if a block rule affects the same source as an allow rule.
+    /// Used to determine if a block rule would eclipse an allow rule.
+    /// This method examines the allow rule's actual source specification rather than
+    /// requiring a network ID to be passed in.
+    /// </summary>
+    /// <param name="blockRule">The block rule to check</param>
+    /// <param name="allowRule">The allow rule whose source we're checking against</param>
+    /// <returns>True if the block rule affects the same source as the allow rule</returns>
+    private static bool BlockRuleAffectsSameSource(FirewallRule blockRule, FirewallRule allowRule)
+    {
+        // Block rule with ANY source affects all sources
+        if (IsAnySource(blockRule))
+            return true;
+
+        // Check based on allow rule's source type
+        var allowSourceTarget = allowRule.SourceMatchingTarget?.ToUpperInvariant() ?? "";
+
+        switch (allowSourceTarget)
+        {
+            case "ANY":
+                // Allow rule matches everything - any block rule source is a subset
+                return true;
+
+            case "NETWORK":
+                // Allow rule targets specific networks
+                if (blockRule.SourceMatchingTarget?.Equals("NETWORK", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var allowNetworks = allowRule.SourceNetworkIds ?? new List<string>();
+                    if (allowNetworks.Count == 0) return false;
+
+                    // Check if any network in the allow rule is affected by the block rule
+                    return allowNetworks.Any(netId => AppliesToSourceNetwork(blockRule, netId));
+                }
+                return false;
+
+            case "IP":
+                // Allow rule targets specific IPs
+                if (blockRule.SourceMatchingTarget?.Equals("IP", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var allowIps = allowRule.SourceIps ?? new List<string>();
+                    var blockIps = blockRule.SourceIps ?? new List<string>();
+                    // Check if any IP overlaps
+                    return allowIps.Any(ip => blockIps.Contains(ip));
+                }
+                // Network-based block rules could theoretically contain the IPs,
+                // but that requires subnet matching which is complex - be conservative
+                return false;
+
+            case "CLIENT":
+                // Allow rule targets specific MACs
+                if (blockRule.SourceMatchingTarget?.Equals("CLIENT", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var allowMacs = allowRule.SourceClientMacs ?? new List<string>();
+                    var blockMacs = blockRule.SourceClientMacs ?? new List<string>();
+                    return allowMacs.Any(mac =>
+                        blockMacs.Contains(mac, StringComparer.OrdinalIgnoreCase));
+                }
+                return false;
+
+            default:
+                // Unknown source type or legacy format - fall back to checking if block uses ANY
+                return false;
+        }
     }
 
     /// <summary>
@@ -1504,10 +1707,57 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Check if a firewall rule matches a specific source->destination network pair.
     /// Also checks if IP-based source/destination CIDRs cover the network's subnet.
+    /// Includes zone matching - rule's zones must match the networks' zones.
     /// </summary>
     private static bool HasNetworkPair(FirewallRule rule, NetworkInfo sourceNetwork, NetworkInfo destNetwork)
     {
+        // Check zone matching first - rule's zones must match the networks' zones
+        // If the rule has a source zone, it must match the source network's zone
+        if (!string.IsNullOrEmpty(rule.SourceZoneId) && !string.IsNullOrEmpty(sourceNetwork.FirewallZoneId))
+        {
+            if (!string.Equals(rule.SourceZoneId, sourceNetwork.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        // If the rule has a destination zone, it must match the destination network's zone
+        if (!string.IsNullOrEmpty(rule.DestinationZoneId) && !string.IsNullOrEmpty(destNetwork.FirewallZoneId))
+        {
+            if (!string.Equals(rule.DestinationZoneId, destNetwork.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
         return AppliesToSourceNetwork(rule, sourceNetwork) && AppliesToDestinationNetwork(rule, destNetwork);
+    }
+
+    /// <summary>
+    /// Check if a firewall rule blocks ALL traffic (no port/protocol/domain restrictions).
+    /// A rule that only blocks specific ports, protocols, or web domains doesn't provide
+    /// full network isolation - traffic on other ports/protocols can still pass.
+    /// </summary>
+    private static bool BlocksAllTraffic(FirewallRule rule)
+    {
+        // Must be a block action
+        if (!rule.ActionType.IsBlockAction())
+            return false;
+
+        // Protocol must be "all" or empty (meaning all protocols)
+        if (!string.IsNullOrEmpty(rule.Protocol) &&
+            !rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // No port restrictions
+        if (!string.IsNullOrEmpty(rule.SourcePort) || !string.IsNullOrEmpty(rule.DestinationPort))
+            return false;
+
+        // No web domain restrictions (rules targeting specific domains don't block all traffic)
+        if (rule.WebDomains != null && rule.WebDomains.Count > 0)
+            return false;
+
+        // No app category restrictions
+        if (rule.AppCategoryIds != null && rule.AppCategoryIds.Count > 0)
+            return false;
+
+        return true;
     }
 
     /// <summary>
@@ -1523,6 +1773,163 @@ public class FirewallRuleAnalyzer
 
         // Check if the rule's destination zone matches the external zone
         return string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Checks if a specific allow rule is eclipsed by a block rule with lower index.
+    /// A block rule eclipses the allow rule if it:
+    /// 1. Has a lower index (higher priority)
+    /// 2. Applies to the same source network
+    /// 3. Would actually block the same traffic (not just narrower/different traffic)
+    /// </summary>
+    private bool IsAllowRuleEclipsedByBlockRule(
+        List<FirewallRule> rules,
+        FirewallRule allowRule,
+        string sourceNetworkId,
+        string? externalZoneId)
+    {
+        var eclipsingRule = rules.FirstOrDefault(r =>
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            r.Index < allowRule.Index &&
+            AppliesToSourceNetwork(r, sourceNetworkId) &&
+            // Block rule must affect the same traffic
+            WouldBlockSameTraffic(r, allowRule, externalZoneId));
+
+        if (eclipsingRule != null)
+        {
+            _logger.LogDebug("Allow rule '{AllowRule}' (index {AllowIndex}) eclipsed by block rule '{BlockRule}' (index {BlockIndex}, destTarget={DestTarget})",
+                allowRule.Name, allowRule.Index, eclipsingRule.Name, eclipsingRule.Index,
+                eclipsingRule.DestinationMatchingTarget);
+        }
+
+        return eclipsingRule != null;
+    }
+
+    /// <summary>
+    /// Checks if a non-WEB allow rule (port/protocol based) is eclipsed by a block rule.
+    /// Used for NTP access, etc. where we need to check specific port/protocol.
+    /// </summary>
+    private bool IsNonWebAllowRuleEclipsed(
+        List<FirewallRule> rules,
+        FirewallRule allowRule,
+        string sourceNetworkId,
+        string? externalZoneId,
+        string port,
+        string protocol)
+    {
+        var eclipsingRule = rules.FirstOrDefault(r =>
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            r.Index < allowRule.Index &&
+            // WEB-based block rules target specific web domains, not arbitrary port/protocol traffic
+            !string.Equals(r.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase) &&
+            AppliesToSourceNetwork(r, sourceNetworkId) &&
+            TargetsExternalZone(r, externalZoneId) &&
+            FirewallGroupHelper.RuleBlocksPortAndProtocol(r, port, protocol));
+
+        if (eclipsingRule != null)
+        {
+            _logger.LogDebug("Non-WEB allow rule '{AllowRule}' (index {AllowIndex}) eclipsed by block rule '{BlockRule}' (index {BlockIndex}) for port {Port}/{Protocol}",
+                allowRule.Name, allowRule.Index, eclipsingRule.Name, eclipsingRule.Index, port, protocol);
+        }
+
+        return eclipsingRule != null;
+    }
+
+    /// <summary>
+    /// Checks if a 5G modem WEB-based allow rule is eclipsed by a block rule.
+    /// The 5G modem allow rule can have different source types (NETWORK, IP, MAC, ANY),
+    /// so we need to check based on the actual source type of the allow rule.
+    /// </summary>
+    /// <param name="rules">All firewall rules</param>
+    /// <param name="allowRule">The 5G modem allow rule to check</param>
+    /// <param name="mgmtNetwork">The management network (used for NETWORK-based sources, includes subnet for IP/CIDR matching)</param>
+    /// <param name="externalZoneId">The external zone ID</param>
+    /// <returns>True if the allow rule is eclipsed by a block rule</returns>
+    private bool Is5GModemAllowRuleEclipsed(
+        List<FirewallRule> rules,
+        FirewallRule allowRule,
+        NetworkInfo mgmtNetwork,
+        string? externalZoneId)
+    {
+        // Determine source matching based on the allow rule's source type
+        Func<FirewallRule, bool> sourceMatches;
+        var sourceType = allowRule.SourceMatchingTarget?.ToUpperInvariant() ?? "";
+
+        if (sourceType == "NETWORK")
+        {
+            // For network-based sources, use NetworkInfo overload which also checks IP/CIDR coverage
+            sourceMatches = blockRule => AppliesToSourceNetwork(blockRule, mgmtNetwork);
+        }
+        else
+        {
+            // For IP, MAC, or ANY sources, use BlockRuleAffectsSameSource
+            // which checks if the block rule affects the same source specification
+            sourceMatches = blockRule => BlockRuleAffectsSameSource(blockRule, allowRule);
+        }
+
+        var eclipsingRule = rules.FirstOrDefault(r =>
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            r.Index < allowRule.Index &&
+            sourceMatches(r) &&
+            WouldBlockSameTraffic(r, allowRule, externalZoneId));
+
+        if (eclipsingRule != null)
+        {
+            _logger.LogDebug("5G modem allow rule '{AllowRule}' (index {AllowIndex}, sourceType={SourceType}) eclipsed by block rule '{BlockRule}' (index {BlockIndex})",
+                allowRule.Name, allowRule.Index, sourceType, eclipsingRule.Name, eclipsingRule.Index);
+        }
+
+        return eclipsingRule != null;
+    }
+
+    /// <summary>
+    /// Determines if a block rule would actually block the traffic allowed by an allow rule.
+    /// A narrow block rule (specific domains, IPs, ports) doesn't eclipse a broader allow rule
+    /// targeting different destinations.
+    /// </summary>
+    private static bool WouldBlockSameTraffic(FirewallRule blockRule, FirewallRule allowRule, string? externalZoneId)
+    {
+        // If the allow rule targets specific web domains (like ui.com),
+        // only block rules that affect HTTPS traffic to those domains would eclipse it
+        if (allowRule.WebDomains?.Any() == true)
+        {
+            // Block rule with WEB destination only eclipses if it blocks the same domains
+            if (string.Equals(blockRule.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase))
+            {
+                // If block rule has no specific domains, it's a broad block
+                if (blockRule.WebDomains == null || !blockRule.WebDomains.Any())
+                    return true;
+
+                // Check if any blocked domain overlaps with allowed domains
+                return allowRule.WebDomains.Any(allowDomain =>
+                    blockRule.WebDomains.Any(blockDomain =>
+                        allowDomain.Contains(blockDomain, StringComparison.OrdinalIgnoreCase) ||
+                        blockDomain.Contains(allowDomain, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            // For other destination types (ANY, NETWORK, IP), check if block rule would block HTTPS
+            // Web traffic uses TCP 443 - if block rule doesn't block that, it doesn't eclipse
+            if (!FirewallGroupHelper.RuleBlocksPortAndProtocol(blockRule, "443", "tcp"))
+                return false;
+
+            // Block rule blocks HTTPS - but only eclipses if it targets External zone
+            // A rule with destTarget=ANY but destZone=Internal doesn't block external web traffic
+            return TargetsExternalZone(blockRule, externalZoneId);
+        }
+
+        // For non-WEB allow rules:
+        // Block rule with destination=ANY blocks everything
+        if (string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Check if block rule targets the same destination zone
+        if (TargetsExternalZone(blockRule, externalZoneId))
+            return true;
+
+        return false;
     }
 
     /// <summary>
@@ -1576,56 +1983,62 @@ public class FirewallRuleAnalyzer
 
     /// <summary>
     /// Check if a network has internet access blocked via a firewall rule.
-    /// A rule blocks internet if ALL conditions are met:
-    /// - Rule is enabled
-    /// - Action is block/drop/reject/deny
-    /// - Source matching target is "NETWORK" and network_ids contains this network's ID
-    /// - Destination zone ID matches the External zone
-    /// - Destination matching target is "ANY" (all destinations in the zone)
-    /// - Protocol is "all" (blocks all traffic, not just specific ports)
+    /// Uses FirewallRuleEvaluator to account for rule ordering - an allow rule with
+    /// lower index could eclipse a block rule, meaning internet is not actually blocked.
     /// </summary>
     private bool IsInternetBlockedViaFirewall(
         NetworkInfo network,
         List<FirewallRule> firewallRules,
         string externalZoneId)
     {
-        foreach (var rule in firewallRules)
+        // Use FirewallRuleEvaluator to find the effective rule for internet traffic
+        // Predicate matches rules that target this network's internet access
+        var evalResult = FirewallRuleEvaluator.Evaluate(firewallRules, rule =>
+            MatchesInternetTrafficPattern(rule, network.Id, externalZoneId));
+
+        if (evalResult.IsBlocked)
         {
-            // Rule must be enabled
-            if (!rule.Enabled)
-                continue;
-
-            // Action must be a block action
-            if (!rule.ActionType.IsBlockAction())
-                continue;
-
-            // Source must be NETWORK type with this network's ID in the list
-            if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(network.Id))
-                continue;
-
-            // Destination zone must be the External zone
-            if (!string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Destination must target ANY (all destinations in the zone)
-            if (!string.Equals(rule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Protocol must be "all" to block ALL traffic (not just specific ports/protocols)
-            if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
-                continue;
-
             _logger.LogDebug(
-                "Found firewall rule '{RuleName}' that blocks internet for network '{NetworkName}'",
-                rule.Name, network.Name);
-
+                "Network '{NetworkName}' has internet blocked by rule '{RuleName}' (index={Index})",
+                network.Name, evalResult.EffectiveRule!.Name, evalResult.EffectiveRule.Index);
             return true;
         }
 
+        if (evalResult.BlockRuleEclipsed)
+        {
+            _logger.LogDebug(
+                "Network '{NetworkName}' has block rule '{BlockRule}' eclipsed by allow rule '{AllowRule}'",
+                network.Name, evalResult.EclipsedBlockRule?.Name, evalResult.EffectiveRule?.Name);
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// Check if a rule matches the pattern for blocking internet access from a specific network.
+    /// </summary>
+    private static bool MatchesInternetTrafficPattern(FirewallRule rule, string networkId, string externalZoneId)
+    {
+        // Source must be NETWORK type with this network's ID in the list
+        if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(networkId))
+            return false;
+
+        // Destination zone must be the External zone
+        if (!string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Destination must target ANY (all destinations in the zone)
+        if (!string.Equals(rule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Protocol must be "all" to affect ALL traffic (not just specific ports/protocols)
+        if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return true;
     }
 
     /// <summary>
