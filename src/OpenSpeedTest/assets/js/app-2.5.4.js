@@ -15,6 +15,7 @@ window.onload = function() {
 (function(OpenSpeedTest) {
   var Status;
   var ProG;
+  var snapshotCallbackFired = false;
   var Callback = function(callback) {
     if (callback && typeof callback === "function") {
       callback();
@@ -816,6 +817,7 @@ window.onload = function() {
       Show.ip();
     }
     function runTasks() {
+      snapshotCallbackFired = false;
       if (addEvent) {
         removeEvts();
         addEvent = false;
@@ -927,6 +929,14 @@ window.onload = function() {
             dlDuration += extraTime;
           }
           downloadTimeing = (window.performance.now() - downloadTime) / 1000;
+          // Capture wireless rate snapshot at 3 seconds (fire and forget)
+          if (!snapshotCallbackFired && Startit == 1 && downloadTimeing >= 3) {
+            snapshotCallbackFired = true;
+            fetch(saveDataURL.replace('/results', '/topology-snapshots'), {
+              method: 'POST',
+              mode: 'cors'
+            }).catch(function() {});
+          }
           reportCurrentSpeed("dl");
           Show.showStatus("Mbps download");
           Show.mainGaugeProgress(currentSpeed);

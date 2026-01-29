@@ -6,6 +6,7 @@ using NetworkOptimizer.Storage;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -22,6 +23,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly SystemSettingsService _settingsService;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly UniFiConnectionService _connectionService;
+    private readonly TopologySnapshotService _snapshotService;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -43,7 +45,8 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         UniFiSshService sshService,
         SystemSettingsService settingsService,
         INetworkPathAnalyzer pathAnalyzer,
-        UniFiConnectionService connectionService)
+        UniFiConnectionService connectionService,
+        TopologySnapshotService snapshotService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
@@ -52,6 +55,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         _settingsService = settingsService;
         _pathAnalyzer = pathAnalyzer;
         _connectionService = connectionService;
+        _snapshotService = snapshotService;
     }
 
     /// <summary>
@@ -398,7 +402,11 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                     _logger.LogWarning("Download test failed: {Error}", downloadResult.output);
                 }
 
-                // Brief delay between tests for stability
+                // Brief delay to let link rates stabilize, then capture snapshot
+                await Task.Delay(1000);
+                _ = _snapshotService.CaptureSnapshotAsync(host);
+
+                // Brief delay before Phase 2 (upload test)
                 await Task.Delay(500);
 
                 // Step 4: Run upload test (client -> device) - "To Device"
@@ -708,15 +716,26 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     /// <summary>
     /// Analyze the network path and grade the speed test result.
     /// Retry logic is built into CalculatePathAsync.
+    /// Uses snapshot captured during the test to pick max wireless rates.
     /// </summary>
     private async Task AnalyzePathAsync(Iperf3Result result, string targetHost)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}",
-                targetHost, result.LocalIp ?? "auto");
+            // Get snapshot if available (captured between Phase 1 and Phase 2)
+            var snapshot = _snapshotService.GetSnapshot(targetHost);
 
-            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp);
+            _logger.LogDebug("Analyzing network path to {Host} from {SourceIp}{Snapshot}",
+                targetHost, result.LocalIp ?? "auto",
+                snapshot != null ? " (with snapshot)" : "");
+
+            // When comparing with a snapshot, invalidate cache to get fresh "current" rates
+            if (snapshot != null)
+            {
+                _pathAnalyzer.InvalidateTopologyCache();
+            }
+
+            var path = await _pathAnalyzer.CalculatePathAsync(targetHost, result.LocalIp, retryOnFailure: true, snapshot);
             var analysis = _pathAnalyzer.AnalyzeSpeedTest(
                 path,
                 result.DownloadMbps,
@@ -727,6 +746,10 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
                 result.UploadBytes);
 
             result.PathAnalysis = analysis;
+
+            // Clean up snapshot after use
+            if (snapshot != null)
+                _snapshotService.RemoveSnapshot(targetHost);
 
             if (analysis.Path.IsValid)
             {

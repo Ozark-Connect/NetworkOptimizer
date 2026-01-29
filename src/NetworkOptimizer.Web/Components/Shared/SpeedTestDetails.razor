@@ -656,14 +656,15 @@
 
         lines2.Add("<div class='wifi-tooltip-header'>Wireless Mesh</div>");
 
-        // RX/TX speeds (RX first = "from device", TX = "to device")
+        // RX/TX speeds from parent AP's perspective (RX = FromDevice, TX = ToDevice)
+        // Mesh hop stores child's perspective, so flip: child TX → parent RX, child RX → parent TX
         if (meshHop.WirelessTxRateMbps.HasValue || meshHop.WirelessRxRateMbps.HasValue)
         {
             var speedParts = new List<string>();
-            if (meshHop.WirelessRxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
             if (meshHop.WirelessTxRateMbps.HasValue)
-                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+                speedParts.Add($"<span class='wifi-speed-rx'>RX {meshHop.WirelessTxRateMbps.Value} Mbps</span>");
+            if (meshHop.WirelessRxRateMbps.HasValue)
+                speedParts.Add($"<span class='wifi-speed-tx'>TX {meshHop.WirelessRxRateMbps.Value} Mbps</span>");
             lines2.Add($"<div class='wifi-tooltip-row wifi-tooltip-speed'>{string.Join(" · ", speedParts)}</div>");
         }
 
@@ -958,7 +959,7 @@
     }
 
     /// <summary>
-    /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 10%)
+    /// Check if the Wi-Fi link is asymmetric (TX ≠ RX by more than 9%)
     /// </summary>
     private bool IsLinkAsymmetric()
     {
@@ -1040,6 +1041,13 @@
 
         if (!IsLinkAsymmetric())
         {
+            // Symmetric: use the higher of the two rates (typically Tx/ToDevice)
+            var (rxKbps, txKbps) = GetDirectionalRates();
+            if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
+            {
+                var maxRateKbps = Math.Max(rxKbps.Value, txKbps.Value);
+                return new MarkupString(FormatSpeed((int)(maxRateKbps / 1000)));
+            }
             return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));
         }
 
@@ -1105,7 +1113,31 @@
             return $"{speedStr} link{devicePart}";
         }
 
-        // Fall back to existing description for symmetric links
+        // Symmetric: use the higher of the two rates for consistency with max speed display
+        if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
+        {
+            var maxRateMbps = Math.Max(rxKbps.Value, txKbps.Value) / 1000.0;
+
+            // Format speed with appropriate unit
+            string speedStr;
+            if (maxRateMbps >= 1000)
+            {
+                speedStr = $"{maxRateMbps / 1000.0:F1} Gbps";
+            }
+            else
+            {
+                speedStr = $"{maxRateMbps:F0} Mbps";
+            }
+
+            // Extract device info from existing description (after " at ")
+            var description = PathAnalysis.Path.BottleneckDescription;
+            var atIndex = description.IndexOf(" at ", StringComparison.Ordinal);
+            var devicePart = atIndex >= 0 ? description.Substring(atIndex) : "";
+
+            return $"{speedStr} link{devicePart}";
+        }
+
+        // Fall back to existing description if no directional rates
         return PathAnalysis.Path.BottleneckDescription;
     }
 

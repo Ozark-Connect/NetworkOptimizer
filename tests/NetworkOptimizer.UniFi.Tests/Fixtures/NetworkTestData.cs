@@ -609,6 +609,211 @@ public static class NetworkTestData
         };
     }
 
+    /// <summary>
+    /// Creates a wireless client path with asymmetric TX/RX rates (AP's perspective).
+    /// Useful for testing snapshot comparison logic.
+    /// </summary>
+    /// <param name="wirelessTxRateMbps">TX rate (AP to client, ToDevice direction)</param>
+    /// <param name="wirelessRxRateMbps">RX rate (client to AP, FromDevice direction)</param>
+    /// <param name="wiredSpeedMbps">Wired link speeds</param>
+    public static NetworkPath CreateAsymmetricWirelessClientPath(
+        int wirelessTxRateMbps = 1200,
+        int wirelessRxRateMbps = 866,
+        int wiredSpeedMbps = 1000)
+    {
+        var minWirelessRate = Math.Min(wirelessTxRateMbps, wirelessRxRateMbps);
+        var theoreticalMax = Math.Min(minWirelessRate, wiredSpeedMbps);
+        return new NetworkPath
+        {
+            SourceHost = ServerIp,
+            SourceMac = ServerMac,
+            SourceVlanId = 1,
+            SourceNetworkName = "Default",
+            DestinationHost = ClientWirelessIp,
+            DestinationMac = ClientWirelessMac,
+            DestinationVlanId = 1,
+            DestinationNetworkName = "Default",
+            RequiresRouting = false,
+            TheoreticalMaxMbps = theoreticalMax,
+            RealisticMaxMbps = (int)(theoreticalMax * 0.60),
+            IsValid = true,
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop
+                {
+                    Order = 0,
+                    Type = HopType.WirelessClient,
+                    DeviceMac = ClientWirelessMac,
+                    DeviceName = "client-wifi",
+                    DeviceIp = ClientWirelessIp,
+                    // Asymmetric: IngressSpeed = TX (ToDevice), EgressSpeed = RX (FromDevice)
+                    IngressSpeedMbps = wirelessTxRateMbps,
+                    EgressSpeedMbps = wirelessRxRateMbps,
+                    IsWirelessEgress = true,
+                    IsWirelessIngress = true,
+                    WirelessEgressBand = "na",
+                    WirelessIngressBand = "na",
+                    WirelessChannel = 36,
+                    WirelessSignalDbm = -55,
+                    WirelessTxRateMbps = wirelessTxRateMbps,
+                    WirelessRxRateMbps = wirelessRxRateMbps
+                },
+                new NetworkHop
+                {
+                    Order = 1,
+                    Type = HopType.AccessPoint,
+                    DeviceMac = ApWiredMac,
+                    DeviceName = "AP-Wired",
+                    DeviceModel = "U6-Pro",
+                    DeviceIp = ApWiredIp,
+                    IngressSpeedMbps = wirelessRxRateMbps,
+                    IsWirelessIngress = true,
+                    WirelessIngressBand = "na",
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 2,
+                    Type = HopType.Switch,
+                    DeviceMac = SwitchMac,
+                    DeviceName = "Switch",
+                    DeviceModel = "USW-24-PoE",
+                    DeviceIp = SwitchIp,
+                    IngressPort = 5,
+                    IngressSpeedMbps = wiredSpeedMbps,
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 3,
+                    Type = HopType.Gateway,
+                    DeviceMac = GatewayMac,
+                    DeviceName = "Gateway",
+                    DeviceModel = "UDM-Pro",
+                    DeviceIp = GatewayIp,
+                    IngressPort = 1,
+                    IngressSpeedMbps = wiredSpeedMbps,
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 4,
+                    Type = HopType.Server,
+                    DeviceMac = ServerMac,
+                    DeviceName = "Server",
+                    DeviceIp = ServerIp,
+                    IngressPort = 1,
+                    IngressSpeedMbps = wiredSpeedMbps
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    /// Creates a mesh AP target path (testing the AP itself, not a client behind it).
+    /// Used for testing GetDirectionalRatesFromPath() with mesh backhaul.
+    /// </summary>
+    /// <param name="meshTxRateMbps">Mesh TX rate (child AP sends to parent)</param>
+    /// <param name="meshRxRateMbps">Mesh RX rate (child AP receives from parent)</param>
+    /// <param name="wiredSpeedMbps">Wired link speeds</param>
+    public static NetworkPath CreateMeshApTargetPath(
+        int meshTxRateMbps = 1200,
+        int meshRxRateMbps = 866,
+        int wiredSpeedMbps = 1000)
+    {
+        var minMeshRate = Math.Min(meshTxRateMbps, meshRxRateMbps);
+        var theoreticalMax = Math.Min(minMeshRate, wiredSpeedMbps);
+        return new NetworkPath
+        {
+            SourceHost = ServerIp,
+            SourceMac = ServerMac,
+            SourceVlanId = 1,
+            SourceNetworkName = "Default",
+            DestinationHost = ApMeshIp,
+            DestinationMac = ApMeshMac,
+            DestinationVlanId = 1,
+            DestinationNetworkName = "Default",
+            TargetIsAccessPoint = true,
+            RequiresRouting = false,
+            TheoreticalMaxMbps = theoreticalMax,
+            RealisticMaxMbps = (int)(theoreticalMax * 0.60),
+            IsValid = true,
+            Hops = new List<NetworkHop>
+            {
+                // Mesh AP (target) - has wireless backhaul to parent AP
+                new NetworkHop
+                {
+                    Order = 0,
+                    Type = HopType.AccessPoint,
+                    DeviceMac = ApMeshMac,
+                    DeviceName = "AP-Mesh",
+                    DeviceModel = "U6-Mesh",
+                    DeviceIp = ApMeshIp,
+                    IsWirelessEgress = true,
+                    WirelessEgressBand = "na",
+                    WirelessChannel = 36,
+                    WirelessSignalDbm = -55,
+                    // From child AP's perspective: TX = sends to parent, RX = receives from parent
+                    WirelessTxRateMbps = meshTxRateMbps,
+                    WirelessRxRateMbps = meshRxRateMbps
+                },
+                // Parent AP (wired)
+                new NetworkHop
+                {
+                    Order = 1,
+                    Type = HopType.AccessPoint,
+                    DeviceMac = ApWiredMac,
+                    DeviceName = "AP-Wired",
+                    DeviceModel = "U6-Pro",
+                    DeviceIp = ApWiredIp,
+                    IsWirelessIngress = true,
+                    WirelessIngressBand = "na",
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 2,
+                    Type = HopType.Switch,
+                    DeviceMac = SwitchMac,
+                    DeviceName = "Switch",
+                    DeviceModel = "USW-24-PoE",
+                    DeviceIp = SwitchIp,
+                    IngressPort = 5,
+                    IngressSpeedMbps = wiredSpeedMbps,
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 3,
+                    Type = HopType.Gateway,
+                    DeviceMac = GatewayMac,
+                    DeviceName = "Gateway",
+                    DeviceModel = "UDM-Pro",
+                    DeviceIp = GatewayIp,
+                    IngressPort = 1,
+                    IngressSpeedMbps = wiredSpeedMbps,
+                    EgressPort = 1,
+                    EgressSpeedMbps = wiredSpeedMbps
+                },
+                new NetworkHop
+                {
+                    Order = 4,
+                    Type = HopType.Server,
+                    DeviceMac = ServerMac,
+                    DeviceName = "Server",
+                    DeviceIp = ServerIp,
+                    IngressPort = 1,
+                    IngressSpeedMbps = wiredSpeedMbps
+                }
+            }
+        };
+    }
+
     #endregion
 
     #region Topology Creators
