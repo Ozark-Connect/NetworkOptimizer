@@ -2634,9 +2634,14 @@ select.form-control {
         display: none;
     }
 
+    .sponsorship-banner .banner-text strong {
+        font-size: 0.95rem;
+    }
+
     .sponsorship-banner .banner-commercial {
         display: block;
         margin-top: 0.25rem;
+        font-size: 0.8rem;
     }
 
     .sponsorship-banner .banner-actions {
