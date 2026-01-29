@@ -183,6 +183,7 @@ builder.Services.AddSingleton<ClientSpeedTestService>();
 
 // Register Topology Snapshot service (singleton - captures wireless rate snapshots during speed tests)
 builder.Services.AddSingleton<TopologySnapshotService>();
+builder.Services.AddSingleton<ITopologySnapshotService>(sp => sp.GetRequiredService<TopologySnapshotService>());
 
 // Register iperf3 Server service (hosted - runs iperf3 in server mode, monitors for client tests)
 // Enable via environment variable: Iperf3Server__Enabled=true
@@ -673,7 +674,7 @@ app.MapPost("/api/public/speedtest/results", async (HttpContext context, ClientS
 
 // Public endpoint for capturing topology snapshots during speed tests
 // Called by OpenSpeedTest ~3 seconds into a test to capture wireless rates mid-test
-app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext context, TopologySnapshotService snapshotService) =>
+app.MapPost("/api/public/speedtest/topology-snapshots", async (HttpContext context, ITopologySnapshotService snapshotService) =>
 {
     // Get client IP (handle proxies)
     var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";

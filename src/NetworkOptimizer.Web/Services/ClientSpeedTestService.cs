@@ -15,7 +15,7 @@ public class ClientSpeedTestService
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
-    private readonly TopologySnapshotService _snapshotService;
+    private readonly ITopologySnapshotService _snapshotService;
     private readonly IConfiguration _configuration;
 
     public ClientSpeedTestService(
@@ -23,7 +23,7 @@ public class ClientSpeedTestService
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
         INetworkPathAnalyzer pathAnalyzer,
-        TopologySnapshotService snapshotService,
+        ITopologySnapshotService snapshotService,
         IConfiguration configuration)
     {
         _logger = logger;

@@ -5,10 +5,32 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Web.Services;
 
 /// <summary>
+/// Interface for capturing and retrieving wireless rate snapshots during speed tests.
+/// </summary>
+public interface ITopologySnapshotService
+{
+    /// <summary>
+    /// Captures a wireless rate snapshot for the given client IP.
+    /// This invalidates the topology cache first to ensure fresh data.
+    /// </summary>
+    Task CaptureSnapshotAsync(string clientIp);
+
+    /// <summary>
+    /// Gets the snapshot for a client IP, if it exists and hasn't expired.
+    /// </summary>
+    WirelessRateSnapshot? GetSnapshot(string clientIp);
+
+    /// <summary>
+    /// Removes the snapshot for a client IP.
+    /// </summary>
+    void RemoveSnapshot(string clientIp);
+}
+
+/// <summary>
 /// Stores wireless rate snapshots captured during speed tests.
 /// Snapshots are keyed by client IP and auto-expire after 2 minutes.
 /// </summary>
-public class TopologySnapshotService
+public class TopologySnapshotService : ITopologySnapshotService
 {
     private readonly IUniFiClientProvider _clientProvider;
     private readonly INetworkPathAnalyzer _pathAnalyzer;

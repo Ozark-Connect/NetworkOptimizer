@@ -23,7 +23,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
     private readonly SystemSettingsService _settingsService;
     private readonly INetworkPathAnalyzer _pathAnalyzer;
     private readonly UniFiConnectionService _connectionService;
-    private readonly TopologySnapshotService _snapshotService;
+    private readonly ITopologySnapshotService _snapshotService;
 
     // Track running tests to prevent duplicates
     private readonly HashSet<string> _runningTests = new();
@@ -46,7 +46,7 @@ public class Iperf3SpeedTestService : IIperf3SpeedTestService
         SystemSettingsService settingsService,
         INetworkPathAnalyzer pathAnalyzer,
         UniFiConnectionService connectionService,
-        TopologySnapshotService snapshotService)
+        ITopologySnapshotService snapshotService)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
