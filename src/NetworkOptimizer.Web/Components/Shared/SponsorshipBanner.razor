@@ -1,86 +1,58 @@
-@using NetworkOptimizer.Storage.Models
-@using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Web.Services
-@inject SystemSettingsService SettingsService
-@inject AuditService AuditService
-@inject Iperf3SpeedTestService SpeedTestService
-@inject ISpeedTestRepository SpeedTestRepository
+@inject ISponsorshipService SponsorshipService
 
-@if (_shouldShow && !_isDismissed)
+@if (_nag != null)
 {
     <div class="sponsorship-banner">
         <div class="banner-content">
             <span class="banner-icon">&#x2665;</span>
             <div class="banner-text">
-                <strong>Finding this app useful?</strong>
+                <strong>@_nag.Quip</strong>
                 <span>
-                    <a href="https://github.com/sponsors/tvancott42" target="_blank" rel="noopener noreferrer">Support development on GitHub</a>
+                    <a href="@_nag.ActionUrl" target="_blank" rel="noopener noreferrer">@_nag.ActionText</a>
                     <span class="banner-separator">&nbsp;|&nbsp;</span>
                     <span class="banner-commercial">Commercial use? Email <a href="mailto:tj@ozarkconnect.net">tj@ozarkconnect.net</a> for licensing.</span>
                 </span>
             </div>
-            <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+            <div class="banner-actions">
+                <button class="btn-sponsor" @onclick="AlreadySponsorAsync">I already sponsor</button>
+                <button class="btn-dismiss" @onclick="DismissAsync">Dismiss</button>
+            </div>
         </div>
     </div>
 }
 
 @code {
     /// <summary>
-    /// When true, always shows the banner (unless dismissed). Used on Settings page.
-    /// When false (default), only shows after user completes meaningful actions.
+    /// When true, always shows the banner (for Settings page preview).
+    /// When false (default), respects daily limit and progressive display.
     /// </summary>
     [Parameter]
     public bool AlwaysShow { get; set; } = false;
 
-    private bool _shouldShow = false;
-    private bool _isDismissed = false;
+    private SponsorshipNag? _nag;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await CheckConditionsAsync();
+            await LoadNagAsync();
         }
     }
 
-    private async Task CheckConditionsAsync()
+    private async Task LoadNagAsync()
     {
         try
         {
-            // Check if already dismissed
-            var dismissedValue = await SettingsService.GetAsync(SystemSettingKeys.SponsorshipBannerDismissed);
-            _isDismissed = !string.IsNullOrEmpty(dismissedValue) && dismissedValue.Equals("true", StringComparison.OrdinalIgnoreCase);
+            _nag = await SponsorshipService.GetCurrentNagAsync(AlwaysShow);
 
-            if (_isDismissed)
+            if (_nag != null)
             {
-                return;
-            }
-
-            // If AlwaysShow is set, skip condition checks
-            if (AlwaysShow)
-            {
-                _shouldShow = true;
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
-
-            // Check if user has completed meaningful actions (parallel)
-            var auditTask = AuditService.GetAuditSummaryAsync();
-            var speedTestTask = SpeedTestService.GetRecentResultsAsync(1);
-            var wan1Task = SpeedTestRepository.GetSqmWanConfigAsync(1);
-            var wan2Task = SpeedTestRepository.GetSqmWanConfigAsync(2);
-
-            await Task.WhenAll(auditTask, speedTestTask, wan1Task, wan2Task);
-
-            var hasRunAudit = auditTask.Result.LastAuditTime.HasValue;
-            var hasSpeedTestResults = speedTestTask.Result.Any();
-            var hasSqmEnabled = (wan1Task.Result?.Enabled == true) || (wan2Task.Result?.Enabled == true);
-
-            // Show banner if any condition is met
-            _shouldShow = hasRunAudit || hasSpeedTestResults || hasSqmEnabled;
-
-            if (_shouldShow)
-            {
+                // Mark as shown (updates timestamp and level for daily limit)
+                if (!AlwaysShow)
+                {
+                    await SponsorshipService.MarkNagShownAsync();
+                }
                 await InvokeAsync(StateHasChanged);
             }
         }
@@ -92,17 +64,21 @@
 
     private async Task DismissAsync()
     {
+        _nag = null;
+        StateHasChanged();
+    }
+
+    private async Task AlreadySponsorAsync()
+    {
         try
         {
-            await SettingsService.SetAsync(SystemSettingKeys.SponsorshipBannerDismissed, "true");
-            _isDismissed = true;
-            StateHasChanged();
+            await SponsorshipService.MarkAsAlreadySponsorAsync();
         }
         catch
         {
-            // Just hide it locally if save fails
-            _isDismissed = true;
-            StateHasChanged();
+            // Still hide it
         }
+        _nag = null;
+        StateHasChanged();
     }
 }

@@ -123,6 +123,24 @@ public class AuditRepository : IAuditRepository
     }
 
     /// <summary>
+    /// Gets the total count of audit results.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The total number of audit results.</returns>
+    public async Task<int> GetAuditCountAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AuditResults.CountAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get audit count");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Deletes audit results older than the specified date.
     /// </summary>
     /// <param name="olderThan">Delete audits before this date.</param>

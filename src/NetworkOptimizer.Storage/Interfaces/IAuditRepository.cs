@@ -12,6 +12,7 @@ public interface IAuditRepository
     Task<AuditResult?> GetAuditResultAsync(int auditId, CancellationToken cancellationToken = default);
     Task<AuditResult?> GetLatestAuditResultAsync(CancellationToken cancellationToken = default);
     Task<List<AuditResult>> GetAuditHistoryAsync(string? deviceId = null, int limit = 100, CancellationToken cancellationToken = default);
+    Task<int> GetAuditCountAsync(CancellationToken cancellationToken = default);
     Task DeleteOldAuditsAsync(DateTime olderThan, CancellationToken cancellationToken = default);
     Task ClearAllAuditsAsync(CancellationToken cancellationToken = default);
 

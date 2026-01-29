@@ -196,6 +196,10 @@ builder.Services.AddHostedService<NginxHostedService>();
 
 // Register System Settings service (singleton - system-wide configuration)
 builder.Services.AddSingleton<SystemSettingsService>();
+builder.Services.AddSingleton<ISystemSettingsService>(sp => sp.GetRequiredService<SystemSettingsService>());
+
+// Register Sponsorship service (singleton - reads from DB, limited state)
+builder.Services.AddSingleton<ISponsorshipService, SponsorshipService>();
 
 // Register password hasher (singleton - stateless)
 builder.Services.AddSingleton<IPasswordHasher, PasswordHasher>();
