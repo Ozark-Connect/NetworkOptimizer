@@ -681,15 +681,26 @@
             }
             else
             {
-                <p class="info-text">
-                    Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily
-                    at configured times, while <strong>Ping-based</strong> adjustments run every 5 minutes
-                    for real-time latency optimization.
-                </p>
+                @if (deploymentStatus?.IsDeployed != true)
+                {
+                    <p class="info-text">
+                        Adaptive SQM uses a dual-mode approach: <strong>Speedtest-based</strong> adjustments run 2x daily
+                        at configured times, while <strong>Ping-based</strong> adjustments run every 5 minutes
+                        for real-time latency optimization.
+                    </p>
 
-                <div class="alert alert-warning" style="margin: 1rem 0 1.5rem;">
-                    <strong>Disclaimer:</strong> Using Adaptive SQM may affect your ability to receive tech support from Ubiquiti. If tech support ever needs a support file, you may be required to factory reset and restore from a backup. We've tested this on several device combinations, but deploy at your own risk.
-                </div>
+                    <div class="alert alert-warning" style="margin: 1rem 0 1.5rem;">
+                        <strong>Disclaimer:</strong> Using Adaptive SQM may affect your ability to receive tech support from Ubiquiti. If tech support ever needs a support file, you may be required to factory reset and restore from a backup. We've tested this on several device combinations, but deploy at your own risk. If you encounter errors or unexpected behavior, use Remove Adaptive SQM to ensure normal gateway performance.
+                    </div>
+
+                    <div class="alert alert-warning" style="margin: 0 0 1.5rem;">
+                        <strong>Ookla Speedtest:</strong> For home/personal use only. By deploying, you accept Ookla's
+                        <a href="https://www.speedtest.net/about/eula" target="_blank" rel="noopener noreferrer">EULA</a>,
+                        <a href="https://www.speedtest.net/about/terms" target="_blank" rel="noopener noreferrer">Terms</a>, and
+                        <a href="https://www.speedtest.net/about/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.
+                        EU users: see <a href="https://www.speedtest.net/gdpr-dpa" target="_blank" rel="noopener noreferrer">GDPR DPA</a>.
+                    </div>
+                }
 
                 <div class="action-buttons">
                     <button class="btn btn-primary" @onclick="DeploySqm" disabled="@isDeploying">

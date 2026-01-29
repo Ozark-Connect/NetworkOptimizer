@@ -64,13 +64,6 @@ public interface ISqmDeploymentService
     Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName);
 
     /// <summary>
-    /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment).
-    /// </summary>
-    /// <param name="config">The SQM configuration specifying interface and optional server ID.</param>
-    /// <returns>A <see cref="SpeedtestResult"/> or null if the speedtest failed.</returns>
-    Task<SpeedtestResult?> RunSpeedtestAsync(SqmConfig config);
-
-    /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs.
     /// </summary>
     /// <returns>A list of <see cref="SqmWanStatus"/> objects with per-WAN status information.</returns>
