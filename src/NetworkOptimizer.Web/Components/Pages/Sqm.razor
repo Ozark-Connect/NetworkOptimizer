@@ -1548,13 +1548,10 @@
                         isRefreshingDashboard, isRunningAdjustment);
                     if (!isRefreshingDashboard)
                     {
-                        await LoadSqmMonitorDataAsync();
+                        await LoadSqmMonitorDataAsync(); // Also adjusts polling interval
                         Logger.LogInformation("[SQM Timer] Polled. Wan1Running={W1}, Wan2Running={W2}",
                             sqmMonitorData?.Wan1?.SpeedtestRunning, sqmMonitorData?.Wan2?.SpeedtestRunning);
                         StateHasChanged();
-
-                        // Adjust polling interval: 5 seconds during speedtest, 60 seconds otherwise
-                        AdjustRefreshInterval();
                     }
                 }),
                 null,
@@ -1562,6 +1559,7 @@
                 TimeSpan.FromSeconds(60));
 
             // Check if speedtest was already running when page loaded - switch to fast polling immediately
+            // (LoadSqmMonitorDataAsync ran before timer existed, so its AdjustRefreshInterval was a no-op)
             AdjustRefreshInterval();
         }
     }
@@ -2644,6 +2642,9 @@
             {
                 sqmMonitorData = await SqmMonitorClient.GetTcStatsAsync(gatewayHost, forceRefresh: true);
                 tcInterfaces = sqmMonitorData?.GetAllInterfaces();
+
+                // Adjust polling rate based on speedtest status
+                AdjustRefreshInterval();
             }
         }
         catch
