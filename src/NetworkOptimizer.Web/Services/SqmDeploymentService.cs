@@ -691,7 +691,10 @@ WantedBy=multi-user.target
 
                 // No "Adjusted to" found - likely a failure
                 _logger.LogWarning("SQM adjustment for {Wan} - no rate in output: {Output}", wanName, result.output);
-                return (false, "Speedtest did not complete. Check the logs for details.");
+                var truncatedOutput = string.IsNullOrWhiteSpace(result.output)
+                    ? "(no output)"
+                    : (result.output.Length > 100 ? result.output[..100] + "..." : result.output);
+                return (false, $"Speedtest did not complete: {truncatedOutput}");
             }
             else
             {

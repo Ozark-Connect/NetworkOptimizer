@@ -769,42 +769,6 @@
                     </button>
                 </div>
 
-                @if (deploymentStatus?.IsDeployed == true)
-                {
-                    <div class="check-logs-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" id="check-logs">
-                        <h4 style="margin-bottom: 0.75rem;">Check SQM Logs</h4>
-                        <div class="action-buttons">
-                            @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
-                            {
-                                <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan1Config.Name)" disabled="@isCheckingLogs">
-                                    @if (isCheckingLogs && checkingLogsWan == wan1Config.Name)
-                                    {
-                                        <span class="spinner-border spinner-border-sm"></span>
-                                        <span>Loading...</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Check @wan1Config.Name Logs</span>
-                                    }
-                                </button>
-                            }
-                            @if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Name))
-                            {
-                                <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan2Config.Name)" disabled="@isCheckingLogs">
-                                    @if (isCheckingLogs && checkingLogsWan == wan2Config.Name)
-                                    {
-                                        <span class="spinner-border spinner-border-sm"></span>
-                                        <span>Loading...</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Check @wan2Config.Name Logs</span>
-                                    }
-                                </button>
-                            }
-                        </div>
-                    </div>
-                }
             }
 
             @if (!string.IsNullOrEmpty(statusMessage))
@@ -822,6 +786,43 @@
                             <li>@step</li>
                         }
                     </ul>
+                </div>
+            }
+
+            @if (deploymentStatus?.IsDeployed == true)
+            {
+                <div class="check-logs-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" id="check-logs">
+                    <h4 style="margin-bottom: 0.75rem;">Check SQM Logs</h4>
+                    <div class="action-buttons">
+                        @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
+                        {
+                            <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan1Config.Name)" disabled="@isCheckingLogs">
+                                @if (isCheckingLogs && checkingLogsWan == wan1Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Check @wan1Config.Name Logs</span>
+                                }
+                            </button>
+                        }
+                        @if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Name))
+                        {
+                            <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan2Config.Name)" disabled="@isCheckingLogs">
+                                @if (isCheckingLogs && checkingLogsWan == wan2Config.Name)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    <span>Loading...</span>
+                                }
+                                else
+                                {
+                                    <span>Check @wan2Config.Name Logs</span>
+                                }
+                            </button>
+                        }
+                    </div>
                 </div>
             }
 
