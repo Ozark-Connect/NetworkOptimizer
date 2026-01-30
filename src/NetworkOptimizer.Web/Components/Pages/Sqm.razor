@@ -1545,13 +1545,9 @@
             _refreshTimer = new System.Threading.Timer(
                 async _ => await InvokeAsync(async () =>
                 {
-                    Logger.LogInformation("[SQM Timer] Fired. isRefreshingDashboard={IsRefreshing}, isRunningAdjustment={IsRunning}",
-                        isRefreshingDashboard, isRunningAdjustment);
                     if (!isRefreshingDashboard)
                     {
                         await LoadSqmMonitorDataAsync(); // Also adjusts polling interval
-                        Logger.LogInformation("[SQM Timer] Polled. Wan1Running={W1}, Wan2Running={W2}",
-                            sqmMonitorData?.Wan1?.SpeedtestRunning, sqmMonitorData?.Wan2?.SpeedtestRunning);
                         StateHasChanged();
                     }
                 }),
@@ -1584,23 +1580,16 @@
                              isRunningAdjustment ||
                              (_fastPollingUntil != null && DateTime.UtcNow < _fastPollingUntil);
 
-        Logger.LogInformation("[SQM AdjustInterval] shouldFastPoll={Should}, _isFastPolling={Is}, useInitialDelay={Delay}, fastPollUntil={Until}",
-            shouldFastPoll, _isFastPolling, useInitialDelay, _fastPollingUntil?.ToString("HH:mm:ss") ?? "null");
-
         if (shouldFastPoll && !_isFastPolling)
         {
             // Switch to fast polling (with optional initial delay for button-initiated tests)
             var dueTime = useInitialDelay ? InitialPollDelay : FastPollingInterval;
-            Logger.LogInformation("[SQM AdjustInterval] Switching to FAST polling. dueTime={DueTime}s, period={Period}s",
-                dueTime.TotalSeconds, FastPollingInterval.TotalSeconds);
             _refreshTimer.Change(dueTime, FastPollingInterval);
             _isFastPolling = true;
         }
         else if (!shouldFastPoll && _isFastPolling)
         {
             // Switch back to normal polling
-            Logger.LogInformation("[SQM AdjustInterval] Switching to NORMAL polling. period={Period}s",
-                NormalPollingInterval.TotalSeconds);
             _refreshTimer.Change(NormalPollingInterval, NormalPollingInterval);
             _isFastPolling = false;
             _fastPollingUntil = null; // Clear the post-deploy window
@@ -2509,10 +2498,7 @@
         StateHasChanged();
 
         // Gatekeep: Force refresh to check for externally-running speedtests (cron, CLI, other sessions)
-        Logger.LogInformation("[SQM Adjust] Starting gatekeep refresh...");
         await LoadSqmMonitorDataAsync();
-        Logger.LogInformation("[SQM Adjust] Gatekeep done. Wan1Running={W1}, Wan2Running={W2}",
-            sqmMonitorData?.Wan1?.SpeedtestRunning, sqmMonitorData?.Wan2?.SpeedtestRunning);
 
         // Check if any external speedtest is running (not UI-initiated)
         if (!isRunningAdjustment && (sqmMonitorData?.Wan1?.SpeedtestRunning == true || sqmMonitorData?.Wan2?.SpeedtestRunning == true))
@@ -2525,13 +2511,11 @@
 
         isRunningAdjustment = true;
         adjustmentWan = wanName;
-        Logger.LogInformation("[SQM Adjust] Calling AdjustRefreshInterval with initialDelay=true");
         AdjustRefreshInterval(useInitialDelay: true); // Poll after 3s, then every 5s
         StateHasChanged();
 
         try
         {
-            Logger.LogInformation("[SQM Adjust] Starting SSH command...");
             var (success, message) = await DeploymentService.TriggerSqmAdjustmentAsync(wanName);
             Logger.LogInformation("[SQM Adjust] SSH returned. success={Success}", success);
             adjustmentSuccess = success;
