@@ -773,7 +773,7 @@
                         <div class="action-buttons">
                             @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
                             {
-                                <button class="btn btn-secondary btn-sm" @onclick="() => CheckWanLogs(wan1Config.Name)" disabled="@isCheckingLogs">
+                                <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan1Config.Name)" disabled="@isCheckingLogs">
                                     @if (isCheckingLogs && checkingLogsWan == wan1Config.Name)
                                     {
                                         <span class="spinner-border spinner-border-sm"></span>
@@ -787,7 +787,7 @@
                             }
                             @if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Name))
                             {
-                                <button class="btn btn-secondary btn-sm" @onclick="() => CheckWanLogs(wan2Config.Name)" disabled="@isCheckingLogs">
+                                <button class="btn btn-secondary" @onclick="() => CheckWanLogs(wan2Config.Name)" disabled="@isCheckingLogs">
                                     @if (isCheckingLogs && checkingLogsWan == wan2Config.Name)
                                     {
                                         <span class="spinner-border spinner-border-sm"></span>
