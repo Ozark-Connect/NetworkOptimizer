@@ -381,7 +381,7 @@
                         </button>
                     }
                 </div>
-                @if (HasFailedSpeedtest)
+                @if (HasFailedSpeedtest && string.IsNullOrEmpty(adjustmentMessage))
                 {
                     <div class="alert alert-warning" style="margin-top: 1rem;">
                         <strong>Warning:</strong> One or more WAN connections had a failed speedtest (measured 0 Mbps).
