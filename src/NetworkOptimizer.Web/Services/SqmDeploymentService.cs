@@ -662,8 +662,36 @@ WantedBy=multi-user.target
 
             if (result.success)
             {
-                _logger.LogInformation("SQM adjustment completed for {Wan}", wanName);
-                return (true, "SQM adjustment completed successfully");
+                // Check for speedtest CLI errors (JSON error output)
+                if (result.output.Contains("\"level\":\"error\""))
+                {
+                    // Extract error message from JSON if possible
+                    var errorMatch = System.Text.RegularExpressions.Regex.Match(
+                        result.output, @"""message"":""([^""]+)""");
+                    var errorMsg = errorMatch.Success ? errorMatch.Groups[1].Value : "Unknown error";
+                    _logger.LogWarning("SQM speedtest CLI error for {Wan}: {Error}", wanName, errorMsg);
+                    return (false, $"Speedtest error: {errorMsg}");
+                }
+
+                // Parse output for "Adjusted to X Mbps" to detect speedtest failures
+                var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
+                    result.output, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
+
+                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjustedMbps))
+                {
+                    if (adjustedMbps == 0)
+                    {
+                        _logger.LogWarning("SQM speedtest failed for {Wan} (measured 0 Mbps)", wanName);
+                        return (false, "Speedtest failed (measured 0 Mbps). Check the logs for details.");
+                    }
+
+                    _logger.LogInformation("SQM adjustment completed for {Wan}: {Rate} Mbps", wanName, adjustedMbps);
+                    return (true, $"Adjusted to {adjustedMbps:F0} Mbps");
+                }
+
+                // No "Adjusted to" found - likely a failure
+                _logger.LogWarning("SQM adjustment for {Wan} - no rate in output: {Output}", wanName, result.output);
+                return (false, "Speedtest did not complete. Check the logs for details.");
             }
             else
             {
