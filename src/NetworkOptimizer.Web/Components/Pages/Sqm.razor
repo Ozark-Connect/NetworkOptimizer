@@ -1390,8 +1390,9 @@
     private string? adjustmentMessage;
     private bool adjustmentSuccess = false;
 
-    // True if any speedtest is running (UI-initiated, external, or post-deploy window)
+    // True if any speedtest is running (UI-initiated, external, deploying, or post-deploy window)
     private bool IsAnySpeedtestRunning =>
+        isDeploying ||
         isRunningAdjustment ||
         sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
         sqmMonitorData?.Wan2?.SpeedtestRunning == true ||
