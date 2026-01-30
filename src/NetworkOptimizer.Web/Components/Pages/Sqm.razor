@@ -15,6 +15,8 @@
 
 <PageTitle>Adaptive SQM - Network Optimizer</PageTitle>
 
+<NavigationLock OnBeforeInternalNavigation="OnBeforeInternalNavigation" ConfirmExternalNavigation="@HasUndeployedChanges" />
+
 <div class="page-header">
     <h1>Adaptive SQM Manager</h1>
     <p class="page-description">Dynamic bandwidth optimization with dual-mode (Speedtest + Ping) adjustment. Uses 7-day congestion profiles tuned for your connection type to keep SQM tight and bufferbloat in check.</p>
@@ -1454,6 +1456,10 @@
         EveningMinute = 0
     };
 
+    // Snapshots of deployed config (for change detection)
+    private WanConfigSnapshot? _deployedWan1Snapshot;
+    private WanConfigSnapshot? _deployedWan2Snapshot;
+
     // SQM Monitor data (from HTTP endpoint)
     private TcMonitorResponse? sqmMonitorData;
     private bool isRefreshingDashboard = false;
@@ -1581,6 +1587,32 @@
         }
     }
 
+    // Check if current config differs from last deployed state
+    private bool HasUndeployedChanges =>
+        wan1Config.DiffersFrom(_deployedWan1Snapshot) ||
+        wan2Config.DiffersFrom(_deployedWan2Snapshot);
+
+    // Capture snapshots after successful deployment
+    private void CaptureDeployedSnapshots()
+    {
+        _deployedWan1Snapshot = wan1Config.ToSnapshot();
+        _deployedWan2Snapshot = wan2Config.ToSnapshot();
+    }
+
+    // Handle navigation away with unsaved changes
+    private async Task OnBeforeInternalNavigation(LocationChangingContext context)
+    {
+        if (HasUndeployedChanges)
+        {
+            var confirmed = await JS.InvokeAsync<bool>("confirm",
+                "You have undeployed WAN settings changes. If you leave now, your changes will be lost.\n\nAre you sure you want to leave?");
+            if (!confirmed)
+            {
+                context.PreventNavigation();
+            }
+        }
+    }
+
     // Track which WANs have saved configurations
     private bool wan1HasSavedConfig = false;
     private bool wan2HasSavedConfig = false;
@@ -1666,6 +1698,12 @@
             // Set initial collapsed state: collapsed if config exists, expanded if needs setup
             _wan1Collapsed = wan1HasSavedConfig;
             _wan2Collapsed = wan2HasSavedConfig;
+
+            // Capture loaded state as deployed snapshot (saved configs = deployed state)
+            if (wan1HasSavedConfig || wan2HasSavedConfig)
+            {
+                CaptureDeployedSnapshots();
+            }
         }
         catch
         {
@@ -2310,6 +2348,9 @@
             }
             statusSuccess = true;
 
+            // Capture deployed state for change detection
+            CaptureDeployedSnapshots();
+
             // Invalidate cache and refresh status
             InvalidateCache();
             await RefreshStatus();
@@ -2636,7 +2677,36 @@
         // Helper to format time display
         public string MorningTimeDisplay => $"{MorningHour:D2}:{MorningMinute:D2}";
         public string EveningTimeDisplay => $"{EveningHour:D2}:{EveningMinute:D2}";
+
+        // Create a snapshot of the deployable config values
+        public WanConfigSnapshot ToSnapshot() => new(
+            Enabled, Name, Interface, ConnectionType, NominalDownload, NominalUpload,
+            PingHost, SpeedtestServerId, MorningHour, MorningMinute, EveningHour, EveningMinute);
+
+        // Check if current config differs from a snapshot
+        public bool DiffersFrom(WanConfigSnapshot? snapshot)
+        {
+            if (snapshot == null) return Enabled; // No snapshot = changes if enabled
+            return Enabled != snapshot.Enabled ||
+                   Name != snapshot.Name ||
+                   Interface != snapshot.Interface ||
+                   ConnectionType != snapshot.ConnectionType ||
+                   NominalDownload != snapshot.NominalDownload ||
+                   NominalUpload != snapshot.NominalUpload ||
+                   PingHost != snapshot.PingHost ||
+                   SpeedtestServerId != snapshot.SpeedtestServerId ||
+                   MorningHour != snapshot.MorningHour ||
+                   MorningMinute != snapshot.MorningMinute ||
+                   EveningHour != snapshot.EveningHour ||
+                   EveningMinute != snapshot.EveningMinute;
+        }
     }
+
+    // Immutable snapshot of WAN config for change detection
+    private record WanConfigSnapshot(
+        bool Enabled, string Name, string Interface, ConnectionType ConnectionType,
+        int NominalDownload, int NominalUpload, string PingHost, string? SpeedtestServerId,
+        int MorningHour, int MorningMinute, int EveningHour, int EveningMinute);
 
     public void Dispose()
     {
