@@ -660,27 +660,17 @@ WantedBy=multi-user.target
             // Run the script (speedtest can take up to 60 seconds, use 90s timeout)
             var result = await RunCommandAsync(scriptPath, TimeSpan.FromSeconds(90));
 
-            if (result.success)
+            // Script writes to log file, not stdout. Any output = error
+            if (result.success && string.IsNullOrWhiteSpace(result.output))
             {
-                // Check for speedtest CLI errors (JSON error output)
-                if (result.output.Contains("\"level\":\"error\""))
-                {
-                    // Extract error message from JSON if possible
-                    var errorMatch = System.Text.RegularExpressions.Regex.Match(
-                        result.output, @"""message"":""([^""]+)""");
-                    var errorMsg = errorMatch.Success ? errorMatch.Groups[1].Value : "Unknown error";
-                    _logger.LogWarning("SQM speedtest CLI error for {Wan}: {Error}", wanName, errorMsg);
-                    return (false, $"Speedtest error: {errorMsg}");
-                }
-
-                // Script ran successfully - live SQM status will show the result
                 _logger.LogInformation("SQM adjustment completed for {Wan}", wanName);
                 return (true, "SQM adjustment completed successfully");
             }
             else
             {
-                _logger.LogWarning("SQM adjustment script returned error: {Output}", result.output);
-                return (false, $"Script error: {result.output}");
+                var errorOutput = string.IsNullOrWhiteSpace(result.output) ? "(unknown error)" : result.output;
+                _logger.LogWarning("SQM adjustment failed for {Wan}: {Output}", wanName, errorOutput);
+                return (false, $"Error: {errorOutput}");
             }
         }
         catch (Exception ex)
