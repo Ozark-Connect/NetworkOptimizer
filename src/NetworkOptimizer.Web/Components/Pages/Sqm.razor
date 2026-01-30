@@ -1555,9 +1555,10 @@
     // Polling interval constants
     private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(3);
     private bool _isFastPolling = false;
 
-    private void AdjustRefreshInterval()
+    private void AdjustRefreshInterval(bool useInitialDelay = false)
     {
         if (_refreshTimer == null) return;
 
@@ -1567,8 +1568,9 @@
 
         if (shouldFastPoll && !_isFastPolling)
         {
-            // Switch to fast polling
-            _refreshTimer.Change(FastPollingInterval, FastPollingInterval);
+            // Switch to fast polling (with optional initial delay for button-initiated tests)
+            var dueTime = useInitialDelay ? InitialPollDelay : FastPollingInterval;
+            _refreshTimer.Change(dueTime, FastPollingInterval);
             _isFastPolling = true;
         }
         else if (!shouldFastPoll && _isFastPolling)
@@ -2440,7 +2442,7 @@
 
         isRunningAdjustment = true;
         adjustmentWan = wanName;
-        AdjustRefreshInterval(); // Start fast polling while adjustment runs
+        AdjustRefreshInterval(useInitialDelay: true); // Poll after 3s, then every 5s
         StateHasChanged();
 
         try
@@ -2449,13 +2451,14 @@
             adjustmentSuccess = success;
             adjustmentMessage = message;
 
-            // Refresh dashboard after adjustment (twice to catch delayed updates)
+            // Fire off a delayed refresh without blocking (fast polling will also catch updates)
             if (success)
             {
-                await Task.Delay(2000);
-                await RefreshDashboard();
-                await Task.Delay(3000);
-                await RefreshDashboard();
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(2000);
+                    await InvokeAsync(RefreshDashboard);
+                });
             }
         }
         catch (Exception ex)
