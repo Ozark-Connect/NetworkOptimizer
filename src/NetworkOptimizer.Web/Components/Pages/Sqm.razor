@@ -2492,6 +2492,13 @@
             adjustmentSuccess = success;
             adjustmentMessage = message;
 
+            // Poll immediately after SSH returns - script is now running
+            if (success)
+            {
+                await LoadSqmMonitorDataAsync();
+                StateHasChanged();
+            }
+
             // Fire off delayed refreshes without blocking (fast polling will also catch updates)
             if (success)
             {
