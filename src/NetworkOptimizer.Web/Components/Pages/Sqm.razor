@@ -187,7 +187,7 @@
                         @if (sqmMonitorData.Wan1.SpeedtestRunning)
                         {
                             <div class="speedtest-running-indicator">
-                                <span class="spinner-border spinner-border-sm"></span>
+                                <span class="spinner"></span>
                                 <span>Speed test running...</span>
                             </div>
                         }
@@ -265,7 +265,7 @@
                         @if (sqmMonitorData.Wan2.SpeedtestRunning)
                         {
                             <div class="speedtest-running-indicator">
-                                <span class="spinner-border spinner-border-sm"></span>
+                                <span class="spinner"></span>
                                 <span>Speed test running...</span>
                             </div>
                         }
@@ -1140,17 +1140,17 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 0.5rem;
         color: var(--warning-color, #f59e0b);
         font-size: 1rem;
         padding: 0.5rem 0;
     }
 
-    .speedtest-running-indicator .spinner-border {
+    .speedtest-running-indicator .spinner {
         width: 2rem;
         height: 2rem;
-        border-color: var(--warning-color, #f59e0b);
-        border-right-color: transparent;
+        border: 3px solid rgba(245, 158, 11, 0.3);
+        border-top-color: var(--warning-color, #f59e0b);
+        margin-bottom: 0.5rem;
     }
 
     .speedtest-failed-indicator {
