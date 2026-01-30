@@ -1565,7 +1565,7 @@
     private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan PostDeploySingleWanFastPolling = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan PostDeploySingleWanFastPolling = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan PostDeployDualWanFastPolling = TimeSpan.FromSeconds(90);
     private bool _isFastPolling = false;
     private DateTime? _fastPollingUntil = null;
