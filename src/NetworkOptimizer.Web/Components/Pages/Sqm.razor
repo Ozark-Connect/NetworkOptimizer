@@ -1569,18 +1569,22 @@
     private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PostDeployFastPollingDuration = TimeSpan.FromMinutes(3);
     private bool _isFastPolling = false;
+    private DateTime? _fastPollingUntil = null;
 
     private void AdjustRefreshInterval(bool useInitialDelay = false)
     {
         if (_refreshTimer == null) return;
 
+        // Fast poll if: speedtest running, UI-initiated adjustment, or within post-deploy window
         var shouldFastPoll = sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
                              sqmMonitorData?.Wan2?.SpeedtestRunning == true ||
-                             isRunningAdjustment;
+                             isRunningAdjustment ||
+                             (_fastPollingUntil != null && DateTime.UtcNow < _fastPollingUntil);
 
-        Logger.LogInformation("[SQM AdjustInterval] shouldFastPoll={Should}, _isFastPolling={Is}, useInitialDelay={Delay}",
-            shouldFastPoll, _isFastPolling, useInitialDelay);
+        Logger.LogInformation("[SQM AdjustInterval] shouldFastPoll={Should}, _isFastPolling={Is}, useInitialDelay={Delay}, fastPollUntil={Until}",
+            shouldFastPoll, _isFastPolling, useInitialDelay, _fastPollingUntil?.ToString("HH:mm:ss") ?? "null");
 
         if (shouldFastPoll && !_isFastPolling)
         {
@@ -1598,6 +1602,7 @@
                 NormalPollingInterval.TotalSeconds);
             _refreshTimer.Change(NormalPollingInterval, NormalPollingInterval);
             _isFastPolling = false;
+            _fastPollingUntil = null; // Clear the post-deploy window
         }
     }
 
@@ -2370,6 +2375,12 @@
             await RefreshStatus();
 
             // Deploy triggers initial speedtests - start fast polling after delay to catch them
+            // If both WANs enabled, keep fast polling longer to catch both speedtests
+            if (wan1Config.Enabled && wan2Config.Enabled)
+            {
+                _fastPollingUntil = DateTime.UtcNow.Add(PostDeployFastPollingDuration);
+            }
+
             // 5s delay + 3s initial poll delay = poll at 8s mark
             _ = Task.Run(async () =>
             {
