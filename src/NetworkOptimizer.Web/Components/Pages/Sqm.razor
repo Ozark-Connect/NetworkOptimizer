@@ -187,7 +187,7 @@
                         <span class="wan-status-interface">@sqmMonitorData.Wan1.Interface</span>
                     </div>
                     <div class="wan-status-rate">
-                        @if (sqmMonitorData.Wan1.SpeedtestRunning)
+                        @if (sqmMonitorData.Wan1.SpeedtestRunning || (isRunningAdjustment && adjustmentWan == sqmMonitorData.Wan1.Name))
                         {
                             <div class="speedtest-running-indicator">
                                 <span class="spinner"></span>
@@ -265,7 +265,7 @@
                         <span class="wan-status-interface">@sqmMonitorData.Wan2.Interface</span>
                     </div>
                     <div class="wan-status-rate">
-                        @if (sqmMonitorData.Wan2.SpeedtestRunning)
+                        @if (sqmMonitorData.Wan2.SpeedtestRunning || (isRunningAdjustment && adjustmentWan == sqmMonitorData.Wan2.Name))
                         {
                             <div class="speedtest-running-indicator">
                                 <span class="spinner"></span>
@@ -1145,7 +1145,7 @@
         align-items: center;
         color: var(--warning-color, #f59e0b);
         font-size: 1rem;
-        padding: 0.5rem 0;
+        padding: 0.325rem 0;
     }
 
     .speedtest-running-indicator .spinner {
