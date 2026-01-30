@@ -2451,12 +2451,14 @@
             adjustmentSuccess = success;
             adjustmentMessage = message;
 
-            // Fire off a delayed refresh without blocking (fast polling will also catch updates)
+            // Fire off delayed refreshes without blocking (fast polling will also catch updates)
             if (success)
             {
                 _ = Task.Run(async () =>
                 {
                     await Task.Delay(2000);
+                    await InvokeAsync(RefreshDashboard);
+                    await Task.Delay(3000);
                     await InvokeAsync(RefreshDashboard);
                 });
             }
