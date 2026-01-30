@@ -1569,7 +1569,8 @@
     private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialPollDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan PostDeployFastPollingDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan PostDeploySingleWanFastPolling = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan PostDeployDualWanFastPolling = TimeSpan.FromSeconds(90);
     private bool _isFastPolling = false;
     private DateTime? _fastPollingUntil = null;
 
@@ -2375,11 +2376,11 @@
             await RefreshStatus();
 
             // Deploy triggers initial speedtests - start fast polling after delay to catch them
-            // If both WANs enabled, keep fast polling longer to catch both speedtests
-            if (wan1Config.Enabled && wan2Config.Enabled)
-            {
-                _fastPollingUntil = DateTime.UtcNow.Add(PostDeployFastPollingDuration);
-            }
+            // Duration depends on number of enabled WANs (staggered speedtests)
+            var postDeployDuration = (wan1Config.Enabled && wan2Config.Enabled)
+                ? PostDeployDualWanFastPolling
+                : PostDeploySingleWanFastPolling;
+            _fastPollingUntil = DateTime.UtcNow.Add(postDeployDuration);
 
             // 5s delay + 3s initial poll delay = poll at 8s mark
             _ = Task.Run(async () =>
