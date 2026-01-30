@@ -2368,6 +2368,17 @@
             // Invalidate cache and refresh status
             InvalidateCache();
             await RefreshStatus();
+
+            // Deploy triggers initial speedtests - start fast polling after delay to catch them
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(8000);
+                await InvokeAsync(() =>
+                {
+                    AdjustRefreshInterval();
+                    StateHasChanged();
+                });
+            });
         }
         catch (Exception ex)
         {
