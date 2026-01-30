@@ -2225,6 +2225,17 @@
             // Note: This shouldn't happen with proper UI, but protects against stale DB data
         }
 
+        // Prevent duplicate name deployment (both WANs using same name)
+        if (wan1Config.Enabled && wan2Config.Enabled &&
+            wan1Config.Name.Equals(wan2Config.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            statusMessage = "Error: Both WAN connections cannot have the same name";
+            statusSuccess = false;
+            isDeploying = false;
+            StateHasChanged();
+            return;
+        }
+
         isDeploying = true;
         deploymentSteps.Clear();
         deploymentWarnings.Clear();
@@ -2291,14 +2302,16 @@
                 }
             }
 
-            // Deploy second WAN (initial speedtest 45 seconds after first, staggered cron schedule)
+            // Deploy second WAN (stagger speedtest only if first WAN is also deployed)
             if (wan2Config.Enabled)
             {
                 deploymentSteps.Add($"Deploying SQM for {wan2Config.Name} ({wan2Config.Interface})...");
                 await ScrollDeploymentLog();
 
+                // If WAN1 is also deployed, stagger the speedtest; otherwise this is the only WAN
+                var wan2Delay = wan1Config.Enabled ? 50 : 5;
                 var config = CreateSqmConfiguration(wan2Config);
-                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: 50);
+                var result = await DeploymentService.DeployAsync(config, initialDelaySeconds: wan2Delay);
 
                 // Always add steps (includes output on failure)
                 deploymentSteps.AddRange(result.Steps);
@@ -2309,7 +2322,7 @@
                     {
                         deploymentWarnings.AddRange(result.Warnings);
                     }
-                    deploymentSteps.Add($"{wan2Config.Name} deployed successfully (speedtest in 50s)");
+                    deploymentSteps.Add($"{wan2Config.Name} deployed successfully (speedtest in {wan2Delay}s)");
                 }
                 else
                 {
