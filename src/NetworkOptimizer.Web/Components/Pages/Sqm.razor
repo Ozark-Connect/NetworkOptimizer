@@ -1533,7 +1533,7 @@
                 StateHasChanged();
             }
 
-            // Start auto-refresh timer (every 60 seconds)
+            // Start auto-refresh timer (adjusts interval based on speedtest status)
             _refreshTimer = new System.Threading.Timer(
                 async _ => await InvokeAsync(async () =>
                 {
@@ -1541,11 +1541,41 @@
                     {
                         await LoadSqmMonitorDataAsync();
                         StateHasChanged();
+
+                        // Adjust polling interval: 5 seconds during speedtest, 60 seconds otherwise
+                        AdjustRefreshInterval();
                     }
                 }),
                 null,
                 TimeSpan.FromSeconds(60),
                 TimeSpan.FromSeconds(60));
+        }
+    }
+
+    // Polling interval constants
+    private static readonly TimeSpan NormalPollingInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan FastPollingInterval = TimeSpan.FromSeconds(5);
+    private bool _isFastPolling = false;
+
+    private void AdjustRefreshInterval()
+    {
+        if (_refreshTimer == null) return;
+
+        var shouldFastPoll = sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
+                             sqmMonitorData?.Wan2?.SpeedtestRunning == true ||
+                             isRunningAdjustment;
+
+        if (shouldFastPoll && !_isFastPolling)
+        {
+            // Switch to fast polling
+            _refreshTimer.Change(FastPollingInterval, FastPollingInterval);
+            _isFastPolling = true;
+        }
+        else if (!shouldFastPoll && _isFastPolling)
+        {
+            // Switch back to normal polling
+            _refreshTimer.Change(NormalPollingInterval, NormalPollingInterval);
+            _isFastPolling = false;
         }
     }
 
@@ -2410,6 +2440,7 @@
 
         isRunningAdjustment = true;
         adjustmentWan = wanName;
+        AdjustRefreshInterval(); // Start fast polling while adjustment runs
         StateHasChanged();
 
         try
@@ -2436,6 +2467,7 @@
         {
             isRunningAdjustment = false;
             adjustmentWan = null;
+            AdjustRefreshInterval(); // Return to normal polling (or stay fast if external test still running)
             StateHasChanged();
         }
     }
