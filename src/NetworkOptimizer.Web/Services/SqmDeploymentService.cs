@@ -673,28 +673,9 @@ WantedBy=multi-user.target
                     return (false, $"Speedtest error: {errorMsg}");
                 }
 
-                // Parse output for "Adjusted to X Mbps" to detect speedtest failures
-                var adjustedMatch = System.Text.RegularExpressions.Regex.Match(
-                    result.output, @"Adjusted to\s*(\d+(?:\.\d+)?)\s*Mbps");
-
-                if (adjustedMatch.Success && double.TryParse(adjustedMatch.Groups[1].Value, out var adjustedMbps))
-                {
-                    if (adjustedMbps == 0)
-                    {
-                        _logger.LogWarning("SQM speedtest failed for {Wan} (measured 0 Mbps)", wanName);
-                        return (false, "Speedtest failed (measured 0 Mbps). Check the logs for details.");
-                    }
-
-                    _logger.LogInformation("SQM adjustment completed for {Wan}: {Rate} Mbps", wanName, adjustedMbps);
-                    return (true, $"Adjusted to {adjustedMbps:F0} Mbps");
-                }
-
-                // No "Adjusted to" found - likely a failure
-                _logger.LogWarning("SQM adjustment for {Wan} - no rate in output: {Output}", wanName, result.output);
-                var truncatedOutput = string.IsNullOrWhiteSpace(result.output)
-                    ? "(no output)"
-                    : (result.output.Length > 100 ? result.output[..100] + "..." : result.output);
-                return (false, $"Speedtest did not complete: {truncatedOutput}");
+                // Script ran successfully - live SQM status will show the result
+                _logger.LogInformation("SQM adjustment completed for {Wan}", wanName);
+                return (true, "SQM adjustment completed successfully");
             }
             else
             {
