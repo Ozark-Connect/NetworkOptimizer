@@ -679,6 +679,55 @@ WantedBy=multi-user.target
     }
 
     /// <summary>
+    /// Get the last N lines of the SQM log for a specific WAN connection.
+    /// Useful for debugging failed speedtests or checking adjustment history.
+    /// </summary>
+    /// <param name="wanName">The WAN connection name</param>
+    /// <param name="lines">Number of lines to retrieve (default 50)</param>
+    /// <returns>Success status and log output or error message</returns>
+    public async Task<(bool success, string output)> GetWanLogsAsync(string wanName, int lines = 50)
+    {
+        var settings = await GetGatewaySettingsAsync();
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return (false, "Gateway SSH not configured");
+        }
+
+        try
+        {
+            // Sanitize WAN name for use in file path
+            var logName = Sqm.InputSanitizer.SanitizeConnectionName(wanName);
+            var logPath = $"/var/log/sqm-{logName}.log";
+
+            _logger.LogInformation("Fetching last {Lines} lines of {LogPath}", lines, logPath);
+
+            // Check if log file exists first
+            var checkResult = await RunCommandAsync($"test -f {logPath} && echo 'exists'");
+            if (!checkResult.success || !checkResult.output.Contains("exists"))
+            {
+                return (false, $"Log file not found: {logPath}");
+            }
+
+            // Get the last N lines
+            var result = await RunCommandAsync($"tail -n {lines} {logPath}");
+
+            if (result.success)
+            {
+                return (true, result.output);
+            }
+            else
+            {
+                return (false, $"Failed to read log: {result.output}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAN logs for {Wan}", wanName);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Generate a baseline based on connection type patterns.
     /// Uses empirical data patterns scaled to the nominal speed.
     /// </summary>
@@ -964,6 +1013,42 @@ WantedBy=multi-user.target
         sb.AppendLine("    fi");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("# Check if speedtest is currently running (started but not finished)");
+        sb.AppendLine("# Returns \"true\" or \"false\"");
+        sb.AppendLine("is_speedtest_running() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
+        sb.AppendLine("    ");
+        sb.AppendLine("    [ ! -f \"$log_file\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Get line numbers of last \"Starting\" and last \"Adjusted to\"");
+        sb.AppendLine("    local last_start_line=$(grep -n 'Starting speedtest adjustment' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_end_line=$(grep -n 'Adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # If no start ever, not running");
+        sb.AppendLine("    [ -z \"$last_start_line\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    local start_num=$(echo \"$last_start_line\" | cut -d: -f1)");
+        sb.AppendLine("    local end_num=$(echo \"$last_end_line\" | cut -d: -f1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # If end exists and is after start, test completed");
+        sb.AppendLine("    [ -n \"$end_num\" ] && [ \"$end_num\" -ge \"$start_num\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Start with no end (or end before start) - check if stale (>3 min = crashed)");
+        sb.AppendLine("    # Extract timestamp: [Mon Jan 27 10:30:45 UTC 2025] Starting...");
+        sb.AppendLine("    local start_ts=$(echo \"$last_start_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
+        sb.AppendLine("    local start_epoch=$(date -d \"$start_ts\" +%s 2>/dev/null)");
+        sb.AppendLine("    local now_epoch=$(date +%s)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ -n \"$start_epoch\" ]; then");
+        sb.AppendLine("        local age=$((now_epoch - start_epoch))");
+        sb.AppendLine("        # If older than 180 seconds (3 min), consider crashed");
+        sb.AppendLine("        [ \"$age\" -gt 180 ] && echo \"false\" && return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    echo \"true\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
         sb.AppendLine("# Collect all data");
         sb.AppendLine("wan1_rate=$(get_tc_rate \"$WAN1_INTERFACE\")");
         sb.AppendLine("wan2_rate=$(get_tc_rate \"$WAN2_INTERFACE\")");
@@ -975,6 +1060,8 @@ WantedBy=multi-user.target
         sb.AppendLine("wan2_speedtest=$(get_speedtest_data \"$WAN2_LOG_NAME\")");
         sb.AppendLine("wan1_ping=$(get_ping_data \"$WAN1_LOG_NAME\")");
         sb.AppendLine("wan2_ping=$(get_ping_data \"$WAN2_LOG_NAME\")");
+        sb.AppendLine("wan1_speedtest_running=$(is_speedtest_running \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_speedtest_running=$(is_speedtest_running \"$WAN2_LOG_NAME\")");
         sb.AppendLine("timestamp=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")");
         sb.AppendLine();
         sb.AppendLine("# Check if SQM is active (has TC rules)");
@@ -994,7 +1081,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"current_rate_mbps\": ${wan1_mbps:-0},");
         sb.AppendLine("    \"baseline_mbps\": ${wan1_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan1_speedtest,");
-        sb.AppendLine("    \"last_ping\": $wan1_ping");
+        sb.AppendLine("    \"last_ping\": $wan1_ping,");
+        sb.AppendLine("    \"speedtest_running\": $wan1_speedtest_running");
         sb.AppendLine("  },");
         sb.AppendLine("  \"wan2\": {");
         sb.AppendLine("    \"name\": \"$WAN2_NAME\",");
@@ -1003,7 +1091,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"current_rate_mbps\": ${wan2_mbps:-0},");
         sb.AppendLine("    \"baseline_mbps\": ${wan2_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan2_speedtest,");
-        sb.AppendLine("    \"last_ping\": $wan2_ping");
+        sb.AppendLine("    \"last_ping\": $wan2_ping,");
+        sb.AppendLine("    \"speedtest_running\": $wan2_speedtest_running");
         sb.AppendLine("  }");
         sb.AppendLine("}");
         sb.AppendLine("EOF");

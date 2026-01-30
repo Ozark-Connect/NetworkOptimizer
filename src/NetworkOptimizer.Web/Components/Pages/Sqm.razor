@@ -184,9 +184,26 @@
                         <span class="wan-status-interface">@sqmMonitorData.Wan1.Interface</span>
                     </div>
                     <div class="wan-status-rate">
-                        <span class="rate-value">@sqmMonitorData.Wan1.EffectiveRateMbps.ToString("F0")</span>
-                        <span class="rate-unit">Mbps</span>
+                        @if (sqmMonitorData.Wan1.SpeedtestRunning)
+                        {
+                            <div class="speedtest-running-indicator">
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Speed test running...</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <span class="rate-value">@sqmMonitorData.Wan1.EffectiveRateMbps.ToString("F0")</span>
+                            <span class="rate-unit">Mbps</span>
+                        }
                     </div>
+                    @if (sqmMonitorData.Wan1.LastSpeedtestFailed)
+                    {
+                        <div class="speedtest-failed-indicator">
+                            <span class="warning-icon">⚠</span>
+                            <span>Last speedtest failed - <a href="#check-logs">check logs</a></span>
+                        </div>
+                    }
                     <div class="wan-status-details">
                         @if (sqmMonitorData.Wan1.LastSpeedtest != null)
                         {
@@ -245,9 +262,26 @@
                         <span class="wan-status-interface">@sqmMonitorData.Wan2.Interface</span>
                     </div>
                     <div class="wan-status-rate">
-                        <span class="rate-value">@sqmMonitorData.Wan2.EffectiveRateMbps.ToString("F0")</span>
-                        <span class="rate-unit">Mbps</span>
+                        @if (sqmMonitorData.Wan2.SpeedtestRunning)
+                        {
+                            <div class="speedtest-running-indicator">
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>Speed test running...</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <span class="rate-value">@sqmMonitorData.Wan2.EffectiveRateMbps.ToString("F0")</span>
+                            <span class="rate-unit">Mbps</span>
+                        }
                     </div>
+                    @if (sqmMonitorData.Wan2.LastSpeedtestFailed)
+                    {
+                        <div class="speedtest-failed-indicator">
+                            <span class="warning-icon">⚠</span>
+                            <span>Last speedtest failed - <a href="#check-logs">check logs</a></span>
+                        </div>
+                    }
                     <div class="wan-status-details">
                         @if (sqmMonitorData.Wan2.LastSpeedtest != null)
                         {
@@ -317,7 +351,7 @@
                 <div class="adjustment-buttons">
                     @if (wan1Config.Enabled && IsWanActiveInMonitor(wan1Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@isRunningAdjustment">
+                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan1Config.Name)" disabled="@IsAnySpeedtestRunning">
                             @if (isRunningAdjustment && adjustmentWan == wan1Config.Name)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
@@ -331,7 +365,7 @@
                     }
                     @if (wan2Config.Enabled && IsWanActiveInMonitor(wan2Config.Name))
                     {
-                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@isRunningAdjustment">
+                        <button class="btn btn-primary" @onclick="() => TriggerSqmAdjustment(wan2Config.Name)" disabled="@IsAnySpeedtestRunning">
                             @if (isRunningAdjustment && adjustmentWan == wan2Config.Name)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
@@ -344,6 +378,14 @@
                         </button>
                     }
                 </div>
+                @if (HasFailedSpeedtest)
+                {
+                    <div class="alert alert-warning" style="margin-top: 1rem;">
+                        <strong>Warning:</strong> One or more WAN connections had a failed speedtest (measured 0 Mbps).
+                        This usually indicates the speedtest CLI couldn't connect or timed out.
+                        <a href="#check-logs">Check the logs</a> in the Deployment section below for details.
+                    </div>
+                }
                 @if (!string.IsNullOrEmpty(adjustmentMessage))
                 {
                     <div class="adjustment-result @(adjustmentSuccess ? "success" : "error")">
@@ -723,6 +765,43 @@
                         Remove Adaptive SQM
                     </button>
                 </div>
+
+                @if (deploymentStatus?.IsDeployed == true)
+                {
+                    <div class="check-logs-section" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);" id="check-logs">
+                        <h4 style="margin-bottom: 0.75rem;">Check SQM Logs</h4>
+                        <div class="action-buttons">
+                            @if (wan1Config.Enabled && !string.IsNullOrEmpty(wan1Config.Name))
+                            {
+                                <button class="btn btn-secondary btn-sm" @onclick="() => CheckWanLogs(wan1Config.Name)" disabled="@isCheckingLogs">
+                                    @if (isCheckingLogs && checkingLogsWan == wan1Config.Name)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Loading...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Check @wan1Config.Name Logs</span>
+                                    }
+                                </button>
+                            }
+                            @if (wan2Config.Enabled && !string.IsNullOrEmpty(wan2Config.Name))
+                            {
+                                <button class="btn btn-secondary btn-sm" @onclick="() => CheckWanLogs(wan2Config.Name)" disabled="@isCheckingLogs">
+                                    @if (isCheckingLogs && checkingLogsWan == wan2Config.Name)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>Loading...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Check @wan2Config.Name Logs</span>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
             }
 
             @if (!string.IsNullOrEmpty(statusMessage))
@@ -740,6 +819,14 @@
                             <li>@step</li>
                         }
                     </ul>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(wanLogOutput))
+            {
+                <div class="deployment-log" style="margin-top: 1rem;">
+                    <h4>@wanLogTitle</h4>
+                    <pre class="log-output">@wanLogOutput</pre>
                 </div>
             }
         </div>
@@ -1049,6 +1136,60 @@
         margin-top: 0.25rem;
     }
 
+    .speedtest-running-indicator {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--warning-color, #f59e0b);
+        font-size: 1rem;
+        padding: 0.5rem 0;
+    }
+
+    .speedtest-running-indicator .spinner-border {
+        width: 2rem;
+        height: 2rem;
+        border-color: var(--warning-color, #f59e0b);
+        border-right-color: transparent;
+    }
+
+    .speedtest-failed-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        color: var(--danger-color, #ef4444);
+        font-size: 0.875rem;
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+        background: rgba(239, 68, 68, 0.1);
+        border-radius: 0.375rem;
+    }
+
+    .speedtest-failed-indicator .warning-icon {
+        font-size: 1rem;
+    }
+
+    .speedtest-failed-indicator a {
+        color: var(--danger-color, #ef4444);
+        text-decoration: underline;
+    }
+
+    .log-output {
+        background: var(--surface-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        line-height: 1.5;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
     .wan-status-details {
         display: flex;
         flex-direction: column;
@@ -1244,6 +1385,23 @@
     private string? adjustmentWan;
     private string? adjustmentMessage;
     private bool adjustmentSuccess = false;
+
+    // True if any speedtest is running (UI-initiated or external like cron/CLI)
+    private bool IsAnySpeedtestRunning =>
+        isRunningAdjustment ||
+        sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
+        sqmMonitorData?.Wan2?.SpeedtestRunning == true;
+
+    // True if any WAN has a failed speedtest (measured 0 Mbps)
+    private bool HasFailedSpeedtest =>
+        sqmMonitorData?.Wan1?.LastSpeedtestFailed == true ||
+        sqmMonitorData?.Wan2?.LastSpeedtestFailed == true;
+
+    // Log checking state
+    private bool isCheckingLogs = false;
+    private string? checkingLogsWan;
+    private string? wanLogOutput;
+    private string? wanLogTitle;
 
     // Deployment status
     private SqmDeploymentStatus? deploymentStatus;
@@ -2235,9 +2393,23 @@
 
     private async Task TriggerSqmAdjustment(string wanName)
     {
+        adjustmentMessage = null;
+        StateHasChanged();
+
+        // Gatekeep: Force refresh to check for externally-running speedtests (cron, CLI, other sessions)
+        await LoadSqmMonitorDataAsync();
+
+        // Check if any external speedtest is running (not UI-initiated)
+        if (!isRunningAdjustment && (sqmMonitorData?.Wan1?.SpeedtestRunning == true || sqmMonitorData?.Wan2?.SpeedtestRunning == true))
+        {
+            adjustmentSuccess = false;
+            adjustmentMessage = "A speed test is already running. Please wait for it to complete.";
+            StateHasChanged();
+            return;
+        }
+
         isRunningAdjustment = true;
         adjustmentWan = wanName;
-        adjustmentMessage = null;
         StateHasChanged();
 
         try
@@ -2264,6 +2436,38 @@
         {
             isRunningAdjustment = false;
             adjustmentWan = null;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckWanLogs(string wanName)
+    {
+        isCheckingLogs = true;
+        checkingLogsWan = wanName;
+        wanLogOutput = null;
+        wanLogTitle = $"Last 50 lines of {wanName} SQM Log";
+        StateHasChanged();
+
+        try
+        {
+            var (success, output) = await DeploymentService.GetWanLogsAsync(wanName, 50);
+            if (success)
+            {
+                wanLogOutput = output;
+            }
+            else
+            {
+                wanLogOutput = $"Error: {output}";
+            }
+        }
+        catch (Exception ex)
+        {
+            wanLogOutput = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isCheckingLogs = false;
+            checkingLogsWan = null;
             StateHasChanged();
         }
     }
