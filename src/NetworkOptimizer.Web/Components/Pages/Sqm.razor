@@ -1390,11 +1390,12 @@
     private string? adjustmentMessage;
     private bool adjustmentSuccess = false;
 
-    // True if any speedtest is running (UI-initiated or external like cron/CLI)
+    // True if any speedtest is running (UI-initiated, external, or post-deploy window)
     private bool IsAnySpeedtestRunning =>
         isRunningAdjustment ||
         sqmMonitorData?.Wan1?.SpeedtestRunning == true ||
-        sqmMonitorData?.Wan2?.SpeedtestRunning == true;
+        sqmMonitorData?.Wan2?.SpeedtestRunning == true ||
+        (_fastPollingUntil != null && DateTime.UtcNow < _fastPollingUntil);
 
     // True if any WAN has a failed speedtest (measured 0 Mbps)
     private bool HasFailedSpeedtest =>
