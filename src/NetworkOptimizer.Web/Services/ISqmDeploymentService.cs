@@ -64,6 +64,15 @@ public interface ISqmDeploymentService
     Task<(bool success, string message)> TriggerSqmAdjustmentAsync(string wanName);
 
     /// <summary>
+    /// Get the last N lines of the SQM log for a specific WAN connection.
+    /// Useful for debugging failed speedtests or checking adjustment history.
+    /// </summary>
+    /// <param name="wanName">The WAN connection name.</param>
+    /// <param name="lines">Number of lines to retrieve (default 50).</param>
+    /// <returns>Success status and log output or error message.</returns>
+    Task<(bool success, string output)> GetWanLogsAsync(string wanName, int lines = 50);
+
+    /// <summary>
     /// Get SQM status for all WANs by parsing gateway logs.
     /// </summary>
     /// <returns>A list of <see cref="SqmWanStatus"/> objects with per-WAN status information.</returns>
