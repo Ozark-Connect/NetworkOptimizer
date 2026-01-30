@@ -2370,12 +2370,13 @@
             await RefreshStatus();
 
             // Deploy triggers initial speedtests - start fast polling after delay to catch them
+            // 5s delay + 3s initial poll delay = poll at 8s mark
             _ = Task.Run(async () =>
             {
-                await Task.Delay(8000);
+                await Task.Delay(5000);
                 await InvokeAsync(() =>
                 {
-                    AdjustRefreshInterval();
+                    AdjustRefreshInterval(useInitialDelay: true);
                     StateHasChanged();
                 });
             });
