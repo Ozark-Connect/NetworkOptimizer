@@ -39,13 +39,13 @@ public class SponsorshipService : ISponsorshipService
         ("147,000 lines of code. 4,084 tests. One guy on 2 acres in Arkansas. Still cheaper than UI Ground shipping.", "Buy him lunch"),
 
         // Level 7: 31-40 uses - former employer dig
-        ("You've used this more than some former employers who paid me. Just saying.", "Money me"),
+        ("You've used this more than some employers used my code. Just saying.", "Money me"),
 
         // Level 8: 41-50 uses - another UI Store dig
         ("A year of sponsorship costs less than shipping one sensor from the UI store. And I won't charge you $40 for Ground.", "Combine orders, PIF"),
 
         // Level 9: 51-75 uses - appreciative (for heavy users)
-        ("Your Watchtower is working. I see you. I appreciate you.", "Power the homelab"),
+        ("Your Watchtower is working. I see you. I appreciate you.", "Power my homelab"),
 
         // Level 10: 76+ uses - we're family now
         ("We've been through a lot together. I expect you at Thanksgiving. Bring a side dish. And maybe sponsor me, idk.", "Become family"),
