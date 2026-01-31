@@ -24,6 +24,20 @@
   - Explicit classification removes ambiguity
   - Auto-detection still works as default for users who don't configure
 
+### Home → IoT Return Traffic Rule Suggestion
+- When Home network has isolation blocking IoT, suggest adding a return traffic rule or explicit allow
+- **Problem:** If Home blocks all traffic to IoT (good for security), return traffic from IoT devices won't work
+  - Example: Smart TV on IoT can't respond to casting from phone on Home
+  - Example: IoT device can't respond to control commands from Home devices
+- **Detection:** Check for block rule Home → IoT without a corresponding:
+  - Allow rule Home → IoT (with specific IPs/devices/ports), OR
+  - Return traffic allow rule IoT → Home (RESPOND_ONLY / ESTABLISHED,RELATED)
+- **Recommendation options:**
+  1. Add specific allow rules from Home to IoT devices that need control (e.g., smart TVs, speakers)
+  2. Add a RESPOND_ONLY allow rule from IoT → Home to permit return traffic
+- **Severity:** Informational (user may have intentionally blocked bidirectional)
+- **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
+
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
