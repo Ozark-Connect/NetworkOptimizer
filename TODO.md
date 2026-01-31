@@ -10,13 +10,8 @@
 ## Security Audit / PDF Report
 
 ### IPv6 Validation Limitations
-- **Issue:** The `/rest/networkconf` API does not expose IPv6 gateway addresses
-- **networkconf API fields (insufficient):**
-  - `ipv6_enabled` - Whether IPv6 is enabled on the network
-  - `ipv6_interface_type` - Type of IPv6 config ("none", "static", "pd")
-  - `ipv6_pd_start`/`ipv6_pd_stop` - Prefix delegation ranges (partial addresses like "::2")
-  - No `ipv6_subnet` or `ipv6_gateway` - the gateway's IPv6 address is NOT here
-- **Device API has full IPv6 data:** The `/stat/device` API's `network_table` includes complete IPv6 info:
+- **Issue:** Need to identify where IPv6 gateway addresses are exposed in the API
+- **Device API has full IPv6 data:** The `/stat/device` API's `network_table` includes complete IPv6 info when enabled:
   - `ipv6_interface_type`: "single_network" when enabled, "none" when disabled
   - `ipv6_single_network_interface`: Which WAN provides IPv6 (e.g., "WAN2")
   - `ipv6_link_local_address`: Gateway's link-local on this VLAN (e.g., "fe80::1e0b:8bff:fe14:9d75")
@@ -31,7 +26,7 @@
   - IPv6 DNAT rules may produce false "Invalid DNAT Translated IP" warnings if target is an IPv6 gateway (until device API parsing is added)
 - **Future fix:** Parse `network_table[].ipv6_subnets` from device API to get IPv6 gateway addresses per network
 - **Priority:** Low - IPv6 adoption on home/SMB LANs is minimal; most users don't have ISP IPv6 support
-- **Reference:** See `sample-device-ipv6-response.txt` for full API response with IPv6 enabled
+- **Reference:** See `sample-device-ipv6-response.txt` for full device API response with IPv6 enabled
 
 ### Manual Network Purpose Override
 - Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
