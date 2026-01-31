@@ -1943,15 +1943,15 @@
 
         url = url.Trim();
 
-        // If URL already has a scheme, return as-is
+        // If URL already has a scheme, just clean it up
         if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
             url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            return url;
+            return url.TrimEnd('/');
         }
 
-        // Prepend https:// for bare IP or hostname
-        return $"https://{url}";
+        // Prepend https:// for bare IP or hostname, remove any trailing slash
+        return $"https://{url.TrimEnd('/')}";
     }
 
     private async Task TestControllerConnection()
