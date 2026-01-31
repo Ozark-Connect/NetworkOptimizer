@@ -24,7 +24,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOp
 ```
 
 The interactive script will:
-1. Create an unprivileged Debian 12 LXC container
+1. Create a privileged Debian 12 LXC container
 2. Install Docker and Docker Compose
 3. Deploy Network Optimizer with Docker Compose
 4. Configure auto-start on boot
