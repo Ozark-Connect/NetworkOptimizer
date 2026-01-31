@@ -540,6 +540,7 @@ deploy_application() {
       - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
       - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
       - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
       - Iperf3Server__Enabled=${IPERF3_SERVER_ENABLED:-false}
       - Logging__LogLevel__Default=${LOG_LEVEL:-Information}
       - Logging__LogLevel__NetworkOptimizer=${APP_LOG_LEVEL:-Information}
@@ -556,12 +557,14 @@ deploy_application() {
     restart: unless-stopped
     network_mode: host
     environment:
-      - SAVE_DATA=true
+      - TZ=${TZ:-America/Chicago}
       - HOST_IP=${HOST_IP:-}
       - HOST_NAME=${HOST_NAME:-}
-      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
-      - API_PORT=8042
       - OPENSPEEDTEST_PORT=${OPENSPEEDTEST_PORT:-3005}
+      - OPENSPEEDTEST_HOST=${OPENSPEEDTEST_HOST:-}
+      - OPENSPEEDTEST_HTTPS=${OPENSPEEDTEST_HTTPS:-false}
+      - OPENSPEEDTEST_HTTPS_PORT=${OPENSPEEDTEST_HTTPS_PORT:-443}
+      - REVERSE_PROXIED_HOST_NAME=${REVERSE_PROXIED_HOST_NAME:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${OPENSPEEDTEST_PORT:-3005}/"]
       interval: 30s
