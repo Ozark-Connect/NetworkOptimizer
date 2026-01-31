@@ -2233,6 +2233,7 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Check if a redirect IP (which may be a range) is valid against the set of expected destinations.
     /// For ranges, ALL IPs in the range must be valid destinations.
+    /// Uses normalized IP comparison to handle IPv6 address format variations.
     /// </summary>
     public static bool IsValidRedirectTarget(string? redirectIp, HashSet<string> validDestinations)
     {
@@ -2244,7 +2245,28 @@ public class DnsSecurityAnalyzer
             return true;
 
         // All IPs in the range must be valid destinations
-        return ips.All(ip => validDestinations.Contains(ip));
+        // Use IP address comparison to handle IPv6 format variations
+        return ips.All(ip => IsIpInValidDestinations(ip, validDestinations));
+    }
+
+    /// <summary>
+    /// Check if an IP address is in the set of valid destinations.
+    /// Uses normalized IP comparison to handle IPv6 address format variations.
+    /// </summary>
+    private static bool IsIpInValidDestinations(string ip, HashSet<string> validDestinations)
+    {
+        // First try simple string match (fast path for most cases)
+        if (validDestinations.Contains(ip))
+            return true;
+
+        // For IPv6, try normalized comparison in case of format differences
+        foreach (var validDest in validDestinations)
+        {
+            if (NetworkUtilities.IpAddressesAreEqual(ip, validDest))
+                return true;
+        }
+
+        return false;
     }
 }
 

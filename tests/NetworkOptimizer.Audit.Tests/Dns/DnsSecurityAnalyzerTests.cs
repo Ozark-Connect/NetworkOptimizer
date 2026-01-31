@@ -7692,4 +7692,236 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region IPv6 DNAT Validation Tests
+
+    [Fact]
+    public async Task Analyze_DnatWithIPv6RedirectDifferentFormat_ShouldStillMatch()
+    {
+        // Arrange - IPv6 addresses can have multiple valid string representations
+        // Gateway uses compressed form, DNAT uses full form - should still match
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "2001:db8::/64", DhcpEnabled = true,
+                Gateway = "2001:db8::1" // Compressed form
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""DNS redirect IPv6 - full form"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""2001:0db8:0000:0000:0000:0000:0000:0001"",
+                ""ip_version"": ""IPV6"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Different IPv6 string formats should still be recognized as the same address
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIPv6RedirectToIPv6Gateway_NoIssue()
+    {
+        // Arrange - Network has IPv6 gateway, DNAT rule redirects to that IPv6 gateway
+        // This is a valid configuration for IPv6-enabled networks
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "2001:db8::1" // IPv6 gateway
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""DNS redirect IPv6"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""2001:db8::1"",
+                ""ip_version"": ""IPV6"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - IPv6 redirect to IPv6 gateway should be valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIPv6RedirectToWrongIPv6Address_RaisesIssue()
+    {
+        // Arrange - Network has IPv6 gateway, but DNAT redirects to wrong IPv6 address
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "2001:db8::1" // IPv6 gateway
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""DNS redirect IPv6 - wrong address"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""2001:db8::99"",
+                ""ip_version"": ""IPV6"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - IPv6 redirect to wrong address should be flagged
+        result.DnatRedirectTargetIsValid.Should().BeFalse();
+        result.InvalidDnatRules.Should().NotBeEmpty();
+        result.Issues.Should().Contain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithMixedIPv4AndIPv6Rules_ValidatesEachCorrectly()
+    {
+        // Arrange - Networks with both IPv4 and IPv6, rules targeting each
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""server_names"": [""NextDNS-test""]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN-IPv4", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1" // IPv4 gateway
+            },
+            new NetworkInfo
+            {
+                Id = "net2", Name = "LAN-IPv6", VlanId = 2,
+                Subnet = "2001:db8:abcd::/64", DhcpEnabled = true,
+                Gateway = "2001:db8:abcd::1" // IPv6 gateway
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""DNS redirect IPv4"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""192.168.1.1"",
+                ""ip_version"": ""IPV4"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            },
+            {
+                ""_id"": ""rule2"",
+                ""description"": ""DNS redirect IPv6"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""2001:db8:abcd::1"",
+                ""ip_version"": ""IPV6"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net2"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, null, null, natRules);
+
+        // Assert - Both rules should be valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    [Fact]
+    public async Task Analyze_DnatWithIPv6DnsServers_ValidatesCorrectly()
+    {
+        // Arrange - Network has IPv6 DNS servers (Pi-hole), DNAT redirects to that address
+        var networks = new List<NetworkInfo>
+        {
+            new NetworkInfo
+            {
+                Id = "net1", Name = "LAN", VlanId = 1,
+                Subnet = "192.168.1.0/24", DhcpEnabled = true,
+                Gateway = "192.168.1.1",
+                DnsServers = new List<string> { "2001:db8::53" } // IPv6 Pi-hole
+            }
+        };
+        var natRules = JsonDocument.Parse(@"[
+            {
+                ""_id"": ""rule1"",
+                ""description"": ""DNS redirect to IPv6 Pi-hole"",
+                ""type"": ""DNAT"",
+                ""enabled"": true,
+                ""protocol"": ""udp"",
+                ""ip_address"": ""2001:db8::53"",
+                ""ip_version"": ""IPV6"",
+                ""destination_filter"": { ""filter_type"": ""ADDRESS_AND_PORT"", ""port"": ""53"" },
+                ""source_filter"": { ""filter_type"": ""NETWORK_CONF"", ""network_conf_id"": ""net1"" }
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(null, null, null, networks, null, null, natRules);
+
+        // Assert - IPv6 redirect to IPv6 DNS server should be valid
+        result.DnatRedirectTargetIsValid.Should().BeTrue();
+        result.InvalidDnatRules.Should().BeEmpty();
+        result.Issues.Should().NotContain(i => i.Type == IssueTypes.DnsDnatWrongDestination);
+    }
+
+    #endregion
 }

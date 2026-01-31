@@ -264,6 +264,42 @@ public class NetworkUtilitiesTests
 
     #endregion
 
+    #region IsPrivateIpAddress - IPv6 Tests
+
+    [Theory]
+    [InlineData("::1", true)]                             // IPv6 loopback
+    [InlineData("fe80::1", true)]                         // Link-local start
+    [InlineData("fe80::abcd:1234:5678:9abc", true)]       // Link-local typical
+    [InlineData("febf::1", true)]                         // Link-local end of range (fe80::/10)
+    [InlineData("fc00::1", true)]                         // Unique local (ULA) start
+    [InlineData("fd00::1", true)]                         // Unique local (ULA) - commonly used
+    [InlineData("fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true)] // ULA end
+    public void IsPrivateIpAddress_IPv6_PrivateAddresses_ReturnsTrue(string ip, bool expected)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("2001:db8::1")]                           // Documentation range (public/special)
+    [InlineData("2001:4860:4860::8888")]                  // Google DNS IPv6
+    [InlineData("2606:4700:4700::1111")]                  // Cloudflare DNS IPv6
+    [InlineData("2001:470:1:18::119")]                    // Random global unicast
+    public void IsPrivateIpAddress_IPv6_PublicAddresses_ReturnsFalse(string ip)
+    {
+        NetworkUtilities.IsPrivateIpAddress(ip).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsPrivateIpAddress_IPv6_Loopback()
+    {
+        // ::1 is the IPv6 loopback, equivalent to 127.0.0.1
+        NetworkUtilities.IsPrivateIpAddress("::1").Should().BeTrue();
+        // Full form
+        NetworkUtilities.IsPrivateIpAddress("0:0:0:0:0:0:0:1").Should().BeTrue();
+    }
+
+    #endregion
+
     #region IsPublicIpAddress Tests
 
     [Theory]
@@ -281,6 +317,98 @@ public class NetworkUtilitiesTests
     public void IsPublicIpAddress_InvalidIp_ReturnsFalse()
     {
         NetworkUtilities.IsPublicIpAddress("invalid").Should().BeFalse();
+    }
+
+    #endregion
+
+    #region IsPublicIpAddress - IPv6 Tests
+
+    [Theory]
+    [InlineData("2001:4860:4860::8888", true)]            // Google DNS IPv6 - public
+    [InlineData("2606:4700:4700::1111", true)]            // Cloudflare DNS IPv6 - public
+    [InlineData("2001:470:1:18::119", true)]              // Random global unicast - public
+    [InlineData("::1", false)]                            // Loopback - not public
+    [InlineData("fe80::1", false)]                        // Link-local - not public
+    [InlineData("fd00::1", false)]                        // ULA - not public
+    public void IsPublicIpAddress_IPv6_ValidCases(string ip, bool expected)
+    {
+        NetworkUtilities.IsPublicIpAddress(ip).Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsPublicIpAddress_IPv6_GlobalUnicast()
+    {
+        // Global unicast addresses (2000::/3) are public
+        NetworkUtilities.IsPublicIpAddress("2001:db8::1").Should().BeTrue();
+        NetworkUtilities.IsPublicIpAddress("2607:f8b0:4004:800::200e").Should().BeTrue();
+    }
+
+    #endregion
+
+    #region NormalizeIpAddress Tests
+
+    [Theory]
+    [InlineData("192.168.1.1", "192.168.1.1")]                    // IPv4 unchanged
+    [InlineData("192.168.001.001", "192.168.1.1")]                // IPv4 with leading zeros normalizes
+    [InlineData("010.000.000.001", "8.0.0.1")]                    // IPv4 with leading zeros - octal (010 octal = 8 decimal)
+    [InlineData("2001:db8::1", "2001:db8::1")]                    // IPv6 compressed stays compressed
+    [InlineData("2001:0db8:0000:0000:0000:0000:0000:0001", "2001:db8::1")] // IPv6 full form normalizes to compressed
+    [InlineData("::1", "::1")]                                    // IPv6 loopback
+    [InlineData("0:0:0:0:0:0:0:1", "::1")]                        // IPv6 loopback full form
+    [InlineData("fe80:0:0:0:0:0:0:1", "fe80::1")]                 // IPv6 link-local
+    public void NormalizeIpAddress_ValidAddresses_NormalizesToCanonicalForm(string input, string expected)
+    {
+        NetworkUtilities.NormalizeIpAddress(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    public void NormalizeIpAddress_NullOrEmpty_ReturnsEmptyOrOriginal(string? input, string expected)
+    {
+        NetworkUtilities.NormalizeIpAddress(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("not-an-ip")]
+    [InlineData("999.999.999.999")]
+    public void NormalizeIpAddress_InvalidAddress_ReturnsOriginal(string input)
+    {
+        NetworkUtilities.NormalizeIpAddress(input).Should().Be(input);
+    }
+
+    #endregion
+
+    #region IpAddressesAreEqual Tests
+
+    [Theory]
+    [InlineData("192.168.1.1", "192.168.1.1", true)]              // IPv4 same
+    [InlineData("192.168.1.1", "192.168.001.001", true)]          // IPv4 with leading zeros (works for octets < 8)
+    [InlineData("8.0.0.1", "010.000.000.001", true)]              // IPv4 with leading zeros - 010 is octal (8 decimal)
+    [InlineData("192.168.1.1", "192.168.1.2", false)]             // IPv4 different
+    [InlineData("2001:db8::1", "2001:db8::1", true)]              // IPv6 same compressed
+    [InlineData("2001:db8::1", "2001:0db8:0000:0000:0000:0000:0000:0001", true)] // IPv6 different formats
+    [InlineData("::1", "0:0:0:0:0:0:0:1", true)]                  // IPv6 loopback different formats
+    [InlineData("fe80::1", "fe80:0:0:0:0:0:0:1", true)]           // IPv6 link-local different formats
+    [InlineData("2001:db8::1", "2001:db8::2", false)]             // IPv6 different
+    [InlineData("192.168.1.1", "2001:db8::1", false)]             // IPv4 vs IPv6
+    public void IpAddressesAreEqual_ValidAddresses_ReturnsCorrectResult(string ip1, string ip2, bool expected)
+    {
+        NetworkUtilities.IpAddressesAreEqual(ip1, ip2).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(null, "192.168.1.1")]
+    [InlineData("192.168.1.1", null)]
+    [InlineData(null, null)]
+    [InlineData("", "192.168.1.1")]
+    [InlineData("192.168.1.1", "")]
+    [InlineData("invalid", "192.168.1.1")]
+    [InlineData("192.168.1.1", "invalid")]
+    public void IpAddressesAreEqual_NullOrInvalid_ReturnsFalse(string? ip1, string? ip2)
+    {
+        NetworkUtilities.IpAddressesAreEqual(ip1, ip2).Should().BeFalse();
     }
 
     #endregion

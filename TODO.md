@@ -9,6 +9,34 @@
 
 ## Security Audit / PDF Report
 
+### IPv6 Validation Limitations
+- **Issue:** UniFi API does not expose IPv6 gateway addresses in network configuration
+- **API fields available for IPv6:**
+  - `ipv6_enabled` - Whether IPv6 is enabled on the network
+  - `ipv6_interface_type` - Type of IPv6 config ("none", "static", "pd")
+  - `ipv6_pd_start`/`ipv6_pd_stop` - Prefix delegation ranges (partial addresses like "::2")
+  - `ipv6_aliases` - Array (typically empty)
+  - DHCPv6 settings: `dhcpdv6_start`, `dhcpdv6_stop`, `dhcpdv6_leasetime`, etc.
+  - WAN: `wan_type_v6`, `wan_ipv6_dns1`, `wan_ipv6_dns2` (often empty)
+- **What's missing:**
+  - No `ipv6_subnet` equivalent to `ip_subnet` (e.g., "192.168.1.1/24")
+  - No `ipv6_gateway` field - the gateway's IPv6 address is not exposed
+  - Prefix delegation provides partial addresses, not the full gateway IP
+- **Impact on DNAT validation:**
+  - IPv4 DNAT rules redirecting to gateway IPs can be fully validated (gateway IP extracted from `ip_subnet`)
+  - IPv6 DNAT rules redirecting to IPv6 gateways cannot be validated (gateway IP unknown)
+  - When IPv6 redirect target isn't in any known network/group, we cannot confirm if it's the gateway
+- **Current handling:**
+  - IPv6 address format normalization works correctly (e.g., `2001:db8::1` equals `2001:0db8:0000:0000:0000:0000:0000:0001`)
+  - IPv6 addresses in firewall groups are matched correctly
+  - IPv6 DNAT rules may produce false "Invalid DNAT Translated IP" warnings if target is an IPv6 gateway
+- **Alternative source found:** Gateway device API (`/api/s/{site}/stat/device`) exposes IPv6 data in WAN port info:
+  - `wan2.ipv6[]` - WAN interface's own IPv6 addresses (GUA + link-local)
+  - `wan2.mac_table_ipv6[].ip` - IPv6 neighbor table includes upstream gateway IP (e.g., `2605:59c8:6b00:7c2c::1`)
+  - `wan2.dns[]` - Can include IPv6 DNS servers
+- **Future fix:** Parse IPv6 gateway from device API's `mac_table_ipv6` for WAN interfaces
+- **Priority:** Low - IPv6 adoption on home/SMB LANs is minimal; most users don't have ISP IPv6 support
+
 ### Manual Network Purpose Override
 - Allow users to manually set the purpose/classification of their Networks in Security Audit Settings
 - Currently: Network purpose (IoT, Security, Guest, Management, etc.) is auto-detected from network name patterns

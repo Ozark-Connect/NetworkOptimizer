@@ -276,13 +276,20 @@ public static class NetworkUtilities
 
     /// <summary>
     /// Check if an IP address is a private/non-routable address.
-    /// Includes RFC1918, loopback, link-local, and CGNAT ranges.
+    /// For IPv4: Includes RFC1918, loopback, link-local, and CGNAT ranges.
+    /// For IPv6: Includes loopback (::1), link-local (fe80::/10), and unique local (fc00::/7).
     /// </summary>
     /// <param name="ip">Parsed IP address to check</param>
     /// <returns>True if the IP is private/non-routable, false if public</returns>
     public static bool IsPrivateIpAddress(IPAddress ip)
     {
-        // Only handle IPv4
+        // Handle IPv6
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            return IsPrivateIPv6Address(ip);
+        }
+
+        // Handle IPv4
         if (ip.AddressFamily != AddressFamily.InterNetwork)
             return false;
 
@@ -316,6 +323,28 @@ public static class NetworkUtilities
     }
 
     /// <summary>
+    /// Check if an IPv6 address is a private/non-routable address.
+    /// Includes loopback (::1), link-local (fe80::/10), and unique local addresses (fc00::/7).
+    /// </summary>
+    private static bool IsPrivateIPv6Address(IPAddress ip)
+    {
+        // Loopback (::1)
+        if (IPAddress.IsLoopback(ip))
+            return true;
+
+        // Link-local (fe80::/10)
+        if (ip.IsIPv6LinkLocal)
+            return true;
+
+        // Unique Local Addresses (fc00::/7) - includes fc00::/8 and fd00::/8
+        var bytes = ip.GetAddressBytes();
+        if ((bytes[0] & 0xFE) == 0xFC) // First 7 bits are 1111110 (0xFC with mask 0xFE)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
     /// Check if an IP address is a public/routable address.
     /// </summary>
     /// <param name="ipAddress">IP address string to check</param>
@@ -330,16 +359,26 @@ public static class NetworkUtilities
 
     /// <summary>
     /// Check if an IP address is a public/routable address.
+    /// Supports both IPv4 and IPv6 addresses.
     /// </summary>
     /// <param name="ip">Parsed IP address to check</param>
     /// <returns>True if the IP is public/routable, false if private</returns>
     public static bool IsPublicIpAddress(IPAddress ip)
     {
-        // Only handle IPv4
-        if (ip.AddressFamily != AddressFamily.InterNetwork)
-            return false;
+        // Handle IPv4
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            return !IsPrivateIpAddress(ip);
+        }
 
-        return !IsPrivateIpAddress(ip);
+        // Handle IPv6
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            return !IsPrivateIpAddress(ip);
+        }
+
+        // Unknown address family
+        return false;
     }
 
     /// <summary>
@@ -500,6 +539,46 @@ public static class NetworkUtilities
             return (null, 0);
 
         return (address, prefixLength);
+    }
+
+    /// <summary>
+    /// Normalize an IP address to its canonical string form.
+    /// For IPv6, this converts expanded/full form to compressed form (e.g., 2001:0db8::0001 becomes 2001:db8::1).
+    /// For IPv4, returns the standard dotted-decimal form.
+    /// Useful for comparing IP addresses that may be in different string formats.
+    /// </summary>
+    /// <param name="ipAddress">IP address string to normalize</param>
+    /// <returns>Normalized IP address string, or the original string if parsing fails</returns>
+    public static string NormalizeIpAddress(string? ipAddress)
+    {
+        if (string.IsNullOrEmpty(ipAddress))
+            return ipAddress ?? string.Empty;
+
+        if (IPAddress.TryParse(ipAddress, out var ip))
+        {
+            return ip.ToString();
+        }
+
+        // If parsing fails, return the original
+        return ipAddress;
+    }
+
+    /// <summary>
+    /// Check if two IP addresses are equal, accounting for different string formats.
+    /// Handles IPv6 compressed vs expanded forms and IPv4 with/without leading zeros.
+    /// </summary>
+    /// <param name="ip1">First IP address</param>
+    /// <param name="ip2">Second IP address</param>
+    /// <returns>True if both addresses represent the same IP, false otherwise</returns>
+    public static bool IpAddressesAreEqual(string? ip1, string? ip2)
+    {
+        if (string.IsNullOrEmpty(ip1) || string.IsNullOrEmpty(ip2))
+            return false;
+
+        if (!IPAddress.TryParse(ip1, out var addr1) || !IPAddress.TryParse(ip2, out var addr2))
+            return false;
+
+        return addr1.Equals(addr2);
     }
 
     /// <summary>
