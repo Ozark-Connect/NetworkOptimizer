@@ -901,7 +901,7 @@ public class FirewallRuleAnalyzer
             var severity = isCritical ? AuditSeverity.Critical : AuditSeverity.Recommended;
             var scoreImpact = isCritical ? 12 : 7;
 
-            var recommendation = $"Add block rule: {sourceNetwork.Name} → {destNetwork.Name}";
+            var recommendation = $"Add block rule: {sourceNetwork.Name} → {destNetwork.Name}. Network Isolation is outbound-only and can be inadvertently bypassed.";
 
             issues.Add(new AuditIssue
             {
