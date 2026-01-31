@@ -424,9 +424,10 @@ public class FirewallRuleAnalyzer
         // These are about isolating untrusted networks from trusted networks
         // ============================================================================
 
-        // Trusted networks that IoT/Guest should not access - filter by !NetworkIsolationEnabled since isolated networks can't reach other VLANs
-        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate && !n.NetworkIsolationEnabled).ToList();
-        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home && !n.NetworkIsolationEnabled).ToList();
+        // Trusted networks that IoT/Guest should not access
+        // Do NOT filter by isolation - these are DESTINATIONS, and isolation only blocks outbound
+        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
+        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
         var trustedNetworks = corporateNetworks.Concat(homeNetworks).ToList();
 
         // IoT should be isolated from: Corporate, Home
