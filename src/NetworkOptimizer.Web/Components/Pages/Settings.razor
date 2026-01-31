@@ -5,6 +5,7 @@
 @using NetworkOptimizer.Storage.Models
 @using NetworkOptimizer.Storage.Interfaces
 @using NetworkOptimizer.Core.Interfaces
+@using NetworkOptimizer.Core.Helpers
 @using NetworkOptimizer.UniFi
 @inject UniFiConnectionService ConnectionService
 @inject IGatewaySshService GatewaySshService
@@ -1924,43 +1925,13 @@
 
         return new UniFiConnectionConfig
         {
-            ControllerUrl = NormalizeControllerUrl(controllerUrl),
+            ControllerUrl = NetworkUtilities.NormalizeControllerUrl(controllerUrl),
             Username = controllerUsername,
             Password = password,
             Site = string.IsNullOrWhiteSpace(controllerSite) ? "default" : controllerSite,
             RememberCredentials = rememberCredentials,
             IgnoreControllerSSLErrors = ignoreControllerSSLErrors
         };
-    }
-
-    /// <summary>
-    /// Normalize controller URL: prepend https:// if needed, strip any path/query.
-    /// E.g., "unifi.example.com/network/default/" becomes "https://unifi.example.com"
-    /// </summary>
-    private static string NormalizeControllerUrl(string url)
-    {
-        if (string.IsNullOrWhiteSpace(url))
-            return url;
-
-        url = url.Trim();
-
-        // Prepend https:// if no scheme provided
-        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
-            !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-        {
-            url = $"https://{url}";
-        }
-
-        // Parse and extract just scheme + host (strip path, query, fragment)
-        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            // Include port if non-default
-            var port = uri.IsDefaultPort ? "" : $":{uri.Port}";
-            return $"{uri.Scheme}://{uri.Host}{port}";
-        }
-
-        // Fallback: just trim trailing slashes
-        return url.TrimEnd('/');
     }
 
     private async Task TestControllerConnection()

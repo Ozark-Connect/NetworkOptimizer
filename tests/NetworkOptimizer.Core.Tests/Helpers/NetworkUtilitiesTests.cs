@@ -420,4 +420,91 @@ public class NetworkUtilitiesTests
     }
 
     #endregion
+
+    #region NormalizeControllerUrl Tests
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void NormalizeControllerUrl_NullOrWhitespace_ReturnsAsIs(string? url)
+    {
+        NetworkUtilities.NormalizeControllerUrl(url!).Should().Be(url);
+    }
+
+    [Theory]
+    [InlineData("unifi.example.com", "https://unifi.example.com")]
+    [InlineData("192.168.1.1", "https://192.168.1.1")]
+    [InlineData("my-controller.local", "https://my-controller.local")]
+    public void NormalizeControllerUrl_BareHostname_PrependsHttps(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com", "https://unifi.example.com")]
+    [InlineData("http://unifi.example.com", "http://unifi.example.com")]
+    [InlineData("HTTPS://unifi.example.com", "https://unifi.example.com")]
+    [InlineData("HTTP://unifi.example.com", "http://unifi.example.com")]
+    public void NormalizeControllerUrl_WithScheme_PreservesScheme(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com/", "https://unifi.example.com")]
+    [InlineData("https://unifi.example.com///", "https://unifi.example.com")]
+    [InlineData("unifi.example.com/", "https://unifi.example.com")]
+    public void NormalizeControllerUrl_TrailingSlash_Removed(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com/network/default/dashboard", "https://unifi.example.com")]
+    [InlineData("https://unifi.example.com/network/default/dashboard/", "https://unifi.example.com")]
+    [InlineData("unifi.example.com/network/default", "https://unifi.example.com")]
+    [InlineData("http://192.168.1.1/api/s/default", "http://192.168.1.1")]
+    public void NormalizeControllerUrl_WithPath_StripsPath(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com:8443", "https://unifi.example.com:8443")]
+    [InlineData("https://unifi.example.com:8443/network/default", "https://unifi.example.com:8443")]
+    [InlineData("http://192.168.1.1:8080/api", "http://192.168.1.1:8080")]
+    [InlineData("unifi.example.com:8443", "https://unifi.example.com:8443")]
+    [InlineData("unifi.example.com:8443/path", "https://unifi.example.com:8443")]
+    public void NormalizeControllerUrl_NonDefaultPort_PortPreserved(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com:443", "https://unifi.example.com")]
+    [InlineData("http://unifi.example.com:80", "http://unifi.example.com")]
+    public void NormalizeControllerUrl_DefaultPort_PortOmitted(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("  unifi.example.com  ", "https://unifi.example.com")]
+    [InlineData("  https://unifi.example.com  ", "https://unifi.example.com")]
+    [InlineData("\thttps://unifi.example.com\n", "https://unifi.example.com")]
+    public void NormalizeControllerUrl_Whitespace_Trimmed(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("https://unifi.example.com?query=1", "https://unifi.example.com")]
+    [InlineData("https://unifi.example.com/path?query=1#fragment", "https://unifi.example.com")]
+    public void NormalizeControllerUrl_QueryAndFragment_Stripped(string input, string expected)
+    {
+        NetworkUtilities.NormalizeControllerUrl(input).Should().Be(expected);
+    }
+
+    #endregion
 }
