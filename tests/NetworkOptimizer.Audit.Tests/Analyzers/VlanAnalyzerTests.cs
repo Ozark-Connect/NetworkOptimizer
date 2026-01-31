@@ -1716,6 +1716,55 @@ public class VlanAnalyzerTests
 
     #endregion
 
+    #region ExtractNetworks Tests
+
+    [Fact]
+    public void ExtractNetworks_RedesignatesVlan1AsManagement_PreservesFirewallZoneId()
+    {
+        // Arrange - Create device data with a VLAN 1 network that has a firewall zone ID
+        // but isn't classified as Management initially (e.g., it has internet_access_enabled=false
+        // which causes it to be classified as Unknown)
+        var json = """
+        {
+            "data": [
+                {
+                    "type": "udm",
+                    "name": "Gateway",
+                    "network_table": [
+                        {
+                            "_id": "default-network-id",
+                            "name": "Default",
+                            "vlan": 1,
+                            "purpose": "corporate",
+                            "ip_subnet": "192.168.1.1/24",
+                            "dhcpd_enabled": true,
+                            "network_isolation_enabled": false,
+                            "internet_access_enabled": false,
+                            "firewall_zone_id": "zone-12345",
+                            "networkgroup": "LAN"
+                        }
+                    ]
+                }
+            ]
+        }
+        """;
+        var deviceData = System.Text.Json.JsonDocument.Parse(json).RootElement;
+
+        // Act
+        var networks = _analyzer.ExtractNetworks(deviceData);
+
+        // Assert - The network should be re-designated as Management and preserve FirewallZoneId
+        networks.Should().HaveCount(1);
+        var network = networks[0];
+        network.Name.Should().Be("Default");
+        network.VlanId.Should().Be(1);
+        network.Purpose.Should().Be(NetworkPurpose.Management);
+        network.FirewallZoneId.Should().Be("zone-12345", "FirewallZoneId must be preserved when re-designating network as Management");
+        network.NetworkGroup.Should().Be("LAN", "NetworkGroup must be preserved when re-designating network as Management");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(

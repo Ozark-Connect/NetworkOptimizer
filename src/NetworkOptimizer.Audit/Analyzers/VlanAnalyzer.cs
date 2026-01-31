@@ -99,9 +99,13 @@ public class VlanAnalyzer
                     Subnet = vlan1Network.Subnet,
                     Gateway = vlan1Network.Gateway,
                     DnsServers = vlan1Network.DnsServers,
+                    AllowsRouting = vlan1Network.AllowsRouting,
                     DhcpEnabled = vlan1Network.DhcpEnabled,
                     NetworkIsolationEnabled = vlan1Network.NetworkIsolationEnabled,
                     InternetAccessEnabled = vlan1Network.InternetAccessEnabled,
+                    IsUniFiGuestNetwork = vlan1Network.IsUniFiGuestNetwork,
+                    FirewallZoneId = vlan1Network.FirewallZoneId,
+                    NetworkGroup = vlan1Network.NetworkGroup,
                     UpnpLanEnabled = vlan1Network.UpnpLanEnabled,
                     Enabled = vlan1Network.Enabled
                 };

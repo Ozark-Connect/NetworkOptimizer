@@ -27,7 +27,7 @@ public class SponsorshipService : ISponsorshipService
         ("You've run more audits than I've had hot meals this week.", "Buy me a hot meal"),
 
         // Level 3: 6-10 uses - relatable UI Store dig
-        ("You paid $15 to ship a patch cable from the UI Store. I'm just saying.", "Spare $5?"),
+        ("You paid $15 to ship a patch cable from the UI Store!? I'm just saying...", "Spare $5?"),
 
         // Level 4: 11-15 uses - getting personal
         ("At this point you've used this more than my wife talks to me. Sponsorship is cheaper than therapy.", "Fund my therapy"),
