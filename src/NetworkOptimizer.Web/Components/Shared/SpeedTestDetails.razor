@@ -1046,10 +1046,10 @@
     }
 
     /// <summary>
-    /// Check if the bottleneck hop is a wireless link (not a wired link like 1 GbE).
-    /// This determines whether to use asymmetric Wi-Fi rate display.
+    /// Check if the bottleneck hop has asymmetric rates (wireless or VPN/WAN).
+    /// This determines whether to use asymmetric rate display.
     /// </summary>
-    private bool IsBottleneckWireless()
+    private bool IsBottleneckAsymmetric()
     {
         if (PathAnalysis == null || !PathAnalysis.Path.HasRealBottleneck)
             return false;
@@ -1058,8 +1058,15 @@
         if (bottleneckHop == null)
             return false;
 
-        // Check if the bottleneck is on a wireless link (ingress or egress)
-        return bottleneckHop.IsWirelessIngress || bottleneckHop.IsWirelessEgress;
+        // Wireless links have asymmetric TX/RX rates
+        if (bottleneckHop.IsWirelessIngress || bottleneckHop.IsWirelessEgress)
+            return true;
+
+        // VPN/WAN hops have asymmetric download/upload rates
+        return bottleneckHop.Type == HopType.Tailscale ||
+               bottleneckHop.Type == HopType.Teleport ||
+               bottleneckHop.Type == HopType.Wan ||
+               bottleneckHop.Type == HopType.Vpn;
     }
 
     /// <summary>
@@ -1074,7 +1081,7 @@
 
         // Only use asymmetric display when the bottleneck IS the wireless link
         // If bottleneck is wired (e.g., 1 GbE backhaul), show the wired bottleneck speed
-        if (!IsLinkAsymmetric() || !IsBottleneckWireless())
+        if (!IsLinkAsymmetric() || !IsBottleneckAsymmetric())
         {
             // Use the path's theoretical max (which is the actual bottleneck speed)
             return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));
@@ -1114,7 +1121,7 @@
 
         // Only override with Wi-Fi rates when the bottleneck IS a wireless link
         // If bottleneck is wired (e.g., 1 GbE backhaul), use the stored description
-        if (!IsBottleneckWireless())
+        if (!IsBottleneckAsymmetric())
         {
             return PathAnalysis.Path.BottleneckDescription;
         }
