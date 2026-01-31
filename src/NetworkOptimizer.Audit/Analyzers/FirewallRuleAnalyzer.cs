@@ -901,14 +901,12 @@ public class FirewallRuleAnalyzer
             var severity = isCritical ? AuditSeverity.Critical : AuditSeverity.Recommended;
             var scoreImpact = isCritical ? 12 : 7;
 
-            var recommendation = $"Add block rule: {sourceNetwork.Name} → {destNetwork.Name}. Network Isolation is outbound-only and can be inadvertently bypassed.";
-
             issues.Add(new AuditIssue
             {
                 Type = IssueTypes.MissingIsolation,
                 Severity = severity,
                 Message = $"No rule blocking {sourceNetwork.Name} ({sourceNetwork.Purpose}) from reaching {destNetwork.Name} ({destNetwork.Purpose})",
-                RecommendedAction = recommendation,
+                RecommendedAction = $"Add block rules from these network(s) to {destNetwork.Name}. Network Isolation is outbound-only and can be inadvertently bypassed.",
                 Metadata = new Dictionary<string, object>
                 {
                     { "source_network", sourceNetwork.Name },
