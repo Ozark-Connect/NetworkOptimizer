@@ -172,4 +172,128 @@ public class FirewallRuleTests
     }
 
     #endregion
+
+    #region AllowsNewConnections Tests
+
+    [Fact]
+    public void AllowsNewConnections_NoConnectionStateType_ReturnsTrue()
+    {
+        // No connection state type = allows all traffic (legacy behavior)
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = null
+        };
+
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_EmptyConnectionStateType_ReturnsTrue()
+    {
+        // Empty string = allows all traffic
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = ""
+        };
+
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_ConnectionStateTypeAll_ReturnsTrue()
+    {
+        // ALL = allows all connection states including NEW
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "ALL"
+        };
+
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_RespondOnly_ReturnsFalse()
+    {
+        // RESPOND_ONLY = only allows ESTABLISHED/RELATED, not NEW
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "RESPOND_ONLY"
+        };
+
+        rule.AllowsNewConnections().Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_RespondOnlyLowercase_ReturnsFalse()
+    {
+        // Case insensitive
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "respond_only"
+        };
+
+        rule.AllowsNewConnections().Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_CustomWithNew_ReturnsTrue()
+    {
+        // CUSTOM with NEW = allows NEW connections
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = new List<string> { "NEW" }
+        };
+
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_CustomWithoutNew_ReturnsFalse()
+    {
+        // CUSTOM without NEW = doesn't allow NEW connections
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+        };
+
+        rule.AllowsNewConnections().Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_CustomWithNullStates_ReturnsFalse()
+    {
+        // CUSTOM with null states = no NEW
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "CUSTOM",
+            ConnectionStates = null
+        };
+
+        rule.AllowsNewConnections().Should().BeFalse();
+    }
+
+    [Fact]
+    public void AllowsNewConnections_UnknownType_ReturnsTrue()
+    {
+        // Unknown type - be conservative and assume it might allow NEW
+        var rule = new FirewallRule
+        {
+            Id = "test",
+            ConnectionStateType = "UNKNOWN"
+        };
+
+        rule.AllowsNewConnections().Should().BeTrue();
+    }
+
+    #endregion
 }

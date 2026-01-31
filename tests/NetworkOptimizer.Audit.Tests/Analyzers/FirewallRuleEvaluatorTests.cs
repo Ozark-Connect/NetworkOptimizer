@@ -396,6 +396,145 @@ public class FirewallRuleEvaluatorTests
 
     #endregion
 
+    #region ForNewConnections Tests
+
+    [Fact]
+    public void Evaluate_ForNewConnections_SkipsRespondOnlyAllowRules()
+    {
+        // RESPOND_ONLY allow rule followed by block rule
+        // Without forNewConnections, the allow rule would be effective
+        // With forNewConnections, the allow rule is skipped and block becomes effective
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "1", Name = "Allow Return Traffic", Action = "ACCEPT", Index = 100,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "RESPOND_ONLY",
+                ConnectionStates = new List<string> { "ESTABLISHED", "RELATED" }
+            },
+            CreateRule("Block All Traffic", "DROP", 200, "ANY", null)
+        };
+
+        // Without forNewConnections - Allow Return Traffic is effective
+        var resultDefault = FirewallRuleEvaluator.Evaluate(rules, r => true);
+        resultDefault.EffectiveRule!.Name.Should().Be("Allow Return Traffic");
+        resultDefault.IsAllowed.Should().BeTrue();
+
+        // With forNewConnections - Allow Return Traffic is skipped, Block All Traffic is effective
+        var resultForNew = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+        resultForNew.EffectiveRule!.Name.Should().Be("Block All Traffic");
+        resultForNew.IsBlocked.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ForNewConnections_AllowsRegularAllowRules()
+    {
+        // Regular allow rule (ALL connection states) should still be effective
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "1", Name = "Allow All Traffic", Action = "ACCEPT", Index = 100,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "ALL"
+            },
+            CreateRule("Block All Traffic", "DROP", 200, "ANY", null)
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+
+        result.EffectiveRule!.Name.Should().Be("Allow All Traffic");
+        result.IsAllowed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ForNewConnections_NoMatchingRulesAfterFiltering()
+    {
+        // Only RESPOND_ONLY allow rules - should return null when forNewConnections=true
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "1", Name = "Allow Return Traffic", Action = "ACCEPT", Index = 100,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "RESPOND_ONLY"
+            }
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+
+        result.EffectiveRule.Should().BeNull();
+        result.IsBlocked.Should().BeFalse();
+        result.IsAllowed.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_ForNewConnections_BlockRulesStillMatch()
+    {
+        // Block rules should always be considered regardless of forNewConnections
+        var rules = new List<FirewallRule>
+        {
+            CreateRule("Block All Traffic", "DROP", 100, "ANY", null)
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+
+        result.EffectiveRule!.Name.Should().Be("Block All Traffic");
+        result.IsBlocked.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ForNewConnections_MultipleRespondOnlySkipped()
+    {
+        // Multiple RESPOND_ONLY rules before a block rule
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "1", Name = "Allow Return 1", Action = "ACCEPT", Index = 100,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "RESPOND_ONLY"
+            },
+            new FirewallRule
+            {
+                Id = "2", Name = "Allow Return 2", Action = "ACCEPT", Index = 150,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "RESPOND_ONLY"
+            },
+            CreateRule("Block All Traffic", "DROP", 200, "ANY", null)
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+
+        result.EffectiveRule!.Name.Should().Be("Block All Traffic");
+        result.IsBlocked.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_ForNewConnections_EclipsedBlockRuleDetected()
+    {
+        // Regular allow rule followed by block rule - eclipsed block should be detected
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "1", Name = "Allow All", Action = "ACCEPT", Index = 100,
+                Enabled = true, SourceMatchingTarget = "ANY",
+                ConnectionStateType = "ALL"
+            },
+            CreateRule("Block All Traffic", "DROP", 200, "ANY", null)
+        };
+
+        var result = FirewallRuleEvaluator.Evaluate(rules, r => true, forNewConnections: true);
+
+        result.EffectiveRule!.Name.Should().Be("Allow All");
+        result.BlockRuleEclipsed.Should().BeTrue();
+        result.EclipsedBlockRule!.Name.Should().Be("Block All Traffic");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static FirewallRule CreateRule(
