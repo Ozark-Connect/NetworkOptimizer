@@ -1031,27 +1031,41 @@
     }
 
     /// <summary>
+    /// Check if the bottleneck hop is a wireless link (not a wired link like 1 GbE).
+    /// This determines whether to use asymmetric Wi-Fi rate display.
+    /// </summary>
+    private bool IsBottleneckWireless()
+    {
+        if (PathAnalysis == null || !PathAnalysis.Path.HasRealBottleneck)
+            return false;
+
+        var bottleneckHop = PathAnalysis.Path.Hops.FirstOrDefault(h => h.IsBottleneck);
+        if (bottleneckHop == null)
+            return false;
+
+        // Check if the bottleneck is on a wireless link (ingress or egress)
+        return bottleneckHop.IsWirelessIngress || bottleneckHop.IsWirelessEgress;
+    }
+
+    /// <summary>
     /// Format the path max speed display, showing directional speeds if asymmetric.
     /// Returns MarkupString for colored arrows.
+    /// Only shows asymmetric rates when the bottleneck is a wireless link.
     /// </summary>
     private MarkupString FormatPathMaxSpeed()
     {
         if (PathAnalysis == null)
             return new MarkupString("0 Mbps");
 
-        if (!IsLinkAsymmetric())
+        // Only use asymmetric display when the bottleneck IS the wireless link
+        // If bottleneck is wired (e.g., 1 GbE backhaul), show the wired bottleneck speed
+        if (!IsLinkAsymmetric() || !IsBottleneckWireless())
         {
-            // Symmetric: use the higher of the two rates (typically Tx/ToDevice)
-            var (rxKbps, txKbps) = GetDirectionalRates();
-            if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
-            {
-                var maxRateKbps = Math.Max(rxKbps.Value, txKbps.Value);
-                return new MarkupString(FormatSpeed((int)(maxRateKbps / 1000)));
-            }
+            // Use the path's theoretical max (which is the actual bottleneck speed)
             return new MarkupString(FormatSpeed(PathAnalysis.Path.TheoreticalMaxMbps));
         }
 
-        // Asymmetric: show both directions with colored arrows matching speed-results
+        // Asymmetric wireless bottleneck: show both directions with colored arrows
         var (fromMax, toMax, _, _, _) = GetDirectionalEfficiencyData();
 
         // Use Gbps if both are >= 1000, otherwise Mbps
@@ -1075,12 +1089,20 @@
 
     /// <summary>
     /// Format the bottleneck description, showing directional speeds (Rx / Tx) if asymmetric.
-    /// Generated on the fly to support existing test results.
+    /// Only uses Wi-Fi rates when the bottleneck IS a wireless link.
+    /// For wired bottlenecks, uses the stored BottleneckDescription directly.
     /// </summary>
     private string FormatBottleneckDescription()
     {
         if (PathAnalysis == null || string.IsNullOrEmpty(PathAnalysis.Path.BottleneckDescription))
             return "";
+
+        // Only override with Wi-Fi rates when the bottleneck IS a wireless link
+        // If bottleneck is wired (e.g., 1 GbE backhaul), use the stored description
+        if (!IsBottleneckWireless())
+        {
+            return PathAnalysis.Path.BottleneckDescription;
+        }
 
         var (rxKbps, txKbps) = GetDirectionalRates();
 
@@ -1113,7 +1135,7 @@
             return $"{speedStr} link{devicePart}";
         }
 
-        // Symmetric: use the higher of the two rates for consistency with max speed display
+        // Symmetric wireless bottleneck: use the higher of the two rates
         if (rxKbps.HasValue && txKbps.HasValue && rxKbps.Value > 0 && txKbps.Value > 0)
         {
             var maxRateMbps = Math.Max(rxKbps.Value, txKbps.Value) / 1000.0;
