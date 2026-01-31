@@ -107,12 +107,6 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 
 Docker Desktop on macOS and Windows limits network throughput for speed testing. For accurate multi-gigabit measurements, use native deployment.
 
-### Quick Start (Proxmox)
-
-```bash
-bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
-```
-
 ### Quick Start (Linux Docker)
 
 **Option A: Pull Docker Image (Recommended)**
@@ -142,6 +136,12 @@ docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 ```
 
 Open http://localhost:8042
+
+### Quick Start (Proxmox)
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
+```
 
 ### First Run
 
