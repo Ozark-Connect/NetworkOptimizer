@@ -1934,7 +1934,8 @@
     }
 
     /// <summary>
-    /// Normalize controller URL by prepending https:// if no scheme is provided.
+    /// Normalize controller URL: prepend https:// if needed, strip any path/query.
+    /// E.g., "unifi.example.com/network/default/" becomes "https://unifi.example.com"
     /// </summary>
     private static string NormalizeControllerUrl(string url)
     {
@@ -1943,15 +1944,23 @@
 
         url = url.Trim();
 
-        // If URL already has a scheme, just clean it up
-        if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        // Prepend https:// if no scheme provided
+        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
         {
-            return url.TrimEnd('/');
+            url = $"https://{url}";
         }
 
-        // Prepend https:// for bare IP or hostname, remove any trailing slash
-        return $"https://{url.TrimEnd('/')}";
+        // Parse and extract just scheme + host (strip path, query, fragment)
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            // Include port if non-default
+            var port = uri.IsDefaultPort ? "" : $":{uri.Port}";
+            return $"{uri.Scheme}://{uri.Host}{port}";
+        }
+
+        // Fallback: just trim trailing slashes
+        return url.TrimEnd('/');
     }
 
     private async Task TestControllerConnection()
