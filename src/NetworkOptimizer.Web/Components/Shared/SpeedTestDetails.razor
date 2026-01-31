@@ -162,10 +162,10 @@
                                     var nextHopGlobal = hops[lastGlobalIdx + 1];
                                     var linkSpeed = GetLinkSpeed(lastHop, nextHopGlobal);
                                     var isWirelessLink = lastHop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
-                                    // For wireless links, use hop.IsBottleneck; for wired, compare speed to bottleneck
-                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (isWirelessLink
-                                        ? (lastHop.IsBottleneck || nextHopGlobal.IsBottleneck)
-                                        : (linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps));
+                                    // Link is bottleneck if: hop's egress OR nextHop's ingress matches bottleneck speed
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (
+                                        (lastHop.IsBottleneck && lastHop.EgressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps) ||
+                                        (nextHopGlobal.IsBottleneck && nextHopGlobal.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps));
                                     var turnTooltip = isWirelessLink
                                         ? GetWifiTooltip(lastHop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
@@ -200,10 +200,10 @@
                                     var nextHopGlobal = hops[globalIdx + 1];
                                     var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
-                                    // For wireless links, use hop.IsBottleneck; for wired, compare speed to bottleneck
-                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (isWirelessLink
-                                        ? (hop.IsBottleneck || nextHopGlobal.IsBottleneck)
-                                        : (linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps));
+                                    // Link is bottleneck if: hop's egress OR nextHop's ingress matches bottleneck speed
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (
+                                        (hop.IsBottleneck && hop.EgressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps) ||
+                                        (nextHopGlobal.IsBottleneck && nextHopGlobal.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps));
                                     var connectorTooltip1 = isWirelessLink
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
                                         : (isBottleneckLink ? "Bottleneck: slowest link in path" : null);
@@ -243,10 +243,10 @@
                                     var nextHopGlobal = hops[globalIdx + 1];
                                     var linkSpeed = GetLinkSpeed(hop, nextHopGlobal);
                                     var isWirelessLink = hop.IsWirelessEgress || nextHopGlobal.IsWirelessIngress;
-                                    // For wireless links, use hop.IsBottleneck; for wired, compare speed to bottleneck
-                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (isWirelessLink
-                                        ? (hop.IsBottleneck || nextHopGlobal.IsBottleneck)
-                                        : (linkSpeed > 0 && linkSpeed == PathAnalysis.Path.TheoreticalMaxMbps));
+                                    // Link is bottleneck if: hop's egress OR nextHop's ingress matches bottleneck speed
+                                    var isBottleneckLink = PathAnalysis.Path.HasRealBottleneck && (
+                                        (hop.IsBottleneck && hop.EgressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps) ||
+                                        (nextHopGlobal.IsBottleneck && nextHopGlobal.IngressSpeedMbps == PathAnalysis.Path.TheoreticalMaxMbps));
                                     var needsTurn = isLastHopInRow && !isLastRow;
                                     var connectorTooltip2 = isWirelessLink
                                         ? GetWifiTooltip(hop, nextHopGlobal, isBottleneckLink)
