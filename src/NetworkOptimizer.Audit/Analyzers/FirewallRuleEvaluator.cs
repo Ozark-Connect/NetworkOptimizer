@@ -59,10 +59,12 @@ public static class FirewallRuleEvaluator
     /// </summary>
     /// <param name="rules">All firewall rules to evaluate.</param>
     /// <param name="matchesPredicate">Predicate that returns true if a rule matches the traffic pattern.</param>
+    /// <param name="forNewConnections">If true, skip allow rules that don't allow NEW connections (e.g., RESPOND_ONLY rules).</param>
     /// <returns>Evaluation result indicating the effective rule and whether traffic is blocked/allowed.</returns>
     public static EvaluationResult Evaluate(
         IEnumerable<FirewallRule> rules,
-        Func<FirewallRule, bool> matchesPredicate)
+        Func<FirewallRule, bool> matchesPredicate,
+        bool forNewConnections = false)
     {
         // Find all matching rules sorted by index (lower = higher priority)
         var matchingRules = rules
@@ -75,7 +77,23 @@ public static class FirewallRuleEvaluator
             return new EvaluationResult { EffectiveRule = null };
         }
 
-        var effectiveRule = matchingRules[0];
+        // When evaluating for NEW connections, skip allow rules that don't allow NEW connections
+        // (e.g., RESPOND_ONLY rules that only allow ESTABLISHED/RELATED traffic)
+        FirewallRule? effectiveRule;
+        if (forNewConnections)
+        {
+            effectiveRule = matchingRules.FirstOrDefault(r =>
+                r.ActionType.IsBlockAction() || r.AllowsNewConnections());
+
+            if (effectiveRule == null)
+            {
+                return new EvaluationResult { EffectiveRule = null };
+            }
+        }
+        else
+        {
+            effectiveRule = matchingRules[0];
+        }
 
         // Check for eclipsed rules
         FirewallRule? eclipsedBlockRule = null;
@@ -84,14 +102,16 @@ public static class FirewallRuleEvaluator
         if (effectiveRule.ActionType == FirewallAction.Accept)
         {
             // Allow rule is effective - check if any block rules are eclipsed
-            eclipsedBlockRule = matchingRules.Skip(1)
+            eclipsedBlockRule = matchingRules
+                .Where(r => r.Index > effectiveRule.Index)
                 .FirstOrDefault(r => r.ActionType.IsBlockAction() && r.BlocksNewConnections());
         }
         else if (effectiveRule.ActionType.IsBlockAction())
         {
             // Block rule is effective - check if any allow rules are eclipsed
-            eclipsedAllowRule = matchingRules.Skip(1)
-                .FirstOrDefault(r => r.ActionType == FirewallAction.Accept);
+            eclipsedAllowRule = matchingRules
+                .Where(r => r.Index > effectiveRule.Index)
+                .FirstOrDefault(r => r.ActionType == FirewallAction.Accept && (!forNewConnections || r.AllowsNewConnections()));
         }
 
         return new EvaluationResult

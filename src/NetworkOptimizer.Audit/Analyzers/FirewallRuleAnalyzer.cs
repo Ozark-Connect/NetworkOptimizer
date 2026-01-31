@@ -849,8 +849,11 @@ public class FirewallRuleAnalyzer
         }
 
         // Evaluate firewall rules considering rule ordering (lower index = higher priority)
+        // Use forNewConnections=true to skip RESPOND_ONLY allow rules (like "Allow Return Traffic")
+        // since we care about whether NEW connections can be initiated, not established traffic
         var evalResult = FirewallRuleEvaluator.Evaluate(rules,
-            r => HasNetworkPair(r, sourceNetwork, destNetwork));
+            r => HasNetworkPair(r, sourceNetwork, destNetwork),
+            forNewConnections: true);
 
         // For isolation, the rule must:
         // 1. Be a block action (checked by IsBlocked)
