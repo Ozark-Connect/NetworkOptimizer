@@ -831,6 +831,23 @@ public class FirewallRuleAnalyzer
         if (sourceNetwork.NetworkIsolationEnabled)
             return;
 
+        _logger.LogDebug("Checking isolation: {Source} (zone={SrcZone}) → {Dest} (zone={DstZone})",
+            sourceNetwork.Name, sourceNetwork.FirewallZoneId, destNetwork.Name, destNetwork.FirewallZoneId);
+
+        // Debug: Log block rules that match the zone pair
+        var zoneMatchingBlockRules = rules.Where(r =>
+            r.Enabled &&
+            r.ActionType.IsBlockAction() &&
+            (string.IsNullOrEmpty(r.SourceZoneId) || string.Equals(r.SourceZoneId, sourceNetwork.FirewallZoneId, StringComparison.OrdinalIgnoreCase)) &&
+            (string.IsNullOrEmpty(r.DestinationZoneId) || string.Equals(r.DestinationZoneId, destNetwork.FirewallZoneId, StringComparison.OrdinalIgnoreCase)))
+            .Take(5).ToList();
+
+        foreach (var r in zoneMatchingBlockRules)
+        {
+            _logger.LogDebug("  Potential block rule: '{Name}' srcZone={SrcZone} dstZone={DstZone} srcTarget={SrcTarget} dstTarget={DstTarget} predefined={Predefined}",
+                r.Name, r.SourceZoneId, r.DestinationZoneId, r.SourceMatchingTarget, r.DestinationMatchingTarget, r.Predefined);
+        }
+
         // Evaluate firewall rules considering rule ordering (lower index = higher priority)
         var evalResult = FirewallRuleEvaluator.Evaluate(rules,
             r => HasNetworkPair(r, sourceNetwork, destNetwork));
@@ -858,6 +875,11 @@ public class FirewallRuleAnalyzer
 
         if (!hasIsolationRule)
         {
+            _logger.LogDebug("Isolation {Source} → {Dest}: NO isolation rule found. IsBlocked={IsBlocked}, EffectiveRule={Rule}, BlocksAll={BlocksAll}",
+                sourceNetwork.Name, destNetwork.Name, evalResult.IsBlocked,
+                evalResult.EffectiveRule?.Name ?? "(none)",
+                evalResult.EffectiveRule != null ? BlocksAllTraffic(evalResult.EffectiveRule) : false);
+
             // If there's a non-predefined effective allow rule, CheckForProblematicAllowRules will catch it
             // with a more specific "Isolation Bypassed" message - skip the generic "Missing Isolation".
             // But if the allow rule is predefined (like "Allow All Traffic"), we must report "Missing Isolation"
