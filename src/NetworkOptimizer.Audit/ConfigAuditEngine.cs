@@ -780,18 +780,16 @@ public class ConfigAuditEngine
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(ctx.Networks);
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(ctx.Networks);
         var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(ctx.Networks, gatewayName);
-        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName);
-        // Note: Internet access analysis moved to Phase 5 where firewall rules are available
+        // Note: Network isolation and internet access analysis moved to Phase 5 where firewall rules are available
         var infraVlanIssues = _vlanAnalyzer.AnalyzeInfrastructureVlanPlacement(ctx.DeviceData, ctx.Networks, gatewayName);
 
         ctx.AllIssues.AddRange(dnsIssues);
         ctx.AllIssues.AddRange(gatewayIssues);
         ctx.AllIssues.AddRange(mgmtDhcpIssues);
-        ctx.AllIssues.AddRange(networkIsolationIssues);
         ctx.AllIssues.AddRange(infraVlanIssues);
 
-        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {IsolationIssues} network isolation issues, {InfraIssues} infrastructure VLAN issues",
-            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, networkIsolationIssues.Count, infraVlanIssues.Count);
+        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {InfraIssues} infrastructure VLAN issues",
+            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, infraVlanIssues.Count);
     }
 
     private void ExecutePhase5_AnalyzeFirewallRules(AuditContext ctx)
@@ -828,12 +826,18 @@ public class ConfigAuditEngine
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules, ctx.ExternalZoneId);
 
+        // Analyze network isolation with firewall rules to detect both methods of isolation:
+        // 1. network_isolation_enabled=true in network config
+        // 2. Firewall rule blocking network -> other internal networks
+        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName, firewallRules, ctx.ZoneLookup);
+
         ctx.AllIssues.AddRange(firewallIssues);
         ctx.AllIssues.AddRange(mgmtFirewallIssues);
         ctx.AllIssues.AddRange(internetAccessIssues);
+        ctx.AllIssues.AddRange(networkIsolationIssues);
 
-        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues, {InternetIssues} internet access issues (5G device: {Has5G})",
-            firewallIssues.Count, mgmtFirewallIssues.Count, internetAccessIssues.Count, has5GDevice);
+        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues, {InternetIssues} internet access issues, {IsolationIssues} network isolation issues (5G device: {Has5G})",
+            firewallIssues.Count, mgmtFirewallIssues.Count, internetAccessIssues.Count, networkIsolationIssues.Count, has5GDevice);
 
         // Store firewall info for hardening analysis
         ctx.HardeningMeasures = ctx.SecurityEngine.AnalyzeHardening(ctx.Switches, ctx.Networks);

@@ -636,9 +636,14 @@ public class VlanAnalyzer
 
     /// <summary>
     /// Analyze network isolation configuration.
-    /// Security, Management, and IoT networks should have network isolation enabled.
+    /// Security, Management, and IoT networks should have network isolation enabled,
+    /// or have an equivalent firewall rule blocking outbound to other internal networks.
     /// </summary>
-    public List<AuditIssue> AnalyzeNetworkIsolation(List<NetworkInfo> networks, string gatewayName = "Gateway")
+    public List<AuditIssue> AnalyzeNetworkIsolation(
+        List<NetworkInfo> networks,
+        string gatewayName = "Gateway",
+        List<FirewallRule>? firewallRules = null,
+        FirewallZoneLookup? zoneLookup = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -648,8 +653,12 @@ public class VlanAnalyzer
             if (network.IsNative)
                 continue;
 
+            // Check if network is effectively isolated (via setting or firewall rule)
+            var isEffectivelyIsolated = network.NetworkIsolationEnabled ||
+                IsIsolatedViaFirewall(network, networks, firewallRules, zoneLookup);
+
             // Check Security/Camera networks
-            if (network.Purpose == NetworkPurpose.Security && !network.NetworkIsolationEnabled)
+            if (network.Purpose == NetworkPurpose.Security && !isEffectivelyIsolated)
             {
                 issues.Add(new AuditIssue
                 {
@@ -672,7 +681,7 @@ public class VlanAnalyzer
             }
 
             // Check Management networks
-            if (network.Purpose == NetworkPurpose.Management && !network.NetworkIsolationEnabled)
+            if (network.Purpose == NetworkPurpose.Management && !isEffectivelyIsolated)
             {
                 issues.Add(new AuditIssue
                 {
@@ -695,7 +704,7 @@ public class VlanAnalyzer
             }
 
             // Check IoT networks
-            if (network.Purpose == NetworkPurpose.IoT && !network.NetworkIsolationEnabled)
+            if (network.Purpose == NetworkPurpose.IoT && !isEffectivelyIsolated)
             {
                 issues.Add(new AuditIssue
                 {
@@ -719,6 +728,131 @@ public class VlanAnalyzer
         }
 
         return issues;
+    }
+
+    /// <summary>
+    /// Check if a network is isolated via firewall rules.
+    /// A network is considered isolated if there's a firewall rule that blocks it from reaching
+    /// all other internal networks (outbound isolation).
+    /// The rule must be in the Internal zone (source and destination).
+    /// </summary>
+    private bool IsIsolatedViaFirewall(
+        NetworkInfo network,
+        List<NetworkInfo> allNetworks,
+        List<FirewallRule>? firewallRules,
+        FirewallZoneLookup? zoneLookup)
+    {
+        if (firewallRules == null || firewallRules.Count == 0)
+            return false;
+
+        // Look for a rule that blocks this network from reaching other networks
+        foreach (var rule in firewallRules)
+        {
+            // Rule must be enabled
+            if (!rule.Enabled)
+                continue;
+
+            // Action must be a block action
+            if (!rule.ActionType.IsBlockAction())
+                continue;
+
+            // Rule must apply to Internal zone traffic (if zones are specified)
+            if (!IsInternalZoneRule(rule, zoneLookup))
+                continue;
+
+            // Source must include this network
+            if (!FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network))
+                continue;
+
+            // Destination must be all other internal networks
+            // This can be achieved by:
+            // 1. DestinationMatchingTarget = "ANY" (blocks to everything including this network)
+            // 2. DestinationMatchOppositeNetworks = true with this network in the list (blocks to all except this network)
+            // 3. DestinationNetworkIds contains all other networks
+            if (RuleBlocksToOtherNetworks(rule, network, allNetworks))
+            {
+                _logger.LogDebug(
+                    "Network '{NetworkName}' is isolated via firewall rule '{RuleName}'",
+                    network.Name, rule.Name);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if a rule applies to Internal zone traffic.
+    /// A rule is considered internal if:
+    /// - No zones specified (legacy rules apply to all traffic)
+    /// - Both source and destination zones are Internal
+    /// </summary>
+    private static bool IsInternalZoneRule(FirewallRule rule, FirewallZoneLookup? zoneLookup)
+    {
+        // If no zone lookup available, can't verify zones - allow rule to match
+        if (zoneLookup == null)
+            return true;
+
+        // If no zones specified on the rule, it's a legacy rule that applies to all
+        if (string.IsNullOrEmpty(rule.SourceZoneId) && string.IsNullOrEmpty(rule.DestinationZoneId))
+            return true;
+
+        // If source zone is specified, it must be Internal
+        if (!string.IsNullOrEmpty(rule.SourceZoneId) && !zoneLookup.IsInternalZone(rule.SourceZoneId))
+            return false;
+
+        // If destination zone is specified, it must be Internal
+        if (!string.IsNullOrEmpty(rule.DestinationZoneId) && !zoneLookup.IsInternalZone(rule.DestinationZoneId))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Check if a rule effectively blocks a network from reaching all other internal networks.
+    /// </summary>
+    private static bool RuleBlocksToOtherNetworks(FirewallRule rule, NetworkInfo network, List<NetworkInfo> allNetworks)
+    {
+        var destTarget = rule.DestinationMatchingTarget?.ToUpperInvariant();
+
+        // Protocol must be "all" to block ALL traffic
+        if (!string.IsNullOrEmpty(rule.Protocol) &&
+            !rule.Protocol.Equals("all", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // No port restrictions - must block all ports
+        if (!string.IsNullOrEmpty(rule.SourcePort) || !string.IsNullOrEmpty(rule.DestinationPort))
+            return false;
+
+        // ANY destination blocks to everything (including external) - this counts as isolation
+        if (destTarget == "ANY" || string.IsNullOrEmpty(destTarget))
+            return true;
+
+        // NETWORK destination with Match Opposite containing only this network
+        // means "block to all networks except this one" = isolation
+        if (destTarget == "NETWORK" && rule.DestinationMatchOppositeNetworks)
+        {
+            var destNetworkIds = rule.DestinationNetworkIds ?? new List<string>();
+            // If only this network is in the "opposite" list, it blocks to all others
+            if (destNetworkIds.Count == 1 && destNetworkIds.Contains(network.Id))
+                return true;
+        }
+
+        // NETWORK destination containing all other network IDs
+        if (destTarget == "NETWORK" && !rule.DestinationMatchOppositeNetworks)
+        {
+            var destNetworkIds = rule.DestinationNetworkIds ?? new List<string>();
+            var otherNetworkIds = allNetworks
+                .Where(n => n.Id != network.Id)
+                .Select(n => n.Id)
+                .ToList();
+
+            // Check if all other networks are blocked
+            if (otherNetworkIds.All(id => destNetworkIds.Contains(id)))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>

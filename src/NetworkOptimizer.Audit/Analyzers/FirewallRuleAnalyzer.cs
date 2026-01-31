@@ -424,9 +424,9 @@ public class FirewallRuleAnalyzer
         // These are about isolating untrusted networks from trusted networks
         // ============================================================================
 
-        // Trusted networks that IoT/Guest should not access
-        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
-        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        // Trusted networks that IoT/Guest should not access - filter by !NetworkIsolationEnabled since isolated networks can't reach other VLANs
+        var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate && !n.NetworkIsolationEnabled).ToList();
+        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home && !n.NetworkIsolationEnabled).ToList();
         var trustedNetworks = corporateNetworks.Concat(homeNetworks).ToList();
 
         // IoT should be isolated from: Corporate, Home
@@ -1536,7 +1536,7 @@ public class FirewallRuleAnalyzer
     /// <param name="rule">The firewall rule to check</param>
     /// <param name="networkId">The network ID to check against</param>
     /// <returns>True if the rule applies to traffic from the specified network</returns>
-    private static bool AppliesToSourceNetwork(FirewallRule rule, string networkId)
+    internal static bool AppliesToSourceNetwork(FirewallRule rule, string networkId)
     {
         // v2 API: Check SourceMatchingTarget first
         if (!string.IsNullOrEmpty(rule.SourceMatchingTarget))
@@ -1638,7 +1638,7 @@ public class FirewallRuleAnalyzer
     /// <param name="rule">The firewall rule to check</param>
     /// <param name="network">The network to check against</param>
     /// <returns>True if the rule applies to traffic from the specified network</returns>
-    private static bool AppliesToSourceNetwork(FirewallRule rule, NetworkInfo network)
+    internal static bool AppliesToSourceNetwork(FirewallRule rule, NetworkInfo network)
     {
         // First check network ID
         if (AppliesToSourceNetwork(rule, network.Id))

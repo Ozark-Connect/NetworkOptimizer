@@ -2973,6 +2973,44 @@ public class FirewallRuleAnalyzerTests
         issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Severity == AuditSeverity.Critical);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_HomeWithIsolation_ToManagement_NoIssue(bool mgmtIsolated)
+    {
+        // Home with isolation enabled cannot reach other VLANs, so no issue should be flagged
+        // regardless of whether Management also has isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: mgmtIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Home"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_CorporateWithIsolation_ToManagement_NoIssue(bool mgmtIsolated)
+    {
+        // Corporate with isolation enabled cannot reach other VLANs, so no issue should be flagged
+        // regardless of whether Management also has isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: mgmtIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate"));
+    }
+
     [Fact]
     public void CheckInterVlanIsolation_SecurityToManagement_NoBlockRule_FlaggedAsCritical()
     {
