@@ -23,7 +23,8 @@ public class NamePatternDetector
 
         // Cameras (high confidence, specific patterns)
         // Note: "cam" with word boundary is handled in CheckObviousNameOverride (Priority 0)
-        (new[] { "camera", "ptz", "nvr", "ipc", "protect", "surveillance", "cctv", "security cam", "webcam", "driveway cam", "front cam", "back cam", "garage cam" },
+        // Note: "protect" removed - UniFi Protect cameras are detected via API; "protect" also matches Nest Protect smoke alarms
+        (new[] { "camera", "ptz", "nvr", "ipc", "surveillance", "cctv", "security cam", "webcam", "driveway cam", "front cam", "back cam", "garage cam" },
             ClientDeviceCategory.Camera, 85),
 
         // Doorbells (often have video)

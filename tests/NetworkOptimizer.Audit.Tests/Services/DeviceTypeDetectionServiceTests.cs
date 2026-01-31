@@ -2121,4 +2121,146 @@ public class DeviceTypeDetectionServiceTests
     }
 
     #endregion
+
+    #region Nest Protect Smoke Alarm Tests (NOT a camera)
+
+    [Theory]
+    [InlineData("Nest Protect")]
+    [InlineData("Nest Protect Smoke Alarm")]
+    [InlineData("Hallway Nest Protect")]
+    [InlineData("[IoT] Nest Protect")]
+    public void DetectDeviceType_NestProtectSmokeAlarm_DoesNotReturnCamera(string deviceName)
+    {
+        // Arrange - Nest Protect is a smoke alarm, NOT a camera
+        // It should NOT be detected as Camera just because it contains "Protect"
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = "Nest Labs Inc."
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should NOT be Camera or CloudCamera
+        result.Category.Should().NotBe(ClientDeviceCategory.Camera);
+        result.Category.Should().NotBe(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_NestProtect_WithIoTFingerprint_ReturnsIoT()
+    {
+        // Arrange - Nest Protect with IoT fingerprint (as seen in real-world)
+        var client = new UniFiClientResponse
+        {
+            Mac = "98:17:3c:1a:df:54",
+            Name = "Nest Protect",
+            Oui = "Nest Labs Inc.",
+            DevCat = 51 // IoT fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be IoT, not Camera
+        result.Category.Should().NotBe(ClientDeviceCategory.Camera);
+        result.Category.Should().NotBe(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_NestProtect_WithoutFingerprint_DoesNotReturnCamera()
+    {
+        // Arrange - Nest Protect without fingerprint data
+        // Should NOT fall back to Camera just because of "Protect" keyword
+        var client = new UniFiClientResponse
+        {
+            Mac = "98:17:3c:1a:df:54",
+            Name = "Nest Protect",
+            Oui = "Nest Labs Inc."
+            // No DevCat - no fingerprint
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should NOT be Camera or CloudCamera
+        result.Category.Should().NotBe(ClientDeviceCategory.Camera);
+        result.Category.Should().NotBe(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_ProtectKeyword_NotInCameraPatterns()
+    {
+        // Arrange - Device named just "Protect" without UniFi Protect API
+        // Should NOT be detected as Camera
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Protect",
+            Oui = "Generic Manufacturer"
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - "Protect" alone should NOT trigger Camera detection
+        result.Category.Should().NotBe(ClientDeviceCategory.Camera);
+        result.Category.Should().NotBe(ClientDeviceCategory.CloudCamera);
+    }
+
+    [Fact]
+    public void DetectDeviceType_UniFiProtectCamera_StillDetectedViaAPI()
+    {
+        // Arrange - Real UniFi Protect camera should still be detected via Protect API
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("aa:bb:cc:dd:ee:ff", "G5 Turret Ultra");
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "G5 Turret Ultra",
+            Oui = "Ubiquiti Inc"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - UniFi Protect cameras are detected via API, not name pattern
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata.Should().ContainKey("detection_method");
+        result.Metadata!["detection_method"].Should().Be("unifi_protect_api");
+    }
+
+    [Fact]
+    public void DetectDeviceType_UniFiProtect_AIKey_StillDetectedViaAPI()
+    {
+        // Arrange - UniFi Protect AI Key should be detected via Protect API
+        var protectCameras = new ProtectCameraCollection();
+        protectCameras.Add("8c:ed:e1:12:3f:80", "SecurityAIKey");
+
+        var service = new DeviceTypeDetectionService();
+        service.SetProtectCameras(protectCameras);
+
+        var client = new UniFiClientResponse
+        {
+            Mac = "8c:ed:e1:12:3f:80",
+            Name = "[Security] AI Key",
+            Oui = "Ubiquiti Inc"
+        };
+
+        // Act
+        var result = service.DetectDeviceType(client);
+
+        // Assert - Should be detected as Camera via Protect API
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+        result.ConfidenceScore.Should().Be(100);
+        result.Metadata!["detection_method"].Should().Be("unifi_protect_api");
+    }
+
+    #endregion
 }
