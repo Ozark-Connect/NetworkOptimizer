@@ -3344,6 +3344,116 @@ public class FirewallRuleAnalyzerTests
             i.Message.Contains("Corporate") && i.Message.Contains("Cameras"));
     }
 
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToCorporate_FlagsEvenWhenCorporateHasIsolation()
+    {
+        // Corporate has isolation enabled, but that only blocks Corporate → other
+        // IoT can still reach Corporate - should flag missing block rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - IoT can still reach Corporate even though Corporate has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToHome_FlagsEvenWhenHomeHasIsolation()
+    {
+        // Home has isolation enabled, but that only blocks Home → other
+        // IoT can still reach Home - should flag missing block rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - IoT can still reach Home even though Home has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Home"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToCorporate_FlagsEvenWhenCorporateHasIsolation()
+    {
+        // Corporate has isolation enabled, but Guest can still reach Corporate
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - Guest can still reach Corporate even though Corporate has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToHome_FlagsEvenWhenHomeHasIsolation()
+    {
+        // Home has isolation enabled, but Guest can still reach Home
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - Guest can still reach Home even though Home has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Home"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToCorporate_NoFlagWhenIoTHasIsolation()
+    {
+        // IoT has isolation enabled - can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - IoT with isolation enabled can't initiate connections
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToHome_NoFlagWhenGuestHasIsolation()
+    {
+        // Guest has isolation enabled - can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - Guest with isolation enabled can't initiate connections
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Home"));
+    }
+
     #endregion
 
     [Fact]
