@@ -374,169 +374,134 @@ public class FirewallRuleAnalyzer
     {
         var issues = new List<AuditIssue>();
 
-        // SOURCE networks: filter by !NetworkIsolationEnabled because if they have isolation enabled,
-        // they can't initiate outbound connections anyway (isolation blocks outbound).
-        // UniFi Guest networks have implicit isolation at switch/AP level, so skip them too.
-        var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
-        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
-        // Security networks as SOURCE (for checking Security -> Management)
-        var securityNetworksAsSource = networks.Where(n => n.Purpose == NetworkPurpose.Security && !n.NetworkIsolationEnabled).ToList();
-
-        // DESTINATION networks: do NOT filter by isolation status because UniFi isolation only blocks
-        // outbound, not inbound. We need to verify other networks can't reach these sensitive networks.
+        // ============================================================================
+        // DESTINATION NETWORKS (what we're protecting)
+        // Do NOT filter by isolation status - UniFi isolation only blocks outbound,
+        // not inbound. We need explicit block rules to protect these networks.
+        // ============================================================================
         var allSecurityNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Security).ToList();
         var allManagementNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Management).ToList();
 
-        // Other trusted networks
+        // ============================================================================
+        // SOURCE NETWORKS (what's trying to reach protected networks)
+        // Filter by !NetworkIsolationEnabled because if source has isolation enabled,
+        // it can't initiate outbound connections anyway (isolation blocks outbound).
+        // UniFi Guest networks have implicit isolation at switch/AP level, so skip them too.
+        // ============================================================================
+
+        // SIMPLIFIED: Everything (except Security) should be blocked from reaching Security
+        // This covers: Corporate, Home, IoT, Guest, Management, Printer, DMZ, Unknown → Security
+        var networksToBlockFromSecurity = networks
+            .Where(n => n.Purpose != NetworkPurpose.Security && !n.NetworkIsolationEnabled)
+            .Where(n => n.Purpose != NetworkPurpose.Guest || !n.IsUniFiGuestNetwork) // Skip UniFi guest networks
+            .ToList();
+
+        foreach (var srcNet in networksToBlockFromSecurity)
+        {
+            foreach (var security in allSecurityNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, srcNet, security, "FW-ISOLATION-SEC");
+            }
+        }
+
+        // SIMPLIFIED: Everything (except Management) should be blocked from reaching Management
+        // This covers: Corporate, Home, IoT, Guest, Security, Printer, DMZ, Unknown → Management
+        var networksToBlockFromManagement = networks
+            .Where(n => n.Purpose != NetworkPurpose.Management && !n.NetworkIsolationEnabled)
+            .Where(n => n.Purpose != NetworkPurpose.Guest || !n.IsUniFiGuestNetwork) // Skip UniFi guest networks
+            .ToList();
+
+        foreach (var srcNet in networksToBlockFromManagement)
+        {
+            foreach (var mgmt in allManagementNetworks)
+            {
+                CheckAndAddIsolationIssue(issues, rules, srcNet, mgmt, "FW-ISOLATION-MGMT");
+            }
+        }
+
+        // ============================================================================
+        // ADDITIONAL ISOLATION CHECKS (separate concerns)
+        // These are about isolating untrusted networks from trusted networks
+        // ============================================================================
+
+        // Trusted networks that IoT/Guest should not access
         var corporateNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Corporate).ToList();
         var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        var trustedNetworks = corporateNetworks.Concat(homeNetworks).ToList();
 
-        // Combine trusted networks for easier iteration (includes Management)
-        var trustedNetworks = corporateNetworks.Concat(homeNetworks).Concat(allManagementNetworks).ToList();
-
-        // IoT should be isolated from: Corporate, Home, Management, Security
+        // IoT should be isolated from: Corporate, Home
+        // (IoT → Security and IoT → Management already covered above)
+        var iotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT && !n.NetworkIsolationEnabled).ToList();
         foreach (var iot in iotNetworks)
         {
-            // Check against trusted networks
             foreach (var trusted in trustedNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, iot, trusted, "FW-ISOLATION-IOT");
             }
-
-            // IoT should also be isolated from Security (cameras)
-            // Use allSecurityNetworks because isolation doesn't block inbound to Security
-            foreach (var security in allSecurityNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, iot, security, "FW-ISOLATION-IOT-SEC");
-            }
         }
 
-        // Guest should be isolated from: Corporate, Home, Management, Security, IoT
+        // Guest should be isolated from: Corporate, Home, IoT
+        // (Guest → Security and Guest → Management already covered above)
+        var guestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest && !n.NetworkIsolationEnabled && !n.IsUniFiGuestNetwork).ToList();
+        var allIotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
+
         foreach (var guest in guestNetworks)
         {
-            // Check against trusted networks
             foreach (var trusted in trustedNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, guest, trusted, "FW-ISOLATION-GUEST");
             }
-
-            // Guest should be isolated from Security (cameras)
-            // Use allSecurityNetworks because isolation doesn't block inbound to Security
-            foreach (var security in allSecurityNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, guest, security, "FW-ISOLATION-GUEST-SEC");
-            }
-
             // Guest should be isolated from IoT (guests shouldn't control smart home devices)
-            foreach (var iot in iotNetworks)
+            foreach (var iot in allIotNetworks)
             {
                 CheckAndAddIsolationIssue(issues, rules, guest, iot, "FW-ISOLATION-GUEST-IOT");
             }
         }
 
-        // Security should be isolated from: Corporate, Home
-        // (IoT -> Security and Guest -> Security already checked above)
-        // Security networks contain cameras and NVRs - protect them from lateral movement.
-        // Check ALL Security networks regardless of isolation status - isolation only blocks outbound,
-        // not inbound access from other networks.
-        foreach (var security in allSecurityNetworks)
-        {
-            foreach (var corp in corporateNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, corp, security, "FW-ISOLATION-SEC");
-            }
-            foreach (var home in homeNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, home, security, "FW-ISOLATION-SEC");
-            }
-        }
-
-        // Management should be isolated from: Corporate, Home, Security
-        // (IoT -> Management is already checked above via trustedNetworks)
-        // Management networks should only be accessible to specific admin devices, not entire networks.
-        // Check ALL Management networks regardless of isolation status - isolation only blocks outbound,
-        // not inbound access from other networks.
-        foreach (var mgmt in allManagementNetworks)
-        {
-            foreach (var corp in corporateNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, corp, mgmt, "FW-ISOLATION-MGMT");
-            }
-            foreach (var home in homeNetworks)
-            {
-                CheckAndAddIsolationIssue(issues, rules, home, mgmt, "FW-ISOLATION-MGMT");
-            }
-            // Use securityNetworksAsSource - only check Security networks without isolation as source
-            // (if Security has isolation, it can't reach Management anyway)
-            foreach (var security in securityNetworksAsSource)
-            {
-                CheckAndAddIsolationIssue(issues, rules, security, mgmt, "FW-ISOLATION-SEC-MGMT");
-            }
-        }
-
-        // Now check for ALLOW rules between networks that should be isolated
+        // ============================================================================
+        // CHECK FOR ALLOW RULES BETWEEN NETWORKS THAT SHOULD BE ISOLATED
         // This catches rules that explicitly open up traffic between isolated network types
-        var allIotNetworks = networks.Where(n => n.Purpose == NetworkPurpose.IoT).ToList();
+        // ============================================================================
         var allGuestNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Guest).ToList();
-        // allSecurityNetworks and allManagementNetworks already defined above
+        var trustedPlusManagement = trustedNetworks.Concat(allManagementNetworks).ToList();
 
-        // Check for allow rules between IoT and trusted/security networks
+        // Check for allow rules from any network to Security
+        foreach (var srcNet in networksToBlockFromSecurity)
+        {
+            foreach (var security in allSecurityNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, srcNet, security, externalZoneId);
+            }
+        }
+
+        // Check for allow rules from any network to Management
+        foreach (var srcNet in networksToBlockFromManagement)
+        {
+            foreach (var mgmt in allManagementNetworks)
+            {
+                CheckForProblematicAllowRules(issues, rules, srcNet, mgmt, externalZoneId);
+            }
+        }
+
+        // Check for allow rules between IoT and trusted networks
         foreach (var iot in allIotNetworks)
         {
-            foreach (var trusted in trustedNetworks)
+            foreach (var trusted in trustedPlusManagement)
             {
                 CheckForProblematicAllowRules(issues, rules, iot, trusted, externalZoneId);
             }
-            foreach (var security in allSecurityNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, iot, security, externalZoneId);
-            }
         }
 
-        // Check for allow rules between Guest and trusted/security/IoT networks
+        // Check for allow rules between Guest and trusted/IoT networks
         foreach (var guest in allGuestNetworks)
         {
-            foreach (var trusted in trustedNetworks)
+            foreach (var trusted in trustedPlusManagement)
             {
                 CheckForProblematicAllowRules(issues, rules, guest, trusted, externalZoneId);
-            }
-            foreach (var security in allSecurityNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, guest, security, externalZoneId);
             }
             foreach (var iot in allIotNetworks)
             {
                 CheckForProblematicAllowRules(issues, rules, guest, iot, externalZoneId);
-            }
-        }
-
-        // Check for allow rules between Corporate/Home/Security and Management
-        foreach (var mgmt in allManagementNetworks)
-        {
-            foreach (var corp in corporateNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, corp, mgmt, externalZoneId);
-            }
-            foreach (var home in homeNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, home, mgmt, externalZoneId);
-            }
-            foreach (var security in allSecurityNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, security, mgmt, externalZoneId);
-            }
-        }
-
-        // Check for allow rules between Corporate/Home and Security
-        foreach (var security in allSecurityNetworks)
-        {
-            foreach (var corp in corporateNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, corp, security, externalZoneId);
-            }
-            foreach (var home in homeNetworks)
-            {
-                CheckForProblematicAllowRules(issues, rules, home, security, externalZoneId);
             }
         }
 
@@ -921,7 +886,7 @@ public class FirewallRuleAnalyzer
                     { "source_purpose", sourceNetwork.Purpose.ToString() },
                     { "dest_network", destNetwork.Name },
                     { "dest_purpose", destNetwork.Purpose.ToString() },
-                    { "recommendation", $"Add firewall rule to block {sourceNetwork.Name} → {destNetwork.Name}, or enable isolation on {sourceNetwork.Name}" }
+                    { "recommendation", $"Add block rule: {sourceNetwork.Name} → {destNetwork.Name}. Network Isolation is outbound-only and easily bypassed." }
                 },
                 RuleId = ruleIdPrefix,
                 ScoreImpact = scoreImpact
