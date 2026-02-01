@@ -387,6 +387,27 @@ public class FingerprintDetector
         { 261, ClientDeviceCategory.IoTGeneric },     // Transmitter
     };
 
+    /// <summary>
+    /// Vendor-specific overrides for fingerprint categories.
+    /// Some vendors share dev_type_id values with unrelated device types (e.g., GoPro uses
+    /// the same Camera category as security cameras). This mapping corrects those cases.
+    /// Key: (vendorId, devTypeId) → Override configuration
+    /// </summary>
+    private static readonly Dictionary<(int VendorId, int DevTypeId), VendorOverride> VendorOverrides = new()
+    {
+        // GoPro action cameras use devTypeId 106 (Camera) but are not security cameras
+        // They're consumer electronics - treat as IoT (low-risk, no VLAN move recommendation)
+        { (567, 106), new VendorOverride(ClientDeviceCategory.IoTGeneric, NetworkPurpose.IoT, "GoPro action camera - not a security camera") },
+    };
+
+    /// <summary>
+    /// Configuration for a vendor-specific fingerprint override
+    /// </summary>
+    private record VendorOverride(
+        ClientDeviceCategory Category,
+        NetworkPurpose RecommendedNetwork,
+        string Reason);
+
     public FingerprintDetector(UniFiFingerprintDatabase? database = null, ILogger<FingerprintDetector>? logger = null)
     {
         _database = database;
@@ -437,23 +458,42 @@ public class FingerprintDetector
                 }
                 var vendorName = _database.GetVendorName(vendorId);
 
+                // Check for vendor-specific overrides (e.g., GoPro cameras are not security cameras)
+                var finalCategory = mappedCategory;
+                var finalNetwork = GetRecommendedNetwork(mappedCategory);
+                string? overrideReason = null;
+                if (vendorId.HasValue && VendorOverrides.TryGetValue((vendorId.Value, devTypeId), out var vendorOverride))
+                {
+                    finalCategory = vendorOverride.Category;
+                    finalNetwork = vendorOverride.RecommendedNetwork;
+                    overrideReason = vendorOverride.Reason;
+                    _logger?.LogDebug("[FingerprintDetector] Vendor override: {DeviceName} (vendor {VendorId}, devTypeId {DevTypeId}) → {Category} ({Reason})",
+                        deviceName, vendorId, devTypeId, finalCategory, overrideReason);
+                }
+
+                var metadata = new Dictionary<string, object>
+                {
+                    ["dev_id_override"] = clientFingerprint.DevIdOverride.Value,
+                    ["dev_type_id"] = devTypeId,
+                    ["dev_cat"] = clientFingerprint.DevCat ?? 0,
+                    ["dev_family"] = clientFingerprint.DevFamily ?? 0,
+                    ["dev_vendor"] = clientFingerprint.DevVendor ?? 0,
+                    ["user_override"] = true
+                };
+                if (overrideReason != null)
+                {
+                    metadata["vendor_override_reason"] = overrideReason;
+                }
+
                 return new DeviceDetectionResult
                 {
-                    Category = mappedCategory,
+                    Category = finalCategory,
                     Source = DetectionSource.UniFiFingerprint,
                     ConfidenceScore = 98, // Highest confidence - user override resolved via database
                     VendorName = vendorName,
                     ProductName = deviceName,
-                    RecommendedNetwork = GetRecommendedNetwork(mappedCategory),
-                    Metadata = new Dictionary<string, object>
-                    {
-                        ["dev_id_override"] = clientFingerprint.DevIdOverride.Value,
-                        ["dev_type_id"] = devTypeId,
-                        ["dev_cat"] = clientFingerprint.DevCat ?? 0,
-                        ["dev_family"] = clientFingerprint.DevFamily ?? 0,
-                        ["dev_vendor"] = clientFingerprint.DevVendor ?? 0,
-                        ["user_override"] = true
-                    }
+                    RecommendedNetwork = finalNetwork,
+                    Metadata = metadata
                 };
             }
         }
@@ -464,12 +504,30 @@ public class FingerprintDetector
             var vendorName = _database?.GetVendorName(clientFingerprint.DevVendor);
             var typeName = _database?.GetDeviceTypeName(clientFingerprint.DevCat);
 
+            // Check for vendor-specific overrides (e.g., GoPro cameras are not security cameras)
+            var finalCategory = category;
+            var finalNetwork = GetRecommendedNetwork(category);
+            string? overrideReason = null;
+            if (clientFingerprint.DevVendor.HasValue &&
+                VendorOverrides.TryGetValue((clientFingerprint.DevVendor.Value, clientFingerprint.DevCat.Value), out var vendorOverride))
+            {
+                finalCategory = vendorOverride.Category;
+                finalNetwork = vendorOverride.RecommendedNetwork;
+                overrideReason = vendorOverride.Reason;
+                _logger?.LogDebug("[FingerprintDetector] Vendor override: vendor {VendorId}, devCat {DevCat} → {Category} ({Reason})",
+                    clientFingerprint.DevVendor, clientFingerprint.DevCat, finalCategory, overrideReason);
+            }
+
             var metadata = new Dictionary<string, object>
             {
                 ["dev_cat"] = clientFingerprint.DevCat.Value,
                 ["dev_family"] = clientFingerprint.DevFamily ?? 0,
                 ["dev_vendor"] = clientFingerprint.DevVendor ?? 0
             };
+            if (overrideReason != null)
+            {
+                metadata["vendor_override_reason"] = overrideReason;
+            }
 
             // Include unmatched dev_id_override so we can see what user selected
             if (clientFingerprint.DevIdOverride.HasValue)
@@ -479,12 +537,12 @@ public class FingerprintDetector
 
             return new DeviceDetectionResult
             {
-                Category = category,
+                Category = finalCategory,
                 Source = DetectionSource.UniFiFingerprint,
                 ConfidenceScore = 95, // High confidence from fingerprint
                 VendorName = vendorName,
                 ProductName = typeName,
-                RecommendedNetwork = GetRecommendedNetwork(category),
+                RecommendedNetwork = finalNetwork,
                 Metadata = metadata
             };
         }

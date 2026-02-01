@@ -176,7 +176,7 @@ public class DeviceTypeDetectionService
         // Priority 0.5: Check OUI for vendors that need special handling
         // - Cync/Wyze/GE have camera fingerprints but most devices are actually plugs/bulbs
         // - Apple with SmartSensor fingerprint is likely Apple Watch
-        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat, client?.DevVendor);
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat);
         if (vendorOverrideResult != null)
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
@@ -1203,7 +1203,7 @@ public class DeviceTypeDetectionService
     /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
     /// - GoPro action cameras share devCat 106 with security cameras but aren't security devices.
     /// </summary>
-    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat, int? devVendor)
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat)
     {
         var ouiLower = oui?.ToLowerInvariant() ?? "";
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
@@ -1228,23 +1228,21 @@ public class DeviceTypeDetectionService
         }
 
         // GoPro action cameras use the same devCat (106) as security cameras - they're not security devices
-        // Check both OUI string and fingerprint vendor ID (567 = GoPro)
-        var isGoPro = ouiLower.Contains("gopro") || devVendor == 567;
-        if (isGoPro && devCat == 106)
+        // This OUI check is a fallback; primary detection is in FingerprintDetector via vendor ID
+        if (ouiLower.Contains("gopro") && devCat == 106)
         {
             return new DeviceDetectionResult
             {
-                Category = ClientDeviceCategory.Unknown,
+                Category = ClientDeviceCategory.IoTGeneric,
                 Source = DetectionSource.MacOui,
                 ConfidenceScore = VendorOverrideConfidence,
                 VendorName = "GoPro",
-                RecommendedNetwork = NetworkPurpose.Corporate,
+                RecommendedNetwork = NetworkPurpose.IoT,
                 Metadata = new Dictionary<string, object>
                 {
-                    ["override_reason"] = "GoPro action camera - not a security camera",
+                    ["vendor_override_reason"] = "GoPro action camera - not a security camera",
                     ["oui"] = oui ?? "",
-                    ["dev_cat"] = devCat ?? 0,
-                    ["dev_vendor"] = devVendor ?? 0
+                    ["dev_cat"] = devCat ?? 0
                 }
             };
         }

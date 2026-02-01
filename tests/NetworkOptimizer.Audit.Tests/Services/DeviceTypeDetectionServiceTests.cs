@@ -371,10 +371,10 @@ public class DeviceTypeDetectionServiceTests
     [InlineData("GoPro", "HERO12")]
     [InlineData("GoPro Inc", "GoPro Camera")]
     [InlineData("GoPro", "Living Room")]
-    public void DetectDeviceType_GoProWithOuiAndCameraFingerprint_ReturnsUnknown(string oui, string deviceName)
+    public void DetectDeviceType_GoProWithOuiAndCameraFingerprint_ReturnsIoT(string oui, string deviceName)
     {
         // Arrange - GoPro action cameras use the same devCat (106) as security cameras
-        // but they're not security devices, so should be treated as Unknown
+        // but they're consumer electronics, not security devices
         var client = new UniFiClientResponse
         {
             Mac = "aa:bb:cc:dd:ee:ff",
@@ -386,16 +386,16 @@ public class DeviceTypeDetectionServiceTests
         // Act
         var result = _service.DetectDeviceType(client);
 
-        // Assert - Should NOT be detected as Camera (security)
-        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+        // Assert - Should be IoT (consumer electronics), NOT Camera (security)
+        result.Category.Should().Be(ClientDeviceCategory.IoTGeneric);
         result.VendorName.Should().Be("GoPro");
-        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
         result.ConfidenceScore.Should().BeGreaterThan(95, "override confidence must beat fingerprint confidence");
-        result.Metadata.Should().ContainKey("override_reason");
+        result.Metadata.Should().ContainKey("vendor_override_reason");
     }
 
     [Fact]
-    public void DetectDeviceType_GoProWithVendorIdAndCameraFingerprint_ReturnsUnknown()
+    public void DetectDeviceType_GoProWithVendorIdAndCameraFingerprint_ReturnsIoT()
     {
         // Arrange - GoPro detected via fingerprint database vendor_id=567, not OUI string
         // This is how it appears in the UniFi fingerprint database
@@ -411,12 +411,10 @@ public class DeviceTypeDetectionServiceTests
         // Act
         var result = _service.DetectDeviceType(client);
 
-        // Assert - Should be overridden to Unknown, NOT Camera
-        result.Category.Should().Be(ClientDeviceCategory.Unknown);
-        result.VendorName.Should().Be("GoPro");
-        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
-        result.ConfidenceScore.Should().BeGreaterThan(95, "override confidence must beat fingerprint confidence");
-        result.Metadata.Should().ContainKey("override_reason");
+        // Assert - Should be IoT (consumer electronics), NOT Camera (security)
+        result.Category.Should().Be(ClientDeviceCategory.IoTGeneric);
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.IoT);
+        result.Metadata.Should().ContainKey("vendor_override_reason");
         result.Metadata.Should().ContainKey("dev_vendor");
     }
 
