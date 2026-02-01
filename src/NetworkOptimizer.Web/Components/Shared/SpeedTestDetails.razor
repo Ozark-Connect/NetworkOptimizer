@@ -566,11 +566,24 @@
 
     /// <summary>
     /// Calculate link speed between two adjacent hops.
-    /// For wireless/WAN hops, uses IngressSpeedMbps (TX to device or download).
+    /// For wireless mesh/bridge, uses WirelessRxRateMbps (TX to device from parent's perspective).
+    /// For wireless client, uses IngressSpeedMbps (already represents TX to device).
+    /// For WAN hops, uses IngressSpeedMbps (download speed).
     /// For wired hops, uses EgressSpeedMbps (port toward next hop) with fallback to nextHop's Ingress.
     /// </summary>
     private int GetLinkSpeed(NetworkHop hop, NetworkHop nextHop)
     {
+        // For wireless mesh/bridge links (non-client), prefer WirelessRxRateMbps
+        // which represents TX to device from parent AP's perspective
+        // (mesh hop stores child's perspective, so child RX = parent TX)
+        if ((hop.IsWirelessEgress && hop.Type != HopType.WirelessClient) ||
+            (nextHop.IsWirelessIngress && nextHop.Type != HopType.WirelessClient))
+        {
+            var meshHop = hop.IsWirelessEgress ? hop : nextHop;
+            if (meshHop.WirelessRxRateMbps.HasValue && meshHop.WirelessRxRateMbps.Value > 0)
+                return meshHop.WirelessRxRateMbps.Value;
+        }
+
         var isWanType = hop.Type == HopType.Tailscale || hop.Type == HopType.Teleport || hop.Type == HopType.Wan;
         return (hop.IsWirelessIngress || isWanType)
             ? hop.IngressSpeedMbps
