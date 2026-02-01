@@ -17,8 +17,8 @@ public class AccessPortVlanRule : AuditRuleBase
 
     /// <summary>
     /// Maximum number of tagged VLANs before flagging as excessive.
-    /// A voice VLAN (1) plus native VLAN is normal. More than 2 tagged VLANs
-    /// on a single-device port suggests misconfiguration.
+    /// More than 2 tagged VLANs on a single-device port is unusual and
+    /// may indicate misconfiguration or unnecessary VLAN exposure.
     /// </summary>
     private const int MaxTaggedVlansThreshold = 2;
 
@@ -26,6 +26,11 @@ public class AccessPortVlanRule : AuditRuleBase
     {
         // Skip infrastructure ports
         if (port.IsUplink || port.IsWan)
+            return null;
+
+        // Only check ports configured as trunk/custom (these have tagged VLANs)
+        // Access ports (ForwardMode = "native") don't have tagged VLANs - that's normal
+        if (!IsTrunkPort(port.ForwardMode))
             return null;
 
         // Skip ports with network fabric devices (AP, switch, gateway, bridge)
@@ -38,7 +43,8 @@ public class AccessPortVlanRule : AuditRuleBase
         if (port.ConnectedClient == null && !HasOfflineDeviceData(port))
             return null;
 
-        // At this point we have a single device attached - check VLAN configuration
+        // At this point we have a trunk port with a single device attached
+        // This is the misconfiguration we're looking for
         var vlanNetworks = networks.Where(n => n.VlanId > 0).ToList();
         if (vlanNetworks.Count == 0)
             return null; // No VLANs to check
@@ -52,18 +58,33 @@ public class AccessPortVlanRule : AuditRuleBase
 
         // Build the issue
         var network = GetNetwork(port.NativeNetworkId, networks);
-        var vlanDesc = allowsAllVlans ? "all VLANs" : $"{taggedVlanCount} VLANs";
+        var vlanDesc = allowsAllVlans ? "all VLANs" : $"{taggedVlanCount} tagged VLANs";
 
         return CreateIssue(
-            $"Single-device port has {vlanDesc} tagged - should be limited to native + voice VLAN only",
+            $"Port with single device allows {vlanDesc} - configure to limit VLAN access",
             port,
             new Dictionary<string, object>
             {
                 { "network", network?.Name ?? "Unknown" },
                 { "tagged_vlan_count", taggedVlanCount },
                 { "allows_all_vlans", allowsAllVlans },
-                { "recommendation", "Configure port profile with only the necessary native VLAN (and voice VLAN if needed)" }
+                { "recommendation", "Limit tagged VLANs to only those required by this device" }
             });
+    }
+
+    /// <summary>
+    /// Check if the port is configured as a trunk port (allows tagged VLANs).
+    /// </summary>
+    private static bool IsTrunkPort(string? forwardMode)
+    {
+        if (string.IsNullOrEmpty(forwardMode))
+            return false;
+
+        // "custom" and "customize" are trunk modes that allow tagged VLANs
+        // "all" also allows all VLANs
+        return forwardMode.Equals("custom", StringComparison.OrdinalIgnoreCase) ||
+               forwardMode.Equals("customize", StringComparison.OrdinalIgnoreCase) ||
+               forwardMode.Equals("all", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
