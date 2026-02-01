@@ -1197,7 +1197,7 @@ public class AuditService
                     Category = "System",
                     Title = "Device fingerprint database unavailable",
                     Description = "Device fingerprints could not be loaded from your Console. This may cause devices to be misclassified.",
-                    Recommendation = "Ensure your Console has HTTPS access to *.ui.com and *.ubnt.com. Check firewall rules and DNS resolution."
+                    Recommendation = "Ensure your Console has HTTPS access to *.ui.com and *.ubnt.com. Check firewall rules and DNS resolution. This may be a temporary issue, retry the audit run."
                 });
                 webResult.CriticalCount++;
             }
@@ -1734,9 +1734,9 @@ public class AuditService
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
         Audit.IssueTypes.VlanSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match VLAN subnet",
         Audit.IssueTypes.WiredSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match port's VLAN subnet",
-        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
-        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN",
-        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN",
+        Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN. If device is misclassified, change its Device Icon / Fingerprint in UniFi Network.",
+        Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan => "Move cameras to a dedicated Security VLAN. If device is misclassified, change its Device Icon / Fingerprint in UniFi Network.",
+        Audit.IssueTypes.InfraNotOnMgmt => "Move network infrastructure to a dedicated Management VLAN. If device is misclassified, change its Device Icon / Fingerprint in UniFi Network.",
         Audit.IssueTypes.DnsLeakage => "Configure firewall to block direct DNS queries from isolated networks",
         Audit.IssueTypes.DnsSharedServers => "Use separate DNS for isolated networks to prevent internal hostname resolution",
         Audit.IssueTypes.DnsNoDoh => "Configure DoH in Network Settings with a trusted provider like NextDNS or Cloudflare",
