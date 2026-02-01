@@ -7692,4 +7692,324 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     #endregion
+
+    #region Third-Party DNS WAN Validation Tests
+
+    /// <summary>
+    /// Creates a DnsSecurityAnalyzer with a mock HTTP client that simulates Pi-hole detection
+    /// </summary>
+    private DnsSecurityAnalyzer CreateAnalyzerWithPiholeDetection()
+    {
+        var detectorLoggerMock = new Mock<ILogger<ThirdPartyDnsDetector>>();
+
+        // Mock HTTP client that returns Pi-hole API response for any IP
+        // Pi-hole detector probes /api/info/login and expects {"dns":true}
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage request, CancellationToken _) =>
+            {
+                var path = request.RequestUri?.AbsolutePath ?? "";
+                // Pi-hole v6 API endpoint
+                if (path.Contains("/api/info/login"))
+                {
+                    return new HttpResponseMessage
+                    {
+                        StatusCode = HttpStatusCode.OK,
+                        Content = new StringContent("{\"dns\":true,\"https_port\":443}")
+                    };
+                }
+                return new HttpResponseMessage { StatusCode = HttpStatusCode.NotFound };
+            });
+
+        var httpClient = new HttpClient(handlerMock.Object) { Timeout = TimeSpan.FromSeconds(1) };
+        var thirdPartyDetector = new ThirdPartyDnsDetector(detectorLoggerMock.Object, httpClient);
+        return new DnsSecurityAnalyzer(_loggerMock.Object, thirdPartyDetector);
+    }
+
+    [Fact]
+    public async Task Analyze_WanDnsMatchesThirdPartyDns_MarksAsMatched()
+    {
+        // Arrange - DoH configured with third-party (Pi-hole) DNS
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    { ""server_name"": ""Pi-hole"", ""sdns_stamp"": ""sdns://AgAAAAAAAAAAAAAPMTcyLjE2LjAuMTY6NTQ0MwovZG5zLXF1ZXJ5"", ""enabled"": true }
+                ]
+            }
+        ]").RootElement;
+
+        // Networks with Pi-hole DNS configured
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16", "172.16.0.26" }
+            }
+        };
+
+        // Device data with WAN DNS pointing to Pi-hole IPs (same as network DNS)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16"", ""172.16.0.26""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - WAN DNS should be marked as matched since it points to Pi-hole
+        result.WanDnsMatchesDoH.Should().BeTrue("WAN DNS servers match the detected Pi-hole IPs");
+        result.ExpectedDnsProvider.Should().Be("Pi-hole");
+        result.WanDnsProvider.Should().Be("Pi-hole");
+        result.HasThirdPartyDns.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WanDnsDoesNotMatchThirdPartyDns_UnknownIp_MarksAsMismatched()
+    {
+        // Arrange - DoH configured with third-party (Pi-hole) DNS, WAN DNS is unknown IP
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    { ""server_name"": ""Pi-hole"", ""sdns_stamp"": ""sdns://AgAAAAAAAAAAAAAPMTcyLjE2LjAuMTY6NTQ0MwovZG5zLXF1ZXJ5"", ""enabled"": true }
+                ]
+            }
+        ]").RootElement;
+
+        // Networks with Pi-hole DNS configured
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16" }
+            }
+        };
+
+        // Device data with WAN DNS pointing to unknown IPs (RFC 5737 test range - not a known provider)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""192.0.2.1"", ""192.0.2.2""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - WAN DNS should NOT be marked as matched (unknown IPs don't match Pi-hole or any known provider)
+        result.HasThirdPartyDns.Should().BeTrue("Pi-hole should be detected on network DNS");
+        result.WanDnsMatchesDoH.Should().BeFalse("WAN DNS (192.0.2.x) doesn't match Pi-hole or any known provider");
+    }
+
+    [Fact]
+    public async Task Analyze_WanDnsPointsToKnownProvider_WithThirdPartyDetected_MarksAsMatched()
+    {
+        // Arrange - Pi-hole detected on LAN, but WAN DNS correctly points to Google
+        // This is a valid configuration - user may want Pi-hole for LAN and Google for WAN fallback
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    { ""server_name"": ""Pi-hole"", ""sdns_stamp"": ""sdns://AgAAAAAAAAAAAAAPMTcyLjE2LjAuMTY6NTQ0MwovZG5zLXF1ZXJ5"", ""enabled"": true }
+                ]
+            }
+        ]").RootElement;
+
+        // Networks with Pi-hole DNS configured
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16" }
+            }
+        };
+
+        // Device data with WAN DNS pointing to Google DNS
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""8.8.8.8"", ""8.8.4.4""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - WAN DNS pointing to Google is correctly configured
+        result.HasThirdPartyDns.Should().BeTrue("Pi-hole should be detected on network DNS");
+        result.WanDnsMatchesDoH.Should().BeTrue("WAN DNS (8.8.8.8) is correctly configured for Google");
+        result.WanDnsProvider.Should().Be("Google");
+    }
+
+    [Fact]
+    public async Task Analyze_PartialWanDnsMatchThirdPartyDns_RequiresAllToMatch()
+    {
+        // Arrange - One WAN DNS matches Pi-hole, other is unknown
+        // The third-party match requires ALL WAN DNS to match Pi-hole
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    { ""server_name"": ""Pi-hole"", ""sdns_stamp"": ""sdns://AgAAAAAAAAAAAAAPMTcyLjE2LjAuMTY6NTQ0MwovZG5zLXF1ZXJ5"", ""enabled"": true }
+                ]
+            }
+        ]").RootElement;
+
+        // Networks with Pi-hole DNS configured
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16" }
+            }
+        };
+
+        // Device data with WAN DNS - one Pi-hole, one unknown (not a known provider)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16"", ""192.0.2.1""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - Partial match doesn't count as fully matched for third-party DNS
+        // But since 172.16.0.16 is in the WAN DNS, the third-party check will pass (all in thirdPartyIps or unknown)
+        result.HasThirdPartyDns.Should().BeTrue();
+        // This should be false because not all WAN DNS match Pi-hole (192.0.2.1 is unknown)
+        result.WanDnsMatchesDoH.Should().BeFalse("Partial match - 172.16.0.16 matches Pi-hole but 192.0.2.1 is unknown");
+    }
+
+    [Fact]
+    public async Task Analyze_MultipleWanInterfacesWithThirdPartyDns_AllMatch()
+    {
+        // Arrange - Multiple WAN interfaces all pointing to Pi-hole
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    { ""server_name"": ""Pi-hole"", ""sdns_stamp"": ""sdns://AgAAAAAAAAAAAAAPMTcyLjE2LjAuMTY6NTQ0MwovZG5zLXF1ZXJ5"", ""enabled"": true }
+                ]
+            }
+        ]").RootElement;
+
+        // Networks with Pi-hole DNS configured
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16", "172.16.0.26" }
+            }
+        };
+
+        // Device data with multiple WAN interfaces all using Pi-hole
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16""]
+                    },
+                    {
+                        ""network_name"": ""wan2"",
+                        ""name"": ""WAN2"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.26""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - All WAN interfaces use Pi-hole, should be matched
+        result.WanDnsMatchesDoH.Should().BeTrue("All WAN interfaces point to Pi-hole servers");
+        result.ExpectedDnsProvider.Should().Be("Pi-hole");
+        result.WanInterfaces.Should().HaveCount(2);
+        result.WanInterfaces.Should().OnlyContain(w => w.MatchesDoH);
+    }
+
+    #endregion
 }

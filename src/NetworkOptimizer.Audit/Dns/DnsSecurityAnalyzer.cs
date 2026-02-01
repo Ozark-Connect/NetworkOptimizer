@@ -1241,6 +1241,44 @@ public class DnsSecurityAnalyzer
         if (!result.DohConfigured || result.WanDnsServers.Count == 0)
             return;
 
+        // When third-party DNS (Pi-hole, AdGuard Home) is detected, check if WAN DNS
+        // points to those servers. If so, mark as correct - no need for PTR validation.
+        if (result.HasThirdPartyDns && result.ThirdPartyDnsServers.Any())
+        {
+            var thirdPartyIps = result.ThirdPartyDnsServers
+                .Select(t => t.DnsServerIp)
+                .Distinct()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Check if all WAN DNS servers match third-party DNS IPs
+            // Require at least one WAN DNS server and all must match (not vacuously true)
+            var allWanDnsMatchThirdParty = result.WanDnsServers.Any() &&
+                                           result.WanDnsServers.All(wanDns => thirdPartyIps.Contains(wanDns));
+
+            if (allWanDnsMatchThirdParty)
+            {
+                var providerName = result.ThirdPartyDnsProviderName ?? "Third-Party DNS";
+                result.ExpectedDnsProvider = providerName;
+                result.WanDnsProvider = providerName;
+                result.WanDnsMatchesDoH = true;
+
+                // Mark all WAN interfaces as matching
+                foreach (var wanInterface in result.WanInterfaces)
+                {
+                    if (wanInterface.HasStaticDns)
+                    {
+                        wanInterface.MatchesDoH = true;
+                        wanInterface.DetectedProvider = providerName;
+                    }
+                }
+
+                result.HardeningNotes.Add($"WAN DNS correctly configured for {providerName}");
+                _logger.LogInformation("WAN DNS servers {Servers} match third-party DNS ({Provider})",
+                    string.Join(", ", result.WanDnsServers), providerName);
+                return;
+            }
+        }
+
         var expectedProvider = await IdentifyExpectedDnsProviderAsync(result);
         if (expectedProvider == null)
         {
