@@ -320,8 +320,9 @@ configure_application() {
     # Hostname-based access (for local DNS users)
     echo -e "\n${WH}Hostname-Based Access${CL}"
     echo -e "${DIM}Enable if you have local DNS (e.g., Pi-hole) resolving the container hostname.${CL}"
-    echo -e "${DIM}When enabled, the app redirects IP-based access to the hostname.${CL}"
-    read -rp "Enable hostname redirects? [y/N]: " hostname_redirect_response
+    echo -e "${DIM}Uses hostname for redirects, speed test links, and CORS. Requires working DNS.${CL}"
+    echo -e "${DIM}If disabled, IP address is used instead (works without DNS setup).${CL}"
+    read -rp "Enable hostname-based access? [y/N]: " hostname_redirect_response
     if [[ "${hostname_redirect_response,,}" =~ ^(y|yes)$ ]]; then
         APP_HOSTNAME_REDIRECT="true"
     else
