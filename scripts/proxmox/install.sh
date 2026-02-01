@@ -220,9 +220,10 @@ configure_container() {
 
     # Debian version
     echo -e "\n${WH}Debian Version${CL}"
-    echo -e "${DIM}Debian 13 (Trixie) is recommended. Debian 12 (Bookworm) also supported.${CL}"
-    read -rp "Debian version [13]: " DEBIAN_VERSION
-    DEBIAN_VERSION=${DEBIAN_VERSION:-13}
+    echo -e "${DIM}Debian 12 (Bookworm) is the stable default.${CL}"
+    echo -e "${DIM}Debian 13 (Trixie) may not have an official template yet - check your Proxmox templates.${CL}"
+    read -rp "Debian version [12]: " DEBIAN_VERSION
+    DEBIAN_VERSION=${DEBIAN_VERSION:-12}
 
     # Resources
     echo -e "\n${WH}Resources${CL}"

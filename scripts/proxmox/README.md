@@ -30,7 +30,7 @@ The script will guide you through:
 
 ## What Gets Installed
 
-The script creates a privileged Debian LXC container (Debian 13 Trixie by default) with:
+The script creates a privileged Debian LXC container (Debian 12 Bookworm by default) with:
 
 - Docker CE and Docker Compose (privileged container for reliable Docker operation)
 - Network Optimizer (Blazor web UI on port 8042)
@@ -45,7 +45,7 @@ The script creates a privileged Debian LXC container (Debian 13 Trixie by defaul
 |---------|---------|-------------|
 | Container ID | Next available | Starting from 100, checks VMs too |
 | Hostname | `network-optimizer` | Container hostname |
-| Debian Version | 13 (Trixie) | Also supports Debian 12 (Bookworm) |
+| Debian Version | 12 (Bookworm) | Debian 13 (Trixie) if template available |
 | RAM | 2048 MB | Container memory |
 | Swap | 512 MB | Swap space |
 | CPU | 2 cores | Container CPU cores |
