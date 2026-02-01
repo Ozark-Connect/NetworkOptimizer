@@ -47,6 +47,7 @@ public class FingerprintDetector
         // Note: Vendor-based reclassification to CloudCamera happens later
         // ============================================================
         { 9, ClientDeviceCategory.Camera },           // IP Network Camera
+        { 24, ClientDeviceCategory.Camera },          // DVR (Digital Video Recorder)
         { 57, ClientDeviceCategory.Camera },          // Smart Security Camera
         { 106, ClientDeviceCategory.Camera },         // Camera
         { 124, ClientDeviceCategory.Camera },         // Network Video Recorder
@@ -82,6 +83,7 @@ public class FingerprintDetector
         // ============================================================
         { 33, ClientDeviceCategory.SmartPlug },       // Smart Switch
         { 42, ClientDeviceCategory.SmartPlug },       // Smart Plug
+        { 43, ClientDeviceCategory.SmartPlug },       // Smart Plug (alternate ID)
         { 97, ClientDeviceCategory.SmartPlug },       // Smart Power Strip
         { 107, ClientDeviceCategory.SmartPlug },      // AC Switch
         { 153, ClientDeviceCategory.SmartPlug },      // Smart Socket
@@ -108,6 +110,7 @@ public class FingerprintDetector
         // ============================================================
         // SMART SENSORS
         // ============================================================
+        { 68, ClientDeviceCategory.SmartSensor },     // Smart Monitor Device
         { 94, ClientDeviceCategory.SmartSensor },     // Smart Scale
         { 100, ClientDeviceCategory.SmartSensor },    // Weather Station
         { 109, ClientDeviceCategory.SmartSensor },    // Sleep Monitor
@@ -151,12 +154,14 @@ public class FingerprintDetector
         // ============================================================
         // SMART HUBS / CONTROLLERS
         // ============================================================
+        { 15, ClientDeviceCategory.SmartHub },        // Media Link Controller
         { 93, ClientDeviceCategory.SmartHub },        // Home Automation
         { 95, ClientDeviceCategory.SmartHub },        // System Controller
         { 126, ClientDeviceCategory.SmartHub },       // Solar Communication Gateway
         { 144, ClientDeviceCategory.SmartHub },       // Smart Hub
         { 154, ClientDeviceCategory.SmartHub },       // Smart Bridge
         { 187, ClientDeviceCategory.SmartHub },       // Smart Gateway
+        { 241, ClientDeviceCategory.SmartHub },       // Audio Video Controller
         { 251, ClientDeviceCategory.SmartHub },       // Smart Controller
         { 274, ClientDeviceCategory.SmartHub },       // Device Controller
 
@@ -204,6 +209,7 @@ public class FingerprintDetector
         // MEDIA PLAYERS / AUDIO
         // ============================================================
         { 20, ClientDeviceCategory.MediaPlayer },     // Multimedia Device
+        { 101, ClientDeviceCategory.MediaPlayer },    // Networked Media
         { 69, ClientDeviceCategory.MediaPlayer },     // AV Receiver
         { 73, ClientDeviceCategory.MediaPlayer },     // Soundbar
         { 96, ClientDeviceCategory.MediaPlayer },     // Audio Streamer
@@ -234,12 +240,20 @@ public class FingerprintDetector
         { 28, ClientDeviceCategory.Desktop },         // Workstation
         { 46, ClientDeviceCategory.Desktop },         // Computer
         { 76, ClientDeviceCategory.Desktop },         // Computer Stick Board
+        { 84, ClientDeviceCategory.Desktop },         // OS Component
         { 104, ClientDeviceCategory.Desktop },        // Motherboard
         { 117, ClientDeviceCategory.Desktop },        // Single Board Computer
+        { 129, ClientDeviceCategory.Desktop },        // Board Processor
         { 265, ClientDeviceCategory.Desktop },        // Docking Station
 
         // Servers
         { 56, ClientDeviceCategory.Server },          // Server
+        { 61, ClientDeviceCategory.Server },          // Software Application (Docker, VMs, etc.)
+        { 62, ClientDeviceCategory.Server },          // Automation Software
+        { 75, ClientDeviceCategory.Server },          // CIMC (Cisco Integrated Management Controller)
+        { 175, ClientDeviceCategory.Server },         // Smart Home App
+        { 182, ClientDeviceCategory.Server },         // Virtual Machine
+        { 194, ClientDeviceCategory.Server },         // Web App
         { 225, ClientDeviceCategory.Server },         // Operating System
 
         // ============================================================
@@ -325,6 +339,7 @@ public class FingerprintDetector
         { 146, ClientDeviceCategory.Printer },        // 3D Printer
         { 171, ClientDeviceCategory.Printer },        // Label Printer
         { 176, ClientDeviceCategory.Printer },        // Print Server
+        { 197, ClientDeviceCategory.Printer },        // Receipt Paper (Receipt Printer)
         { 22, ClientDeviceCategory.Scanner },         // Scanner
 
         // ============================================================
@@ -332,8 +347,10 @@ public class FingerprintDetector
         // ============================================================
         { 4, ClientDeviceCategory.IoTGeneric },       // Miscellaneous
         { 7, ClientDeviceCategory.IoTGeneric },       // UPS
+        { 40, ClientDeviceCategory.IoTGeneric },      // Others
         { 49, ClientDeviceCategory.IoTGeneric },      // Network & Peripheral
         { 51, ClientDeviceCategory.IoTGeneric },      // Smart Device
+        { 58, ClientDeviceCategory.IoTGeneric },      // Cloud Device
         { 60, ClientDeviceCategory.IoTGeneric },      // Alarm System
         { 64, ClientDeviceCategory.IoTGeneric },      // Smart Garden Device
         { 66, ClientDeviceCategory.IoTGeneric },      // IoT Device
@@ -341,15 +358,20 @@ public class FingerprintDetector
         { 72, ClientDeviceCategory.IoTGeneric },      // EV Charging Station
         { 77, ClientDeviceCategory.IoTGeneric },      // Sprinkler Controller
         { 78, ClientDeviceCategory.IoTGeneric },      // Inverter System
+        { 79, ClientDeviceCategory.IoTGeneric },      // PLC (Programmable Logic Controller)
         { 83, ClientDeviceCategory.IoTGeneric },      // Garage Door
         { 88, ClientDeviceCategory.IoTGeneric },      // Energy System
         { 89, ClientDeviceCategory.IoTGeneric },      // Smart Remote Control
+        { 90, ClientDeviceCategory.IoTGeneric },      // Screentime Manager
+        { 98, ClientDeviceCategory.IoTGeneric },      // DSLR
         { 115, ClientDeviceCategory.IoTGeneric },     // Solar Power
         { 119, ClientDeviceCategory.IoTGeneric },     // Generator
         { 120, ClientDeviceCategory.IoTGeneric },     // Garage Opener
         { 130, ClientDeviceCategory.IoTGeneric },     // Irrigation Controller
         { 136, ClientDeviceCategory.IoTGeneric },     // Vehicle Charger
         { 138, ClientDeviceCategory.IoTGeneric },     // Network Doorbell
+        { 150, ClientDeviceCategory.IoTGeneric },     // Bump System
+        { 162, ClientDeviceCategory.IoTGeneric },     // Power Supply
         { 165, ClientDeviceCategory.IoTGeneric },     // Fireplace
         { 166, ClientDeviceCategory.IoTGeneric },     // Home Battery
         { 168, ClientDeviceCategory.IoTGeneric },     // Vehicles
@@ -361,6 +383,8 @@ public class FingerprintDetector
         { 200, ClientDeviceCategory.IoTGeneric },     // Smart Pool Control
         { 244, ClientDeviceCategory.IoTGeneric },     // Smart Pool Device
         { 246, ClientDeviceCategory.IoTGeneric },     // Parking System
+        { 252, ClientDeviceCategory.IoTGeneric },     // Panel
+        { 261, ClientDeviceCategory.IoTGeneric },     // Transmitter
     };
 
     public FingerprintDetector(UniFiFingerprintDatabase? database = null, ILogger<FingerprintDetector>? logger = null)
