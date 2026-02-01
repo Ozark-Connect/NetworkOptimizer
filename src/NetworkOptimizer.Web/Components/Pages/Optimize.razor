@@ -58,6 +58,10 @@
                         <input type="checkbox" @bind="_runPortProfileSuggestions" />
                         <span>Ethernet Port Profile Suggestions</span>
                     </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" @bind="_runPortProfile8021x" />
+                        <span>802.1X Profile Check</span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -256,6 +260,53 @@
             </div>
         </div>
 
+        <!-- 802.1X Profile Issues -->
+        <div class="card">
+            <div class="card-header card-header-collapsible" @onclick="TogglePortProfile8021xSection">
+                <div class="card-header-left">
+                    <span class="issue-count-badge">@_result.PortProfile8021xIssues.Count</span>
+                    <h2 class="card-title">802.1X Profile Issues</h2>
+                </div>
+                <span class="issue-type-chevron">@(_portProfile8021xCollapsed ? "▼" : "▲")</span>
+            </div>
+            <div class="expand-wrapper @(!_portProfile8021xCollapsed ? "expanded" : "")">
+                <div class="expand-content">
+                    <div class="card-body">
+                    @if (_result.PortProfile8021xIssues.Count == 0)
+                    {
+                        <p class="empty-section-text">No 802.1X profile issues.</p>
+                    }
+                    else
+                    {
+                        <div class="issues-list">
+                            @foreach (var issue in _result.PortProfile8021xIssues)
+                            {
+                                <div class="issue-item issue-warning">
+                                    <div class="issue-icon">
+                                        @((MarkupString)WarningIcon)
+                                    </div>
+                                    <div class="issue-body">
+                                        <div class="issue-header">
+                                            <span class="issue-severity">Recommendation</span>
+                                        </div>
+                                        <div class="issue-title">@issue.ProfileName</div>
+                                        <div class="issue-context">
+                                            <span class="context-item"><strong>VLANs:</strong> @(issue.AllowsAllVlans ? "All VLANs" : $"{issue.TaggedVlanCount} VLANs")</span>
+                                            <span class="context-item"><strong>802.1X Control:</strong> @issue.CurrentDot1xCtrl</span>
+                                        </div>
+                                        <div class="issue-recommendation">
+                                            <strong>Recommendation:</strong> @issue.Recommendation
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    </div>
+                </div>
+            </div>
+        </div>
+
     }
     else if (!_isRunning)
     {
@@ -277,11 +328,13 @@
     private bool _runApLockAnalyzer = true;
     private bool _runTrunkConsistency = true;
     private bool _runPortProfileSuggestions = true;
+    private bool _runPortProfile8021x = true;
 
     // Collapsible section state
     private bool _apLockCollapsed;
     private bool _trunkCollapsed;
     private bool _portProfileCollapsed;
+    private bool _portProfile8021xCollapsed;
 
     // SVG Icons matching the Audit page style
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
@@ -311,11 +364,15 @@
             s.Severity == PortProfileSuggestionSeverity.Recommendation);
         _portProfileCollapsed = _result.PortProfileSuggestions.Count == 0 ||
                                (_result.PortProfileSuggestions.Count > 3 && !hasProfileRecommendations);
+
+        // 802.1X issues are always recommendations, collapse if empty
+        _portProfile8021xCollapsed = _result.PortProfile8021xIssues.Count == 0;
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;
     private void ToggleTrunkSection() => _trunkCollapsed = !_trunkCollapsed;
     private void TogglePortProfileSection() => _portProfileCollapsed = !_portProfileCollapsed;
+    private void TogglePortProfile8021xSection() => _portProfile8021xCollapsed = !_portProfile8021xCollapsed;
 
     private IEnumerable<ApLockIssue> GetSortedApLockIssues()
     {
@@ -353,7 +410,8 @@
             {
                 RunApLockAnalyzer = _runApLockAnalyzer,
                 RunTrunkConsistencyAnalyzer = _runTrunkConsistency,
-                RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions
+                RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions,
+                RunPortProfile8021xAnalyzer = _runPortProfile8021x
             };
 
             _result = await DiagnosticsService.RunDiagnosticsAsync(options);
