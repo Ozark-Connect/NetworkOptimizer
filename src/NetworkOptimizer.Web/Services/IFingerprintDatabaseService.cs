@@ -9,12 +9,18 @@ namespace NetworkOptimizer.Web.Services;
 public interface IFingerprintDatabaseService
 {
     /// <summary>
-    /// Gets whether the database has been loaded.
+    /// Gets whether the database has been loaded with data.
     /// </summary>
     bool IsLoaded { get; }
 
     /// <summary>
-    /// Gets when the database was last fetched.
+    /// Gets whether the last fetch attempt failed or returned empty results.
+    /// This indicates the Console may not have HTTPS access to *.ui.com.
+    /// </summary>
+    bool LastFetchFailed { get; }
+
+    /// <summary>
+    /// Gets when the database was last successfully fetched.
     /// </summary>
     DateTime? LastFetchTime { get; }
 
