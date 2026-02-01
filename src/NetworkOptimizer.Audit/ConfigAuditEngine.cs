@@ -460,8 +460,31 @@ public class ConfigAuditEngine
     private void ExecutePhase3_AnalyzePortSecurity(AuditContext ctx)
     {
         _logger.LogInformation("Phase 3: Analyzing port security");
-        // Pass ctx.Networks as allNetworks for rules that need to count disabled networks too
-        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, ctx.Networks);
+
+        // Build allNetworks from NetworkConfigs (includes disabled networks)
+        // This is needed for rules like AccessPortVlanRule that count tagged VLANs
+        // Disabled networks are dormant config that could become active if re-enabled
+        List<NetworkInfo>? allNetworks = null;
+        if (ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
+        {
+            allNetworks = ctx.NetworkConfigs
+                .Where(nc => !string.IsNullOrEmpty(nc.Id))
+                .Select(nc => new NetworkInfo
+                {
+                    Id = nc.Id,
+                    Name = nc.Name ?? "Unknown",
+                    VlanId = nc.Vlan ?? 1,
+                    Enabled = nc.Enabled
+                })
+                .ToList();
+
+            var enabledCount = allNetworks.Count(n => n.Enabled);
+            var disabledCount = allNetworks.Count(n => !n.Enabled);
+            _logger.LogDebug("Built allNetworks from NetworkConfigs: {Total} total ({Enabled} enabled, {Disabled} disabled)",
+                allNetworks.Count, enabledCount, disabledCount);
+        }
+
+        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, allNetworks ?? ctx.Networks);
         ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
     }
