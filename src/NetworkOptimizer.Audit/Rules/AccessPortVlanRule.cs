@@ -64,7 +64,7 @@ public class AccessPortVlanRule : AuditRuleBase
         var vlanDesc = allowsAllVlans ? "all VLANs tagged" : $"{taggedVlanCount} VLANs tagged";
 
         return CreateIssue(
-            $"Single device with {vlanDesc}",
+            $"Access port for single device has {vlanDesc}",
             port,
             new Dictionary<string, object>
             {
