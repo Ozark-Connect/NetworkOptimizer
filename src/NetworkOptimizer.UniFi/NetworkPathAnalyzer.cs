@@ -1203,6 +1203,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Add server chain in reverse (from gateway down to server's switch)
                 // Note: We DON'T skip devices that appear in target path (except gateway)
                 // because traffic actually traverses them twice in inter-VLAN routing
+                bool isFirstAfterGateway = true;
                 for (int i = serverChain.Count - 1; i >= 0; i--)
                 {
                     var (chainDevice, chainPort) = serverChain[i];
@@ -1213,6 +1214,29 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                     hopOrder++;
 
+                    // For the first device after gateway, traffic enters via the device's uplink port
+                    // (the port facing the gateway), not the downstream port from serverChain.
+                    // Use LocalUplinkPort and UplinkSpeedMbps which correctly reflect the negotiated
+                    // link speed (e.g., SFP+ running at 1 GbE instead of 10 GbE).
+                    int? ingressPort;
+                    int ingressSpeed;
+                    string? ingressPortName;
+
+                    if (isFirstAfterGateway && chainDevice.LocalUplinkPort.HasValue)
+                    {
+                        ingressPort = chainDevice.LocalUplinkPort;
+                        ingressSpeed = chainDevice.UplinkSpeedMbps;
+                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainDevice.LocalUplinkPort);
+                        isFirstAfterGateway = false;
+                    }
+                    else
+                    {
+                        ingressPort = chainPort;
+                        ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort);
+                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort);
+                        isFirstAfterGateway = false;
+                    }
+
                     var hop = new NetworkHop
                     {
                         Order = hopOrder,
@@ -1222,9 +1246,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
-                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
-                        IngressPort = chainPort,
-                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        IngressSpeedMbps = ingressSpeed,
+                        IngressPort = ingressPort,
+                        IngressPortName = ingressPortName,
                         Notes = "Return path from gateway"
                     };
 

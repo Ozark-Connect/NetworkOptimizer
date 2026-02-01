@@ -1,0 +1,22 @@
+#!/bin/bash
+# Toggle demo mode on/off on NAS
+
+if [ "$1" != "on" ] && [ "$1" != "off" ]; then
+    echo "Usage: $0 [on|off]"
+    exit 1
+fi
+
+ENV_FILE="/opt/network-optimizer/docker/.env"
+
+if [ "$1" = "on" ]; then
+    echo "Enabling demo mode..."
+    ssh root@nas "sed -i 's/^#\s*DEMO_MODE_MAPPINGS=/DEMO_MODE_MAPPINGS=/' $ENV_FILE"
+else
+    echo "Disabling demo mode..."
+    ssh root@nas "sed -i 's/^DEMO_MODE_MAPPINGS=/#DEMO_MODE_MAPPINGS=/' $ENV_FILE"
+fi
+
+echo "Restarting docker..."
+ssh root@nas "cd /opt/network-optimizer/docker && docker compose up -d --force-recreate network-optimizer"
+
+echo "Done! Demo mode is now $1"

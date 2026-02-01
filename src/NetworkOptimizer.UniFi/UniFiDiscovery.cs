@@ -79,6 +79,7 @@ public class UniFiDiscovery
                 UpgradeToFirmware = d.UpgradeToFirmware,
                 UplinkMac = d.Uplink?.UplinkMac,
                 UplinkPort = d.Uplink?.UplinkRemotePort,
+                LocalUplinkPort = d.Uplink?.PortIdx,
                 IsUplinkConnected = d.Uplink?.Up ?? false,
                 // For wireless uplinks, use tx_rate (Kbps -> Mbps); for wired, use speed (already Mbps)
                 UplinkSpeedMbps = d.Uplink?.Type == "wireless" && d.Uplink.TxRate > 0
@@ -584,7 +585,10 @@ public class DiscoveredDevice
     public bool Upgradable { get; set; }
     public string? UpgradeToFirmware { get; set; }
     public string? UplinkMac { get; set; }
+    /// <summary>Remote port on the upstream device that this device connects to.</summary>
     public int? UplinkPort { get; set; }
+    /// <summary>Local port on this device that connects to the upstream device (wired only).</summary>
+    public int? LocalUplinkPort { get; set; }
     public string? UplinkDeviceName { get; set; }
     public bool IsUplinkConnected { get; set; }
     public int UplinkSpeedMbps { get; set; }
