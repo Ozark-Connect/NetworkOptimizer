@@ -365,6 +365,83 @@ public class DeviceTypeDetectionServiceTests
 
     #endregion
 
+    #region GoPro Tests
+
+    [Theory]
+    [InlineData("GoPro", "HERO12")]
+    [InlineData("GoPro Inc", "GoPro Camera")]
+    [InlineData("GoPro", "Living Room")]
+    public void DetectDeviceType_GoProWithOuiAndCameraFingerprint_ReturnsUnknown(string oui, string deviceName)
+    {
+        // Arrange - GoPro action cameras use the same devCat (106) as security cameras
+        // but they're not security devices, so should be treated as Unknown
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = deviceName,
+            Oui = oui,
+            DevCat = 106 // Camera fingerprint - same as security cameras
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should NOT be detected as Camera (security)
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+        result.VendorName.Should().Be("GoPro");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+        result.ConfidenceScore.Should().BeGreaterThan(95, "override confidence must beat fingerprint confidence");
+        result.Metadata.Should().ContainKey("override_reason");
+    }
+
+    [Fact]
+    public void DetectDeviceType_GoProWithVendorIdAndCameraFingerprint_ReturnsUnknown()
+    {
+        // Arrange - GoPro detected via fingerprint database vendor_id=567, not OUI string
+        // This is how it appears in the UniFi fingerprint database
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "HERO12 Black",
+            Oui = "Some Chip Manufacturer",  // OUI might not say GoPro
+            DevCat = 106,   // Camera fingerprint
+            DevVendor = 567 // GoPro's vendor ID in fingerprint database
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be overridden to Unknown, NOT Camera
+        result.Category.Should().Be(ClientDeviceCategory.Unknown);
+        result.VendorName.Should().Be("GoPro");
+        result.RecommendedNetwork.Should().Be(NetworkPurpose.Corporate);
+        result.ConfidenceScore.Should().BeGreaterThan(95, "override confidence must beat fingerprint confidence");
+        result.Metadata.Should().ContainKey("override_reason");
+        result.Metadata.Should().ContainKey("dev_vendor");
+    }
+
+    [Fact]
+    public void DetectDeviceType_NonGoProCameraWithDevCat106_ReturnsCamera()
+    {
+        // Arrange - A regular security camera with devCat 106 should still be Camera
+        var client = new UniFiClientResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Name = "Front Door Camera",
+            Oui = "Hikvision",
+            DevCat = 106,    // Camera fingerprint
+            DevVendor = 100  // Some other vendor, not GoPro (567)
+        };
+
+        // Act
+        var result = _service.DetectDeviceType(client);
+
+        // Assert - Should be detected as Camera (security camera)
+        result.Category.Should().Be(ClientDeviceCategory.Camera);
+    }
+
+    #endregion
+
     #region Pixel Phone Tests
 
     [Theory]

@@ -174,7 +174,7 @@ public class CameraVlanRule : AuditRuleBase
             CurrentVlan = network.VlanId,
             RecommendedNetwork = placement.RecommendedNetwork?.Name,
             RecommendedVlan = placement.RecommendedNetwork?.VlanId,
-            RecommendedAction = $"Move to {placement.RecommendedNetworkLabel}",
+            RecommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel),
             Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
             RuleId = RuleId,
             ScoreImpact = scoreImpact

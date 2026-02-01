@@ -630,9 +630,7 @@ public class ConfigAuditEngine
         else
         {
             message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
-            recommendedAction = placement.RecommendedNetwork != null
-                ? $"Move to {placement.RecommendedNetworkLabel}"
-                : "Create IoT VLAN";
+            recommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation(placement, "Create IoT VLAN");
         }
 
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
@@ -676,7 +674,7 @@ public class ConfigAuditEngine
             ruleId,
             message,
             displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
-            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : fallbackAction,
+            Rules.VlanPlacementChecker.GetMoveRecommendation(placement, fallbackAction),
             isRecent ? (isCloudCamera ? placement.Severity : Models.AuditSeverity.Critical) : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
             isCloudCamera ? placement.IsLowRisk : false));
@@ -709,9 +707,7 @@ public class ConfigAuditEngine
         else
         {
             message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
-            recommendedAction = placement.RecommendedNetwork != null
-                ? $"Move to {placement.RecommendedNetworkLabel}"
-                : "Create Printer or IoT VLAN";
+            recommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation(placement, "Create Printer or IoT VLAN");
         }
 
         ctx.AllIssues.Add(CreateOfflineVlanIssue(

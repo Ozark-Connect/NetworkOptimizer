@@ -44,7 +44,7 @@ public class WirelessCameraVlanRule : WirelessAuditRuleBase
             client,
             recommendedNetwork: placement.RecommendedNetwork?.Name,
             recommendedVlan: placement.RecommendedNetwork?.VlanId,
-            recommendedAction: $"Move to {placement.RecommendedNetworkLabel}",
+            recommendedAction: VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel),
             metadata: VlanPlacementChecker.BuildMetadata(client.Detection, network)
         );
     }

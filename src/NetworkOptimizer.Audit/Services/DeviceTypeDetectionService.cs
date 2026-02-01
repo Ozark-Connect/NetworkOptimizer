@@ -176,7 +176,7 @@ public class DeviceTypeDetectionService
         // Priority 0.5: Check OUI for vendors that need special handling
         // - Cync/Wyze/GE have camera fingerprints but most devices are actually plugs/bulbs
         // - Apple with SmartSensor fingerprint is likely Apple Watch
-        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat);
+        var vendorOverrideResult = CheckVendorDefaultOverride(client?.Oui, client?.Name, client?.Hostname, client?.DevCat, client?.DevVendor);
         if (vendorOverrideResult != null)
         {
             _logger?.LogDebug("[Detection] '{DisplayName}': Vendor override → {Category} (vendor defaults to plug unless camera indicated)",
@@ -1201,13 +1201,11 @@ public class DeviceTypeDetectionService
     /// Check if vendor OUI indicates a device that needs special handling.
     /// - Cync, Wyze, and GE devices have camera fingerprints but are usually plugs/bulbs.
     /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
+    /// - GoPro action cameras share devCat 106 with security cameras but aren't security devices.
     /// </summary>
-    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat)
+    private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat, int? devVendor)
     {
-        if (string.IsNullOrEmpty(oui))
-            return null;
-
-        var ouiLower = oui.ToLowerInvariant();
+        var ouiLower = oui?.ToLowerInvariant() ?? "";
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
 
         // Apple devices with SmartSensor fingerprint (DevCat=14) are likely Apple Watches
@@ -1223,11 +1221,36 @@ public class DeviceTypeDetectionService
                 Metadata = new Dictionary<string, object>
                 {
                     ["override_reason"] = "Apple device with SmartSensor fingerprint is likely Apple Watch",
-                    ["oui"] = oui,
-                    ["dev_cat"] = devCat
+                    ["oui"] = oui ?? "",
+                    ["dev_cat"] = devCat ?? 0
                 }
             };
         }
+
+        // GoPro action cameras use the same devCat (106) as security cameras - they're not security devices
+        // Check both OUI string and fingerprint vendor ID (567 = GoPro)
+        var isGoPro = ouiLower.Contains("gopro") || devVendor == 567;
+        if (isGoPro && devCat == 106)
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.Unknown,
+                Source = DetectionSource.MacOui,
+                ConfidenceScore = VendorOverrideConfidence,
+                VendorName = "GoPro",
+                RecommendedNetwork = NetworkPurpose.Corporate,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["override_reason"] = "GoPro action camera - not a security camera",
+                    ["oui"] = oui ?? "",
+                    ["dev_cat"] = devCat ?? 0,
+                    ["dev_vendor"] = devVendor ?? 0
+                }
+            };
+        }
+
+        if (string.IsNullOrEmpty(oui))
+            return null;
 
         // Check for vendors that default to SmartPlug
         var isPlugVendor = ouiLower.Contains("cync") ||

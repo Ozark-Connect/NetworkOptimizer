@@ -9,6 +9,7 @@ public static class DetectionConstants
     public const int MaxConfidence = 100;
     public const int ProtectCameraConfidence = 100;  // 100% confidence from UniFi Protect
     public const int NameOverrideConfidence = 95;    // User set the name explicitly
+    public const int VendorOverrideConfidence = 97;   // Fingerprint vendor override (e.g., GoPro not a security camera)
     public const int AppleWatchConfidence = 90;      // Apple Watch detected via fingerprint
     public const int OuiHighConfidence = 90;         // Dedicated IoT vendors (ecobee, sonos, arlo)
     public const int VendorDefaultConfidence = 85;   // Vendor default device type

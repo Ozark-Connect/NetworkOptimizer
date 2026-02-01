@@ -1101,7 +1101,7 @@ public class VlanAnalyzer
                     },
                     RuleId = "INFRA-VLAN-001",
                     ScoreImpact = 10,
-                    RecommendedAction = $"Move device to {managementNetwork.Name} VLAN"
+                    RecommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation($"{managementNetwork.Name} ({managementNetwork.VlanId})")
                 });
 
                 _logger.LogInformation("{DeviceType} '{Name}' on {Network} VLAN - should be on Management",
