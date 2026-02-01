@@ -232,7 +232,7 @@
                                         <div class="issue-title">@issue.ProfileName</div>
                                         <div class="issue-context">
                                             <span class="context-item"><strong>VLANs:</strong> @(issue.AllowsAllVlans ? "All VLANs" : $"{issue.TaggedVlanCount} VLANs")</span>
-                                            <span class="context-item"><strong>802.1X Control:</strong> @issue.CurrentDot1xCtrl</span>
+                                            <span class="context-item"><strong>802.1X Control:</strong> @FormatDot1xCtrl(issue.CurrentDot1xCtrl)</span>
                                         </div>
                                         <div class="issue-recommendation">
                                             <strong>Recommendation:</strong> @issue.Recommendation
@@ -448,6 +448,17 @@
         PortProfileSuggestionType.ApplyExisting => "Apply Profile",
         PortProfileSuggestionType.ExtendUsage => "Extend Profile",
         _ => type.ToString()
+    };
+
+    private static string FormatDot1xCtrl(string? value) => value?.ToLowerInvariant() switch
+    {
+        "auto" => "Auto",
+        "force_authorized" => "Force authorized",
+        "force_unauthorized" => "Force unauthorized",
+        "mac_based" => "MAC-based",
+        "multi_host" => "Multi-host",
+        null => "Auto",
+        _ => value
     };
 
     private static string FormatPortList(List<NetworkOptimizer.Diagnostics.Models.PortReference> ports)
