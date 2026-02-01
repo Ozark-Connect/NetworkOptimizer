@@ -344,16 +344,50 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
+        // Parse and validate speed test result to prevent tc breakage
+        sb.AppendLine("# Parse speedtest result with validation");
         sb.AppendLine("SPEEDTEST_SPEED=$(cat \"$RESULT_FILE\" | awk '{print $4}')");
+        sb.AppendLine();
+        sb.AppendLine("# Validate speedtest result is a valid positive number");
+        sb.AppendLine("# This prevents tc breakage from invalid/blank/non-numeric values");
+        sb.AppendLine("if [ -z \"$SPEEDTEST_SPEED\" ]; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result is empty, skipping ping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Check if value is numeric (integer or decimal)");
+        sb.AppendLine("if ! echo \"$SPEEDTEST_SPEED\" | grep -qE '^[0-9]+\\.?[0-9]*$'; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result '$SPEEDTEST_SPEED' is not a valid number, skipping ping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Check if value is reasonable (> 0 and < 100000 Mbps)");
+        sb.AppendLine("if (( $(echo \"$SPEEDTEST_SPEED <= 0\" | bc -l) )) || (( $(echo \"$SPEEDTEST_SPEED > 100000\" | bc -l) )); then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Speedtest result '$SPEEDTEST_SPEED' Mbps is out of valid range (0-100000), skipping ping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
         sb.AppendLine();
 
         // Baseline lookup for ping
         sb.AppendLine(GetBaselineBlendingLogicForPing());
         sb.AppendLine();
 
-        // Measure latency
+        // Measure latency with validation
         sb.AppendLine("# Measure latency");
-        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 20 -i 0.25 -q \"$PING_HOST\" | tail -n 1 | awk -F '/' '{{print $5}}')");
+        sb.AppendLine($"latency=$(ping -I $INTERFACE -c 20 -i 0.25 -q \"$PING_HOST\" 2>/dev/null | tail -n 1 | awk -F '/' '{{print $5}}')");
+        sb.AppendLine();
+        sb.AppendLine("# Validate latency result");
+        sb.AppendLine("if [ -z \"$latency\" ]; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Ping to $PING_HOST failed (no response), skipping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Check if latency is a valid number");
+        sb.AppendLine("if ! echo \"$latency\" | grep -qE '^[0-9]+\\.?[0-9]*$'; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Ping latency '$latency' is not a valid number, skipping adjustment\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
         sb.AppendLine("deviation_count=$(echo \"($latency - $BASELINE_LATENCY) / $LATENCY_THRESHOLD\" | bc)");
         sb.AppendLine();
 
@@ -375,12 +409,33 @@ public class ScriptGenerator
         sb.AppendLine("fi");
         sb.AppendLine();
 
+        // Final validation before applying tc changes
+        sb.AppendLine("# Final validation before applying tc changes");
+        sb.AppendLine("if [ -z \"$new_rate\" ]; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Calculated rate is empty, skipping tc update\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Ensure new_rate is a valid positive number");
+        sb.AppendLine("if ! echo \"$new_rate\" | grep -qE '^[0-9]+\\.?[0-9]*$'; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Calculated rate '$new_rate' is not a valid number, skipping tc update\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+        sb.AppendLine("# Convert to integer for tc (tc doesn't accept decimals in Mbit)");
+        sb.AppendLine("new_rate_int=$(printf \"%.0f\" \"$new_rate\")");
+        sb.AppendLine("if [ \"$new_rate_int\" -le 0 ] 2>/dev/null; then");
+        sb.AppendLine("    echo \"[$(date)] ERROR: Calculated rate '$new_rate_int' Mbps is <= 0, skipping tc update\" >> $LOG_FILE");
+        sb.AppendLine("    exit 0");
+        sb.AppendLine("fi");
+        sb.AppendLine();
+
         // TC update function and apply
         sb.AppendLine(GetTcUpdateFunction());
         sb.AppendLine();
-        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate");
+        sb.AppendLine("update_all_tc_classes $IFB_DEVICE $new_rate_int");
         sb.AppendLine();
-        sb.AppendLine("echo \"[$(date)] Ping adjusted to $new_rate Mbps (latency: ${latency}ms)\" >> $LOG_FILE");
+        sb.AppendLine("echo \"[$(date)] Ping adjusted to $new_rate_int Mbps (latency: ${latency}ms)\" >> $LOG_FILE");
 
         return sb.ToString();
     }

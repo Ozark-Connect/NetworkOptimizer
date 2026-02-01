@@ -260,6 +260,9 @@ WantedBy=multi-user.target
             await RunCommandAsync(
                 $"crontab -l 2>/dev/null | grep -v '{safeName}' | crontab -");
 
+            // Invalidate status cache so refresh shows accurate state
+            SqmService.InvalidateStatusCache();
+
             _logger.LogInformation("Cleanup completed for {Name}", connectionName);
         }
         catch (Exception ex)
@@ -347,6 +350,25 @@ WantedBy=multi-user.target
                 return result;
             }
             _logger.LogInformation("Deploying SQM with config: {Summary}", config.GetParameterSummary());
+
+            // Verify ping target is reachable on the specified interface before deployment
+            steps.Add("Testing ping target reachability...");
+            var pingTestResult = await TestPingTargetAsync(config.Interface, config.PingHost);
+            if (!pingTestResult.success)
+            {
+                // Clean up any existing deployment for this WAN before reporting failure
+                steps.Add("Ping target unreachable, cleaning up...");
+                await CleanupFailedDeploymentAsync(config.ConnectionName, config.Interface);
+                steps.Add("Cleanup complete");
+
+                result.Success = false;
+                result.Error = pingTestResult.error;
+                result.Steps = steps;
+                _logger.LogWarning("SQM deployment blocked: ping target {Host} not reachable on {Interface}",
+                    config.PingHost, config.Interface);
+                return result;
+            }
+            steps.Add($"Ping target {config.PingHost} is reachable on {config.Interface}");
 
             // Step 1: Create directories
             steps.Add("Creating directories...");
@@ -726,6 +748,67 @@ WantedBy=multi-user.target
         {
             _logger.LogError(ex, "Failed to get WAN logs for {Wan}", wanName);
             return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Test that a ping target is reachable on the specified interface.
+    /// Runs 3 pings and fails if all of them fail.
+    /// </summary>
+    private async Task<(bool success, string? error)> TestPingTargetAsync(string interfaceName, string pingHost)
+    {
+        try
+        {
+            _logger.LogInformation("Testing ping target {Host} on interface {Interface}", pingHost, interfaceName);
+
+            // Sanitize inputs for shell command
+            var safeInterface = Sqm.InputSanitizer.ValidateInterface(interfaceName);
+            var safePingHost = Sqm.InputSanitizer.ValidatePingHost(pingHost);
+
+            if (!safeInterface.isValid)
+            {
+                return (false, $"Invalid interface name: {safeInterface.error}");
+            }
+            if (!safePingHost.isValid)
+            {
+                return (false, $"Invalid ping target: {safePingHost.error}");
+            }
+
+            // Run 3 pings with 1 second timeout each, binding to the specified interface
+            // -c 3: send 3 pings
+            // -W 2: 2 second timeout per ping
+            // -I: bind to specific interface
+            var pingCmd = $"ping -c 3 -W 2 -I {interfaceName} {pingHost} 2>&1";
+            var pingResult = await RunCommandAsync(pingCmd, TimeSpan.FromSeconds(15));
+
+            // Check if any pings succeeded (look for "bytes from" in output)
+            if (pingResult.success && pingResult.output.Contains("bytes from"))
+            {
+                _logger.LogInformation("Ping target {Host} is reachable on {Interface}", pingHost, interfaceName);
+                return (true, null);
+            }
+
+            // All pings failed - provide helpful error message
+            _logger.LogWarning("Ping target {Host} is not reachable on {Interface}. Output: {Output}",
+                pingHost, interfaceName, pingResult.output);
+
+            var errorMsg = $"Ping target '{pingHost}' is not reachable on interface {interfaceName}. " +
+                $"This means the ping-based SQM adjustments won't work.\n\n" +
+                $"To find a suitable ping target:\n" +
+                $"1. SSH to your gateway\n" +
+                $"2. Run: traceroute -i {interfaceName} 8.8.8.8\n" +
+                $"3. Pick a hop that responds (usually hop 1-3 is your ISP)\n\n" +
+                $"Common choices:\n" +
+                $"- Your ISP's gateway (first hop)\n" +
+                $"- A reliable DNS server (1.1.1.1, 8.8.8.8)\n" +
+                $"- A CDN edge server in your region";
+
+            return (false, errorMsg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing ping target {Host} on {Interface}", pingHost, interfaceName);
+            return (false, $"Error testing ping target: {ex.Message}");
         }
     }
 
