@@ -45,6 +45,13 @@ public class PortProfile8021xAnalyzer
 
         _logger?.LogDebug("Analyzing {Count} port profiles for 802.1X issues", profileList.Count);
 
+        // No VLAN networks means no trunk profiles to analyze
+        if (allVlanNetworkIds.Count == 0)
+        {
+            _logger?.LogDebug("No VLAN networks found - skipping 802.1X analysis");
+            return issues;
+        }
+
         foreach (var profile in profileList)
         {
             // Only analyze trunk profiles (Forward=customize, TaggedVlanMgmt=custom)
