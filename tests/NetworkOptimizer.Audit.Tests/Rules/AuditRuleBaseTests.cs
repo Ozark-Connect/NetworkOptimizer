@@ -438,7 +438,7 @@ public class AuditRuleBaseTests
         public override string Description => "Test rule for testing base class functionality";
         public override AuditSeverity Severity => AuditSeverity.Recommended;
 
-        public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+        public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
         {
             return CreateIssue("Test issue", port);
         }

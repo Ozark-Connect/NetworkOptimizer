@@ -12,8 +12,8 @@ public class AccessPortVlanRule : AuditRuleBase
     public override string RuleId => "ACCESS-VLAN-001";
     public override string RuleName => "Access Port VLAN Exposure";
     public override string Description => "Access ports should not have excessive tagged VLANs";
-    public override AuditSeverity Severity => AuditSeverity.Critical;
-    public override int ScoreImpact => 8;
+    public override AuditSeverity Severity => AuditSeverity.Recommended;
+    public override int ScoreImpact => 4;
 
     /// <summary>
     /// Maximum number of tagged VLANs before flagging as excessive.
@@ -22,7 +22,7 @@ public class AccessPortVlanRule : AuditRuleBase
     /// </summary>
     private const int MaxTaggedVlansThreshold = 2;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Skip infrastructure ports
         if (port.IsUplink || port.IsWan)
@@ -45,11 +45,13 @@ public class AccessPortVlanRule : AuditRuleBase
 
         // At this point we have a trunk port with a single device attached
         // This is the misconfiguration we're looking for
-        if (networks.Count == 0)
+        // Use allNetworks (including disabled) for VLAN counting - disabled networks are dormant config
+        var networksForCounting = allNetworks ?? networks;
+        if (networksForCounting.Count == 0)
             return null; // No networks to check
 
         // Calculate allowed tagged VLANs on this port (excluding native VLAN)
-        var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networks);
+        var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networksForCounting);
 
         // Check if excessive
         if (!allowsAllVlans && taggedVlanCount <= MaxTaggedVlansThreshold)

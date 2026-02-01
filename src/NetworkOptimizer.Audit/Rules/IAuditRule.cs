@@ -44,7 +44,10 @@ public interface IAuditRule
     /// <summary>
     /// Evaluate this rule against a port configuration
     /// </summary>
-    AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks);
+    /// <param name="port">Port to evaluate</param>
+    /// <param name="networks">Enabled networks only (for most rules)</param>
+    /// <param name="allNetworks">All networks including disabled (for rules that check port config exposure)</param>
+    AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);
 }
 
 /// <summary>
@@ -85,7 +88,7 @@ public abstract class AuditRuleBase : IAuditRule
         AllowanceSettings = settings;
     }
 
-    public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks);
+    public abstract AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null);
 
     /// <summary>
     /// Detect device type using all available signals.

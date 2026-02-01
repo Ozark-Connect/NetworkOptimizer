@@ -20,7 +20,7 @@ public class WiredSubnetMismatchRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Critical;
     public override int ScoreImpact => 10;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Skip uplinks, WAN ports, trunk ports, and disabled ports
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)

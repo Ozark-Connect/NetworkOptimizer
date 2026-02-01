@@ -652,7 +652,10 @@ public class PortSecurityAnalyzer
     /// <summary>
     /// Analyze all ports across all switches
     /// </summary>
-    public List<AuditIssue> AnalyzePorts(List<SwitchInfo> switches, List<NetworkInfo> networks)
+    /// <param name="switches">Switches to analyze</param>
+    /// <param name="networks">Enabled networks for most rules</param>
+    /// <param name="allNetworks">All networks including disabled (for rules that check port config exposure)</param>
+    public List<AuditIssue> AnalyzePorts(List<SwitchInfo> switches, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -666,7 +669,7 @@ public class PortSecurityAnalyzer
                 // Run all enabled rules against this port
                 foreach (var rule in _rules.Where(r => r.Enabled))
                 {
-                    var issue = rule.Evaluate(port, networks);
+                    var issue = rule.Evaluate(port, networks, allNetworks);
                     if (issue != null)
                     {
                         issues.Add(issue);

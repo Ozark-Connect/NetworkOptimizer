@@ -30,15 +30,15 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Severity_IsCritical()
+    public void Severity_IsRecommended()
     {
-        _rule.Severity.Should().Be(AuditSeverity.Critical);
+        _rule.Severity.Should().Be(AuditSeverity.Recommended);
     }
 
     [Fact]
-    public void ScoreImpact_Is8()
+    public void ScoreImpact_Is4()
     {
-        _rule.ScoreImpact.Should().Be(8);
+        _rule.ScoreImpact.Should().Be(4);
     }
 
     #endregion
@@ -404,8 +404,8 @@ public class AccessPortVlanRuleTests
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
-        result!.Severity.Should().Be(AuditSeverity.Critical);
-        result.ScoreImpact.Should().Be(8);
+        result!.Severity.Should().Be(AuditSeverity.Recommended);
+        result.ScoreImpact.Should().Be(4);
     }
 
     [Fact]

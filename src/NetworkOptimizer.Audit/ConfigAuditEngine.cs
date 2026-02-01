@@ -460,7 +460,8 @@ public class ConfigAuditEngine
     private void ExecutePhase3_AnalyzePortSecurity(AuditContext ctx)
     {
         _logger.LogInformation("Phase 3: Analyzing port security");
-        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks);
+        // Pass ctx.Networks as allNetworks for rules that need to count disabled networks too
+        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, ctx.Networks);
         ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
     }
