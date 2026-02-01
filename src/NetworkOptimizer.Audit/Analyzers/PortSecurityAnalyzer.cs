@@ -82,7 +82,8 @@ public class PortSecurityAnalyzer
             new MacRestrictionRule(),
             new UnusedPortRule(),
             new PortIsolationRule(),
-            new WiredSubnetMismatchRule()
+            new WiredSubnetMismatchRule(),
+            new AccessPortVlanRule()
         };
     }
 
