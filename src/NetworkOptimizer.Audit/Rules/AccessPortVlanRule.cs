@@ -45,23 +45,23 @@ public class AccessPortVlanRule : AuditRuleBase
 
         // At this point we have a trunk port with a single device attached
         // This is the misconfiguration we're looking for
-        var vlanNetworks = networks.Where(n => n.VlanId > 0).ToList();
-        if (vlanNetworks.Count == 0)
-            return null; // No VLANs to check
+        // Use all networks for exclusion calculation (not just VlanId > 0)
+        if (networks.Count == 0)
+            return null; // No networks to check
 
-        // Calculate allowed tagged VLANs on this port
-        var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, vlanNetworks);
+        // Calculate allowed tagged VLANs on this port (excluding native VLAN)
+        var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networks);
 
         // Check if excessive
         if (!allowsAllVlans && taggedVlanCount <= MaxTaggedVlansThreshold)
             return null; // Within acceptable range
 
-        // Build the issue
+        // Build the issue - short message like other audit rules
         var network = GetNetwork(port.NativeNetworkId, networks);
-        var vlanDesc = allowsAllVlans ? "all VLANs" : $"{taggedVlanCount} tagged VLANs";
+        var vlanDesc = allowsAllVlans ? "all VLANs tagged" : $"{taggedVlanCount} VLANs tagged";
 
         return CreateIssue(
-            $"Port with single device allows {vlanDesc} - configure to limit VLAN access",
+            $"Single device with {vlanDesc}",
             port,
             new Dictionary<string, object>
             {
@@ -89,23 +89,36 @@ public class AccessPortVlanRule : AuditRuleBase
 
     /// <summary>
     /// Get the tagged VLAN count and whether the port allows all VLANs.
+    /// Tagged VLANs = allowed networks minus native VLAN (native is untagged).
     /// </summary>
     private static (int TaggedVlanCount, bool AllowsAllVlans) GetTaggedVlanInfo(
         PortInfo port,
-        List<NetworkInfo> vlanNetworks)
+        List<NetworkInfo> networks)
     {
-        var allVlanIds = vlanNetworks.Select(n => n.Id).ToHashSet();
+        var allNetworkIds = networks.Select(n => n.Id).ToHashSet();
         var excludedIds = port.ExcludedNetworkIds ?? new List<string>();
+        var nativeNetworkId = port.NativeNetworkId;
 
         // If excluded list is null or empty, it means "Allow All"
         if (excludedIds.Count == 0)
         {
-            return (allVlanIds.Count, true);
+            // All networks minus native = tagged count
+            var taggedCount = string.IsNullOrEmpty(nativeNetworkId)
+                ? allNetworkIds.Count
+                : allNetworkIds.Count - 1; // Subtract native
+            return (taggedCount, true);
         }
 
-        // Calculate allowed VLANs = All - Excluded
-        var allowedCount = allVlanIds.Count(id => !excludedIds.Contains(id));
-        return (allowedCount, false);
+        // Calculate allowed VLANs = All - Excluded - Native (if set)
+        var allowedIds = allNetworkIds.Where(id => !excludedIds.Contains(id)).ToHashSet();
+
+        // Remove native from tagged count (native is untagged, not tagged)
+        if (!string.IsNullOrEmpty(nativeNetworkId))
+        {
+            allowedIds.Remove(nativeNetworkId);
+        }
+
+        return (allowedIds.Count, false);
     }
 
     /// <summary>

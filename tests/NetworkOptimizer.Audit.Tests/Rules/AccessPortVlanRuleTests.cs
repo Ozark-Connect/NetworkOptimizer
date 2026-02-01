@@ -43,12 +43,12 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
-    #region Ports That Should Be Skipped
+    #region Ports That Should Be Skipped - Infrastructure
 
     [Fact]
     public void Evaluate_UplinkPort_ReturnsNull()
     {
-        var port = CreatePortWithClient(isUplink: true);
+        var port = CreateTrunkPortWithClient(isUplink: true);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
@@ -59,13 +59,66 @@ public class AccessPortVlanRuleTests
     [Fact]
     public void Evaluate_WanPort_ReturnsNull()
     {
-        var port = CreatePortWithClient(isWan: true);
+        var port = CreateTrunkPortWithClient(isWan: true);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().BeNull();
     }
+
+    #endregion
+
+    #region Ports That Should Be Skipped - Access Ports (Not Trunk)
+
+    [Fact]
+    public void Evaluate_AccessPort_NativeMode_ReturnsNull()
+    {
+        // Access ports (native mode) don't have tagged VLANs - not a misconfiguration
+        var port = CreateAccessPortWithClient(forwardMode: "native");
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("Access ports in native mode don't have tagged VLANs");
+    }
+
+    [Fact]
+    public void Evaluate_AccessPort_DisabledMode_ReturnsNull()
+    {
+        var port = CreateAccessPortWithClient(forwardMode: "disabled");
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_AccessPort_EmptyForwardMode_ReturnsNull()
+    {
+        var port = CreateAccessPortWithClient(forwardMode: "");
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_AccessPort_NullForwardMode_ReturnsNull()
+    {
+        var port = CreateAccessPortWithClient(forwardMode: null);
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull();
+    }
+
+    #endregion
+
+    #region Ports That Should Be Skipped - Network Fabric Devices
 
     [Theory]
     [InlineData("uap")]   // Access Point
@@ -79,7 +132,7 @@ public class AccessPortVlanRuleTests
     public void Evaluate_NetworkFabricDeviceConnected_ReturnsNull(string deviceType)
     {
         // Network fabric devices legitimately need multiple VLANs
-        var port = CreatePortWithClient(connectedDeviceType: deviceType, excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(connectedDeviceType: deviceType, excludedNetworkIds: null);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
@@ -87,11 +140,15 @@ public class AccessPortVlanRuleTests
         result.Should().BeNull();
     }
 
+    #endregion
+
+    #region Ports That Should Be Skipped - No Device Evidence
+
     [Fact]
-    public void Evaluate_NoConnectedClientAndNoOfflineData_ReturnsNull()
+    public void Evaluate_TrunkPort_NoConnectedClient_NoOfflineData_ReturnsNull()
     {
-        // No evidence of a single device - could be unused or trunk
-        var port = CreatePort(excludedNetworkIds: null); // Allow All, but no device data
+        // No evidence of a single device attached
+        var port = CreateTrunkPort(excludedNetworkIds: null);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
@@ -102,7 +159,7 @@ public class AccessPortVlanRuleTests
     [Fact]
     public void Evaluate_NoVlanNetworks_ReturnsNull()
     {
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
         var networks = new List<NetworkInfo>(); // No VLANs
 
         var result = _rule.Evaluate(port, networks);
@@ -113,7 +170,7 @@ public class AccessPortVlanRuleTests
     [Fact]
     public void Evaluate_OnlyVlan0Networks_ReturnsNull()
     {
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
         var networks = new List<NetworkInfo>
         {
             new() { Id = "net-0", Name = "Default", VlanId = 0 }
@@ -126,15 +183,33 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
+    #region Trunk Port Modes That Should Trigger
+
+    [Theory]
+    [InlineData("custom")]
+    [InlineData("customize")]
+    [InlineData("all")]
+    public void Evaluate_TrunkPortMode_WithSingleDevice_ExcessiveVlans_ReturnsIssue(string forwardMode)
+    {
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithClient(forwardMode: forwardMode, excludedNetworkIds: null);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull($"Trunk port in '{forwardMode}' mode with single device and all VLANs should trigger");
+    }
+
+    #endregion
+
     #region VLAN Count Threshold Tests
 
     [Fact]
-    public void Evaluate_OneTaggedVlan_ReturnsNull()
+    public void Evaluate_TrunkPort_OneTaggedVlan_ReturnsNull()
     {
-        // 1 VLAN is fine (e.g., just native)
+        // 1 VLAN is fine
         var networks = CreateVlanNetworks(5);
         var excludeAllButOne = networks.Skip(1).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButOne);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButOne);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -142,12 +217,12 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_TwoTaggedVlans_ReturnsNull()
+    public void Evaluate_TrunkPort_TwoTaggedVlans_ReturnsNull()
     {
-        // 2 VLANs is acceptable (native + voice)
+        // 2 VLANs is acceptable
         var networks = CreateVlanNetworks(5);
         var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButTwo);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButTwo);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -155,12 +230,12 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_ThreeTaggedVlans_ReturnsIssue()
+    public void Evaluate_TrunkPort_ThreeTaggedVlans_ReturnsIssue()
     {
         // 3 VLANs is excessive for a single device
         var networks = CreateVlanNetworks(5);
         var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButThree);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButThree);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -172,10 +247,10 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_FiveTaggedVlans_ReturnsIssue()
+    public void Evaluate_TrunkPort_FiveTaggedVlans_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: new List<string>()); // Allow all 5
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>()); // Allow all 5
 
         var result = _rule.Evaluate(port, networks);
 
@@ -188,10 +263,10 @@ public class AccessPortVlanRuleTests
     #region Allow All VLANs Detection
 
     [Fact]
-    public void Evaluate_AllowAllVlans_NullExcludedList_ReturnsIssue()
+    public void Evaluate_TrunkPort_AllowAllVlans_NullExcludedList_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null); // null = Allow All
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null); // null = Allow All
 
         var result = _rule.Evaluate(port, networks);
 
@@ -201,10 +276,10 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_AllowAllVlans_EmptyExcludedList_ReturnsIssue()
+    public void Evaluate_TrunkPort_AllowAllVlans_EmptyExcludedList_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: new List<string>()); // empty = Allow All
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: new List<string>()); // empty = Allow All
 
         var result = _rule.Evaluate(port, networks);
 
@@ -217,10 +292,10 @@ public class AccessPortVlanRuleTests
     #region Single Device Detection - Connected Client
 
     [Fact]
-    public void Evaluate_ConnectedClient_WithExcessiveVlans_ReturnsIssue()
+    public void Evaluate_TrunkPort_ConnectedClient_WithExcessiveVlans_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -228,11 +303,11 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_ConnectedClient_WithAcceptableVlans_ReturnsNull()
+    public void Evaluate_TrunkPort_ConnectedClient_WithAcceptableVlans_ReturnsNull()
     {
         var networks = CreateVlanNetworks(5);
         var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButTwo);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButTwo);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -244,10 +319,10 @@ public class AccessPortVlanRuleTests
     #region Single Device Detection - Offline Data
 
     [Fact]
-    public void Evaluate_LastConnectionMac_WithExcessiveVlans_ReturnsIssue()
+    public void Evaluate_TrunkPort_LastConnectionMac_WithExcessiveVlans_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithLastConnectionMac(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithLastConnectionMac(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -255,10 +330,10 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_AllowedMacAddresses_WithExcessiveVlans_ReturnsIssue()
+    public void Evaluate_TrunkPort_AllowedMacAddresses_WithExcessiveVlans_ReturnsIssue()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithAllowedMacs(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithAllowedMacs(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -266,11 +341,11 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_LastConnectionMac_WithAcceptableVlans_ReturnsNull()
+    public void Evaluate_TrunkPort_LastConnectionMac_WithAcceptableVlans_ReturnsNull()
     {
         var networks = CreateVlanNetworks(5);
         var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
-        var port = CreatePortWithLastConnectionMac(excludedNetworkIds: excludeAllButTwo);
+        var port = CreateTrunkPortWithLastConnectionMac(excludedNetworkIds: excludeAllButTwo);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -288,10 +363,10 @@ public class AccessPortVlanRuleTests
     [InlineData("uph")]   // Phone
     [InlineData(null)]    // Unknown/regular client
     [InlineData("")]      // Empty
-    public void Evaluate_EndpointDeviceWithExcessiveVlans_ReturnsIssue(string? deviceType)
+    public void Evaluate_TrunkPort_EndpointDeviceWithExcessiveVlans_ReturnsIssue(string? deviceType)
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(connectedDeviceType: deviceType, excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(connectedDeviceType: deviceType, excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -306,7 +381,7 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsCorrectRuleId()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -319,7 +394,7 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsCorrectSeverityAndScore()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -332,7 +407,7 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsPortDetails()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(
+        var port = CreateTrunkPortWithClient(
             portIndex: 7,
             portName: "Office Workstation",
             switchName: "Switch-Floor2",
@@ -350,7 +425,7 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsNetworkName()
     {
         var networks = CreateVlanNetworks(3);
-        var port = CreatePortWithClient(
+        var port = CreateTrunkPortWithClient(
             nativeNetworkId: "net-1",
             excludedNetworkIds: null);
 
@@ -365,20 +440,20 @@ public class AccessPortVlanRuleTests
     public void Evaluate_IssueContainsRecommendation()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
         result!.Metadata.Should().ContainKey("recommendation");
-        ((string)result.Metadata!["recommendation"]).Should().Contain("native");
+        ((string)result.Metadata!["recommendation"]).Should().Contain("Limit");
     }
 
     [Fact]
     public void Evaluate_IssueMessageDescribesAllVlans()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -391,12 +466,12 @@ public class AccessPortVlanRuleTests
     {
         var networks = CreateVlanNetworks(5);
         var excludeTwo = networks.Take(2).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeTwo); // 3 VLANs allowed
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeTwo); // 3 VLANs allowed
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
-        result!.Message.Should().Contain("3 VLANs");
+        result!.Message.Should().Contain("3 tagged VLANs");
     }
 
     #endregion
@@ -404,7 +479,7 @@ public class AccessPortVlanRuleTests
     #region Edge Cases
 
     [Fact]
-    public void Evaluate_ExcludedNetworkNotInList_HandlesGracefully()
+    public void Evaluate_TrunkPort_ExcludedNetworkNotInList_HandlesGracefully()
     {
         var networks = CreateVlanNetworks(5);
         var excludeWithUnknown = new List<string>
@@ -413,7 +488,7 @@ public class AccessPortVlanRuleTests
             "unknown-network-id", // invalid - should be ignored
             "another-unknown"
         };
-        var port = CreatePortWithClient(excludedNetworkIds: excludeWithUnknown);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeWithUnknown);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -423,7 +498,7 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_MixOfVlan0AndRealVlans_OnlyCountsRealVlans()
+    public void Evaluate_TrunkPort_MixOfVlan0AndRealVlans_OnlyCountsRealVlans()
     {
         var networks = new List<NetworkInfo>
         {
@@ -432,7 +507,7 @@ public class AccessPortVlanRuleTests
             new() { Id = "net-2", Name = "VLAN 20", VlanId = 20 },
             new() { Id = "net-3", Name = "VLAN 30", VlanId = 30 }
         };
-        var port = CreatePortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -442,12 +517,12 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_ExactlyAtThreshold_ReturnsNull()
+    public void Evaluate_TrunkPort_ExactlyAtThreshold_ReturnsNull()
     {
         // Threshold is 2, so exactly 2 VLANs should NOT trigger
         var networks = CreateVlanNetworks(5);
         var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButTwo);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButTwo);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -455,12 +530,12 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_JustAboveThreshold_ReturnsIssue()
+    public void Evaluate_TrunkPort_JustAboveThreshold_ReturnsIssue()
     {
         // Threshold is 2, so 3 VLANs should trigger
         var networks = CreateVlanNetworks(5);
         var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
-        var port = CreatePortWithClient(excludedNetworkIds: excludeAllButThree);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButThree);
 
         var result = _rule.Evaluate(port, networks);
 
@@ -483,15 +558,14 @@ public class AccessPortVlanRuleTests
             .ToList();
     }
 
-    private static PortInfo CreatePort(
-        List<string>? excludedNetworkIds = null,
-        bool isUplink = false,
-        bool isWan = false,
+    /// <summary>
+    /// Create an access port (native mode) - should NOT trigger the rule
+    /// </summary>
+    private static PortInfo CreateAccessPortWithClient(
+        string? forwardMode = "native",
         int portIndex = 1,
         string portName = "Port 1",
-        string switchName = "Test Switch",
-        string? nativeNetworkId = null,
-        string? connectedDeviceType = null)
+        string switchName = "Test Switch")
     {
         var switchInfo = new SwitchInfo
         {
@@ -504,12 +578,47 @@ public class AccessPortVlanRuleTests
             PortIndex = portIndex,
             Name = portName,
             IsUp = true,
-            ForwardMode = "native",
-            IsUplink = isUplink,
-            IsWan = isWan,
-            NativeNetworkId = nativeNetworkId,
+            ForwardMode = forwardMode,
+            IsUplink = false,
+            IsWan = false,
+            NativeNetworkId = null,
+            ExcludedNetworkIds = null,
+            ConnectedDeviceType = null,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Name = "Test Device"
+            },
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
+            Switch = switchInfo
+        };
+    }
+
+    /// <summary>
+    /// Create a trunk port WITHOUT device data - should NOT trigger (no single device evidence)
+    /// </summary>
+    private static PortInfo CreateTrunkPort(
+        List<string>? excludedNetworkIds = null,
+        string forwardMode = "custom")
+    {
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Switch",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        return new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = forwardMode,
+            IsUplink = false,
+            IsWan = false,
+            NativeNetworkId = null,
             ExcludedNetworkIds = excludedNetworkIds,
-            ConnectedDeviceType = connectedDeviceType,
+            ConnectedDeviceType = null,
             ConnectedClient = null,
             LastConnectionMac = null,
             AllowedMacAddresses = null,
@@ -517,7 +626,10 @@ public class AccessPortVlanRuleTests
         };
     }
 
-    private static PortInfo CreatePortWithClient(
+    /// <summary>
+    /// Create a trunk port WITH a connected client (single device evidence)
+    /// </summary>
+    private static PortInfo CreateTrunkPortWithClient(
         List<string>? excludedNetworkIds = null,
         bool isUplink = false,
         bool isWan = false,
@@ -525,7 +637,8 @@ public class AccessPortVlanRuleTests
         string portName = "Port 1",
         string switchName = "Test Switch",
         string? nativeNetworkId = null,
-        string? connectedDeviceType = null)
+        string? connectedDeviceType = null,
+        string forwardMode = "custom")
     {
         var switchInfo = new SwitchInfo
         {
@@ -538,7 +651,7 @@ public class AccessPortVlanRuleTests
             PortIndex = portIndex,
             Name = portName,
             IsUp = true,
-            ForwardMode = "native",
+            ForwardMode = forwardMode,
             IsUplink = isUplink,
             IsWan = isWan,
             NativeNetworkId = nativeNetworkId,
@@ -555,7 +668,10 @@ public class AccessPortVlanRuleTests
         };
     }
 
-    private static PortInfo CreatePortWithLastConnectionMac(
+    /// <summary>
+    /// Create a trunk port with LastConnectionMac (offline device evidence)
+    /// </summary>
+    private static PortInfo CreateTrunkPortWithLastConnectionMac(
         List<string>? excludedNetworkIds = null)
     {
         var switchInfo = new SwitchInfo
@@ -569,7 +685,7 @@ public class AccessPortVlanRuleTests
             PortIndex = 1,
             Name = "Port 1",
             IsUp = true,
-            ForwardMode = "native",
+            ForwardMode = "custom",
             IsUplink = false,
             IsWan = false,
             ExcludedNetworkIds = excludedNetworkIds,
@@ -580,7 +696,10 @@ public class AccessPortVlanRuleTests
         };
     }
 
-    private static PortInfo CreatePortWithAllowedMacs(
+    /// <summary>
+    /// Create a trunk port with AllowedMacAddresses (MAC restriction = single device evidence)
+    /// </summary>
+    private static PortInfo CreateTrunkPortWithAllowedMacs(
         List<string>? excludedNetworkIds = null)
     {
         var switchInfo = new SwitchInfo
@@ -594,13 +713,13 @@ public class AccessPortVlanRuleTests
             PortIndex = 1,
             Name = "Port 1",
             IsUp = true,
-            ForwardMode = "native",
+            ForwardMode = "custom",
             IsUplink = false,
             IsWan = false,
             ExcludedNetworkIds = excludedNetworkIds,
             ConnectedClient = null,
             LastConnectionMac = null,
-            AllowedMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" }, // MAC restriction = single device
+            AllowedMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" },
             Switch = switchInfo
         };
     }

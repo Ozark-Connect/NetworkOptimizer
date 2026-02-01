@@ -1103,6 +1103,254 @@ public class PortSecurityAnalyzerTests
 
     #endregion
 
+    #region Port Profile Resolution Tests
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesForwardMode()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-trunk",
+                Name = "Trunk Profile",
+                Forward = "customize"
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""forward"": ""native"", ""portconf_id"": ""profile-trunk"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].ForwardMode.Should().Be("custom", "Profile forward mode should override port's native mode");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesNativeNetworkId()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-iot",
+                Name = "IoT Profile",
+                NativeNetworkId = "iot-network-id"
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""native_networkconf_id"": ""default-network"", ""portconf_id"": ""profile-iot"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].NativeNetworkId.Should().Be("iot-network-id", "Profile native network should override port's native network");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesExcludedNetworkIds()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-limited",
+                Name = "Limited Trunk",
+                Forward = "customize",
+                ExcludedNetworkConfIds = new List<string> { "net-1", "net-2", "net-3" }
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""forward"": ""native"", ""portconf_id"": ""profile-limited"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].ExcludedNetworkIds.Should().NotBeNull();
+        result[0].Ports[0].ExcludedNetworkIds.Should().HaveCount(3);
+        result[0].Ports[0].ExcludedNetworkIds.Should().Contain("net-1");
+        result[0].Ports[0].ExcludedNetworkIds.Should().Contain("net-2");
+        result[0].Ports[0].ExcludedNetworkIds.Should().Contain("net-3");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesEmptyExcludedNetworkIds()
+    {
+        // Profile with empty excluded list means "Allow All VLANs"
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-all",
+                Name = "Allow All Trunk",
+                Forward = "customize",
+                ExcludedNetworkConfIds = new List<string>() // Empty = Allow All
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""excluded_networkconf_ids"": [""net-1""], ""portconf_id"": ""profile-all"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].ExcludedNetworkIds.Should().NotBeNull();
+        result[0].Ports[0].ExcludedNetworkIds.Should().BeEmpty("Profile's empty excluded list should override port's excluded list");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesPortSecurity()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-secure",
+                Name = "Secure Profile",
+                PortSecurityEnabled = true,
+                PortSecurityMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" }
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""portconf_id"": ""profile-secure"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].PortSecurityEnabled.Should().BeTrue();
+        result[0].Ports[0].AllowedMacAddresses.Should().Contain("aa:bb:cc:dd:ee:ff");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithProfile_ResolvesIsolation()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-isolated",
+                Name = "Isolated Profile",
+                Isolation = true
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""isolation"": false, ""portconf_id"": ""profile-isolated"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].IsolationEnabled.Should().BeTrue("Profile isolation should override port's isolation setting");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithUnknownProfile_UsesPortSettings()
+    {
+        // Port references a profile that doesn't exist in the list
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-other",
+                Name = "Other Profile",
+                Forward = "customize"
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""forward"": ""native"", ""portconf_id"": ""profile-unknown"", ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].ForwardMode.Should().Be("native", "When profile not found, port's own settings should be used");
+    }
+
+    [Fact]
+    public void ExtractSwitches_PortWithoutProfile_UsesPortSettings()
+    {
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new UniFiPortProfile
+            {
+                Id = "profile-unused",
+                Name = "Unused Profile",
+                Forward = "customize"
+            }
+        };
+
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""usw"",
+                ""name"": ""Switch"",
+                ""port_table"": [
+                    { ""port_idx"": 1, ""forward"": ""native"", ""excluded_networkconf_ids"": [""net-x""], ""up"": true }
+                ]
+            }
+        ]").RootElement;
+        var networks = new List<NetworkInfo>();
+
+        var result = _engine.ExtractSwitches(deviceData, networks, null, null, portProfiles);
+
+        result[0].Ports[0].ForwardMode.Should().Be("native");
+        result[0].Ports[0].ExcludedNetworkIds.Should().Contain("net-x");
+    }
+
+    #endregion
+
     #region AddRule Tests
 
     [Fact]
