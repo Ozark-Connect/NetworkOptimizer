@@ -279,7 +279,7 @@ public static class VlanPlacementChecker
     /// <summary>
     /// Common hint text for VLAN recommendations when device may be misclassified.
     /// </summary>
-    public const string ReclassifyHint = "If device is misclassified, change its Device Icon / Fingerprint in UniFi Network.";
+    public const string ReclassifyHint = "If a device is misclassified, change its Device Icon / Fingerprint in UniFi Network.";
 
     /// <summary>
     /// Build a VLAN move recommendation with optional reclassify hint.
