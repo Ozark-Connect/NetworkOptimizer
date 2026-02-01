@@ -13,7 +13,7 @@ public class AccessPortVlanRule : AuditRuleBase
     public override string RuleName => "Access Port VLAN Exposure";
     public override string Description => "Access ports should not have excessive tagged VLANs";
     public override AuditSeverity Severity => AuditSeverity.Recommended;
-    public override int ScoreImpact => 4;
+    public override int ScoreImpact => 6;
 
     /// <summary>
     /// Maximum number of tagged VLANs before flagging as excessive.

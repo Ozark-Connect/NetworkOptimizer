@@ -36,9 +36,9 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void ScoreImpact_Is4()
+    public void ScoreImpact_Is6()
     {
-        _rule.ScoreImpact.Should().Be(4);
+        _rule.ScoreImpact.Should().Be(6);
     }
 
     #endregion
@@ -405,7 +405,7 @@ public class AccessPortVlanRuleTests
 
         result.Should().NotBeNull();
         result!.Severity.Should().Be(AuditSeverity.Recommended);
-        result.ScoreImpact.Should().Be(4);
+        result.ScoreImpact.Should().Be(6);
     }
 
     [Fact]
