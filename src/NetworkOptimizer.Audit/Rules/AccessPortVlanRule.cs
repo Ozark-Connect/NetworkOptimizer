@@ -39,8 +39,10 @@ public class AccessPortVlanRule : AuditRuleBase
             return null;
 
         // Skip if no single-device evidence
-        // We need either a connected client or offline device data to confirm single device
-        if (port.ConnectedClient == null && !HasOfflineDeviceData(port))
+        // We need either: connected client, single MAC restriction, or offline device data
+        if (port.ConnectedClient == null &&
+            !HasSingleDeviceMacRestriction(port) &&
+            !HasOfflineDeviceData(port))
             return null;
 
         // At this point we have a trunk port with a single device attached
@@ -139,5 +141,13 @@ public class AccessPortVlanRule : AuditRuleBase
             "ubb" => true,  // Building-to-Building Bridges
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Check if port has MAC restriction with exactly 1 entry, indicating a single-device access port.
+    /// </summary>
+    private static bool HasSingleDeviceMacRestriction(PortInfo port)
+    {
+        return port.AllowedMacAddresses is { Count: 1 };
     }
 }
