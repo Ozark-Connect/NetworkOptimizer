@@ -1238,7 +1238,9 @@ public class DnsSecurityAnalyzer
 
     private async Task ValidateWanDnsConfigurationAsync(DnsSecurityResult result)
     {
-        if (!result.DohConfigured || result.WanDnsServers.Count == 0)
+        // Skip validation only if BOTH DoH is off AND no third-party DNS is detected.
+        // Pi-hole/AdGuard users without gateway DoH still need WAN DNS validated against their local DNS IPs.
+        if ((!result.DohConfigured && !result.HasThirdPartyDns) || result.WanDnsServers.Count == 0)
             return;
 
         // When third-party DNS (Pi-hole, AdGuard Home) is detected, check if WAN DNS

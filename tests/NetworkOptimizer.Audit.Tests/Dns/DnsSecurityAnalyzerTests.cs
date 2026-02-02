@@ -8011,5 +8011,210 @@ public class DnsSecurityAnalyzerTests : IDisposable
         result.WanInterfaces.Should().OnlyContain(w => w.MatchesDoH);
     }
 
+    [Fact]
+    public async Task Analyze_NoDoh_WithThirdPartyDns_WanDnsMatchesPihole_MarksAsMatched()
+    {
+        // Arrange - NO DoH configured, but Pi-hole detected on network, WAN DNS points to Pi-hole
+        // This is the bug scenario from GitHub issue #187 - user has DoH off but Pi-hole as DNS
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        // NO DoH settings - pass null or empty
+        JsonElement? settings = null;
+
+        // Networks with Pi-hole DNS configured (will trigger third-party DNS detection)
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16", "172.16.0.26" }
+            }
+        };
+
+        // Device data with WAN DNS pointing to Pi-hole IPs
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16"", ""172.16.0.26""]
+                    },
+                    {
+                        ""network_name"": ""wan2"",
+                        ""name"": ""Cell Backup WAN"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16"", ""172.16.0.26""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - WAN DNS should be marked as matched since it points to Pi-hole
+        result.DohConfigured.Should().BeFalse("DoH is not configured");
+        result.HasThirdPartyDns.Should().BeTrue("Pi-hole should be detected from network DNS");
+        result.WanDnsMatchesDoH.Should().BeTrue("WAN DNS servers match the detected Pi-hole IPs");
+        result.ExpectedDnsProvider.Should().Be("Pi-hole");
+        result.WanDnsProvider.Should().Be("Pi-hole");
+        result.WanInterfaces.Should().HaveCount(2);
+        result.WanInterfaces.Should().OnlyContain(w => w.MatchesDoH, "All WAN interfaces point to Pi-hole");
+    }
+
+    [Fact]
+    public async Task Analyze_NoDoh_WithThirdPartyDns_WanDnsDoesNotMatchPihole_MarksAsMismatched()
+    {
+        // Arrange - NO DoH configured, Pi-hole detected, but WAN DNS points elsewhere
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        JsonElement? settings = null;
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16", "172.16.0.26" }
+            }
+        };
+
+        // WAN DNS pointing to external IPs (not Pi-hole)
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""8.8.8.8"", ""8.8.4.4""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - WAN DNS should NOT match since it doesn't point to Pi-hole
+        result.DohConfigured.Should().BeFalse("DoH is not configured");
+        result.HasThirdPartyDns.Should().BeTrue("Pi-hole should be detected from network DNS");
+        result.WanDnsMatchesDoH.Should().BeFalse("WAN DNS (8.8.8.8) doesn't match Pi-hole IPs");
+    }
+
+    [Fact]
+    public async Task Analyze_NoDoh_NoThirdPartyDns_SkipsWanDnsValidation()
+    {
+        // Arrange - NO DoH configured, NO third-party DNS, just regular WAN DNS
+        // Validation should be skipped entirely (no issues generated for WAN DNS)
+        var settings = JsonDocument.Parse(@"[]").RootElement;
+
+        // Networks using gateway as DNS (no third-party DNS)
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Default",
+                VlanId = 1,
+                Subnet = "192.168.1.0/24",
+                Gateway = "192.168.1.1",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "192.168.1.1" } // Gateway as DNS
+            }
+        };
+
+        // Device data with WAN DNS pointing to external DNS
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""8.8.8.8"", ""8.8.4.4""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await _analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - Validation should be skipped (no DoH, no third-party DNS)
+        result.DohConfigured.Should().BeFalse("DoH is not configured");
+        result.HasThirdPartyDns.Should().BeFalse("No third-party DNS detected");
+        result.WanDnsServers.Should().Contain("8.8.8.8");
+        // WanDnsMatchesDoH should remain false (default) but no mismatch issues should be generated
+        result.Issues.Should().NotContain(i => i.Type == "DNS_WAN_MISMATCH",
+            "WAN DNS validation should be skipped when neither DoH nor third-party DNS is configured");
+    }
+
+    [Fact]
+    public async Task Analyze_NoDoh_WithThirdPartyDns_PartialWanDnsMatch_MarksAsMismatched()
+    {
+        // Arrange - NO DoH, Pi-hole detected, but only some WAN DNS matches
+        var analyzer = CreateAnalyzerWithPiholeDetection();
+
+        JsonElement? settings = null;
+
+        var networks = new List<NetworkInfo>
+        {
+            new()
+            {
+                Id = "net-1",
+                Name = "Trusted",
+                VlanId = 10,
+                Subnet = "172.16.0.0/24",
+                DhcpEnabled = true,
+                DnsServers = new List<string> { "172.16.0.16", "172.16.0.26" }
+            }
+        };
+
+        // One WAN interface matches Pi-hole, other doesn't
+        var deviceData = JsonDocument.Parse(@"[
+            {
+                ""type"": ""udm"",
+                ""port_table"": [
+                    {
+                        ""network_name"": ""wan"",
+                        ""name"": ""WAN1"",
+                        ""up"": true,
+                        ""dns"": [""172.16.0.16"", ""172.16.0.26""]
+                    },
+                    {
+                        ""network_name"": ""wan2"",
+                        ""name"": ""Cell Backup"",
+                        ""up"": true,
+                        ""dns"": [""8.8.8.8"", ""8.8.4.4""]
+                    }
+                ]
+            }
+        ]").RootElement;
+
+        // Act
+        var result = await analyzer.AnalyzeAsync(settings, null, null, networks, deviceData);
+
+        // Assert - Should detect the mismatch on wan2
+        result.DohConfigured.Should().BeFalse();
+        result.HasThirdPartyDns.Should().BeTrue();
+        // Overall WanDnsMatchesDoH should be false because not all match
+        result.WanDnsMatchesDoH.Should().BeFalse("Not all WAN interfaces point to Pi-hole");
+        result.WanInterfaces.Should().HaveCount(2);
+    }
+
     #endregion
 }
