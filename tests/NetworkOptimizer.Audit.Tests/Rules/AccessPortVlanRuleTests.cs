@@ -142,18 +142,63 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
-    #region Ports That Should Be Skipped - No Device Evidence
+    #region No Device Evidence - Should Still Trigger for Trunk Ports
 
     [Fact]
-    public void Evaluate_TrunkPort_NoConnectedClient_NoOfflineData_ReturnsNull()
+    public void Evaluate_TrunkPort_NoConnectedClient_NoOfflineData_WithExcessiveVlans_ReturnsIssue()
     {
-        // No evidence of a single device attached
+        // Trunk port with no device evidence but excessive VLANs - should flag
         var port = CreateTrunkPort(excludedNetworkIds: null);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().BeNull();
+        result.Should().NotBeNull("Trunk port with no device and excessive VLANs should be flagged");
+        result!.Message.Should().Contain("no device");
+        result.Metadata!["has_device_evidence"].Should().Be(false);
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_WithAcceptableVlans_ReturnsNull()
+    {
+        // Trunk port with no device but only 2 VLANs (at threshold) - should not flag
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
+        var port = CreateTrunkPort(excludedNetworkIds: excludeAllButTwo);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("Trunk port with 2 VLANs is at threshold and should not trigger");
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_AllowAll_ReturnsIssue()
+    {
+        // Trunk port with no device and "Allow All" VLANs - should flag
+        var port = CreateTrunkPort(excludedNetworkIds: null);
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Metadata!["allows_all_vlans"].Should().Be(true);
+        result.Metadata["has_device_evidence"].Should().Be(false);
+        result.RecommendedAction.Should().Contain("Disable the port");
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_ThreeVlans_ReturnsIssue()
+    {
+        // Trunk port with no device and 3 VLANs (above threshold) - should flag
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPort(excludedNetworkIds: excludeAllButThree);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Metadata!["tagged_vlan_count"].Should().Be(3);
+        result.Metadata["has_device_evidence"].Should().Be(false);
     }
 
     [Fact]
@@ -305,6 +350,8 @@ public class AccessPortVlanRuleTests
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
+        result!.Metadata!["has_device_evidence"].Should().Be(true);
+        result.Message.Should().Contain("single device");
     }
 
     [Fact]
@@ -670,7 +717,7 @@ public class AccessPortVlanRuleTests
     }
 
     /// <summary>
-    /// Create a trunk port WITHOUT device data - should NOT trigger (no single device evidence)
+    /// Create a trunk port WITHOUT device data - will trigger if excessive VLANs (no device evidence)
     /// </summary>
     private static PortInfo CreateTrunkPort(
         List<string>? excludedNetworkIds = null,
