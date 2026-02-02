@@ -203,7 +203,7 @@
         <div class="card">
             <div class="card-header card-header-collapsible" @onclick="TogglePortProfileSection">
                 <div class="card-header-left">
-                    <span class="issue-count-badge">@_result.PortProfileSuggestions.Count</span>
+                    <span class="issue-count-badge">@(_result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count)</span>
                     <h2 class="card-title">Ethernet Port Profile Suggestions</h2>
                 </div>
                 <span class="issue-type-chevron">@(_portProfileCollapsed ? "▼" : "▲")</span>
@@ -211,13 +211,36 @@
             <div class="expand-wrapper @(!_portProfileCollapsed ? "expanded" : "")">
                 <div class="expand-content">
                     <div class="card-body">
-                    @if (_result.PortProfileSuggestions.Count == 0)
+                    @if (_result.PortProfileSuggestions.Count == 0 && _result.PortProfile8021xIssues.Count == 0)
                     {
                         <p class="empty-section-text">No port profile suggestions.</p>
                     }
                     else
                     {
                         <div class="issues-list">
+                            @* 802.1X issues first (they're all recommendations) *@
+                            @foreach (var issue in _result.PortProfile8021xIssues)
+                            {
+                                <div class="issue-item issue-warning">
+                                    <div class="issue-icon">
+                                        @((MarkupString)WarningIcon)
+                                    </div>
+                                    <div class="issue-body">
+                                        <div class="issue-header">
+                                            <span class="issue-severity">802.1X</span>
+                                        </div>
+                                        <div class="issue-title">@issue.ProfileName</div>
+                                        <div class="issue-context">
+                                            <span class="context-item"><strong>VLANs:</strong> @(issue.AllowsAllVlans ? "All VLANs" : $"{issue.TaggedVlanCount} VLANs")</span>
+                                            <span class="context-item"><strong>802.1X Control:</strong> @FormatDot1xCtrl(issue.CurrentDot1xCtrl)</span>
+                                        </div>
+                                        <div class="issue-recommendation">
+                                            <strong>Recommendation:</strong> @issue.Recommendation
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            @* Port profile suggestions *@
                             @foreach (var suggestion in _result.PortProfileSuggestions)
                             {
                                 var isRecommendation = suggestion.Severity == PortProfileSuggestionSeverity.Recommendation;
@@ -310,10 +333,12 @@
         _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
                          (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
 
+        var totalProfileSuggestions = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
         var hasProfileRecommendations = _result.PortProfileSuggestions.Any(s =>
-            s.Severity == PortProfileSuggestionSeverity.Recommendation);
-        _portProfileCollapsed = _result.PortProfileSuggestions.Count == 0 ||
-                               (_result.PortProfileSuggestions.Count > 3 && !hasProfileRecommendations);
+            s.Severity == PortProfileSuggestionSeverity.Recommendation) ||
+            _result.PortProfile8021xIssues.Count > 0; // 802.1X issues are always recommendations
+        _portProfileCollapsed = totalProfileSuggestions == 0 ||
+                               (totalProfileSuggestions > 3 && !hasProfileRecommendations);
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;
@@ -356,7 +381,8 @@
             {
                 RunApLockAnalyzer = _runApLockAnalyzer,
                 RunTrunkConsistencyAnalyzer = _runTrunkConsistency,
-                RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions
+                RunPortProfileSuggestionAnalyzer = _runPortProfileSuggestions,
+                RunPortProfile8021xAnalyzer = _runPortProfileSuggestions // Runs with port profile suggestions
             };
 
             _result = await DiagnosticsService.RunDiagnosticsAsync(SiteId, options);
@@ -425,6 +451,17 @@
         PortProfileSuggestionType.ApplyExisting => "Apply Profile",
         PortProfileSuggestionType.ExtendUsage => "Extend Profile",
         _ => type.ToString()
+    };
+
+    private static string FormatDot1xCtrl(string? value) => value?.ToLowerInvariant() switch
+    {
+        "auto" => "Auto",
+        "force_authorized" => "Force authorized",
+        "force_unauthorized" => "Force unauthorized",
+        "mac_based" => "MAC-based",
+        "multi_host" => "Multi-host",
+        null => "Auto",
+        _ => value
     };
 
     private static string FormatPortList(List<NetworkOptimizer.Diagnostics.Models.PortReference> ports)

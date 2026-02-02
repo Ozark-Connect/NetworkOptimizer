@@ -40,7 +40,7 @@ public class UnusedPortRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 2;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Only check ports that are down
         if (port.IsUp)

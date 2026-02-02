@@ -159,4 +159,16 @@ public class NetworkInfo
     /// Used to identify whether this is an internal or external network.
     /// </summary>
     public string? NetworkGroup { get; init; }
+
+    /// <summary>
+    /// Whether UPnP is enabled for this specific network.
+    /// When true, devices on this network can use UPnP to open ports on the firewall.
+    /// </summary>
+    public bool UpnpLanEnabled { get; init; }
+
+    /// <summary>
+    /// Whether this network is enabled/active.
+    /// Disabled networks are configured but not active on the gateway.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
 }

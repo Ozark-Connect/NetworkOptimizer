@@ -559,4 +559,265 @@ public class PathAnalysisResultTests
     }
 
     #endregion
+
+    #region GetDirectionalRatesFromPath Tests
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_MeshAp_FlipsChildPerspectiveToParent()
+    {
+        // Arrange - Mesh AP with asymmetric TX/RX rates
+        // Child TX = 800 Mbps (child sends to parent)
+        // Child RX = 600 Mbps (child receives from parent)
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                TargetIsAccessPoint = true,
+                Hops = new List<NetworkHop>
+                {
+                    new()
+                    {
+                        Type = HopType.AccessPoint,
+                        WirelessTxRateMbps = 800,  // Child's TX
+                        WirelessRxRateMbps = 600,  // Child's RX
+                        IsWirelessEgress = true
+                    },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert - Should flip: FromDevice uses child TX, ToDevice uses child RX
+        // rxKbps = FromDevice limit = child TX = 800 Mbps
+        // txKbps = ToDevice limit = child RX = 600 Mbps
+        rxKbps.Should().Be(800_000, "FromDevice should use child's TX rate (child sends to parent)");
+        txKbps.Should().Be(600_000, "ToDevice should use child's RX rate (child receives from parent)");
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_MeshAp_SymmetricRates_StillWorks()
+    {
+        // Arrange - Mesh AP with symmetric rates
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                TargetIsAccessPoint = true,
+                Hops = new List<NetworkHop>
+                {
+                    new()
+                    {
+                        Type = HopType.AccessPoint,
+                        WirelessTxRateMbps = 1200,
+                        WirelessRxRateMbps = 1200,
+                        IsWirelessEgress = true
+                    },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert
+        rxKbps.Should().Be(1_200_000);
+        txKbps.Should().Be(1_200_000);
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_WiredAp_ReturnsNull()
+    {
+        // Arrange - Wired AP (no wireless connection)
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                TargetIsAccessPoint = true,
+                Hops = new List<NetworkHop>
+                {
+                    new() { Type = HopType.AccessPoint },
+                    new() { Type = HopType.Switch }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert - No wireless connection, should return null
+        rxKbps.Should().BeNull();
+        txKbps.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_WanPath_UsesIngressEgressSpeeds()
+    {
+        // Arrange - External WAN path with asymmetric speeds
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                IsExternalPath = true,
+                Hops = new List<NetworkHop>
+                {
+                    new()
+                    {
+                        Type = HopType.Wan,
+                        IngressSpeedMbps = 500,   // Download (FromDevice)
+                        EgressSpeedMbps = 50      // Upload (ToDevice)
+                    },
+                    new() { Type = HopType.Gateway }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert - Ingress = FromDevice, Egress = ToDevice
+        rxKbps.Should().Be(500_000, "FromDevice should use WAN download (ingress)");
+        txKbps.Should().Be(50_000, "ToDevice should use WAN upload (egress)");
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_TailscalePath_UsesWanSpeeds()
+    {
+        // Arrange - Tailscale VPN path
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                IsExternalPath = true,
+                Hops = new List<NetworkHop>
+                {
+                    new()
+                    {
+                        Type = HopType.Tailscale,
+                        IngressSpeedMbps = 1000,
+                        EgressSpeedMbps = 100
+                    },
+                    new() { Type = HopType.Gateway }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert
+        rxKbps.Should().Be(1_000_000);
+        txKbps.Should().Be(100_000);
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_SymmetricWan_ReturnsNull()
+    {
+        // Arrange - WAN with symmetric speeds (no need for directional)
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                IsExternalPath = true,
+                Hops = new List<NetworkHop>
+                {
+                    new()
+                    {
+                        Type = HopType.Wan,
+                        IngressSpeedMbps = 1000,
+                        EgressSpeedMbps = 1000  // Same as ingress
+                    },
+                    new() { Type = HopType.Gateway }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert - Symmetric speeds return null (use standard calculation)
+        rxKbps.Should().BeNull();
+        txKbps.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetDirectionalRatesFromPath_WirelessClient_ReturnsNull()
+    {
+        // Arrange - Regular wireless client (not mesh AP)
+        var result = new PathAnalysisResult
+        {
+            Path = new NetworkPath
+            {
+                TargetIsAccessPoint = false,
+                Hops = new List<NetworkHop>
+                {
+                    new() { Type = HopType.WirelessClient, IsWirelessEgress = true },
+                    new() { Type = HopType.AccessPoint, IsWirelessIngress = true }
+                }
+            }
+        };
+
+        // Act
+        var (rxKbps, txKbps) = result.GetDirectionalRatesFromPath();
+
+        // Assert - Wireless clients use hop speeds directly, not this method
+        rxKbps.Should().BeNull();
+        txKbps.Should().BeNull();
+    }
+
+    #endregion
+
+    #region IsAsymmetric Tests
+
+    [Theory]
+    [InlineData(1000_000, 1000_000, false)]  // Equal
+    [InlineData(1000_000, 950_000, false)]   // 5% difference
+    [InlineData(1000_000, 910_000, false)]   // 9% difference - exactly at threshold (not >9%)
+    [InlineData(1000_000, 909_000, true)]    // 9.1% difference - just over threshold
+    [InlineData(1000_000, 900_000, true)]    // 10% difference
+    [InlineData(1000_000, 800_000, true)]    // 20% difference
+    [InlineData(1200_000, 600_000, true)]    // 50% difference
+    public void IsAsymmetric_VariousDifferences_ReturnsCorrectly(long rx, long tx, bool expected)
+    {
+        // Act
+        var result = PathAnalysisResult.IsAsymmetric(rx, tx);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsAsymmetric_NullRx_ReturnsFalse()
+    {
+        PathAnalysisResult.IsAsymmetric(null, 1000_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAsymmetric_NullTx_ReturnsFalse()
+    {
+        PathAnalysisResult.IsAsymmetric(1000_000, null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAsymmetric_BothNull_ReturnsFalse()
+    {
+        PathAnalysisResult.IsAsymmetric(null, null).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAsymmetric_ZeroRx_ReturnsFalse()
+    {
+        PathAnalysisResult.IsAsymmetric(0, 1000_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAsymmetric_ZeroTx_ReturnsFalse()
+    {
+        PathAnalysisResult.IsAsymmetric(1000_000, 0).Should().BeFalse();
+    }
+
+    #endregion
 }

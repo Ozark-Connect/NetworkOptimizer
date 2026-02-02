@@ -71,7 +71,17 @@ public interface ISqmDeploymentService
     Task<(bool success, string message)> TriggerSqmAdjustmentAsync(int siteId, string wanName);
 
     /// <summary>
-    /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment).
+    /// Get the last N lines of the SQM log for a specific WAN connection.
+    /// Useful for debugging failed speedtests or checking adjustment history.
+    /// </summary>
+    /// <param name="siteId">The site identifier.</param>
+    /// <param name="wanName">The WAN connection name.</param>
+    /// <param name="lines">Number of lines to retrieve (default 50).</param>
+    /// <returns>Success status and log output or error message.</returns>
+    Task<(bool success, string output)> GetWanLogsAsync(int siteId, string wanName, int lines = 50);
+
+    /// <summary>
+    /// Run a speedtest on the gateway.
     /// </summary>
     /// <param name="siteId">The site identifier.</param>
     /// <param name="config">The SQM configuration specifying interface and optional server ID.</param>

@@ -245,6 +245,9 @@ public class TcWanStats
     [JsonPropertyName("last_ping")]
     public SqmPingData? LastPing { get; set; }
 
+    [JsonPropertyName("speedtest_running")]
+    public bool SpeedtestRunning { get; set; }
+
     // Legacy format (for backwards compatibility with old tc-monitor)
     [JsonPropertyName("rate_mbps")]
     public double RateMbps { get; set; }
@@ -256,6 +259,12 @@ public class TcWanStats
     /// Get the effective rate (prefers new format, falls back to legacy)
     /// </summary>
     public double EffectiveRateMbps => CurrentRateMbps > 0 ? CurrentRateMbps : RateMbps;
+
+    /// <summary>
+    /// True if the last speedtest appears to have failed (measured 0 Mbps).
+    /// This indicates the speedtest CLI didn't return valid data.
+    /// </summary>
+    public bool LastSpeedtestFailed => LastSpeedtest != null && LastSpeedtest.MeasuredMbps == 0 && !SpeedtestRunning;
 }
 
 /// <summary>

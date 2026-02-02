@@ -68,7 +68,8 @@ public static class UniFiProductDatabase
         "US-8-60W",
         "US-8-150W",
 
-        // Enterprise/Aggregation switches (no iperf3)
+        // Standard switches (no iperf3)
+        "USW-16-PoE",
         "USW-24-PoE",
         "USW-Enterprise-8-PoE",
         "USW-Aggregation",

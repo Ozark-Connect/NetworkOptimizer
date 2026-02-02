@@ -50,7 +50,7 @@ public class WirelessIotVlanRule : WirelessAuditRuleBase
         else
         {
             message = $"{client.Detection.CategoryName} on {network.Name} VLAN - should be isolated";
-            recommendedAction = $"Move to {placement.RecommendedNetworkLabel}";
+            recommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel);
         }
 
         var metadata = VlanPlacementChecker.BuildMetadata(client.Detection, network, placement.IsLowRisk);

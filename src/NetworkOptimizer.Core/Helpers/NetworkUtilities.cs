@@ -501,4 +501,36 @@ public static class NetworkUtilities
 
         return (address, prefixLength);
     }
+
+    /// <summary>
+    /// Normalize a controller URL: prepend https:// if needed, strip any path/query/fragment.
+    /// E.g., "unifi.example.com/network/default/" becomes "https://unifi.example.com"
+    /// </summary>
+    /// <param name="url">The URL to normalize</param>
+    /// <returns>Normalized URL with just scheme and host (and port if non-default)</returns>
+    public static string NormalizeControllerUrl(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return url;
+
+        url = url.Trim();
+
+        // Prepend https:// if no scheme provided
+        if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            url = $"https://{url}";
+        }
+
+        // Parse and extract just scheme + host (strip path, query, fragment)
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            // Include port if non-default
+            var port = uri.IsDefaultPort ? "" : $":{uri.Port}";
+            return $"{uri.Scheme}://{uri.Host}{port}";
+        }
+
+        // Fallback: just trim trailing slashes
+        return url.TrimEnd('/');
+    }
 }

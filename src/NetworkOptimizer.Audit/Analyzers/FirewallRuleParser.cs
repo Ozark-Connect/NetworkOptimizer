@@ -139,6 +139,17 @@ public class FirewallRuleParser
         var predefined = policy.GetBoolOrDefault("predefined", false);
         var icmpTypename = policy.GetStringOrNull("icmp_typename");
 
+        // Extract connection state info
+        var connectionStateType = policy.GetStringOrNull("connection_state_type");
+        List<string>? connectionStates = null;
+        if (policy.TryGetProperty("connection_states", out var connStates) && connStates.ValueKind == JsonValueKind.Array)
+        {
+            connectionStates = connStates.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.String)
+                .Select(e => e.GetString()!)
+                .ToList();
+        }
+
         // Extract source info
         string? sourceMatchingTarget = null;
         List<string>? sourceNetworkIds = null;
@@ -341,7 +352,10 @@ public class FirewallRuleParser
             SourceMatchOppositePorts = sourceMatchOppositePorts,
             DestinationMatchOppositeIps = destMatchOppositeIps,
             DestinationMatchOppositeNetworks = destMatchOppositeNetworks,
-            DestinationMatchOppositePorts = destMatchOppositePorts
+            DestinationMatchOppositePorts = destMatchOppositePorts,
+            // Connection state matching
+            ConnectionStateType = connectionStateType,
+            ConnectionStates = connectionStates
         };
     }
 

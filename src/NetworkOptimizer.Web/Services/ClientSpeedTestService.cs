@@ -4,6 +4,7 @@ using Microsoft.Extensions.Caching.Memory;
 using NetworkOptimizer.Storage.Interfaces;
 using NetworkOptimizer.Storage.Models;
 using NetworkOptimizer.UniFi;
+using NetworkOptimizer.UniFi.Models;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -17,6 +18,7 @@ public class ClientSpeedTestService
     private readonly ILogger<ClientSpeedTestService> _logger;
     private readonly IDbContextFactory<NetworkOptimizerDbContext> _dbFactory;
     private readonly UniFiConnectionService _connectionService;
+    private readonly ITopologySnapshotService _snapshotService;
     private readonly IConfiguration _configuration;
     private readonly ISiteRepository _siteRepository;
     private readonly IMemoryCache _cache;
@@ -34,6 +36,7 @@ public class ClientSpeedTestService
         ILogger<ClientSpeedTestService> logger,
         IDbContextFactory<NetworkOptimizerDbContext> dbFactory,
         UniFiConnectionService connectionService,
+        ITopologySnapshotService snapshotService,
         IConfiguration configuration,
         ISiteRepository siteRepository,
         IMemoryCache cache,
@@ -42,6 +45,7 @@ public class ClientSpeedTestService
         _logger = logger;
         _dbFactory = dbFactory;
         _connectionService = connectionService;
+        _snapshotService = snapshotService;
         _configuration = configuration;
         _siteRepository = siteRepository;
         _cache = cache;
@@ -215,8 +219,18 @@ public class ClientSpeedTestService
             if (parallelStreams > recentResult.ParallelStreams)
                 recentResult.ParallelStreams = parallelStreams;
 
-            // Re-analyze path with updated bidirectional data (using site-specific connection)
-            await AnalyzePathAsync(siteId, recentResult);
+            // Get snapshot captured during first direction test (if available)
+            var snapshot = _snapshotService.GetSnapshot(clientIp);
+
+            // Re-analyze path with updated bidirectional data (using site-specific connection and snapshot for max rates)
+            await AnalyzePathAsync(siteId, recentResult, snapshot);
+
+            // Update WiFi rate fields from path analysis max values
+            UpdateWifiRatesFromPathAnalysis(recentResult);
+
+            // Clean up snapshot after use
+            if (snapshot != null)
+                _snapshotService.RemoveSnapshot(clientIp);
 
             await db.SaveChangesAsync();
 
@@ -256,6 +270,10 @@ public class ClientSpeedTestService
         _logger.LogInformation(
             "Recorded iperf3 client result: {ClientIp} - Down: {Download:F1} Mbps, Up: {Upload:F1} Mbps ({Streams} streams)",
             result.DeviceHost, result.DownloadMbps, result.UploadMbps, parallelStreams);
+
+        // Capture snapshot now (during active test) for use when second direction merges
+        // Fire-and-forget - don't block the response
+        _ = _snapshotService.CaptureSnapshotAsync(clientIp);
 
         // Enrich and analyze in background (after WiFi rates stabilize)
         _ = Task.Run(async () => await EnrichAndAnalyzeInBackgroundAsync(siteId, resultId));
@@ -389,18 +407,32 @@ public class ClientSpeedTestService
     /// Analyze network path for the speed test result using the site-specific UniFi connection.
     /// For client tests, the path is from server (LocalIp) to client (DeviceHost).
     /// </summary>
-    private async Task AnalyzePathAsync(int siteId, Iperf3Result result)
+    /// <param name="siteId">The site identifier</param>
+    /// <param name="result">The speed test result to analyze</param>
+    /// <param name="priorSnapshot">Optional wireless rate snapshot captured during the test</param>
+    private async Task AnalyzePathAsync(int siteId, Iperf3Result result, WirelessRateSnapshot? priorSnapshot = null)
     {
         try
         {
-            _logger.LogDebug("Analyzing network path for site {SiteId} to {Client} from {Server}",
-                siteId, result.DeviceHost, result.LocalIp ?? "auto");
+            _logger.LogDebug("Analyzing network path for site {SiteId} to {Client} from {Server}{Snapshot}",
+                siteId, result.DeviceHost, result.LocalIp ?? "auto",
+                priorSnapshot != null ? " (with snapshot)" : "");
 
             // Get the site-specific path analyzer
             var pathAnalyzer = GetPathAnalyzer(siteId);
 
-            // Calculate path from server to client
-            var path = await pathAnalyzer.CalculatePathAsync(result.DeviceHost, result.LocalIp);
+            // When comparing with a snapshot, invalidate cache to get fresh "current" rates
+            if (priorSnapshot != null)
+            {
+                pathAnalyzer.InvalidateTopologyCache();
+            }
+
+            // Calculate path from server to client, using snapshot to pick max wireless rates
+            var path = await pathAnalyzer.CalculatePathAsync(
+                result.DeviceHost,
+                result.LocalIp,
+                retryOnFailure: true,
+                priorSnapshot);
 
             // Analyze speed test against the path
             var analysis = pathAnalyzer.AnalyzeSpeedTest(
@@ -430,6 +462,32 @@ public class ClientSpeedTestService
     }
 
     /// <summary>
+    /// Updates the result's WiFi rate fields with max values from path analysis.
+    /// The hop rates already have max(snapshot, current) applied, so this syncs
+    /// the result fields to match.
+    /// </summary>
+    private static void UpdateWifiRatesFromPathAnalysis(Iperf3Result result)
+    {
+        if (result.PathAnalysis?.Path?.Hops?.Count > 0)
+        {
+            var wirelessHop = result.PathAnalysis.Path.Hops.FirstOrDefault(h =>
+                h.Type == HopType.WirelessClient);
+            if (wirelessHop != null)
+            {
+                // IngressSpeedMbps = Tx (ToDevice), EgressSpeedMbps = Rx (FromDevice)
+                var maxTxKbps = (long)(wirelessHop.IngressSpeedMbps * 1000);
+                var maxRxKbps = (long)(wirelessHop.EgressSpeedMbps * 1000);
+
+                // Only update if path analysis has higher values
+                if (maxTxKbps > (result.WifiTxRateKbps ?? 0))
+                    result.WifiTxRateKbps = maxTxKbps;
+                if (maxRxKbps > (result.WifiRxRateKbps ?? 0))
+                    result.WifiRxRateKbps = maxRxKbps;
+            }
+        }
+    }
+
+    /// <summary>
     /// Background task to enrich and analyze a speed test result after WiFi rates stabilize.
     /// Loads the result from DB, enriches with UniFi data, analyzes path, and saves.
     /// </summary>
@@ -451,8 +509,24 @@ public class ClientSpeedTestService
             // Try to look up client info from UniFi (site-specific)
             await _connectionService.EnrichSpeedTestWithClientInfoAsync(siteId, result);
 
-            // Perform path analysis (site-specific)
-            await AnalyzePathAsync(siteId, result);
+            // Get snapshot if available (captured during test by client callback)
+            // For iperf3 client tests (ClientToServer), don't use snapshot here - preserve it for the merge path
+            // The snapshot will be used when the second direction arrives and triggers a merge
+            WirelessRateSnapshot? snapshot = null;
+            if (result.Direction != SpeedTestDirection.ClientToServer)
+            {
+                snapshot = _snapshotService.GetSnapshot(result.DeviceHost);
+            }
+
+            // Perform path analysis (site-specific, using snapshot to pick max wireless rates)
+            await AnalyzePathAsync(siteId, result, snapshot);
+
+            // Update result's WiFi rate fields with max values from path analysis
+            UpdateWifiRatesFromPathAnalysis(result);
+
+            // Clean up snapshot after use (iperf3 client snapshots cleaned up in merge path or auto-expire)
+            if (snapshot != null)
+                _snapshotService.RemoveSnapshot(result.DeviceHost);
 
             await db.SaveChangesAsync();
 

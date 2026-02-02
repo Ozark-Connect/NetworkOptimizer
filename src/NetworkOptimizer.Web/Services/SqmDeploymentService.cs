@@ -260,6 +260,9 @@ WantedBy=multi-user.target
             await RunCommandAsync(siteId,
                 $"crontab -l 2>/dev/null | grep -v '{safeName}' | crontab -");
 
+            // Invalidate status cache so refresh shows accurate state
+            SqmService.InvalidateStatusCache(siteId);
+
             _logger.LogInformation("Cleanup completed for {Name}", connectionName);
         }
         catch (Exception ex)
@@ -348,6 +351,25 @@ WantedBy=multi-user.target
                 return result;
             }
             _logger.LogInformation("Deploying SQM with config: {Summary}", config.GetParameterSummary());
+
+            // Verify ping target is reachable on the specified interface before deployment
+            steps.Add("Testing ping target reachability...");
+            var pingTestResult = await TestPingTargetAsync(siteId, config.Interface, config.PingHost);
+            if (!pingTestResult.success)
+            {
+                // Clean up any existing deployment for this WAN before reporting failure
+                steps.Add("Ping target unreachable, cleaning up...");
+                await CleanupFailedDeploymentAsync(siteId, config.ConnectionName, config.Interface);
+                steps.Add("Cleanup complete");
+
+                result.Success = false;
+                result.Error = pingTestResult.error;
+                result.Steps = steps;
+                _logger.LogWarning("SQM deployment blocked: ping target {Host} not reachable on {Interface}",
+                    config.PingHost, config.Interface);
+                return result;
+            }
+            steps.Add($"Ping target {config.PingHost} is reachable on {config.Interface}");
 
             // Step 1: Create directories
             steps.Add("Creating directories...");
@@ -661,15 +683,17 @@ WantedBy=multi-user.target
             // Run the script (speedtest can take up to 60 seconds, use 90s timeout)
             var result = await RunCommandAsync(siteId, scriptPath, TimeSpan.FromSeconds(90));
 
-            if (result.success)
+            // Script writes to log file, not stdout. Any output = error
+            if (result.success && string.IsNullOrWhiteSpace(result.output))
             {
                 _logger.LogInformation("SQM adjustment completed for {Wan}", wanName);
                 return (true, "SQM adjustment completed successfully");
             }
             else
             {
-                _logger.LogWarning("SQM adjustment script returned error: {Output}", result.output);
-                return (false, $"Script error: {result.output}");
+                var errorOutput = string.IsNullOrWhiteSpace(result.output) ? "(unknown error)" : result.output;
+                _logger.LogWarning("SQM adjustment failed for {Wan}: {Output}", wanName, errorOutput);
+                return (false, $"Error: {errorOutput}");
             }
         }
         catch (Exception ex)
@@ -680,56 +704,166 @@ WantedBy=multi-user.target
     }
 
     /// <summary>
-    /// Trigger a speedtest on the gateway (raw speedtest, not SQM adjustment)
+    /// Get the last N lines of the SQM log for a specific WAN connection.
+    /// Useful for debugging failed speedtests or checking adjustment history.
     /// </summary>
+    /// <param name="siteId">The site identifier</param>
+    /// <param name="wanName">The WAN connection name</param>
+    /// <param name="lines">Number of lines to retrieve (default 50)</param>
+    /// <returns>Success status and log output or error message</returns>
+    public async Task<(bool success, string output)> GetWanLogsAsync(int siteId, string wanName, int lines = 50)
+    {
+        var settings = await GetGatewaySettingsAsync(siteId);
+        if (settings == null || string.IsNullOrEmpty(settings.Host))
+        {
+            return (false, "Gateway SSH not configured");
+        }
+
+        try
+        {
+            // Sanitize WAN name for use in file path
+            var logName = Sqm.InputSanitizer.SanitizeConnectionName(wanName);
+            var logPath = $"/var/log/sqm-{logName}.log";
+
+            _logger.LogInformation("Fetching last {Lines} lines of {LogPath}", lines, logPath);
+
+            // Check if log file exists first
+            var checkResult = await RunCommandAsync(siteId, $"test -f {logPath} && echo 'exists'");
+            if (!checkResult.success || !checkResult.output.Contains("exists"))
+            {
+                return (false, $"Log file not found: {logPath}");
+            }
+
+            // Get the last N lines
+            var result = await RunCommandAsync(siteId, $"tail -n {lines} {logPath}");
+
+            if (result.success)
+            {
+                return (true, result.output);
+            }
+            else
+            {
+                return (false, $"Failed to read log: {result.output}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get WAN logs for {Wan}", wanName);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Run a speedtest on the gateway.
+    /// </summary>
+    /// <param name="siteId">The site identifier.</param>
+    /// <param name="config">The SQM configuration specifying interface and optional server ID.</param>
+    /// <returns>A <see cref="SpeedtestResult"/> or null if the speedtest failed.</returns>
     public async Task<SpeedtestResult?> RunSpeedtestAsync(int siteId, SqmConfig config)
     {
         var settings = await GetGatewaySettingsAsync(siteId);
         if (settings == null || string.IsNullOrEmpty(settings.Host))
         {
+            _logger.LogWarning("Cannot run speedtest: Gateway SSH not configured");
             return null;
         }
 
-        var device = new DeviceSshConfiguration
-        {
-            Host = settings.Host,
-            SshUsername = settings.Username,
-            SshPassword = settings.Password,
-            SshPrivateKeyPath = settings.PrivateKeyPath
-        };
-
         try
         {
-            var cmd = $"speedtest --accept-license --format=json --interface={config.Interface}";
-            if (!string.IsNullOrEmpty(config.PreferredSpeedtestServerId))
-            {
-                cmd += $" --server-id={config.PreferredSpeedtestServerId}";
-            }
+            // Build speedtest command
+            var cmd = "speedtest --accept-license --accept-gdpr -f json";
 
-            var result = await RunCommandAsync(siteId, cmd);
+            _logger.LogInformation("Running speedtest on gateway for site {SiteId} on interface {Interface}", siteId, config.Interface);
+            var result = await RunCommandAsync(siteId, cmd, TimeSpan.FromSeconds(120));
             if (!result.success)
             {
-                _logger.LogError("Speedtest failed: {Error}", result.output);
+                _logger.LogWarning("Speedtest command failed: {Output}", result.output);
                 return null;
             }
 
-            // Parse JSON result
-            var json = System.Text.Json.JsonDocument.Parse(result.output);
-            var root = json.RootElement;
+            // Parse the JSON output
+            using var doc = System.Text.Json.JsonDocument.Parse(result.output);
+            var root = doc.RootElement;
+
+            var download = root.GetProperty("download").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000;
+            var upload = root.GetProperty("upload").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000;
+            var ping = root.GetProperty("ping").GetProperty("latency").GetDouble();
+            var server = root.GetProperty("server").GetProperty("name").GetString() ?? "Unknown";
 
             return new SpeedtestResult
             {
                 Timestamp = DateTime.UtcNow,
-                Download = root.GetProperty("download").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000,
-                Upload = root.GetProperty("upload").GetProperty("bandwidth").GetDouble() * 8 / 1_000_000,
-                Latency = root.GetProperty("ping").GetProperty("latency").GetDouble(),
-                Server = root.GetProperty("server").GetProperty("name").GetString() ?? ""
+                Download = download,
+                Upload = upload,
+                Latency = ping,
+                Server = server
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to run speedtest");
+            _logger.LogError(ex, "Failed to run speedtest for site {SiteId}", siteId);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Test that a ping target is reachable on the specified interface.
+    /// Runs 3 pings and fails if all of them fail.
+    /// </summary>
+    private async Task<(bool success, string? error)> TestPingTargetAsync(int siteId, string interfaceName, string pingHost)
+    {
+        try
+        {
+            _logger.LogInformation("Testing ping target {Host} on interface {Interface}", pingHost, interfaceName);
+
+            // Sanitize inputs for shell command
+            var safeInterface = Sqm.InputSanitizer.ValidateInterface(interfaceName);
+            var safePingHost = Sqm.InputSanitizer.ValidatePingHost(pingHost);
+
+            if (!safeInterface.isValid)
+            {
+                return (false, $"Invalid interface name: {safeInterface.error}");
+            }
+            if (!safePingHost.isValid)
+            {
+                return (false, $"Invalid ping target: {safePingHost.error}");
+            }
+
+            // Run 3 pings with 1 second timeout each, binding to the specified interface
+            // -c 3: send 3 pings
+            // -W 2: 2 second timeout per ping
+            // -I: bind to specific interface
+            var pingCmd = $"ping -c 3 -W 2 -I {interfaceName} {pingHost} 2>&1";
+            var pingResult = await RunCommandAsync(siteId, pingCmd, TimeSpan.FromSeconds(15));
+
+            // Check if any pings succeeded (look for "bytes from" in output)
+            if (pingResult.success && pingResult.output.Contains("bytes from"))
+            {
+                _logger.LogInformation("Ping target {Host} is reachable on {Interface}", pingHost, interfaceName);
+                return (true, null);
+            }
+
+            // All pings failed - provide helpful error message
+            _logger.LogWarning("Ping target {Host} is not reachable on {Interface}. Output: {Output}",
+                pingHost, interfaceName, pingResult.output);
+
+            var errorMsg = $"Ping target '{pingHost}' is not reachable on interface {interfaceName}. " +
+                $"This means the ping-based SQM adjustments won't work.\n\n" +
+                $"To find a suitable ping target:\n" +
+                $"1. SSH to your gateway\n" +
+                $"2. Run: traceroute -i {interfaceName} 8.8.8.8\n" +
+                $"3. Pick a hop that responds (usually hop 1-3 is your ISP)\n\n" +
+                $"Common choices:\n" +
+                $"- Your ISP's gateway (first hop)\n" +
+                $"- A reliable DNS server (1.1.1.1, 8.8.8.8)\n" +
+                $"- A CDN edge server in your region";
+
+            return (false, errorMsg);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing ping target {Host} on {Interface}", pingHost, interfaceName);
+            return (false, $"Error testing ping target: {ex.Message}");
         }
     }
 
@@ -1019,6 +1153,42 @@ WantedBy=multi-user.target
         sb.AppendLine("    fi");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine("# Check if speedtest is currently running (started but not finished)");
+        sb.AppendLine("# Returns \"true\" or \"false\"");
+        sb.AppendLine("is_speedtest_running() {");
+        sb.AppendLine("    local log_name=$1");
+        sb.AppendLine("    local log_file=\"/var/log/sqm-${log_name}.log\"");
+        sb.AppendLine("    ");
+        sb.AppendLine("    [ ! -f \"$log_file\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Get line numbers of last \"Starting\" and last \"Adjusted to\"");
+        sb.AppendLine("    local last_start_line=$(grep -n 'Starting speedtest adjustment' \"$log_file\" | tail -1)");
+        sb.AppendLine("    local last_end_line=$(grep -n 'Adjusted to' \"$log_file\" | tail -1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # If no start ever, not running");
+        sb.AppendLine("    [ -z \"$last_start_line\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    local start_num=$(echo \"$last_start_line\" | cut -d: -f1)");
+        sb.AppendLine("    local end_num=$(echo \"$last_end_line\" | cut -d: -f1)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # If end exists and is after start, test completed");
+        sb.AppendLine("    [ -n \"$end_num\" ] && [ \"$end_num\" -ge \"$start_num\" ] && echo \"false\" && return");
+        sb.AppendLine("    ");
+        sb.AppendLine("    # Start with no end (or end before start) - check if stale (>3 min = crashed)");
+        sb.AppendLine("    # Extract timestamp: [Mon Jan 27 10:30:45 UTC 2025] Starting...");
+        sb.AppendLine("    local start_ts=$(echo \"$last_start_line\" | grep -oE '\\[[^]]+\\]' | tr -d '[]')");
+        sb.AppendLine("    local start_epoch=$(date -d \"$start_ts\" +%s 2>/dev/null)");
+        sb.AppendLine("    local now_epoch=$(date +%s)");
+        sb.AppendLine("    ");
+        sb.AppendLine("    if [ -n \"$start_epoch\" ]; then");
+        sb.AppendLine("        local age=$((now_epoch - start_epoch))");
+        sb.AppendLine("        # If older than 180 seconds (3 min), consider crashed");
+        sb.AppendLine("        [ \"$age\" -gt 180 ] && echo \"false\" && return");
+        sb.AppendLine("    fi");
+        sb.AppendLine("    ");
+        sb.AppendLine("    echo \"true\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
         sb.AppendLine("# Collect all data");
         sb.AppendLine("wan1_rate=$(get_tc_rate \"$WAN1_INTERFACE\")");
         sb.AppendLine("wan2_rate=$(get_tc_rate \"$WAN2_INTERFACE\")");
@@ -1030,6 +1200,8 @@ WantedBy=multi-user.target
         sb.AppendLine("wan2_speedtest=$(get_speedtest_data \"$WAN2_LOG_NAME\")");
         sb.AppendLine("wan1_ping=$(get_ping_data \"$WAN1_LOG_NAME\")");
         sb.AppendLine("wan2_ping=$(get_ping_data \"$WAN2_LOG_NAME\")");
+        sb.AppendLine("wan1_speedtest_running=$(is_speedtest_running \"$WAN1_LOG_NAME\")");
+        sb.AppendLine("wan2_speedtest_running=$(is_speedtest_running \"$WAN2_LOG_NAME\")");
         sb.AppendLine("timestamp=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")");
         sb.AppendLine();
         sb.AppendLine("# Check if SQM is active (has TC rules)");
@@ -1049,7 +1221,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"current_rate_mbps\": ${wan1_mbps:-0},");
         sb.AppendLine("    \"baseline_mbps\": ${wan1_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan1_speedtest,");
-        sb.AppendLine("    \"last_ping\": $wan1_ping");
+        sb.AppendLine("    \"last_ping\": $wan1_ping,");
+        sb.AppendLine("    \"speedtest_running\": $wan1_speedtest_running");
         sb.AppendLine("  },");
         sb.AppendLine("  \"wan2\": {");
         sb.AppendLine("    \"name\": \"$WAN2_NAME\",");
@@ -1058,7 +1231,8 @@ WantedBy=multi-user.target
         sb.AppendLine("    \"current_rate_mbps\": ${wan2_mbps:-0},");
         sb.AppendLine("    \"baseline_mbps\": ${wan2_baseline:-0},");
         sb.AppendLine("    \"last_speedtest\": $wan2_speedtest,");
-        sb.AppendLine("    \"last_ping\": $wan2_ping");
+        sb.AppendLine("    \"last_ping\": $wan2_ping,");
+        sb.AppendLine("    \"speedtest_running\": $wan2_speedtest_running");
         sb.AppendLine("  }");
         sb.AppendLine("}");
         sb.AppendLine("EOF");

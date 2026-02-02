@@ -14,7 +14,7 @@ public class PortIsolationRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 4;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Only check active access ports
         if (!port.IsUp || port.ForwardMode != "native" || port.IsUplink || port.IsWan)

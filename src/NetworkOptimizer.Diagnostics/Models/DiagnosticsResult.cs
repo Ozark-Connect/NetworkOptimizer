@@ -36,13 +36,19 @@ public class DiagnosticsResult
     public List<AccessPortVlanIssue> AccessPortVlanIssues { get; set; } = new();
 
     /// <summary>
+    /// 802.1X configuration issues on trunk/AP port profiles
+    /// </summary>
+    public List<PortProfile8021xIssue> PortProfile8021xIssues { get; set; } = new();
+
+    /// <summary>
     /// Total number of issues found
     /// </summary>
     public int TotalIssueCount =>
         TrunkConsistencyIssues.Count +
         PortProfileSuggestions.Count +
         ApLockIssues.Count +
-        AccessPortVlanIssues.Count;
+        AccessPortVlanIssues.Count +
+        PortProfile8021xIssues.Count;
 
     /// <summary>
     /// Count of warning/recommendation-level issues
@@ -51,7 +57,8 @@ public class DiagnosticsResult
         ApLockIssues.Count(i => i.Severity == ApLockSeverity.Warning) +
         AccessPortVlanIssues.Count(i => i.Severity == DiagnosticSeverity.Warning) +
         TrunkConsistencyIssues.Count(i => i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium) +
-        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Recommendation);
+        PortProfileSuggestions.Count(s => s.Severity == PortProfileSuggestionSeverity.Recommendation) +
+        PortProfile8021xIssues.Count; // All 802.1X issues are recommendations
 
     /// <summary>
     /// Count of info-level issues

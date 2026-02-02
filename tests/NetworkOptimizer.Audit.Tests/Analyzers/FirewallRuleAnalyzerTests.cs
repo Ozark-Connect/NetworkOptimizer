@@ -583,6 +583,7 @@ public class FirewallRuleAnalyzerTests
     public void AnalyzeManagementNetworkFirewallAccess_InternetBlockedViaFirewallRule_WithAllowRules_ReturnsNoIssues()
     {
         // Arrange - Management network blocked via firewall rule, but has allow rules for required services
+        // Real-world setup: allow rules have lower index (higher priority) than block rule
         var externalZoneId = "external-zone-123";
         var mgmtNetworkId = "mgmt-network-123";
         var networks = new List<NetworkInfo>
@@ -591,40 +592,42 @@ public class FirewallRuleAnalyzerTests
         };
         var rules = new List<FirewallRule>
         {
-            // Block Internet Access firewall rule
-            new FirewallRule
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = "Block Management Internet",
-                Action = "block",
-                Enabled = true,
-                SourceMatchingTarget = "NETWORK",
-                SourceNetworkIds = new List<string> { mgmtNetworkId },
-                DestinationMatchingTarget = "ANY",
-                DestinationZoneId = externalZoneId,
-                Protocol = "all"
-            },
-            // Allow UniFi access
-            CreateFirewallRule("Allow UniFi Access", action: "allow",
+            // Allow UniFi access - lower index, takes effect
+            CreateFirewallRule("Allow UniFi Access", action: "allow", index: 100,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "ui.com" }),
-            // Allow AFC access
-            CreateFirewallRule("Allow AFC Access", action: "allow",
+            // Allow AFC access - lower index, takes effect
+            CreateFirewallRule("Allow AFC Access", action: "allow", index: 101,
                 sourceNetworkIds: new List<string> { mgmtNetworkId },
                 webDomains: new List<string> { "qcs.qualcomm.com" }),
-            // Allow NTP access (UDP port 123)
+            // Allow NTP access (UDP port 123) - lower index, takes effect
             new FirewallRule
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = "Allow NTP Access",
                 Action = "allow",
                 Enabled = true,
+                Index = 102,
                 SourceMatchingTarget = "NETWORK",
                 SourceNetworkIds = new List<string> { mgmtNetworkId },
                 DestinationMatchingTarget = "ANY",
                 DestinationZoneId = externalZoneId,
                 DestinationPort = "123",
                 Protocol = "udp"
+            },
+            // Block Internet Access firewall rule - higher index, catch-all for everything else
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Management Internet",
+                Action = "block",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
             }
         };
 
@@ -633,6 +636,109 @@ public class FirewallRuleAnalyzerTests
 
         // Assert - No issues since all required allow rules are present
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_AllowRuleEclipsesBlockRule_InternetNotActuallyBlocked()
+    {
+        // Arrange - An allow rule with lower index eclipses the block rule,
+        // so internet is NOT actually blocked (but current code might think it is)
+        var externalZoneId = "external-zone-123";
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow All Internet - lower index, takes precedence
+            new FirewallRule
+            {
+                Id = "allow-all-internet",
+                Name = "Allow All Internet",
+                Action = "allow",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // Block Internet Access - higher index, eclipsed by allow rule
+            new FirewallRule
+            {
+                Id = "block-internet",
+                Name = "Block Management Internet",
+                Action = "block",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority (eclipsed)
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - Internet is NOT blocked (allow rule takes effect), so NO issues should be raised
+        // Network effectively has internet access, so we don't check for missing firewall rules
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_BlockRuleBeforeAllowRule_InternetBlocked()
+    {
+        // Arrange - Block rule with lower index blocks internet despite allow rule existing
+        var externalZoneId = "external-zone-123";
+        var mgmtNetworkId = "mgmt-network-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block Internet Access - lower index, takes precedence
+            new FirewallRule
+            {
+                Id = "block-internet",
+                Name = "Block Management Internet",
+                Action = "block",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // Allow All Internet - higher index, eclipsed by block rule
+            new FirewallRule
+            {
+                Id = "allow-all-internet",
+                Name = "Allow All Internet",
+                Action = "allow",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority (eclipsed)
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - Internet IS blocked (block rule takes effect), so issues SHOULD be raised
+        issues.Should().HaveCount(3);
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_NTP_ACCESS");
     }
 
     [Fact]
@@ -698,6 +804,382 @@ public class FirewallRuleAnalyzerTests
 
         // Assert - All requirements satisfied (NTP via port group should be detected)
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_UniFiAccessRuleEclipsedByBlockRule_ReportsMissing()
+    {
+        // Arrange - UniFi access allow rule is eclipsed by a block rule with lower index
+        // The allow rule exists but doesn't actually take effect due to rule ordering
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule with lower index (higher priority) - eclipses the allow rule
+            new FirewallRule
+            {
+                Id = "block-all-external",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // Allow ui.com - higher index, eclipsed by block rule above
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority (eclipsed)
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "ui.com" },
+                Protocol = "tcp"
+            },
+            // AFC and NTP rules (also eclipsed, but we're testing UniFi specifically)
+            CreateFirewallRule("Allow AFC Access", action: "allow", index: 201,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - UniFi access rule exists but is eclipsed, so it should be reported as missing
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_UniFiAccessRuleNotEclipsed_NoIssue()
+    {
+        // Arrange - UniFi access allow rule has lower index than block rule
+        // The allow rule takes effect, so access is granted
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow ui.com - lower index, takes effect
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority (takes effect)
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "ui.com" },
+                Protocol = "tcp"
+            },
+            // Block rule with higher index - eclipsed by allow rule above
+            new FirewallRule
+            {
+                Id = "block-all-external",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority (eclipsed)
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // AFC and NTP rules
+            CreateFirewallRule("Allow AFC Access", action: "allow", index: 101,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "qcs.qualcomm.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow", index: 102,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - UniFi access rule takes effect, so no issue should be reported
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_AfcAccessRuleEclipsedByBlockRule_ReportsMissing()
+    {
+        // Arrange - AFC access allow rule is eclipsed by a block rule with lower index
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule with lower index (higher priority) - eclipses the allow rule
+            new FirewallRule
+            {
+                Id = "block-all-external",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // UniFi access (also eclipsed)
+            CreateFirewallRule("Allow UniFi Access", action: "allow", index: 200,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            // Allow qcs.qualcomm.com - higher index, eclipsed by block rule
+            new FirewallRule
+            {
+                Id = "allow-afc",
+                Name = "Allow AFC Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 201,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "qcs.qualcomm.com" },
+                Protocol = "tcp"
+            },
+            CreateFirewallRule("Allow NTP", action: "allow", index: 202,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - AFC access rule exists but is eclipsed, so it should be reported as missing
+        issues.Should().Contain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_AfcAccessRuleNotEclipsed_NoIssue()
+    {
+        // Arrange - AFC access allow rule has lower index than block rule
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow qcs.qualcomm.com - lower index, takes effect
+            new FirewallRule
+            {
+                Id = "allow-afc",
+                Name = "Allow AFC Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "qcs.qualcomm.com" },
+                Protocol = "tcp"
+            },
+            // Block rule with higher index - eclipsed
+            new FirewallRule
+            {
+                Id = "block-all-external",
+                Name = "Block All External",
+                Action = "DROP",
+                Enabled = true,
+                Index = 200,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                Protocol = "all"
+            },
+            // UniFi and NTP rules
+            CreateFirewallRule("Allow UniFi Access", action: "allow", index: 101,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                webDomains: new List<string> { "ui.com" }),
+            CreateFirewallRule("Allow NTP", action: "allow", index: 102,
+                sourceNetworkIds: new List<string> { mgmtNetworkId },
+                destinationPort: "123", protocol: "udp")
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - AFC access rule takes effect, so no issue should be reported
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_BlockRuleTargetsInternalZone_DoesNotEclipseExternalAccess()
+    {
+        // Arrange - Block rule has lower index but targets an internal zone, not external
+        // It should NOT eclipse the UniFi/AFC access rules which target external destinations
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var internalZoneId = "internal-zone-456";  // Different from external
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule with lower index but targets INTERNAL zone (not external)
+            // This should NOT eclipse the external-bound UniFi access rule
+            new FirewallRule
+            {
+                Id = "block-internal",
+                Name = "Block Access to Internal VLANs",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,  // Lower index
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = internalZoneId,  // NOT the external zone
+                Protocol = "all"
+            },
+            // UniFi access rule with higher index - should still be effective
+            // because the block rule above doesn't target external traffic
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 200,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "ui.com" },
+                Protocol = "tcp"
+            },
+            // AFC access rule
+            new FirewallRule
+            {
+                Id = "allow-afc",
+                Name = "Allow AFC Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 201,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "qcs.qualcomm.com" },
+                Protocol = "tcp"
+            },
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "Allow NTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 202,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "123",
+                Protocol = "udp"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - Block rule targets internal zone, so UniFi/AFC access should NOT be reported as missing
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
+    }
+
+    [Fact]
+    public void AnalyzeManagementNetworkFirewallAccess_DnsBlockRule_DoesNotEclipseHttpsAccess()
+    {
+        // Arrange - DNS block rule (port 53) has lower index but shouldn't eclipse HTTPS-based rules
+        var mgmtNetworkId = "mgmt-network-123";
+        var externalZoneId = "external-zone-123";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: mgmtNetworkId, networkIsolationEnabled: true, internetAccessEnabled: false)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // DNS block rule - blocks port 53 only
+            new FirewallRule
+            {
+                Id = "block-dns",
+                Name = "Block External DNS",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "53",
+                Protocol = "udp_tcp"
+            },
+            // UniFi access rule - uses HTTPS (port 443), not blocked by DNS rule
+            new FirewallRule
+            {
+                Id = "allow-unifi",
+                Name = "Allow UniFi Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 200,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "ui.com" },
+                Protocol = "tcp"
+            },
+            // AFC access rule
+            new FirewallRule
+            {
+                Id = "allow-afc",
+                Name = "Allow AFC Access",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 201,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                WebDomains = new List<string> { "qcs.qualcomm.com" },
+                Protocol = "tcp"
+            },
+            new FirewallRule
+            {
+                Id = "allow-ntp",
+                Name = "Allow NTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 202,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { mgmtNetworkId },
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "123",
+                Protocol = "udp"
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeManagementNetworkFirewallAccess(rules, networks, externalZoneId: externalZoneId);
+
+        // Assert - DNS block (port 53) doesn't affect HTTPS (port 443), so no UniFi/AFC issues
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_UNIFI_ACCESS");
+        issues.Should().NotContain(i => i.Type == "MGMT_MISSING_AFC_ACCESS");
     }
 
     #endregion
@@ -2103,9 +2585,11 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void CheckInterVlanIsolation_V2ApiFormat_ReverseDirection_NoIssue()
+    public void CheckInterVlanIsolation_V2ApiFormat_ReverseDirection_StillFlagsForwardDirection()
     {
-        // Test that v2 API format block rules in reverse direction are properly detected
+        // A block rule in reverse direction (Corp → IoT) does NOT protect Corporate from IoT.
+        // We must have a rule specifically blocking IoT → Corporate.
+        // This is the correct behavior because UniFi isolation is directional.
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
@@ -2123,6 +2607,47 @@ public class FirewallRuleAnalyzerTests
                 SourceNetworkIds = new List<string> { "corp-net-id" },
                 DestinationMatchingTarget = "NETWORK",
                 DestinationNetworkIds = new List<string> { "iot-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag IoT → Corporate as missing (Corp → IoT rule does NOT protect Corporate from IoT)
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_V2ApiFormat_BothDirections_NoIssue()
+    {
+        // When both directions are blocked, no issues should be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-iot",
+                Name = "Block Corp to IoT",
+                Action = "BLOCK",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "iot-net-id" }
+            },
+            new FirewallRule
+            {
+                Id = "block-iot-to-corp",
+                Name = "Block IoT to Corp",
+                Action = "BLOCK",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net-id" }
             }
         };
 
@@ -2282,10 +2807,13 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void CheckInterVlanIsolation_AllowRuleWithAnyDestination_NoExternalZoneId_StillFlagged()
+    public void CheckInterVlanIsolation_AllowRuleWithAnyDestination_NoExternalZoneId_DirectionalCheck()
     {
-        // When we don't have an external zone ID, rules with ANY destination should still be flagged
-        // (conservative approach - can't tell if it's external or internal)
+        // Isolation checks are directional:
+        // - IoT/Guest are "isolated" = outbound from them is blocked
+        // - Management/Security are "protected" = inbound to them is blocked
+        // Management → IoT (via ANY destination) should NOT be flagged because
+        // management devices often need to manage IoT devices
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id"),
@@ -2307,11 +2835,109 @@ public class FirewallRuleAnalyzerTests
             }
         };
 
-        // Call without externalZoneId - should flag the rule since we can't verify it's external-only
         var issues = _analyzer.CheckInterVlanIsolation(rules, networks, externalZoneId: null);
 
-        // Should flag management to IoT (via ANY destination) as isolation bypass
-        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED");
+        // Management → IoT should NOT be flagged (management can manage IoT)
+        // IoT → Management would be flagged, but there's no such rule
+        issues.Should().NotContain(i => i.Type == "ISOLATION_BYPASSED");
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleEclipsedByBlockRule_NotFlaggedAsIsolationBypass()
+    {
+        // An allow rule that is eclipsed by a block rule with lower index should NOT be flagged
+        // as ISOLATION_BYPASSED because the allow rule never actually takes effect.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "security-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule with lower index (higher priority) - takes effect first
+            new FirewallRule
+            {
+                Id = "block-iot-to-security",
+                Name = "Block IoT to Security",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "security-net-id" }
+            },
+            // Allow rule with higher index (lower priority) - eclipsed by block rule
+            new FirewallRule
+            {
+                Id = "allow-iot-to-security",
+                Name = "Allow IoT to Security (eclipsed)",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 200,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "security-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag the allow rule - it's eclipsed by a block rule and never takes effect
+        issues.Should().NotContain(i => i.Type == "ISOLATION_BYPASSED");
+        // Should also not flag missing isolation - the block rule provides it
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("IoT") && i.Message.Contains("Security"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleBeforeBlockRule_FlaggedAsIsolationBypass()
+    {
+        // An allow rule with lower index that eclipses a block rule SHOULD be flagged
+        // because the allow rule takes effect and bypasses the intended block.
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id"),
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, id: "security-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow rule with lower index (higher priority) - takes effect first
+            new FirewallRule
+            {
+                Id = "allow-iot-to-security",
+                Name = "Allow IoT to Security (takes effect)",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 100,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "security-net-id" }
+            },
+            // Block rule with higher index (lower priority) - eclipsed by allow rule
+            new FirewallRule
+            {
+                Id = "block-iot-to-security",
+                Name = "Block IoT to Security (eclipsed)",
+                Action = "DROP",
+                Enabled = true,
+                Index = 200,
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "security-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // SHOULD flag the allow rule - it takes effect and bypasses isolation
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" && i.Message.Contains("Allow IoT to Security"));
     }
 
     [Fact]
@@ -2345,6 +2971,44 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
 
         issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Severity == AuditSeverity.Critical);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_HomeWithIsolation_ToManagement_NoIssue(bool mgmtIsolated)
+    {
+        // Home with isolation enabled cannot reach other VLANs, so no issue should be flagged
+        // regardless of whether Management also has isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: mgmtIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Home"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckInterVlanIsolation_CorporateWithIsolation_ToManagement_NoIssue(bool mgmtIsolated)
+    {
+        // Corporate with isolation enabled cannot reach other VLANs, so no issue should be flagged
+        // regardless of whether Management also has isolation enabled
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: mgmtIsolated)
+        };
+        var rules = new List<FirewallRule>();
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate"));
     }
 
     [Fact]
@@ -2426,10 +3090,12 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
-    public void CheckInterVlanIsolation_ManagementWithSystemIsolation_NotChecked()
+    public void CheckInterVlanIsolation_ManagementWithSystemIsolation_StillChecksInbound()
     {
-        // Management network WITH system isolation enabled should NOT be checked
-        // (UniFi's "Isolated Networks" feature handles it)
+        // Management network WITH system isolation enabled SHOULD still be checked for INBOUND access.
+        // UniFi's "Network Isolation" feature only blocks OUTBOUND traffic FROM the isolated network.
+        // It does NOT block INBOUND traffic TO the isolated network from other VLANs.
+        // Therefore, we must verify that other networks are blocked from reaching Management.
         var networks = new List<NetworkInfo>
         {
             CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
@@ -2439,8 +3105,678 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
 
-        // Should NOT flag missing isolation because system isolation handles it
-        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Management"));
+        // SHOULD flag missing isolation - isolation only blocks outbound from Management,
+        // not inbound from Corporate to Management
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_SecurityWithSystemIsolation_StillChecksInbound()
+    {
+        // Security network WITH system isolation enabled SHOULD still be checked for INBOUND access.
+        // UniFi's "Network Isolation" feature only blocks OUTBOUND traffic FROM the isolated network.
+        // It does NOT block INBOUND traffic TO the isolated network from other VLANs.
+        // Therefore, we must verify that IoT/Guest networks are blocked from reaching Security (cameras).
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id", networkIsolationEnabled: true) // System isolation ON
+        };
+        var rules = new List<FirewallRule>(); // No manual rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // SHOULD flag missing isolation - isolation only blocks outbound from Security,
+        // not inbound from IoT to Security (cameras)
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToSecurityWithIsolation_StillChecksInbound()
+    {
+        // Guest network trying to access Security cameras - should be flagged even if Security has isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No manual rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // SHOULD flag missing isolation - guests shouldn't be able to access cameras
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_ManagementWithIsolation_HasBlockRule_NoIssue()
+    {
+        // Management network with isolation enabled, but there IS a block rule for inbound access - no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - there's a block rule protecting Management from Corporate
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    #region VLAN Isolation Gaps - New Tests for Missing Checks
+
+    [Fact]
+    public void CheckInterVlanIsolation_ManagementToSecurity_NoBlockRule_FlagsMissing()
+    {
+        // Management → Security should be blocked (NVR on Management shouldn't have open access to cameras)
+        // This is currently a gap in the audit
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - Management can reach Security cameras without explicit allow
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Management") && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_ManagementToSecurity_WithSourceIsolation_NoIssue()
+    {
+        // If Management has network isolation enabled, it can't initiate outbound connections
+        // So Management → Security should NOT be flagged
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id", networkIsolationEnabled: true), // Isolation ON
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id", networkIsolationEnabled: true) // Also isolated to avoid reverse direction flag
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag any issues - both networks have isolation enabled so neither can initiate connections
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_PrinterToSecurity_NoBlockRule_FlagsMissing()
+    {
+        // Printers have no legitimate need to access cameras - should be blocked
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Printers", NetworkPurpose.Printer, id: "printer-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - Printers shouldn't access Security
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Printers") && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_PrinterToManagement_NoBlockRule_FlagsMissing()
+    {
+        // Printers have no legitimate need to access management network - should be blocked
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Printers", NetworkPurpose.Printer, id: "printer-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - Printers shouldn't access Management
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Printers") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_DmzToSecurity_NoBlockRule_FlagsMissing()
+    {
+        // DMZ (internet-facing services) should never access security cameras
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("DMZ", NetworkPurpose.Dmz, id: "dmz-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - DMZ shouldn't access Security
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("DMZ") && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_DmzToManagement_NoBlockRule_FlagsMissing()
+    {
+        // DMZ (internet-facing services) should never access management network
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("DMZ", NetworkPurpose.Dmz, id: "dmz-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - DMZ shouldn't access Management
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("DMZ") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_UnknownToSecurity_NoBlockRule_FlagsMissing()
+    {
+        // Unknown/unclassified networks should be treated as untrusted
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Unclassified", NetworkPurpose.Unknown, id: "unknown-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - Unknown shouldn't access Security
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Unclassified") && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_UnknownToManagement_NoBlockRule_FlagsMissing()
+    {
+        // Unknown/unclassified networks should be treated as untrusted
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Unclassified", NetworkPurpose.Unknown, id: "unknown-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should flag missing isolation - Unknown shouldn't access Management
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Unclassified") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_DestinationIsolationDoesNotSatisfy_StillFlagsIssue()
+    {
+        // CRITICAL: Destination having isolation enabled does NOT protect it from inbound traffic
+        // UniFi isolation only blocks OUTBOUND from isolated networks, not INBOUND to them
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Cameras", NetworkPurpose.Security, id: "sec-net-id", networkIsolationEnabled: true) // Destination has isolation
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - destination isolation does NOT block inbound from Corporate
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Corporate") && i.Message.Contains("Cameras"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToCorporate_FlagsEvenWhenCorporateHasIsolation()
+    {
+        // Corporate has isolation enabled, but that only blocks Corporate → other
+        // IoT can still reach Corporate - should flag missing block rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - IoT can still reach Corporate even though Corporate has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToHome_FlagsEvenWhenHomeHasIsolation()
+    {
+        // Home has isolation enabled, but that only blocks Home → other
+        // IoT can still reach Home - should flag missing block rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - IoT can still reach Home even though Home has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Home"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToCorporate_FlagsEvenWhenCorporateHasIsolation()
+    {
+        // Corporate has isolation enabled, but Guest can still reach Corporate
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - Guest can still reach Corporate even though Corporate has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToHome_FlagsEvenWhenHomeHasIsolation()
+    {
+        // Home has isolation enabled, but Guest can still reach Home
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: false),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: true)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // MUST flag - Guest can still reach Home even though Home has isolation
+        issues.Should().Contain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Home"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_IoTToCorporate_NoFlagWhenIoTHasIsolation()
+    {
+        // IoT has isolation enabled - can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - IoT with isolation enabled can't initiate connections
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-IOT" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_GuestToHome_NoFlagWhenGuestHasIsolation()
+    {
+        // Guest has isolation enabled - can't initiate outbound, so no issue
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Guest WiFi", NetworkPurpose.Guest, id: "guest-net-id", networkIsolationEnabled: true),
+            CreateNetwork("Home Network", NetworkPurpose.Home, id: "home-net-id", networkIsolationEnabled: false)
+        };
+        var rules = new List<FirewallRule>(); // No rules
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - Guest with isolation enabled can't initiate connections
+        issues.Should().NotContain(i => i.RuleId == "FW-ISOLATION-GUEST" &&
+            i.Message.Contains("Guest") && i.Message.Contains("Home"));
+    }
+
+    #endregion
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleWithConnectionStateAll_NoIssue()
+    {
+        // Block rule with ConnectionStateType = "ALL" blocks all traffic including NEW connections - valid isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" },
+                ConnectionStateType = "ALL"  // Blocks all connection states including NEW
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - rule with ConnectionStateType=ALL blocks NEW connections
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleWithOnlyInvalidState_StillFlagsIssue()
+    {
+        // Block rule that only blocks INVALID connections does NOT provide inter-VLAN isolation
+        // INVALID = malformed packets, not legitimate connection attempts
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-invalid-traffic",
+                Name = "Block Invalid Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Predefined = true,  // This is a predefined UniFi rule
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" }  // Only blocks INVALID, not NEW
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // SHOULD flag - rule only blocks INVALID connections, not NEW connections
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleWithNewState_NoIssue()
+    {
+        // Block rule with CUSTOM connection states including NEW does block inter-VLAN traffic
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" },
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "NEW", "ESTABLISHED", "RELATED", "INVALID" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - rule blocks NEW connections
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleWithNoConnectionStateType_NoIssue()
+    {
+        // Block rule without ConnectionStateType specified - defaults to blocking all traffic (legacy behavior)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" }
+                // No ConnectionStateType - defaults to blocking all (including NEW)
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - no connection state type means block all
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleWithNewOnlyState_NoIssue()
+    {
+        // Block rule that only specifies NEW - valid for blocking new connection attempts
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-new-connections",
+                Name = "Block New Connections to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" },
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "NEW" }  // Only NEW, but that's what we care about
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - rule blocks NEW connections
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleBeforeBlockRule_FlagsIssue()
+    {
+        // Allow rule with lower index eclipses block rule with higher index
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "allow-all-traffic",
+                Name = "Allow All Traffic",
+                Action = "ACCEPT",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            },
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block All Traffic",
+                Action = "DROP",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority (eclipsed by allow rule)
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // SHOULD flag as ISOLATION_BYPASSED - the allow rule is the problem, more specific than "MISSING_ISOLATION"
+        issues.Should().Contain(i => i.Type == "ISOLATION_BYPASSED" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_AllowRuleWithNoBlockRule_BypassedNotMissing()
+    {
+        // When an allow rule exists for a network pair that should be isolated,
+        // we should report "ISOLATION_BYPASSED" (naming the specific rule) but NOT "MISSING_ISOLATION"
+        // (which would be redundant and less actionable)
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Home", NetworkPurpose.Home, id: "home-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Allow rule without any block rule
+            new FirewallRule
+            {
+                Id = "allow-home-to-mgmt",
+                Name = "Test Allow Home to Mgmt",
+                Action = "ALLOW",
+                Enabled = true,
+                Index = 100,
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "home-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" }
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should report ISOLATION_BYPASSED for the allow rule
+        issues.Should().Contain(i =>
+            i.Type == "ISOLATION_BYPASSED" &&
+            i.Message.Contains("Test Allow Home to Mgmt") &&
+            i.Message.Contains("Home") &&
+            i.Message.Contains("Management"));
+
+        // Should NOT also report MISSING_ISOLATION for the same network pair (redundant)
+        issues.Should().NotContain(i =>
+            i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("Home") &&
+            i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleBeforeAllowRule_NoIssue()
+    {
+        // Block rule with lower index takes precedence over allow rule with higher index
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                Index = 100,  // Lower index = higher priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-all-traffic",
+                Name = "Allow All Traffic",
+                Action = "ACCEPT",
+                Enabled = true,
+                Index = 200,  // Higher index = lower priority
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - block rule comes before allow rule
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_SpecificBlockRuleBeforeGenericAllowRule_NoIssue()
+    {
+        // Specific block rule (network-targeted) with lower index beats generic allow rule
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net-id"),
+            CreateNetwork("Management", NetworkPurpose.Management, id: "mgmt-net-id")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "block-corp-to-mgmt",
+                Name = "Block Corp to Mgmt",
+                Action = "DROP",
+                Enabled = true,
+                Index = 50,  // Lower index = higher priority
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "corp-net-id" },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "mgmt-net-id" }
+            },
+            new FirewallRule
+            {
+                Id = "allow-all-traffic",
+                Name = "Allow All Traffic",
+                Action = "ACCEPT",
+                Enabled = true,
+                Index = 30000,  // High index (UniFi default rules have high indices)
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        // Should NOT flag - specific block rule has lower index
+        issues.Should().NotContain(i => i.Type == "MISSING_ISOLATION" && i.Message.Contains("Corporate") && i.Message.Contains("Management"));
     }
 
     #endregion
@@ -3736,8 +5072,8 @@ public class FirewallRuleAnalyzerTests
         };
 
         // Block rule: from all EXCEPT IoT, to all EXCEPT Guest
-        // This covers: Corp->Corp, Corp->IoT, Guest->Corp, Guest->IoT (one direction for each pair)
-        // CheckInterVlanIsolation checks BOTH directions, so any pair with one direction blocked is covered
+        // This blocks: Corp→Corp, Corp→IoT, Guest→Corp, Guest→IoT
+        // This does NOT block: IoT→Corp, IoT→Guest (IoT excluded from source)
         var rules = new List<FirewallRule>
         {
             new FirewallRule
@@ -3758,12 +5094,10 @@ public class FirewallRuleAnalyzerTests
 
         var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
 
-        // All pairs have at least one direction blocked:
-        // - IoT<->Corporate: Corp->IoT is blocked
-        // - Guest<->Corporate: Guest->Corp is blocked
-        // - Guest<->IoT: Guest->IoT is blocked
-        // So no MISSING_ISOLATION issues
-        issues.Where(i => i.Type == "MISSING_ISOLATION").Should().BeEmpty();
+        // IoT → Corporate should be flagged (IoT is excluded from the rule's source)
+        // Note: Each direction must be explicitly blocked; a reverse rule is not sufficient
+        issues.Should().Contain(i => i.Type == "MISSING_ISOLATION" &&
+            i.Message.Contains("IoT") && i.Message.Contains("Corporate"));
     }
 
     [Fact]

@@ -45,7 +45,7 @@
                         <span class="badge badge-primary">Recommended</span>
                     </div>
                     <p>
-                        Run a speed test directly from any web browser using <a href="https://openspeedtest.com" target="_blank">OpenSpeedTest™</a>. Works on all devices.
+                        Run a speed test directly from any web browser using <a href="https://openspeedtest.com" target="_blank" rel="noopener noreferrer">OpenSpeedTest™</a>. Works on all devices.
                         @if (openSpeedTestUrl?.StartsWith("https://") == true)
                         {
                             <text> Location data is collected with each test (with your permission), and results can be seen in the <a href="javascript:void(0)" onclick="document.getElementById('coverage-map').scrollIntoView({behavior: 'smooth'})">Speed / Coverage Map</a> below.</text>
@@ -154,7 +154,7 @@
                             <div class="install-header">Install iperf3 on client device:</div>
                             <div class="install-item"><code>sudo apt install iperf3</code> <span class="text-muted">(Linux)</span></div>
                             <div class="install-item"><code>brew install iperf3</code> <span class="text-muted">(Mac)</span></div>
-                            <div class="install-item"><a href="https://iperf.fr/iperf-download.php" target="_blank">iperf.fr</a> <span class="text-muted">(Windows)</span></div>
+                            <div class="install-item"><a href="https://iperf.fr/iperf-download.php" target="_blank" rel="noopener noreferrer">iperf.fr</a> <span class="text-muted">(Windows)</span></div>
                             <div class="install-item">Various clients available on iOS App Store and Google Play</div>
                         </div>
                     }

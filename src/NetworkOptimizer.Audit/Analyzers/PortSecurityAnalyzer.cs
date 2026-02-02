@@ -82,7 +82,8 @@ public class PortSecurityAnalyzer
             new MacRestrictionRule(),
             new UnusedPortRule(),
             new PortIsolationRule(),
-            new WiredSubnetMismatchRule()
+            new WiredSubnetMismatchRule(),
+            new AccessPortVlanRule()
         };
     }
 
@@ -508,6 +509,7 @@ public class PortSecurityAnalyzer
         bool portSecurityEnabled = port.GetBoolOrDefault("port_security_enabled");
         List<string>? allowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address")?.ToList();
         string? nativeNetworkId = port.GetStringOrNull("native_networkconf_id");
+        List<string>? excludedNetworkIds = port.GetStringArrayOrNull("excluded_networkconf_ids");
         bool isolationEnabled = port.GetBoolOrDefault("isolation");
 
         if (!string.IsNullOrEmpty(portconfId) && portProfiles != null && portProfiles.TryGetValue(portconfId, out var profile))
@@ -526,6 +528,14 @@ public class PortSecurityAnalyzer
                 _logger.LogDebug("Port {Switch} port {Port}: resolving native_networkconf_id from profile '{ProfileName}': {PortValue} -> {ProfileNetworkId}",
                     switchInfo.Name, portIdx, profile.Name, nativeNetworkId ?? "(none)", profile.NativeNetworkId);
                 nativeNetworkId = profile.NativeNetworkId;
+            }
+
+            // Use profile's excluded network IDs if set (for trunk VLAN configuration)
+            if (profile.ExcludedNetworkConfIds != null)
+            {
+                _logger.LogDebug("Port {Switch} port {Port}: resolving excluded_networkconf_ids from profile '{ProfileName}': {Count} excluded",
+                    switchInfo.Name, portIdx, profile.Name, profile.ExcludedNetworkConfIds.Count);
+                excludedNetworkIds = profile.ExcludedNetworkConfIds;
             }
 
             // Use profile's port security settings
@@ -621,7 +631,7 @@ public class PortSecurityAnalyzer
             IsUplink = port.GetBoolOrDefault("is_uplink"),
             IsWan = isWan,
             NativeNetworkId = nativeNetworkId,
-            ExcludedNetworkIds = port.GetStringArrayOrNull("excluded_networkconf_ids"),
+            ExcludedNetworkIds = excludedNetworkIds,
             PortSecurityEnabled = portSecurityEnabled,
             AllowedMacAddresses = allowedMacAddresses,
             IsolationEnabled = isolationEnabled,
@@ -642,7 +652,10 @@ public class PortSecurityAnalyzer
     /// <summary>
     /// Analyze all ports across all switches
     /// </summary>
-    public List<AuditIssue> AnalyzePorts(List<SwitchInfo> switches, List<NetworkInfo> networks)
+    /// <param name="switches">Switches to analyze</param>
+    /// <param name="networks">Enabled networks for most rules</param>
+    /// <param name="allNetworks">All networks including disabled (for rules that check port config exposure)</param>
+    public List<AuditIssue> AnalyzePorts(List<SwitchInfo> switches, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -656,7 +669,7 @@ public class PortSecurityAnalyzer
                 // Run all enabled rules against this port
                 foreach (var rule in _rules.Where(r => r.Enabled))
                 {
-                    var issue = rule.Evaluate(port, networks);
+                    var issue = rule.Evaluate(port, networks, allNetworks);
                     if (issue != null)
                     {
                         issues.Add(issue);

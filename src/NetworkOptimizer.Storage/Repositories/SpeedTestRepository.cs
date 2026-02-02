@@ -345,6 +345,27 @@ public class SpeedTestRepository : ISpeedTestRepository
         }
     }
 
+    /// <summary>
+    /// Gets the total count of iperf3 test results.
+    /// </summary>
+    /// <param name="siteId">The site ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The total number of results for the site.</returns>
+    public async Task<int> GetIperf3ResultCountAsync(int siteId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.Iperf3Results
+                .Where(r => r.SiteId == siteId)
+                .CountAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get iperf3 result count for site {SiteId}", siteId);
+            throw;
+        }
+    }
+
     #endregion
 
     #region SQM WAN Configuration

@@ -93,58 +93,88 @@ public class UpnpSecurityAnalyzer
         var upnpRules = portForwardRules?.Where(r => r.IsUpnp == 1).ToList() ?? [];
         var upnpRuleCount = upnpRules.Count;
 
-        _logger.LogInformation("Analyzing UPnP security: Enabled={Enabled}, UPnP rules={RuleCount}",
-            isEnabled, upnpRuleCount);
+        // Find networks with UPnP explicitly enabled (per-network binding)
+        // Include disabled networks since they can still have UPnP bindings configured
+        var networksWithUpnp = networks.Where(n => n.UpnpLanEnabled).ToList();
+        var homeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        var nonHomeNetworksWithUpnp = networksWithUpnp.Where(n => n.Purpose != NetworkPurpose.Home).ToList();
 
-        // Find Home network(s) - UPnP is acceptable on these
-        var homeNetworks = networks.Where(n => n.Purpose == NetworkPurpose.Home).ToList();
+        _logger.LogInformation("Analyzing UPnP security: GlobalEnabled={Enabled}, UPnP rules={RuleCount}, Networks with UPnP={NetworkCount} (Home={HomeCount}, Non-Home={NonHomeCount})",
+            isEnabled, upnpRuleCount, networksWithUpnp.Count, homeNetworksWithUpnp.Count, nonHomeNetworksWithUpnp.Count);
 
         if (!isEnabled)
         {
-            // UPnP disabled is a hardening measure
+            // UPnP disabled globally is a hardening measure
             hardeningNotes.Add("UPnP is disabled on the gateway");
             _logger.LogDebug("UPnP is disabled - checking static port forwards only");
         }
-        else if (homeNetworks.Count == 0)
-        {
-            // No Home network found, UPnP on any network is a warning
-            issues.Add(new AuditIssue
-            {
-                Type = IssueTypes.UpnpNonHomeNetwork,
-                Severity = AuditSeverity.Recommended,
-                Message = "UPnP is enabled but no Home network was detected",
-                DeviceName = gatewayName,
-                Metadata = new Dictionary<string, object>
-                {
-                    ["upnp_enabled"] = true,
-                    ["upnp_rule_count"] = upnpRuleCount
-                },
-                RuleId = "UPNP-002",
-                ScoreImpact = 5,
-                RecommendedAction = "Disable UPnP or ensure it's only enabled for Home/Gaming networks"
-            });
-        }
         else
         {
-            // Home network exists - UPnP on Home is acceptable, report as informational
-            var homeNetworkNames = string.Join(", ", homeNetworks.Select(n => n.Name));
-            issues.Add(new AuditIssue
+            // Check for UPnP enabled on non-Home networks (Critical - highest priority)
+            if (nonHomeNetworksWithUpnp.Count > 0)
             {
-                Type = IssueTypes.UpnpEnabled,
-                Severity = AuditSeverity.Informational,
-                Message = $"UPnP is enabled for Home network ({homeNetworkNames})",
-                DeviceName = gatewayName,
-                CurrentNetwork = homeNetworkNames,
-                Metadata = new Dictionary<string, object>
+                var nonHomeNetworkNames = string.Join(", ", nonHomeNetworksWithUpnp.Select(n => $"{n.Name} ({n.Purpose.ToDisplayString()})"));
+                issues.Add(new AuditIssue
                 {
-                    ["upnp_enabled"] = true,
-                    ["home_networks"] = homeNetworkNames,
-                    ["upnp_rule_count"] = upnpRuleCount
-                },
-                RuleId = "UPNP-001",
-                ScoreImpact = 0,
-                RecommendedAction = "No action needed - UPnP is acceptable on Home networks for gaming and media"
-            });
+                    Type = IssueTypes.UpnpNonHomeNetwork,
+                    Severity = AuditSeverity.Critical,
+                    Message = $"UPnP is enabled on non-Home network(s): {nonHomeNetworkNames}",
+                    DeviceName = gatewayName,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["upnp_enabled"] = true,
+                        ["non_home_networks"] = nonHomeNetworksWithUpnp.Select(n => n.Name).ToList(),
+                        ["upnp_rule_count"] = upnpRuleCount
+                    },
+                    RuleId = "UPNP-002",
+                    ScoreImpact = 15,
+                    RecommendedAction = "Disable UPnP on non-Home networks. UPnP allows devices to automatically open firewall ports, which is dangerous on IoT, Guest, or other restricted networks."
+                });
+            }
+
+            // Check for UPnP enabled on Home networks
+            if (homeNetworksWithUpnp.Count > 0)
+            {
+                var homeNetworkNames = string.Join(", ", homeNetworksWithUpnp.Select(n => n.Name));
+
+                // Single Home network with UPnP is acceptable (Informational)
+                // Multiple Home networks with UPnP should be consolidated (Recommended)
+                var isSingleHomeNetwork = homeNetworksWithUpnp.Count == 1;
+                var severity = isSingleHomeNetwork ? AuditSeverity.Informational : AuditSeverity.Recommended;
+                var scoreImpact = isSingleHomeNetwork ? 0 : 5;
+                var message = isSingleHomeNetwork
+                    ? $"UPnP is enabled on Home network: {homeNetworkNames}"
+                    : $"UPnP is enabled on {homeNetworksWithUpnp.Count} Home networks: {homeNetworkNames}";
+                var recommendation = isSingleHomeNetwork
+                    ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming"
+                    : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks";
+
+                issues.Add(new AuditIssue
+                {
+                    Type = IssueTypes.UpnpEnabled,
+                    Severity = severity,
+                    Message = message,
+                    DeviceName = gatewayName,
+                    CurrentNetwork = homeNetworkNames,
+                    Metadata = new Dictionary<string, object>
+                    {
+                        ["upnp_enabled"] = true,
+                        ["home_networks"] = homeNetworkNames,
+                        ["home_network_count"] = homeNetworksWithUpnp.Count,
+                        ["upnp_rule_count"] = upnpRuleCount
+                    },
+                    RuleId = "UPNP-001",
+                    ScoreImpact = scoreImpact,
+                    RecommendedAction = recommendation
+                });
+            }
+
+            // If UPnP is globally enabled but no networks have it bound, note this edge case
+            if (networksWithUpnp.Count == 0)
+            {
+                _logger.LogDebug("UPnP is globally enabled but not bound to any networks");
+                hardeningNotes.Add("UPnP is enabled but not bound to any networks");
+            }
         }
 
         // Analyze UPnP rules for security concerns (only when UPnP is enabled)
@@ -154,10 +184,12 @@ public class UpnpSecurityAnalyzer
         }
 
         // Analyze static port forwards regardless of UPnP status
+        // hasHomeNetwork check is used for static port forwards to determine warning severity
+        var hasHomeNetwork = networks.Any(n => n.Purpose == NetworkPurpose.Home);
         var staticRules = portForwardRules?.Where(r => r.IsUpnp != 1 && r.Enabled == true).ToList() ?? [];
         if (staticRules.Count > 0)
         {
-            AnalyzeStaticPortForwards(staticRules, issues, gatewayName, homeNetworks.Count > 0);
+            AnalyzeStaticPortForwards(staticRules, issues, gatewayName, hasHomeNetwork);
         }
 
         return new UpnpAnalysisResult { Issues = issues, HardeningNotes = hardeningNotes };

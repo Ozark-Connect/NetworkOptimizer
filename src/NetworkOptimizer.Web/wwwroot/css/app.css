@@ -1604,6 +1604,15 @@ select.form-control {
     color: var(--warning-color);
 }
 
+.alert-warning a {
+    color: #fbbf24;
+    text-decoration: underline;
+}
+
+.alert-warning a:hover {
+    color: #fcd34d;
+}
+
 .alert-danger {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid var(--danger-color);
@@ -2609,7 +2618,14 @@ select.form-control {
     color: white;
 }
 
-.sponsorship-banner .btn-dismiss {
+.sponsorship-banner .banner-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.sponsorship-banner .btn-dismiss,
+.sponsorship-banner .btn-sponsor {
     background: rgba(168, 85, 247, 0.15);
     color: var(--purple-light);
     border: none;
@@ -2618,9 +2634,11 @@ select.form-control {
     border-radius: var(--border-radius);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
 }
 
-.sponsorship-banner .btn-dismiss:hover {
+.sponsorship-banner .btn-dismiss:hover,
+.sponsorship-banner .btn-sponsor:hover {
     background: rgba(168, 85, 247, 0.3);
     color: white;
 }
@@ -2630,13 +2648,32 @@ select.form-control {
         padding: 1rem;
     }
 
+    .sponsorship-banner .banner-content {
+        flex-wrap: wrap;
+    }
+
+    .sponsorship-banner .banner-icon {
+        display: none;
+    }
+
     .sponsorship-banner .banner-separator {
         display: none;
+    }
+
+    .sponsorship-banner .banner-text strong {
+        font-size: 0.95rem;
     }
 
     .sponsorship-banner .banner-commercial {
         display: block;
         margin-top: 0.25rem;
+        font-size: 0.8rem;
+    }
+
+    .sponsorship-banner .banner-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: 0.5rem;
     }
 }
 

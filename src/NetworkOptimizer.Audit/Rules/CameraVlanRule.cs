@@ -18,7 +18,7 @@ public class CameraVlanRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Critical;
     public override int ScoreImpact => 8;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Skip uplinks, WAN ports, and non-access ports
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
@@ -174,7 +174,7 @@ public class CameraVlanRule : AuditRuleBase
             CurrentVlan = network.VlanId,
             RecommendedNetwork = placement.RecommendedNetwork?.Name,
             RecommendedVlan = placement.RecommendedNetwork?.VlanId,
-            RecommendedAction = $"Move to {placement.RecommendedNetworkLabel}",
+            RecommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel),
             Metadata = VlanPlacementChecker.BuildMetadata(detection, network),
             RuleId = RuleId,
             ScoreImpact = scoreImpact

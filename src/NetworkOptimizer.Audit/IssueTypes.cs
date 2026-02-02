@@ -44,6 +44,7 @@ public static class IssueTypes
     public const string MacRestriction = "MAC-RESTRICT-001";
     public const string UnusedPort = "UNUSED-PORT-001";
     public const string PortIsolation = "PORT-ISOLATION-001";
+    public const string AccessPortVlan = "ACCESS-VLAN-001";
     public const string VlanSubnetMismatch = "WIFI-VLAN-SUBNET-001";
     public const string WiredSubnetMismatch = "PORT-SUBNET-001";
 

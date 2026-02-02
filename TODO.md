@@ -24,6 +24,20 @@
   - Explicit classification removes ambiguity
   - Auto-detection still works as default for users who don't configure
 
+### Home → IoT Return Traffic Rule Suggestion
+- When Home network has isolation blocking IoT, suggest adding a return traffic rule or explicit allow
+- **Problem:** If Home blocks all traffic to IoT (good for security), return traffic from IoT devices won't work
+  - Example: Smart TV on IoT can't respond to casting from phone on Home
+  - Example: IoT device can't respond to control commands from Home devices
+- **Detection:** Check for block rule Home → IoT without a corresponding:
+  - Allow rule Home → IoT (with specific IPs/devices/ports), OR
+  - Return traffic allow rule IoT → Home (RESPOND_ONLY / ESTABLISHED,RELATED)
+- **Recommendation options:**
+  1. Add specific allow rules from Home to IoT devices that need control (e.g., smart TVs, speakers)
+  2. Add a RESPOND_ONLY allow rule from IoT → Home to permit return traffic
+- **Severity:** Informational (user may have intentionally blocked bidirectional)
+- **Context:** This is a usability issue, not a security issue - blocking return traffic is actually more secure
+
 ### Third-Party DNS Firewall Rule Check
 - When third-party DNS (Pi-hole, AdGuard, etc.) is detected on a network, check for a firewall rule blocking UDP 53 to the gateway
 - Without this rule, clients could bypass third-party DNS by using the gateway directly
@@ -237,6 +251,13 @@ New audit section focused on network performance issues (distinct from security 
   2. Route everything through direct env var reads (simpler for native)
   3. Support both patterns in app (check env var first, fall back to config)
 - Low priority but would improve consistency
+
+### Debounce UI-Triggered Modem Polls
+- **Issue:** Multiple rapid modem polls can occur when navigating between pages
+- **Cause:** `CellularStatsPanel` triggers `PollModemAsync` on render when no cached stats exist; multiple component instances can poll simultaneously before any completes
+- **Observed:** 4-5 polls within 4 seconds when navigating dashboard → settings
+- **Fix:** Add debounce or lock around UI-triggered polls in `CellularModemService`
+- **Severity:** Low (causes extra SSH traffic but no errors)
 
 ### Uniform Date/Time Formatting in UI
 - Audit all date/time displays across the UI for consistency

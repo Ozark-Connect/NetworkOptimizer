@@ -395,27 +395,6 @@ public class SpeedtestIntegrationTests
 
     #endregion
 
-    #region GenerateSpeedtestCommand Tests
-
-    [Fact]
-    public void GenerateSpeedtestCommand_GeneratesCorrectCommand()
-    {
-        // Arrange
-        var config = CreateConfig(iface: "eth4");
-        var integration = new SpeedtestIntegration(config);
-
-        // Act
-        var command = integration.GenerateSpeedtestCommand();
-
-        // Assert
-        command.Should().Contain("speedtest");
-        command.Should().Contain("--accept-license");
-        command.Should().Contain("--format=json");
-        command.Should().Contain("--interface=eth4");
-    }
-
-    #endregion
-
     #region CalculateVariancePercent Tests
 
     [Theory]

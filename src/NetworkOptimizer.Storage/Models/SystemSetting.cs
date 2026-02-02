@@ -37,6 +37,11 @@ public static class SystemSettingKeys
     public const string Iperf3LocalVersion = "iperf3.local_version";
     public const string Iperf3LocalLastChecked = "iperf3.local_last_checked";
 
-    // UI preferences
+    // UI preferences (legacy - no longer used)
     public const string SponsorshipBannerDismissed = "ui.sponsorship_banner_dismissed";
+
+    // Sponsorship nag system - progressive tiered display
+    public const string SponsorshipLastShownLevel = "ui.sponsorship_last_shown_level";
+    public const string SponsorshipLastNagTime = "ui.sponsorship_last_nag_time";
+    public const string SponsorshipAlreadySponsor = "ui.sponsorship_already_sponsor";
 }

@@ -33,6 +33,7 @@ public interface ISpeedTestRepository
 
     Task<bool> DeleteIperf3ResultAsync(int siteId, int id, CancellationToken cancellationToken = default);
     Task ClearIperf3HistoryAsync(int siteId, CancellationToken cancellationToken = default);
+    Task<int> GetIperf3ResultCountAsync(int siteId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Updates the notes for a speed test result.

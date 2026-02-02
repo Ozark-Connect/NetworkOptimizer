@@ -162,6 +162,159 @@ public class VlanAnalyzerTests
         issues.Should().Contain(i => i.Type == "IOT_NETWORK_NOT_ISOLATED");
     }
 
+    [Fact]
+    public void AnalyzeNetworkIsolation_FirewallRuleBlocksToAny_NoIssue()
+    {
+        // Network without isolation setting, but has firewall rule blocking to ANY destination
+        var networkId = "mgmt-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, networkIsolationEnabled: false, id: networkId)
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-outbound",
+                Name = "Block Management Outbound",
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_FirewallRuleBlocksToOtherNetworks_NoIssue()
+    {
+        // Network without isolation setting, but has firewall rule blocking to all other networks via Match Opposite
+        var networkId = "security-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security", NetworkPurpose.Security, vlanId: 42, networkIsolationEnabled: false, id: networkId),
+            CreateNetwork("Home", NetworkPurpose.Home, vlanId: 1, id: "home-net-id"),
+            CreateNetwork("IoT", NetworkPurpose.IoT, vlanId: 64, id: "iot-net-id")
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-security-to-others",
+                Name = "Block Security to Other Networks",
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "NETWORK",
+                DestinationMatchOppositeNetworks = true,
+                DestinationNetworkIds = new List<string> { networkId }, // Block to all EXCEPT self
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        // Should not flag Security as not isolated (has firewall rule)
+        issues.Should().NotContain(i => i.Type == "SECURITY_NETWORK_NOT_ISOLATED");
+        // IoT should still be flagged (no isolation setting or rule)
+        issues.Should().Contain(i => i.Type == "IOT_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_FirewallRuleDisabled_StillFlagsIssue()
+    {
+        // Disabled firewall rule should not count as isolation
+        var networkId = "mgmt-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, networkIsolationEnabled: false, id: networkId)
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-outbound",
+                Name = "Block Management Outbound",
+                Enabled = false, // Disabled!
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_FirewallRuleAllowAction_StillFlagsIssue()
+    {
+        // Allow rule should not count as isolation
+        var networkId = "mgmt-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, networkIsolationEnabled: false, id: networkId)
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "allow-mgmt-outbound",
+                Name = "Allow Management Outbound",
+                Enabled = true,
+                Action = "accept", // Allow, not block!
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "all"
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED");
+    }
+
+    [Fact]
+    public void AnalyzeNetworkIsolation_FirewallRuleSpecificPort_StillFlagsIssue()
+    {
+        // Rule blocking only specific port should not count as full isolation
+        var networkId = "mgmt-net-id";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99, networkIsolationEnabled: false, id: networkId)
+        };
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-mgmt-ssh",
+                Name = "Block Management SSH",
+                Enabled = true,
+                Action = "drop",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { networkId },
+                DestinationMatchingTarget = "ANY",
+                Protocol = "tcp",
+                DestinationPort = "22" // Only blocks SSH, not all traffic
+            }
+        };
+
+        var issues = _analyzer.AnalyzeNetworkIsolation(networks, "Gateway", firewallRules);
+
+        issues.Should().ContainSingle(i => i.Type == "MGMT_NETWORK_NOT_ISOLATED");
+    }
+
     #endregion
 
     #region ClassifyNetwork Tests
@@ -1559,6 +1712,55 @@ public class VlanAnalyzerTests
 
         // Assert - No issues because DROP also blocks internet
         issues.Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region ExtractNetworks Tests
+
+    [Fact]
+    public void ExtractNetworks_RedesignatesVlan1AsManagement_PreservesFirewallZoneId()
+    {
+        // Arrange - Create device data with a VLAN 1 network that has a firewall zone ID
+        // but isn't classified as Management initially (e.g., it has internet_access_enabled=false
+        // which causes it to be classified as Unknown)
+        var json = """
+        {
+            "data": [
+                {
+                    "type": "udm",
+                    "name": "Gateway",
+                    "network_table": [
+                        {
+                            "_id": "default-network-id",
+                            "name": "Default",
+                            "vlan": 1,
+                            "purpose": "corporate",
+                            "ip_subnet": "192.168.1.1/24",
+                            "dhcpd_enabled": true,
+                            "network_isolation_enabled": false,
+                            "internet_access_enabled": false,
+                            "firewall_zone_id": "zone-12345",
+                            "networkgroup": "LAN"
+                        }
+                    ]
+                }
+            ]
+        }
+        """;
+        var deviceData = System.Text.Json.JsonDocument.Parse(json).RootElement;
+
+        // Act
+        var networks = _analyzer.ExtractNetworks(deviceData);
+
+        // Assert - The network should be re-designated as Management and preserve FirewallZoneId
+        networks.Should().HaveCount(1);
+        var network = networks[0];
+        network.Name.Should().Be("Default");
+        network.VlanId.Should().Be(1);
+        network.Purpose.Should().Be(NetworkPurpose.Management);
+        network.FirewallZoneId.Should().Be("zone-12345", "FirewallZoneId must be preserved when re-designating network as Management");
+        network.NetworkGroup.Should().Be("LAN", "NetworkGroup must be preserved when re-designating network as Management");
     }
 
     #endregion

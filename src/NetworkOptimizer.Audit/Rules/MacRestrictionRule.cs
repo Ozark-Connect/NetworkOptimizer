@@ -15,7 +15,7 @@ public class MacRestrictionRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Recommended;
     public override int ScoreImpact => 3;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Only check active ports
         if (!port.IsUp)

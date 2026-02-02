@@ -1394,6 +1394,218 @@ public class ConfigAuditEngineTests
 
     #endregion
 
+    #region Access Port VLAN Integration Tests
+
+    [Fact]
+    public async Task RunAudit_AccessPortWithManyTaggedVlans_UsesAllNetworksIncludingDisabled()
+    {
+        // This test verifies the full path: NetworkConfigs -> allNetworks -> AccessPortVlanRule
+        // A port with 3+ tagged VLANs from allNetworks (including disabled) should trigger ACCESS-VLAN-001
+
+        var deviceJson = CreateDeviceJsonWithMacRestrictedTrunkPort();
+        var networkConfigs = CreateNetworkConfigsWithDisabled();
+
+        var result = await _engine.RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = deviceJson,
+            NetworkConfigs = networkConfigs,
+            ClientName = "Test Site"
+        });
+
+        // Should detect the ACCESS-VLAN-001 issue because allNetworks includes 4 corporate networks
+        // (3 enabled + 1 disabled) and the port has none excluded, so tagged count = 4 - 1 (native) = 3
+        result.Issues.Should().Contain(i => i.Type == "ACCESS-VLAN-001",
+            because: "a trunk port with 4 networks (3 enabled + 1 disabled) minus native = 3 tagged should exceed threshold");
+        var issue = result.Issues.First(i => i.Type == "ACCESS-VLAN-001");
+        issue.Message.Should().Contain("VLANs tagged");
+    }
+
+    [Fact]
+    public async Task RunAudit_AccessPortVlanCount_ExcludesWanAndVpnNetworks()
+    {
+        // This test verifies that WAN and VPN-client networks are excluded from the allNetworks count
+        // because they cannot be tagged on switch ports
+        // Port must explicitly exclude some networks (not "Allow All") to test the count logic
+
+        var deviceJson = CreateDeviceJsonWithSelectiveTaggedVlans();
+        // Create configs with 3 corporate networks, 1 WAN, and 1 VPN-client
+        // Only the 3 corporate networks should be counted, but port excludes one
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-corp", Name = "Corporate", Vlan = 1, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-iot", Name = "IoT", Vlan = 20, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-cameras", Name = "Cameras", Vlan = 30, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-wan", Name = "WAN", Purpose = "wan", Enabled = true },
+            new() { Id = "net-vpn", Name = "VPN Client", Purpose = "vpn-client", Enabled = true }
+        };
+
+        var result = await _engine.RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = deviceJson,
+            NetworkConfigs = networkConfigs,
+            ClientName = "Test Site"
+        });
+
+        // 3 corporate networks, port excludes one (net-cameras), so tagged = 3 - 1 (excluded) - 1 (native) = 1
+        // This should NOT trigger ACCESS-VLAN-001 (threshold is 2)
+        result.Issues.Should().NotContain(i => i.Type == "ACCESS-VLAN-001",
+            because: "WAN and VPN-client should be excluded and port only has 1 tagged VLAN");
+    }
+
+    [Fact]
+    public async Task RunAudit_AccessPortVlanCount_IncludesGuestNetworks()
+    {
+        // This test verifies that guest networks ARE included in the count (they can be tagged)
+
+        var deviceJson = CreateDeviceJsonWithMacRestrictedTrunkPort();
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-corp", Name = "Corporate", Vlan = 1, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-iot", Name = "IoT", Vlan = 20, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-guest", Name = "Guest", Vlan = 30, Purpose = "guest", Enabled = true },
+            new() { Id = "net-guest2", Name = "Guest 2", Vlan = 40, Purpose = "guest", Enabled = true },
+            new() { Id = "net-wan", Name = "WAN", Purpose = "wan", Enabled = true }
+        };
+
+        var result = await _engine.RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = deviceJson,
+            NetworkConfigs = networkConfigs,
+            ClientName = "Test Site"
+        });
+
+        // With 2 corporate + 2 guest = 4 selectable networks, native = 1, tagged = 3
+        // This SHOULD trigger ACCESS-VLAN-001 (threshold is 2)
+        result.Issues.Should().Contain(i => i.Type == "ACCESS-VLAN-001",
+            because: "guest networks can be tagged so should be included in the count");
+    }
+
+    private static string CreateDeviceJsonWithMacRestrictedTrunkPort()
+    {
+        // Switch with a trunk port (forward: customize) with single MAC restriction
+        // MAC restriction with 1 entry indicates a single-device access port
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "model": "UDM-PRO",
+                "ip": "192.0.2.1",
+                "network_table": [
+                    {
+                        "_id": "net-corp",
+                        "name": "Corporate",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    },
+                    {
+                        "_id": "net-iot",
+                        "name": "IoT",
+                        "vlan": 20,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.128/25"
+                    }
+                ]
+            },
+            {
+                "type": "usw",
+                "name": "Test Switch",
+                "model": "USW-24",
+                "ip": "192.0.2.10",
+                "port_table": [
+                    {
+                        "port_idx": 1,
+                        "name": "Test Device",
+                        "up": true,
+                        "forward": "customize",
+                        "native_networkconf_id": "net-corp",
+                        "excluded_networkconf_ids": [],
+                        "is_uplink": false,
+                        "port_security_enabled": true,
+                        "port_security_mac_address": ["aa:bb:cc:dd:ee:ff"]
+                    },
+                    {
+                        "port_idx": 24,
+                        "name": "Uplink",
+                        "up": true,
+                        "is_uplink": true
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    private static List<UniFiNetworkConfig> CreateNetworkConfigsWithDisabled()
+    {
+        // 4 corporate networks (3 enabled + 1 disabled) + 1 WAN
+        // WAN is needed to avoid EXTERNAL_ZONE_NOT_DETECTED warning
+        return new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-corp", Name = "Corporate", Vlan = 1, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-iot", Name = "IoT", Vlan = 20, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-cameras", Name = "Cameras", Vlan = 30, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-disabled", Name = "Disabled Net", Vlan = 40, Purpose = "corporate", Enabled = false },
+            new() { Id = "net-wan", Name = "WAN", Purpose = "wan", Enabled = true }
+        };
+    }
+
+    private static string CreateDeviceJsonWithSelectiveTaggedVlans()
+    {
+        // Switch with a trunk port that explicitly excludes one network
+        // This tests the VLAN counting logic without triggering "Allow All" detection
+        return """
+        [
+            {
+                "type": "udm",
+                "name": "Gateway",
+                "model": "UDM-PRO",
+                "ip": "192.0.2.1",
+                "network_table": [
+                    {
+                        "_id": "net-corp",
+                        "name": "Corporate",
+                        "vlan": 1,
+                        "purpose": "corporate",
+                        "dhcpd_enabled": true,
+                        "ip_subnet": "192.0.2.1/24"
+                    }
+                ]
+            },
+            {
+                "type": "usw",
+                "name": "Test Switch",
+                "model": "USW-24",
+                "ip": "192.0.2.10",
+                "port_table": [
+                    {
+                        "port_idx": 1,
+                        "name": "Test Device",
+                        "up": true,
+                        "forward": "customize",
+                        "native_networkconf_id": "net-corp",
+                        "excluded_networkconf_ids": ["net-cameras"],
+                        "is_uplink": false,
+                        "port_security_enabled": true,
+                        "port_security_mac_address": ["aa:bb:cc:dd:ee:ff"]
+                    },
+                    {
+                        "port_idx": 24,
+                        "name": "Uplink",
+                        "up": true,
+                        "is_uplink": true
+                    }
+                ]
+            }
+        ]
+        """;
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static AuditResult CreateMinimalAuditResult(string? clientName = null)

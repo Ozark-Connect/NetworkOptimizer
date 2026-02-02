@@ -256,6 +256,13 @@ public class UplinkInfo
     [JsonPropertyName("uplink_remote_port")]
     public int UplinkRemotePort { get; set; }
 
+    /// <summary>
+    /// Local port index on this device that connects to the upstream device.
+    /// For wired uplinks, this is the physical port number. Not present for wireless uplinks.
+    /// </summary>
+    [JsonPropertyName("port_idx")]
+    public int? PortIdx { get; set; }
+
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
 

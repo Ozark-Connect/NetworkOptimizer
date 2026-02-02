@@ -13,6 +13,7 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
 
     private UniFiFingerprintDatabase? _database;
     private DateTime? _lastFetchTime;
+    private bool _lastFetchFailed;
     private readonly SemaphoreSlim _fetchLock = new(1, 1);
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(24);
 
@@ -82,6 +83,7 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
         if (!_connectionService.IsAnyConnected() || client == null)
         {
             _logger.LogWarning("Cannot fetch fingerprint database: not connected to UniFi controller");
+            _lastFetchFailed = true;
             return;
         }
 
@@ -90,19 +92,29 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
             _logger.LogInformation("Fetching fingerprint database from UniFi controller...");
 
             _database = await client.GetCompleteFingerprintDatabaseAsync(cancellationToken);
-            _lastFetchTime = DateTime.UtcNow;
 
-            if (_database != null)
+            // Only cache if we got actual data - don't poison cache with empty results
+            // (empty results happen when Console can't reach UI.com)
+            if (_database != null && _database.DevTypeIds.Count > 0)
             {
+                _lastFetchTime = DateTime.UtcNow;
+                _lastFetchFailed = false;
                 _logger.LogInformation(
                     "Fingerprint database loaded: {DevTypes} device types, {Vendors} vendors, {Devices} specific devices",
                     _database.DevTypeIds.Count,
                     _database.VendorIds.Count,
                     _database.DevIds.Count);
             }
+            else
+            {
+                _lastFetchFailed = true;
+                _logger.LogWarning(
+                    "Fingerprint database fetch returned empty results - Console may not have HTTPS access to *.ui.com. Will retry on next request.");
+            }
         }
         catch (Exception ex)
         {
+            _lastFetchFailed = true;
             _logger.LogError(ex, "Failed to fetch fingerprint database");
         }
     }
@@ -161,12 +173,18 @@ public class FingerprintDatabaseService : IFingerprintDatabaseService
     }
 
     /// <summary>
-    /// Check if the database is loaded
+    /// Check if the database is loaded with data
     /// </summary>
-    public bool IsLoaded => _database != null;
+    public bool IsLoaded => _database != null && _database.DevTypeIds.Count > 0;
 
     /// <summary>
-    /// Get when the database was last fetched
+    /// Check if the last fetch attempt failed or returned empty results.
+    /// This indicates the Console may not have HTTPS access to *.ui.com.
+    /// </summary>
+    public bool LastFetchFailed => _lastFetchFailed;
+
+    /// <summary>
+    /// Get when the database was last successfully fetched
     /// </summary>
     public DateTime? LastFetchTime => _lastFetchTime;
 }

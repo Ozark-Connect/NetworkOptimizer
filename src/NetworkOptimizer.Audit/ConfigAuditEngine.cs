@@ -460,7 +460,35 @@ public class ConfigAuditEngine
     private void ExecutePhase3_AnalyzePortSecurity(AuditContext ctx)
     {
         _logger.LogInformation("Phase 3: Analyzing port security");
-        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks);
+
+        // Build allNetworks from NetworkConfigs (includes disabled networks)
+        // This is needed for rules like AccessPortVlanRule that count tagged VLANs
+        // Disabled networks are dormant config that could become active if re-enabled
+        // Only include corporate and guest networks - these are the ones selectable as tagged VLANs
+        // (excludes WAN and VPN-client networks which can't be tagged on switch ports)
+        List<NetworkInfo>? allNetworks = null;
+        if (ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
+        {
+            allNetworks = ctx.NetworkConfigs
+                .Where(nc => !string.IsNullOrEmpty(nc.Id) &&
+                    (string.Equals(nc.Purpose, "corporate", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase)))
+                .Select(nc => new NetworkInfo
+                {
+                    Id = nc.Id,
+                    Name = nc.Name ?? "Unknown",
+                    VlanId = nc.Vlan ?? 1,
+                    Enabled = nc.Enabled
+                })
+                .ToList();
+
+            var enabledCount = allNetworks.Count(n => n.Enabled);
+            var disabledCount = allNetworks.Count(n => !n.Enabled);
+            _logger.LogDebug("Built allNetworks from NetworkConfigs: {Total} total ({Enabled} enabled, {Disabled} disabled)",
+                allNetworks.Count, enabledCount, disabledCount);
+        }
+
+        var portIssues = ctx.SecurityEngine.AnalyzePorts(ctx.Switches, ctx.Networks, allNetworks ?? ctx.Networks);
         ctx.AllIssues.AddRange(portIssues);
         _logger.LogInformation("Found {IssueCount} port security issues", portIssues.Count);
     }
@@ -630,9 +658,7 @@ public class ConfigAuditEngine
         else
         {
             message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
-            recommendedAction = placement.RecommendedNetwork != null
-                ? $"Move to {placement.RecommendedNetworkLabel}"
-                : "Create IoT VLAN";
+            recommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation(placement, "Create IoT VLAN");
         }
 
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
@@ -676,7 +702,7 @@ public class ConfigAuditEngine
             ruleId,
             message,
             displayName, lastNetwork, placement, detection, historyClient.LastSeen, isRecent,
-            placement.RecommendedNetwork != null ? $"Move to {placement.RecommendedNetworkLabel}" : fallbackAction,
+            Rules.VlanPlacementChecker.GetMoveRecommendation(placement, fallbackAction),
             isRecent ? (isCloudCamera ? placement.Severity : Models.AuditSeverity.Critical) : Models.AuditSeverity.Informational,
             isRecent ? placement.ScoreImpact : 0,
             isCloudCamera ? placement.IsLowRisk : false));
@@ -709,9 +735,7 @@ public class ConfigAuditEngine
         else
         {
             message = $"{detection.CategoryName} on {lastNetwork.Name} VLAN - should be isolated";
-            recommendedAction = placement.RecommendedNetwork != null
-                ? $"Move to {placement.RecommendedNetworkLabel}"
-                : "Create Printer or IoT VLAN";
+            recommendedAction = Rules.VlanPlacementChecker.GetMoveRecommendation(placement, "Create Printer or IoT VLAN");
         }
 
         ctx.AllIssues.Add(CreateOfflineVlanIssue(
@@ -780,18 +804,16 @@ public class ConfigAuditEngine
         var dnsIssues = _vlanAnalyzer.AnalyzeDnsConfiguration(ctx.Networks);
         var gatewayIssues = _vlanAnalyzer.AnalyzeGatewayConfiguration(ctx.Networks);
         var mgmtDhcpIssues = _vlanAnalyzer.AnalyzeManagementVlanDhcp(ctx.Networks, gatewayName);
-        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName);
-        // Note: Internet access analysis moved to Phase 5 where firewall rules are available
+        // Note: Network isolation and internet access analysis moved to Phase 5 where firewall rules are available
         var infraVlanIssues = _vlanAnalyzer.AnalyzeInfrastructureVlanPlacement(ctx.DeviceData, ctx.Networks, gatewayName);
 
         ctx.AllIssues.AddRange(dnsIssues);
         ctx.AllIssues.AddRange(gatewayIssues);
         ctx.AllIssues.AddRange(mgmtDhcpIssues);
-        ctx.AllIssues.AddRange(networkIsolationIssues);
         ctx.AllIssues.AddRange(infraVlanIssues);
 
-        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {IsolationIssues} network isolation issues, {InfraIssues} infrastructure VLAN issues",
-            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, networkIsolationIssues.Count, infraVlanIssues.Count);
+        _logger.LogInformation("Found {DnsIssues} DNS issues, {GatewayIssues} gateway issues, {MgmtIssues} management VLAN issues, {InfraIssues} infrastructure VLAN issues",
+            dnsIssues.Count, gatewayIssues.Count, mgmtDhcpIssues.Count, infraVlanIssues.Count);
     }
 
     private void ExecutePhase5_AnalyzeFirewallRules(AuditContext ctx)
@@ -828,12 +850,18 @@ public class ConfigAuditEngine
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
         var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules, ctx.ExternalZoneId);
 
+        // Analyze network isolation with firewall rules to detect both methods of isolation:
+        // 1. network_isolation_enabled=true in network config
+        // 2. Firewall rule blocking network -> other internal networks
+        var networkIsolationIssues = _vlanAnalyzer.AnalyzeNetworkIsolation(ctx.Networks, gatewayName, firewallRules, ctx.ZoneLookup);
+
         ctx.AllIssues.AddRange(firewallIssues);
         ctx.AllIssues.AddRange(mgmtFirewallIssues);
         ctx.AllIssues.AddRange(internetAccessIssues);
+        ctx.AllIssues.AddRange(networkIsolationIssues);
 
-        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues, {InternetIssues} internet access issues (5G device: {Has5G})",
-            firewallIssues.Count, mgmtFirewallIssues.Count, internetAccessIssues.Count, has5GDevice);
+        _logger.LogInformation("Found {IssueCount} firewall issues, {MgmtFwIssues} management network firewall issues, {InternetIssues} internet access issues, {IsolationIssues} network isolation issues (5G device: {Has5G})",
+            firewallIssues.Count, mgmtFirewallIssues.Count, internetAccessIssues.Count, networkIsolationIssues.Count, has5GDevice);
 
         // Store firewall info for hardening analysis
         ctx.HardeningMeasures = ctx.SecurityEngine.AnalyzeHardening(ctx.Switches, ctx.Networks);

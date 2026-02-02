@@ -17,7 +17,7 @@ public class IotVlanRule : AuditRuleBase
     public override AuditSeverity Severity => AuditSeverity.Critical;
     public override int ScoreImpact => 10;
 
-    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks)
+    public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
         // Skip uplinks, WAN ports, and non-access ports
         if (port.ForwardMode != "native" || port.IsUplink || port.IsWan)
@@ -170,7 +170,7 @@ public class IotVlanRule : AuditRuleBase
         else
         {
             message = $"{detection.CategoryName} on {network.Name} VLAN - should be isolated";
-            recommendedAction = $"Move to {placement.RecommendedNetworkLabel}";
+            recommendedAction = VlanPlacementChecker.GetMoveRecommendation(placement.RecommendedNetworkLabel);
         }
 
         var metadata = VlanPlacementChecker.BuildMetadata(detection, network);

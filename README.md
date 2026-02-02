@@ -8,6 +8,16 @@
 
 > **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.
 
+## New: Proxmox LXC Installation
+
+Deploy on Proxmox with a single command. Run this on your Proxmox VE host:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
+```
+
+The interactive script creates a Debian 12 LXC container with Docker pre-configured. See [Proxmox Guide](scripts/proxmox/README.md) for details.
+
 ## New: macOS Native Installation
 
 Install natively on macOS for maximum speed test performance (Docker Desktop limits network throughput for speed testing). See [macOS Installation Guide](docs/MACOS-INSTALLATION.md) for full instructions.
@@ -96,6 +106,7 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 |----------|--------|-------|
 | Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
+| Proxmox VE | LXC one-liner | [Proxmox Guide](scripts/proxmox/README.md) |
 | Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#nas-deployment) |
 | macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
@@ -131,6 +142,12 @@ docker logs network-optimizer 2>&1 | grep -A5 "AUTO-GENERATED"
 ```
 
 Open http://localhost:8042
+
+### Quick Start (Proxmox)
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/Ozark-Connect/NetworkOptimizer/main/scripts/proxmox/install.sh)"
+```
 
 ### First Run
 

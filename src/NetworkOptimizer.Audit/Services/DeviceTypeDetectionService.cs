@@ -1201,13 +1201,11 @@ public class DeviceTypeDetectionService
     /// Check if vendor OUI indicates a device that needs special handling.
     /// - Cync, Wyze, and GE devices have camera fingerprints but are usually plugs/bulbs.
     /// - Apple devices with SmartSensor fingerprint are usually Apple Watches (Smartphone).
+    /// - GoPro action cameras share devCat 106 with security cameras but aren't security devices.
     /// </summary>
     private DeviceDetectionResult? CheckVendorDefaultOverride(string? oui, string? name, string? hostname, int? devCat)
     {
-        if (string.IsNullOrEmpty(oui))
-            return null;
-
-        var ouiLower = oui.ToLowerInvariant();
+        var ouiLower = oui?.ToLowerInvariant() ?? "";
         var nameLower = (name ?? hostname ?? "").ToLowerInvariant();
 
         // Apple devices with SmartSensor fingerprint (DevCat=14) are likely Apple Watches
@@ -1223,11 +1221,34 @@ public class DeviceTypeDetectionService
                 Metadata = new Dictionary<string, object>
                 {
                     ["override_reason"] = "Apple device with SmartSensor fingerprint is likely Apple Watch",
-                    ["oui"] = oui,
-                    ["dev_cat"] = devCat
+                    ["oui"] = oui ?? "",
+                    ["dev_cat"] = devCat ?? 0
                 }
             };
         }
+
+        // GoPro action cameras use the same devCat (106) as security cameras - they're not security devices
+        // This OUI check is a fallback; primary detection is in FingerprintDetector via vendor ID
+        if (ouiLower.Contains("gopro") && devCat == 106)
+        {
+            return new DeviceDetectionResult
+            {
+                Category = ClientDeviceCategory.IoTGeneric,
+                Source = DetectionSource.MacOui,
+                ConfidenceScore = VendorOverrideConfidence,
+                VendorName = "GoPro",
+                RecommendedNetwork = NetworkPurpose.IoT,
+                Metadata = new Dictionary<string, object>
+                {
+                    ["vendor_override_reason"] = "GoPro action camera - not a security camera",
+                    ["oui"] = oui ?? "",
+                    ["dev_cat"] = devCat ?? 0
+                }
+            };
+        }
+
+        if (string.IsNullOrEmpty(oui))
+            return null;
 
         // Check for vendors that default to SmartPlug
         var isPlugVendor = ouiLower.Contains("cync") ||

@@ -224,7 +224,7 @@ public class GatewaySshService : IGatewaySshService
         var connection = CreateConnectionInfo(settings);
         var result = await _sshClient.ExecuteCommandAsync(connection, command, timeout, cancellationToken);
 
-        return (result.Success, result.Success ? result.Output : result.CombinedOutput);
+        return (result.Success, result.CombinedOutput);
     }
 
     /// <summary>

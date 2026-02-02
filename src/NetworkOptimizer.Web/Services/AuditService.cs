@@ -1227,6 +1227,20 @@ public class AuditService
             // Convert audit result to web models
             var webResult = ConvertAuditResult(auditResult, options);
 
+            // Add critical issue if fingerprint database failed to load
+            if (_fingerprintService.LastFetchFailed)
+            {
+                webResult.Issues.Insert(0, new AuditIssue
+                {
+                    Severity = AuditModels.AuditSeverity.Critical,
+                    Category = "System",
+                    Title = "Device fingerprint database unavailable",
+                    Description = "Device fingerprints could not be loaded from your Console. This may cause devices to be misclassified.",
+                    Recommendation = "Ensure your Console has HTTPS access to *.ui.com and *.ubnt.com. Check firewall rules and DNS resolution. This may be a temporary issue, retry the audit run."
+                });
+                webResult.CriticalCount++;
+            }
+
             // Cache the result
             SetLastAuditResultCached(siteId, webResult);
             SetLastAuditTimeCached(siteId, DateTime.UtcNow);
@@ -1616,6 +1630,7 @@ public class AuditService
             Audit.IssueTypes.MacRestriction => "Missing MAC Restriction",
             Audit.IssueTypes.UnusedPort => "Unused Port Enabled",
             Audit.IssueTypes.PortIsolation => "Missing Port Isolation",
+            Audit.IssueTypes.AccessPortVlan => "Port Issue: Excessive Tagged VLANs",
             "PORT_SECURITY" => "Port Security Issue",
 
             // VLAN subnet mismatch

@@ -275,4 +275,39 @@ public static class VlanPlacementChecker
 
         return metadata;
     }
+
+    /// <summary>
+    /// Common hint text for VLAN recommendations when device may be misclassified.
+    /// </summary>
+    public const string ReclassifyHint = "If a device is misclassified, change its Device Icon / Fingerprint in UniFi Network.";
+
+    /// <summary>
+    /// Build a VLAN move recommendation with optional reclassify hint.
+    /// </summary>
+    /// <param name="networkLabel">Target network label (e.g., "IoT (64)" or "Security VLAN")</param>
+    /// <param name="includeReclassifyHint">Whether to append the reclassify hint</param>
+    public static string GetMoveRecommendation(string networkLabel, bool includeReclassifyHint = true)
+    {
+        var action = $"Move to {networkLabel}";
+        return includeReclassifyHint
+            ? $"{action}. {ReclassifyHint}"
+            : action;
+    }
+
+    /// <summary>
+    /// Build a VLAN move recommendation from a placement result with fallback.
+    /// </summary>
+    /// <param name="placement">Placement result from Check*Placement methods</param>
+    /// <param name="fallbackAction">Action when no target network exists (e.g., "Create IoT VLAN")</param>
+    /// <param name="includeReclassifyHint">Whether to append the reclassify hint</param>
+    public static string GetMoveRecommendation(PlacementResult placement, string fallbackAction, bool includeReclassifyHint = true)
+    {
+        var action = placement.RecommendedNetwork != null
+            ? $"Move to {placement.RecommendedNetworkLabel}"
+            : fallbackAction;
+
+        return includeReclassifyHint
+            ? $"{action}. {ReclassifyHint}"
+            : action;
+    }
 }

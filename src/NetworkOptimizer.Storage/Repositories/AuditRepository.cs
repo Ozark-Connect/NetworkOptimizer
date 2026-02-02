@@ -133,6 +133,27 @@ public class AuditRepository : IAuditRepository
     }
 
     /// <summary>
+    /// Gets the total count of audit results for a site.
+    /// </summary>
+    /// <param name="siteId">The site ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The total number of audit results for the site.</returns>
+    public async Task<int> GetAuditCountAsync(int siteId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await _context.AuditResults
+                .Where(a => a.SiteId == siteId)
+                .CountAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get audit count for site {SiteId}", siteId);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Deletes audit results older than the specified date for a site.
     /// </summary>
     /// <param name="siteId">The site ID.</param>

@@ -99,7 +99,7 @@
 
         <!-- Signal Metrics Grid -->
         <div class="cellular-metrics">
-            @if (modemStats.Nr5g != null)
+            @if (modemStats.Nr5g != null && (modemStats.Nr5g.Rsrp.HasValue || modemStats.Nr5g.Rsrq.HasValue || modemStats.Nr5g.Snr.HasValue))
             {
                 <div class="metric-box metric-5g">
                     <div class="metric-header">5G NR</div>
@@ -119,7 +119,7 @@
                     </div>
                 </div>
             }
-            @if (modemStats.Lte != null)
+            @if (modemStats.Lte != null && (modemStats.Lte.Rsrp.HasValue || modemStats.Lte.Rsrq.HasValue || modemStats.Lte.Snr.HasValue))
             {
                 <div class="metric-box metric-lte">
                     <div class="metric-header">LTE</div>

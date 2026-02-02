@@ -31,6 +31,12 @@ public interface INetworkPathAnalyzer
     /// </summary>
     Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp = null, bool retryOnFailure = true, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Calculates the network path from the server to a target device or client.
+    /// Uses the provided snapshot to compare wireless rates and pick the highest values.
+    /// </summary>
+    Task<NetworkPath> CalculatePathAsync(string targetHost, string? sourceIp, bool retryOnFailure, WirelessRateSnapshot? priorSnapshot, CancellationToken cancellationToken = default);
+
     PathAnalysisResult AnalyzeSpeedTest(NetworkPath path, double fromDeviceMbps, double toDeviceMbps, int fromDeviceRetransmits = 0, int toDeviceRetransmits = 0, long fromDeviceBytes = 0, long toDeviceBytes = 0);
 }
 
@@ -260,10 +266,27 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     /// <param name="sourceIp">Optional source IP (from iperf3 output). If null, auto-detects.</param>
     /// <param name="retryOnFailure">If true, retry once with fresh topology when target not found</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    public async Task<NetworkPath> CalculatePathAsync(
+    public Task<NetworkPath> CalculatePathAsync(
         string targetHost,
         string? sourceIp = null,
         bool retryOnFailure = true,
+        CancellationToken cancellationToken = default)
+        => CalculatePathAsync(targetHost, sourceIp, retryOnFailure, priorSnapshot: null, cancellationToken);
+
+    /// <summary>
+    /// Calculates the network path from the server to a target device or client.
+    /// Uses the provided snapshot to compare wireless rates and pick the highest values.
+    /// </summary>
+    /// <param name="targetHost">Target hostname or IP</param>
+    /// <param name="sourceIp">Optional source IP (from iperf3 output). If null, auto-detects.</param>
+    /// <param name="retryOnFailure">If true, retry once with fresh topology when target not found</param>
+    /// <param name="priorSnapshot">Optional snapshot of wireless rates captured earlier in the test</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task<NetworkPath> CalculatePathAsync(
+        string targetHost,
+        string? sourceIp,
+        bool retryOnFailure,
+        WirelessRateSnapshot? priorSnapshot,
         CancellationToken cancellationToken = default)
     {
         var path = new NetworkPath
@@ -403,7 +426,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             var rawDevices = await GetRawDevicesAsync(cancellationToken);
 
             // Build the hop list
-            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices);
+            BuildHopList(path, serverPosition, targetDevice, targetClient, topology, rawDevices, priorSnapshot);
 
             // Check if BuildHopList marked the path invalid due to stale data (retry if enabled)
             if (!path.IsValid && retryOnFailure &&
@@ -411,7 +434,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             {
                 _logger.LogDebug("Stale client data detected, invalidating topology cache and retrying");
                 InvalidateTopologyCache();
-                return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, cancellationToken);
+                return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, cancellationToken);
             }
 
             // Calculate bottleneck
@@ -686,7 +709,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         DiscoveredDevice? targetDevice,
         DiscoveredClient? targetClient,
         NetworkTopology topology,
-        Dictionary<string, UniFiDeviceResponse> rawDevices)
+        Dictionary<string, UniFiDeviceResponse> rawDevices,
+        WirelessRateSnapshot? priorSnapshot = null)
     {
         var hops = new List<NetworkHop>();
         var deviceDict = topology.Devices.ToDictionary(d => d.Mac, d => d, StringComparer.OrdinalIgnoreCase);
@@ -735,12 +759,24 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 deviceHop.WirelessChannel = targetDevice.UplinkChannel;
                 deviceHop.WirelessSignalDbm = targetDevice.UplinkSignalDbm;
                 deviceHop.WirelessNoiseDbm = targetDevice.UplinkNoiseDbm;
-                deviceHop.WirelessTxRateMbps = targetDevice.UplinkTxRateKbps > 0
-                    ? (int)(targetDevice.UplinkTxRateKbps / 1000)
-                    : null;
-                deviceHop.WirelessRxRateMbps = targetDevice.UplinkRxRateKbps > 0
-                    ? (int)(targetDevice.UplinkRxRateKbps / 1000)
-                    : null;
+                // Get current rates (Kbps)
+                var currentTxKbps = targetDevice.UplinkTxRateKbps;
+                var currentRxKbps = targetDevice.UplinkRxRateKbps;
+
+                // Compare with snapshot and use max rates (both are from child AP's perspective)
+                if (priorSnapshot?.MeshUplinkRates.TryGetValue(targetDevice.Mac, out var snapshotRates) == true)
+                {
+                    var origTxKbps = currentTxKbps;
+                    var origRxKbps = currentRxKbps;
+                    currentTxKbps = Math.Max(currentTxKbps, snapshotRates.TxKbps);
+                    currentRxKbps = Math.Max(currentRxKbps, snapshotRates.RxKbps);
+                    _logger.LogDebug("Mesh device {Name}: Using max rates - Tx={Tx}Kbps (current={CurTx}, snapshot={SnapTx}), Rx={Rx}Kbps (current={CurRx}, snapshot={SnapRx})",
+                        targetDevice.Name, currentTxKbps, origTxKbps, snapshotRates.TxKbps, currentRxKbps, origRxKbps, snapshotRates.RxKbps);
+                }
+
+                deviceHop.WirelessTxRateMbps = currentTxKbps > 0 ? (int)(currentTxKbps / 1000) : null;
+                deviceHop.WirelessRxRateMbps = currentRxKbps > 0 ? (int)(currentRxKbps / 1000) : null;
+
                 _logger.LogDebug("Wireless mesh device {Name}: UplinkType={UplinkType}, TxRate={Tx}Mbps, RxRate={Rx}Mbps, Band={Band}, Ch={Ch}, Signal={Sig}dBm",
                     targetDevice.Name, targetDevice.UplinkType,
                     deviceHop.WirelessTxRateMbps, deviceHop.WirelessRxRateMbps,
@@ -783,22 +819,51 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
             if (!targetClient.IsWired)
             {
-                int txMbps, rxMbps;
+                long currentTxKbps, currentRxKbps;
 
                 // For MLO clients, sum speeds from all links
                 if (targetClient.IsMlo && targetClient.MloLinks?.Count > 0)
                 {
-                    txMbps = (int)(targetClient.MloLinks.Sum(l => l.TxRateKbps ?? 0) / 1000);
-                    rxMbps = (int)(targetClient.MloLinks.Sum(l => l.RxRateKbps ?? 0) / 1000);
-                    _logger.LogDebug("MLO client {Name}: Summed TxRate={Tx}Mbps, RxRate={Rx}Mbps from {Links} links",
-                        targetClient.Name ?? targetClient.IpAddress, txMbps, rxMbps, targetClient.MloLinks.Count);
+                    currentTxKbps = targetClient.MloLinks.Sum(l => l.TxRateKbps ?? 0);
+                    currentRxKbps = targetClient.MloLinks.Sum(l => l.RxRateKbps ?? 0);
+                    _logger.LogDebug("MLO client {Name}: Summed TxRate={Tx}Kbps, RxRate={Rx}Kbps from {Links} links",
+                        targetClient.Name ?? targetClient.IpAddress, currentTxKbps, currentRxKbps, targetClient.MloLinks.Count);
                 }
                 else
                 {
                     // Single-link wireless - use reported rates
-                    txMbps = (int)(targetClient.TxRate / 1000);
-                    rxMbps = (int)(targetClient.RxRate / 1000);
+                    currentTxKbps = targetClient.TxRate;
+                    currentRxKbps = targetClient.RxRate;
                 }
+
+                // Compare with snapshot and use max rates (both are from client's perspective)
+                // Only use snapshot if client is still connected to the same AP (no roaming)
+                if (priorSnapshot?.ClientRates.TryGetValue(targetClient.Mac, out var snapshotRates) == true)
+                {
+                    // Check if client roamed to a different AP between snapshot and now.
+                    // If roamed, skip the snapshot entirely - rates from the old AP aren't comparable
+                    // to the new AP (different signal, channel, interference conditions).
+                    // For site surveys, the current AP is where the user IS, so current rates
+                    // are the accurate representation of their actual position.
+                    if (!string.IsNullOrEmpty(snapshotRates.ApMac) &&
+                        !string.Equals(snapshotRates.ApMac, targetClient.ConnectedToDeviceMac, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogDebug("Wireless client {Name}: Skipping snapshot - client roamed from {SnapAp} to {CurAp}",
+                            targetClient.Name ?? targetClient.IpAddress, snapshotRates.ApMac, targetClient.ConnectedToDeviceMac);
+                    }
+                    else
+                    {
+                        var origTxKbps = currentTxKbps;
+                        var origRxKbps = currentRxKbps;
+                        currentTxKbps = Math.Max(currentTxKbps, snapshotRates.TxKbps);
+                        currentRxKbps = Math.Max(currentRxKbps, snapshotRates.RxKbps);
+                        _logger.LogDebug("Wireless client {Name}: Using max rates - Tx={Tx}Kbps (current={CurTx}, snapshot={SnapTx}), Rx={Rx}Kbps (current={CurRx}, snapshot={SnapRx})",
+                            targetClient.Name ?? targetClient.IpAddress, currentTxKbps, origTxKbps, snapshotRates.TxKbps, currentRxKbps, origRxKbps, snapshotRates.RxKbps);
+                    }
+                }
+
+                var txMbps = (int)(currentTxKbps / 1000);
+                var rxMbps = (int)(currentRxKbps / 1000);
 
                 // Preserve directional rates for asymmetric Wi-Fi links:
                 // - IngressSpeedMbps = TX rate (AP transmits to client) = limits ToDevice (↑) direction
@@ -1026,12 +1091,16 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         hop.WirelessChannel = device.UplinkChannel;
                         hop.WirelessSignalDbm = device.UplinkSignalDbm;
                         hop.WirelessNoiseDbm = device.UplinkNoiseDbm;
-                        hop.WirelessTxRateMbps = device.UplinkTxRateKbps > 0
-                            ? (int)(device.UplinkTxRateKbps / 1000)
-                            : null;
-                        hop.WirelessRxRateMbps = device.UplinkRxRateKbps > 0
-                            ? (int)(device.UplinkRxRateKbps / 1000)
-                            : null;
+                        // Get current rates and compare with snapshot
+                        var hopTxKbps = device.UplinkTxRateKbps;
+                        var hopRxKbps = device.UplinkRxRateKbps;
+                        if (priorSnapshot?.MeshUplinkRates.TryGetValue(device.Mac, out var hopSnapshotRates) == true)
+                        {
+                            hopTxKbps = Math.Max(hopTxKbps, hopSnapshotRates.TxKbps);
+                            hopRxKbps = Math.Max(hopRxKbps, hopSnapshotRates.RxKbps);
+                        }
+                        hop.WirelessTxRateMbps = hopTxKbps > 0 ? (int)(hopTxKbps / 1000) : null;
+                        hop.WirelessRxRateMbps = hopRxKbps > 0 ? (int)(hopRxKbps / 1000) : null;
                     }
                     else
                     {
@@ -1134,6 +1203,7 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // Add server chain in reverse (from gateway down to server's switch)
                 // Note: We DON'T skip devices that appear in target path (except gateway)
                 // because traffic actually traverses them twice in inter-VLAN routing
+                bool isFirstAfterGateway = true;
                 for (int i = serverChain.Count - 1; i >= 0; i--)
                 {
                     var (chainDevice, chainPort) = serverChain[i];
@@ -1144,6 +1214,29 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
 
                     hopOrder++;
 
+                    // For the first device after gateway, traffic enters via the device's uplink port
+                    // (the port facing the gateway), not the downstream port from serverChain.
+                    // Use LocalUplinkPort and UplinkSpeedMbps which correctly reflect the negotiated
+                    // link speed (e.g., SFP+ running at 1 GbE instead of 10 GbE).
+                    int? ingressPort;
+                    int ingressSpeed;
+                    string? ingressPortName;
+
+                    if (isFirstAfterGateway && chainDevice.LocalUplinkPort.HasValue)
+                    {
+                        ingressPort = chainDevice.LocalUplinkPort;
+                        ingressSpeed = chainDevice.UplinkSpeedMbps;
+                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainDevice.LocalUplinkPort);
+                        isFirstAfterGateway = false;
+                    }
+                    else
+                    {
+                        ingressPort = chainPort;
+                        ingressSpeed = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort);
+                        ingressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort);
+                        isFirstAfterGateway = false;
+                    }
+
                     var hop = new NetworkHop
                     {
                         Order = hopOrder,
@@ -1153,9 +1246,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         DeviceModel = UniFiProductDatabase.GetBestProductName(chainDevice.Model, chainDevice.Shortname),
                         DeviceFirmware = chainDevice.Firmware,
                         DeviceIp = chainDevice.IpAddress,
-                        IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, chainDevice.Mac, chainPort),
-                        IngressPort = chainPort,
-                        IngressPortName = GetPortName(rawDevices, chainDevice.Mac, chainPort),
+                        IngressSpeedMbps = ingressSpeed,
+                        IngressPort = ingressPort,
+                        IngressPortName = ingressPortName,
                         Notes = "Return path from gateway"
                     };
 

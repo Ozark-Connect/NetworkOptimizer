@@ -26,6 +26,11 @@ public class DiagnosticsOptions
     /// Run the Port Profile Suggestion analyzer
     /// </summary>
     public bool RunPortProfileSuggestionAnalyzer { get; set; } = true;
+
+    /// <summary>
+    /// Run the Port Profile 802.1X analyzer
+    /// </summary>
+    public bool RunPortProfile8021xAnalyzer { get; set; } = true;
 }
 
 /// <summary>
@@ -36,6 +41,7 @@ public class DiagnosticsEngine
     private readonly ApLockAnalyzer _apLockAnalyzer;
     private readonly TrunkConsistencyAnalyzer _trunkConsistencyAnalyzer;
     private readonly PortProfileSuggestionAnalyzer _portProfileSuggestionAnalyzer;
+    private readonly PortProfile8021xAnalyzer _portProfile8021xAnalyzer;
     private readonly ILogger<DiagnosticsEngine>? _logger;
 
     public DiagnosticsEngine(
@@ -43,11 +49,13 @@ public class DiagnosticsEngine
         ILogger<DiagnosticsEngine>? logger = null,
         ILogger<ApLockAnalyzer>? apLockLogger = null,
         ILogger<TrunkConsistencyAnalyzer>? trunkConsistencyLogger = null,
-        ILogger<PortProfileSuggestionAnalyzer>? portProfileSuggestionLogger = null)
+        ILogger<PortProfileSuggestionAnalyzer>? portProfileSuggestionLogger = null,
+        ILogger<PortProfile8021xAnalyzer>? portProfile8021xLogger = null)
     {
         _apLockAnalyzer = new ApLockAnalyzer(deviceTypeDetection, apLockLogger);
         _trunkConsistencyAnalyzer = new TrunkConsistencyAnalyzer(trunkConsistencyLogger);
         _portProfileSuggestionAnalyzer = new PortProfileSuggestionAnalyzer(portProfileSuggestionLogger);
+        _portProfile8021xAnalyzer = new PortProfile8021xAnalyzer(portProfile8021xLogger);
         _logger = logger;
     }
 
@@ -138,18 +146,34 @@ public class DiagnosticsEngine
             }
         }
 
+        // Run Port Profile 802.1X Analyzer
+        if (options.RunPortProfile8021xAnalyzer)
+        {
+            _logger?.LogDebug("Running Port Profile 802.1X Analyzer");
+            try
+            {
+                result.PortProfile8021xIssues = _portProfile8021xAnalyzer.Analyze(profileList, networkList);
+                _logger?.LogDebug("Port Profile 802.1X Analyzer found {Count} issues", result.PortProfile8021xIssues.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Port Profile 802.1X Analyzer failed");
+            }
+        }
+
         stopwatch.Stop();
         result.Duration = stopwatch.Elapsed;
         result.Timestamp = DateTime.UtcNow;
 
         _logger?.LogInformation(
             "Diagnostics completed in {Duration}ms - {Total} issues found " +
-            "(AP Lock: {ApLock}, Trunk: {Trunk}, Profile: {Profile})",
+            "(AP Lock: {ApLock}, Trunk: {Trunk}, Profile: {Profile}, 802.1X: {Dot1x})",
             stopwatch.ElapsedMilliseconds,
             result.TotalIssueCount,
             result.ApLockIssues.Count,
             result.TrunkConsistencyIssues.Count,
-            result.PortProfileSuggestions.Count);
+            result.PortProfileSuggestions.Count,
+            result.PortProfile8021xIssues.Count);
 
         return result;
     }
