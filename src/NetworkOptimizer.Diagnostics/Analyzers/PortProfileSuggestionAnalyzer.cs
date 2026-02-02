@@ -1036,23 +1036,24 @@ public class PortProfileSuggestionAnalyzer
         // Create suggestion for non-PoE disabled ports (less common, but still useful)
         if (nonPoePorts.Count >= MinPortsForDisabledProfileSuggestion)
         {
-            var existingDisabledSimple = disabledProfiles
-                .FirstOrDefault(p => p.PoeMode != "off" || p.PoeMode == null);
+            // For non-PoE ports, any disabled profile works (PoE setting is ignored)
+            // Prefer the PoE-off profile if we already found one, otherwise use any disabled profile
+            var existingDisabledAny = existingDisabledPoeOff ?? disabledProfiles.FirstOrDefault();
 
-            if (existingDisabledSimple != null)
+            if (existingDisabledAny != null)
             {
                 suggestions.Add(new PortProfileSuggestion
                 {
                     Type = PortProfileSuggestionType.ApplyExisting,
                     Severity = PortProfileSuggestionSeverity.Info,
-                    MatchingProfileId = existingDisabledSimple.Id,
-                    MatchingProfileName = existingDisabledSimple.Name,
+                    MatchingProfileId = existingDisabledAny.Id,
+                    MatchingProfileName = existingDisabledAny.Name,
                     Configuration = new PortConfigSignature(),
                     AffectedPorts = nonPoePorts.Select(p => p.Reference).ToList(),
                     PortsWithoutProfile = nonPoePorts.Count,
                     PortsAlreadyUsingProfile = 0,
                     Recommendation = $"{nonPoePorts.Count} disabled non-PoE ports could use the existing " +
-                        $"\"{existingDisabledSimple.Name}\" profile."
+                        $"\"{existingDisabledAny.Name}\" profile."
                 });
             }
             else if (poeCapablePorts.Count < MinPortsForDisabledProfileSuggestion)
