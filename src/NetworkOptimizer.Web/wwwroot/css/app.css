@@ -2576,7 +2576,7 @@ select.form-control {
     }
 
     .connection-banner .banner-content .btn {
-        width: 100%;
+        flex: 1;
         text-align: center;
     }
 }
