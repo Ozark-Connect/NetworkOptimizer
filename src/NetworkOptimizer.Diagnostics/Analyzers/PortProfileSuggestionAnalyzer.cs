@@ -17,10 +17,16 @@ public class PortProfileSuggestionAnalyzer
     private readonly ILogger<PortProfileSuggestionAnalyzer>? _logger;
 
     /// <summary>
-    /// Minimum number of ports before suggesting a profile for disabled/access ports.
+    /// Minimum number of ports before suggesting to apply an existing profile.
+    /// Lower threshold since applying an existing profile is low effort.
     /// </summary>
-    private const int MinPortsForDisabledProfileSuggestion = 5;
-    private const int MinPortsForAccessProfileSuggestion = 5;
+    private const int MinPortsForApplyExistingProfile = 2;
+
+    /// <summary>
+    /// Minimum number of ports before suggesting to create a new profile.
+    /// Higher threshold since creating a new profile requires more setup.
+    /// </summary>
+    private const int MinPortsForCreateNewProfile = 5;
 
     public PortProfileSuggestionAnalyzer(ILogger<PortProfileSuggestionAnalyzer>? logger = null)
     {
@@ -972,9 +978,6 @@ public class PortProfileSuggestionAnalyzer
 
         _logger?.LogDebug("Found {Count} disabled ports without profiles", disabledPortsWithoutProfile.Count);
 
-        if (disabledPortsWithoutProfile.Count < MinPortsForDisabledProfileSuggestion)
-            return suggestions;
-
         // Group by PoE capability - PoE-capable ports should get PoE-off profile,
         // non-PoE ports can use a simpler profile
         var poeCapablePorts = disabledPortsWithoutProfile.Where(p => p.SupportsPoe).ToList();
@@ -990,8 +993,13 @@ public class PortProfileSuggestionAnalyzer
         _logger?.LogDebug("Existing disabled profile with PoE off: {Name}",
             existingDisabledPoeOff?.Name ?? "(none found)");
 
+        // Use lower threshold if a matching profile exists (easier to apply existing)
+        var poeCapableThreshold = existingDisabledPoeOff != null
+            ? MinPortsForApplyExistingProfile
+            : MinPortsForCreateNewProfile;
+
         // Create suggestion for PoE-capable disabled ports
-        if (poeCapablePorts.Count >= MinPortsForDisabledProfileSuggestion)
+        if (poeCapablePorts.Count >= poeCapableThreshold)
         {
             var severity = PortProfileSuggestionSeverity.Recommendation;
 
@@ -1035,12 +1043,15 @@ public class PortProfileSuggestionAnalyzer
         }
 
         // Create suggestion for non-PoE disabled ports (less common, but still useful)
-        if (nonPoePorts.Count >= MinPortsForDisabledProfileSuggestion)
-        {
-            // For non-PoE ports, any disabled profile works (PoE setting is ignored)
-            // Prefer the PoE-off profile if we already found one, otherwise use any disabled profile
-            var existingDisabledAny = existingDisabledPoeOff ?? disabledProfiles.FirstOrDefault();
+        // For non-PoE ports, any disabled profile works (PoE setting is ignored)
+        // Prefer the PoE-off profile if we already found one, otherwise use any disabled profile
+        var existingDisabledAny = existingDisabledPoeOff ?? disabledProfiles.FirstOrDefault();
+        var nonPoeThreshold = existingDisabledAny != null
+            ? MinPortsForApplyExistingProfile
+            : MinPortsForCreateNewProfile;
 
+        if (nonPoePorts.Count >= nonPoeThreshold)
+        {
             if (existingDisabledAny != null)
             {
                 suggestions.Add(new PortProfileSuggestion
@@ -1058,7 +1069,7 @@ public class PortProfileSuggestionAnalyzer
                         "Note: Currently more clicks in UniFi Network, but we expect this to improve."
                 });
             }
-            else if (poeCapablePorts.Count < MinPortsForDisabledProfileSuggestion)
+            else if (poeCapablePorts.Count < poeCapableThreshold)
             {
                 // Only suggest a simple disabled profile if we didn't already suggest a PoE-off one
                 suggestions.Add(new PortProfileSuggestion
@@ -1172,14 +1183,19 @@ public class PortProfileSuggestionAnalyzer
         // Generate suggestions for each VLAN group that has enough ports
         foreach (var (vlanId, ports) in accessPortsByVlan)
         {
-            if (ports.Count < MinPortsForAccessProfileSuggestion)
-                continue;
-
             var vlanName = GetNetworkName(vlanId, networksById) ?? vlanId;
 
             // Check if there's an existing unrestricted profile for this VLAN
             var existingProfile = unrestrictedAccessProfiles
                 .FirstOrDefault(p => p.NativeNetworkId == vlanId);
+
+            // Use lower threshold if a matching profile exists (easier to apply existing)
+            var threshold = existingProfile != null
+                ? MinPortsForApplyExistingProfile
+                : MinPortsForCreateNewProfile;
+
+            if (ports.Count < threshold)
+                continue;
 
             var signature = new PortConfigSignature
             {
