@@ -1113,12 +1113,17 @@ public class PortProfileSuggestionAnalyzer
                        p.TaggedVlanMgmt == "block_all")
             .ToList();
 
-        _logger?.LogDebug("Found {Count} existing unrestricted access profiles", unrestrictedAccessProfiles.Count);
-        foreach (var profile in unrestrictedAccessProfiles)
+        // Log all access profiles and why they do/don't match
+        var accessProfiles = profiles.Where(p => p.Forward == "native").ToList();
+        foreach (var profile in accessProfiles)
         {
             var vlanName = GetNetworkName(profile.NativeNetworkId, networksById) ?? profile.NativeNetworkId ?? "(default)";
-            _logger?.LogDebug("Unrestricted access profile '{Name}' for VLAN: {Vlan}", profile.Name, vlanName);
+            var isUnrestricted = !profile.PortSecurityEnabled && profile.TaggedVlanMgmt == "block_all";
+            _logger?.LogDebug("Access profile '{Name}' for VLAN {Vlan}: PortSecurityEnabled={Security}, TaggedVlanMgmt={Tagged}, IsUnrestricted={IsUnrestricted}",
+                profile.Name, vlanName, profile.PortSecurityEnabled, profile.TaggedVlanMgmt ?? "(null)", isUnrestricted);
         }
+
+        _logger?.LogDebug("Found {Count} existing unrestricted access profiles", unrestrictedAccessProfiles.Count);
 
         // Collect access ports without MAC restriction and without a profile
         // Group by native VLAN since different VLANs need different profiles
