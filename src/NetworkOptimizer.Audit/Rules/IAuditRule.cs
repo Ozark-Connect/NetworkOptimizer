@@ -255,8 +255,13 @@ public abstract class AuditRuleBase : IAuditRule
         if (profile == null)
             return false;
 
-        // Profile must be an access port (native) with MAC restriction explicitly disabled
-        return profile.Forward == "native" && !profile.PortSecurityEnabled;
+        // Profile must be:
+        // - Access port mode (forward=native)
+        // - MAC restriction disabled (port_security_enabled=false)
+        // - Tagged VLANs blocked (tagged_vlan_mgmt=block_all)
+        return profile.Forward == "native"
+            && !profile.PortSecurityEnabled
+            && profile.TaggedVlanMgmt == "block_all";
     }
 
     /// <summary>

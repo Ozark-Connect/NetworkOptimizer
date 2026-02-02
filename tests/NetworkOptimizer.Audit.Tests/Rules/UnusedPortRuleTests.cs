@@ -654,13 +654,14 @@ public class UnusedPortRuleTests
     public void Evaluate_PortWithUnrestrictedAccessProfile_ReturnsNull()
     {
         // Port has a profile that is an access port with MAC restriction explicitly disabled
-        // This indicates intentional unrestricted access (like hotel RJ45 jacks)
+        // and tagged VLANs blocked - this indicates intentional unrestricted access (like hotel RJ45 jacks)
         var profile = new UniFiPortProfile
         {
             Id = "profile-123",
             Name = "[Access] Unrestricted",
             Forward = "native",
-            PortSecurityEnabled = false
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "block_all"
         };
         var port = CreatePort(portName: "Port 4", isUp: false, forwardMode: "native", assignedProfile: profile);
         var networks = CreateNetworkList();
@@ -668,6 +669,26 @@ public class UnusedPortRuleTests
         var result = _rule.Evaluate(port, networks);
 
         result.Should().BeNull("port has an intentional unrestricted access profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithProfileAllowingTaggedVlans_ReturnsIssue()
+    {
+        // Profile has tagged VLANs set to auto (allow all) - not an intentional unrestricted profile
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-789",
+            Name = "[Access] Unrestricted",
+            Forward = "native",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "auto"
+        };
+        var port = CreatePort(portName: "Port 7", isUp: false, forwardMode: "native", assignedProfile: profile);
+        var networks = CreateNetworkList();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("profile allows all tagged VLANs, not a proper unrestricted access profile");
     }
 
     [Fact]
