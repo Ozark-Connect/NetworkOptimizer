@@ -4051,7 +4051,7 @@ public class PortProfileSuggestionAnalyzerTests
 
         disabledSuggestion.Should().NotBeNull();
         disabledSuggestion!.AffectedPorts.Should().HaveCount(5);
-        disabledSuggestion.Severity.Should().Be(Models.PortProfileSuggestionSeverity.Recommendation);
+        disabledSuggestion.Severity.Should().Be(Models.PortProfileSuggestionSeverity.Info);
     }
 
     [Fact]

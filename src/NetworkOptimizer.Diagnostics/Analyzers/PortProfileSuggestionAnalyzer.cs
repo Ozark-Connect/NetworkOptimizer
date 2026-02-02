@@ -1001,7 +1001,8 @@ public class PortProfileSuggestionAnalyzer
         // Create suggestion for PoE-capable disabled ports
         if (poeCapablePorts.Count >= poeCapableThreshold)
         {
-            var severity = PortProfileSuggestionSeverity.Recommendation;
+            // Disabled port suggestions are always Info - nice to have, not critical
+            var severity = PortProfileSuggestionSeverity.Info;
 
             if (existingDisabledPoeOff != null)
             {
