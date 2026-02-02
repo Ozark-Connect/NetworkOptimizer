@@ -332,22 +332,39 @@
     {
         if (_result == null) return;
 
-        // Collapse if empty, or if > 3 items with no recommendations
+        var apLockCount = _result.ApLockIssues.Count;
+        var trunkCount = _result.TrunkConsistencyIssues.Count;
+        var profileCount = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
+
+        // Count how many categories have items
+        var categoriesWithItems = (apLockCount > 0 ? 1 : 0) +
+                                  (trunkCount > 0 ? 1 : 0) +
+                                  (profileCount > 0 ? 1 : 0);
+
+        // If only one category has items, expand it (no point collapsing the only content)
+        if (categoriesWithItems == 1)
+        {
+            _apLockCollapsed = apLockCount == 0;
+            _trunkCollapsed = trunkCount == 0;
+            _portProfileCollapsed = profileCount == 0;
+            return;
+        }
+
+        // Otherwise, collapse if empty, or if > 3 items with no recommendations
         var hasApLockRecommendations = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Warning);
-        _apLockCollapsed = _result.ApLockIssues.Count == 0 ||
-                          (_result.ApLockIssues.Count > 3 && !hasApLockRecommendations);
+        _apLockCollapsed = apLockCount == 0 ||
+                          (apLockCount > 3 && !hasApLockRecommendations);
 
         var hasTrunkRecommendations = _result.TrunkConsistencyIssues.Any(i =>
             i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium);
-        _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
-                         (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
+        _trunkCollapsed = trunkCount == 0 ||
+                         (trunkCount > 3 && !hasTrunkRecommendations);
 
-        var totalProfileSuggestions = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
         var hasProfileRecommendations = _result.PortProfileSuggestions.Any(s =>
             s.Severity == PortProfileSuggestionSeverity.Recommendation) ||
             _result.PortProfile8021xIssues.Count > 0; // 802.1X issues are always recommendations
-        _portProfileCollapsed = totalProfileSuggestions == 0 ||
-                               (totalProfileSuggestions > 3 && !hasProfileRecommendations);
+        _portProfileCollapsed = profileCount == 0 ||
+                               (profileCount > 3 && !hasProfileRecommendations);
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;
