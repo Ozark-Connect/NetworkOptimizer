@@ -2573,14 +2573,11 @@ select.form-control {
 @media (max-width: 768px) {
     .connection-banner .banner-content {
         flex-wrap: wrap;
+        justify-content: center;
     }
 
     .connection-banner .banner-content .banner-text {
         flex-basis: calc(100% - 3.5rem);
-    }
-
-    .connection-banner .banner-content .btn:first-of-type {
-        margin-left: auto;
     }
 }
 
