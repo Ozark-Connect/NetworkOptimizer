@@ -121,4 +121,10 @@ public class PortInfo
     /// Determined by matching device uplink info to this port. Null for regular clients.
     /// </summary>
     public string? ConnectedDeviceType { get; init; }
+
+    /// <summary>
+    /// The port profile (portconf) assigned to this port, if any.
+    /// Used to detect intentional configurations like unrestricted access ports.
+    /// </summary>
+    public UniFiPortProfile? AssignedPortProfile { get; init; }
 }

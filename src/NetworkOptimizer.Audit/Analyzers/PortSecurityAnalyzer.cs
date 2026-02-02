@@ -505,7 +505,7 @@ public class PortSecurityAnalyzer
 
         // Resolve port profile settings if a profile is assigned
         var portconfId = port.GetStringOrNull("portconf_id");
-        string? profileName = null;
+        UniFiPortProfile? assignedProfile = null;
         bool portSecurityEnabled = port.GetBoolOrDefault("port_security_enabled");
         List<string>? allowedMacAddresses = port.GetStringArrayOrNull("port_security_mac_address")?.ToList();
         string? nativeNetworkId = port.GetStringOrNull("native_networkconf_id");
@@ -562,7 +562,7 @@ public class PortSecurityAnalyzer
                 isolationEnabled = profile.Isolation;
             }
 
-            profileName = profile.Name;
+            assignedProfile = profile;
         }
         else if (!string.IsNullOrEmpty(portconfId))
         {
@@ -644,7 +644,8 @@ public class PortSecurityAnalyzer
             LastConnectionMac = lastConnectionMac,
             LastConnectionSeen = lastConnectionSeen,
             HistoricalClient = historicalClient,
-            ConnectedDeviceType = connectedDeviceType
+            ConnectedDeviceType = connectedDeviceType,
+            AssignedPortProfile = assignedProfile
         };
     }
 

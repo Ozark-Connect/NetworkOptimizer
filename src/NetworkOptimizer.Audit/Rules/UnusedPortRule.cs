@@ -54,6 +54,11 @@ public class UnusedPortRule : AuditRuleBase
         if (port.ForwardMode == "disabled")
             return null; // Correctly configured
 
+        // Skip if port has an intentional unrestricted access profile
+        // (user has created an access port profile with MAC restriction disabled - like hotel RJ45 jacks)
+        if (HasIntentionalUnrestrictedProfile(port))
+            return null;
+
         // Determine threshold based on whether port has a custom name
         var hasCustomName = PortNameHelper.IsCustomPortName(port.Name);
         var thresholdDays = hasCustomName ? _namedPortInactivityDays : _unusedPortInactivityDays;
@@ -95,8 +100,9 @@ public class UnusedPortRule : AuditRuleBase
             new Dictionary<string, object>
             {
                 { "current_forward_mode", port.ForwardMode ?? "unknown" },
-                { "recommendation", "Disable unused ports to reduce attack surface" },
                 { "configurable_setting", "Configure the grace period before flagging disconnected ports in Settings." }
-            });
+            },
+            "Disable unused ports to reduce attack surface. " +
+            "In UniFi, set the port to 'Disabled' to prevent unauthorized device connections.");
     }
 }

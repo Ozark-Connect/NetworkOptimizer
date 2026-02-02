@@ -442,16 +442,30 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_IssueContainsRecommendation()
+    public void Evaluate_IssueContainsRecommendation_AllowAll()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null); // Allow All
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
-        result!.Metadata.Should().ContainKey("recommendation");
-        ((string)result.Metadata!["recommendation"]).Should().Contain("Limit");
+        result!.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("Allow All");
+    }
+
+    [Fact]
+    public void Evaluate_IssueContainsRecommendation_ThresholdExceeded()
+    {
+        var networks = CreateVlanNetworks(5);
+        var excludeTwo = networks.Take(2).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeTwo); // 3 VLANs allowed
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("single-device port");
     }
 
     [Fact]

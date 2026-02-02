@@ -55,8 +55,9 @@ public class PortIsolationRule : AuditRuleBase
             new Dictionary<string, object>
             {
                 { "device_type", deviceType },
-                { "network", network.Name },
-                { "recommendation", "Enable port isolation to prevent lateral movement" }
-            });
+                { "network", network.Name }
+            },
+            "Enable port isolation to prevent lateral movement between devices on the same VLAN. " +
+            "This adds defense-in-depth for compromised cameras or IoT devices.");
     }
 }

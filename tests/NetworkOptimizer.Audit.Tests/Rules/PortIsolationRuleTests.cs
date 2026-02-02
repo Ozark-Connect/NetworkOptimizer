@@ -325,7 +325,8 @@ public class PortIsolationRuleTests
         result.Metadata!["device_type"].Should().Be("Camera");
         result.Metadata.Should().ContainKey("network");
         result.Metadata["network"].Should().Be("Cameras");
-        result.Metadata.Should().ContainKey("recommendation");
+        result.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("port isolation");
     }
 
     [Fact]
