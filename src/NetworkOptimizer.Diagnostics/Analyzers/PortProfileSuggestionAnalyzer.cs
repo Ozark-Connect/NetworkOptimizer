@@ -1114,6 +1114,11 @@ public class PortProfileSuggestionAnalyzer
             .ToList();
 
         _logger?.LogDebug("Found {Count} existing unrestricted access profiles", unrestrictedAccessProfiles.Count);
+        foreach (var profile in unrestrictedAccessProfiles)
+        {
+            var vlanName = GetNetworkName(profile.NativeNetworkId, networksById) ?? profile.NativeNetworkId ?? "(default)";
+            _logger?.LogDebug("Unrestricted access profile '{Name}' for VLAN: {Vlan}", profile.Name, vlanName);
+        }
 
         // Collect access ports without MAC restriction and without a profile
         // Group by native VLAN since different VLANs need different profiles
@@ -1180,6 +1185,15 @@ public class PortProfileSuggestionAnalyzer
 
         _logger?.LogDebug("Found access ports without unrestricted profiles across {VlanCount} VLANs",
             accessPortsByVlan.Count);
+
+        // Log per-VLAN port counts
+        foreach (var (vlanId, portList) in accessPortsByVlan)
+        {
+            var vlanName = GetNetworkName(vlanId, networksById) ?? vlanId;
+            var hasMatchingProfile = unrestrictedAccessProfiles.Any(p => p.NativeNetworkId == vlanId);
+            _logger?.LogDebug("VLAN '{Vlan}': {Count} access ports, existing profile: {HasProfile}",
+                vlanName, portList.Count, hasMatchingProfile);
+        }
 
         // Generate suggestions for each VLAN group that has enough ports
         foreach (var (vlanId, ports) in accessPortsByVlan)
