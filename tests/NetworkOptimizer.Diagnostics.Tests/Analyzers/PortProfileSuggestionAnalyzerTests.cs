@@ -4047,7 +4047,7 @@ public class PortProfileSuggestionAnalyzerTests
         // Assert - should suggest creating a disabled profile
         var disabledSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "Disabled (PoE Off)");
+            r.SuggestedProfileName == "Disabled");
 
         disabledSuggestion.Should().NotBeNull();
         disabledSuggestion!.AffectedPorts.Should().HaveCount(5);
@@ -4203,7 +4203,7 @@ public class PortProfileSuggestionAnalyzerTests
         // Assert - should suggest creating an unrestricted access profile
         var accessSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "[Access] Guest - Unrestricted");
+            r.SuggestedProfileName == "Guest - Unrestricted");
 
         accessSuggestion.Should().NotBeNull();
         accessSuggestion!.AffectedPorts.Should().HaveCount(5);
@@ -4302,11 +4302,11 @@ public class PortProfileSuggestionAnalyzerTests
         // Assert - should have two separate suggestions for each VLAN
         var guestSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "[Access] Guest - Unrestricted");
+            r.SuggestedProfileName == "Guest - Unrestricted");
 
         var conferenceSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "[Access] Conference - Unrestricted");
+            r.SuggestedProfileName == "Conference - Unrestricted");
 
         guestSuggestion.Should().NotBeNull();
         guestSuggestion!.AffectedPorts.Should().HaveCount(5);
@@ -4395,7 +4395,7 @@ public class PortProfileSuggestionAnalyzerTests
         // Assert - should combine ports from both switches (total 5)
         var disabledSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "Disabled (PoE Off)");
+            r.SuggestedProfileName == "Disabled");
 
         disabledSuggestion.Should().NotBeNull();
         disabledSuggestion!.AffectedPorts.Should().HaveCount(5);
@@ -4439,7 +4439,7 @@ public class PortProfileSuggestionAnalyzerTests
         // Assert - only 5 unrestricted ports should be included, not the 2 with MAC restriction
         var accessSuggestion = result.FirstOrDefault(r =>
             r.Type == Models.PortProfileSuggestionType.CreateNew &&
-            r.SuggestedProfileName == "[Access] Guest - Unrestricted");
+            r.SuggestedProfileName == "Guest - Unrestricted");
 
         accessSuggestion.Should().NotBeNull();
         accessSuggestion!.AffectedPorts.Should().HaveCount(5);
