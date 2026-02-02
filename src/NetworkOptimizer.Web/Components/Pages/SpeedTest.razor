@@ -288,7 +288,7 @@
                 <div class="alert @(!string.IsNullOrEmpty(ConnectionService.LastError) ? "alert-danger" : "alert-warning")">
                     @if (!string.IsNullOrEmpty(ConnectionService.LastError))
                     {
-                        <strong>Connection Error:</strong> @ConnectionService.LastError <a href="/settings">Check Settings</a>
+                        <strong>Connection Error:</strong>&nbsp;@ConnectionService.LastError <a href="/settings">Check Settings</a>
                     }
                     else
                     {
