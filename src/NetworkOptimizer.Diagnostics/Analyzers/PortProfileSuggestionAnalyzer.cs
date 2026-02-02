@@ -1010,7 +1010,7 @@ public class PortProfileSuggestionAnalyzer
                     PortsAlreadyUsingProfile = 0,
                     Recommendation = $"{poeCapablePorts.Count} disabled PoE-capable ports could use the existing " +
                         $"\"{existingDisabledPoeOff.Name}\" profile for consistent configuration. " +
-                        "Note: Assigning a profile requires more clicks in UniFi Network than disabling ports directly."
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
                 });
             }
             else
@@ -1027,7 +1027,7 @@ public class PortProfileSuggestionAnalyzer
                     PortsAlreadyUsingProfile = 0,
                     Recommendation = $"{poeCapablePorts.Count} disabled PoE-capable ports share the same configuration. " +
                         "A \"Disabled\" port profile with PoE off enables consistent configuration and bulk changes. " +
-                        "Note: Assigning a profile requires more clicks in UniFi Network than disabling ports directly."
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
                 });
             }
 
@@ -1055,7 +1055,7 @@ public class PortProfileSuggestionAnalyzer
                     PortsAlreadyUsingProfile = 0,
                     Recommendation = $"{nonPoePorts.Count} disabled non-PoE ports could use the existing " +
                         $"\"{existingDisabledAny.Name}\" profile for consistent configuration. " +
-                        "Note: Assigning a profile requires more clicks in UniFi Network than disabling ports directly."
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
                 });
             }
             else if (poeCapablePorts.Count < MinPortsForDisabledProfileSuggestion)
@@ -1072,7 +1072,7 @@ public class PortProfileSuggestionAnalyzer
                     PortsAlreadyUsingProfile = 0,
                     Recommendation = $"{nonPoePorts.Count} disabled ports share the same configuration. " +
                         "A \"Disabled\" port profile enables consistent configuration and bulk changes. " +
-                        "Note: Assigning a profile requires more clicks in UniFi Network than disabling ports directly."
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
                 });
             }
         }
