@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
@@ -647,6 +648,61 @@ public class UnusedPortRuleTests
 
     #endregion
 
+    #region Intentional Unrestricted Profile Detection
+
+    [Fact]
+    public void Evaluate_PortWithUnrestrictedAccessProfile_ReturnsNull()
+    {
+        // Port has a profile that is an access port with MAC restriction explicitly disabled
+        // This indicates intentional unrestricted access (like hotel RJ45 jacks)
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-123",
+            Name = "[Access] Unrestricted",
+            Forward = "native",
+            PortSecurityEnabled = false
+        };
+        var port = CreatePort(portName: "Port 4", isUp: false, forwardMode: "native", assignedProfile: profile);
+        var networks = CreateNetworkList();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("port has an intentional unrestricted access profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithTrunkProfile_ReturnsIssue()
+    {
+        // Trunk profile on unused port - this is likely misconfigured and should be flagged
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-456",
+            Name = "[Trunk] All VLANs",
+            Forward = "all",
+            PortSecurityEnabled = false
+        };
+        var port = CreatePort(portName: "Port 5", isUp: false, forwardMode: "all", assignedProfile: profile);
+        var networks = CreateNetworkList();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("trunk profile on unused port should still be flagged");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithNoProfile_ReturnsIssue()
+    {
+        // Port has no profile assigned - should still trigger the issue
+        var port = CreatePort(portName: "Port 6", isUp: false, forwardMode: "native", assignedProfile: null);
+        var networks = CreateNetworkList();
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("port without a profile should still be flagged");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static PortInfo CreatePort(
@@ -658,7 +714,8 @@ public class UnusedPortRuleTests
         bool isWan = false,
         string? networkId = "default-net",
         string switchName = "Test Switch",
-        long? lastConnectionSeen = null)
+        long? lastConnectionSeen = null,
+        UniFiPortProfile? assignedProfile = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -677,7 +734,8 @@ public class UnusedPortRuleTests
             IsWan = isWan,
             NativeNetworkId = networkId,
             Switch = switchInfo,
-            LastConnectionSeen = lastConnectionSeen
+            LastConnectionSeen = lastConnectionSeen,
+            AssignedPortProfile = assignedProfile
         };
     }
 

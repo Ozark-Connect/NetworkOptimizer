@@ -54,6 +54,11 @@ public class UnusedPortRule : AuditRuleBase
         if (port.ForwardMode == "disabled")
             return null; // Correctly configured
 
+        // Skip if port has an intentional unrestricted access profile
+        // (user has created an access port profile with MAC restriction disabled - like hotel RJ45 jacks)
+        if (HasIntentionalUnrestrictedProfile(port))
+            return null;
+
         // Determine threshold based on whether port has a custom name
         var hasCustomName = PortNameHelper.IsCustomPortName(port.Name);
         var thresholdDays = hasCustomName ? _namedPortInactivityDays : _unusedPortInactivityDays;

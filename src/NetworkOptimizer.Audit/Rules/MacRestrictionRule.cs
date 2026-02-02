@@ -68,20 +68,6 @@ public class MacRestrictionRule : AuditRuleBase
     }
 
     /// <summary>
-    /// Check if the port has an intentional unrestricted access profile assigned.
-    /// This indicates the user has explicitly configured this as a multi-device port (like hotel RJ45 jacks).
-    /// </summary>
-    private static bool HasIntentionalUnrestrictedProfile(PortInfo port)
-    {
-        var profile = port.AssignedPortProfile;
-        if (profile == null)
-            return false;
-
-        // Profile must be an access port (native) with MAC restriction explicitly disabled
-        return profile.Forward == "native" && !profile.PortSecurityEnabled;
-    }
-
-    /// <summary>
     /// Check if the device type is network fabric (gateway, AP, switch, bridge) that shouldn't get MAC restriction recommendations.
     /// Modems, NVRs, Cloud Keys are endpoints and SHOULD get recommendations.
     /// </summary>

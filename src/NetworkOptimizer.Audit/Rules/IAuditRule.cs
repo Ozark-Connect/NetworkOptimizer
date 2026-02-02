@@ -245,6 +245,21 @@ public abstract class AuditRuleBase : IAuditRule
     protected bool IsAccessPointName(string? portName) => DeviceNameHints.IsAccessPointName(portName);
 
     /// <summary>
+    /// Check if the port has an intentional unrestricted access profile assigned.
+    /// This indicates the user has explicitly configured this as a multi-device port
+    /// (like hotel RJ45 jacks that need to accept any device).
+    /// </summary>
+    protected static bool HasIntentionalUnrestrictedProfile(PortInfo port)
+    {
+        var profile = port.AssignedPortProfile;
+        if (profile == null)
+            return false;
+
+        // Profile must be an access port (native) with MAC restriction explicitly disabled
+        return profile.Forward == "native" && !profile.PortSecurityEnabled;
+    }
+
+    /// <summary>
     /// Create an audit issue from this rule
     /// </summary>
     protected AuditIssue CreateIssue(
