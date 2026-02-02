@@ -314,8 +314,8 @@ public class UniFiApiClient : IDisposable
         {
             HttpStatusCode.Unauthorized => "Invalid username or password",
             HttpStatusCode.Forbidden => "Access denied. Check user permissions.",
-            HttpStatusCode.TooManyRequests => "Too many login attempts. Wait a few minutes before trying again.",
-            HttpStatusCode.ServiceUnavailable => "Controller is unavailable. Check if it's running.",
+            HttpStatusCode.TooManyRequests => "Too many login attempts against UniFi Console. Wait a few minutes before trying again.",
+            HttpStatusCode.ServiceUnavailable => "Console is unavailable. Check if it's running.",
             _ => $"Authentication failed (HTTP {(int)statusCode})"
         };
     }

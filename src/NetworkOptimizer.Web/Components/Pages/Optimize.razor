@@ -318,8 +318,12 @@
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
     private const string InfoIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>""";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        // Wait for auto-connect to complete (if credentials are saved)
+        // This prevents the button from staying disabled after a restart
+        await ConnectionService.WaitForConnectionAsync();
+
         _result = DiagnosticsService.LastResult;
         InitializeCollapsedState();
     }
