@@ -2576,7 +2576,11 @@ select.form-control {
     }
 
     .connection-banner .banner-content .banner-text {
-        flex-basis: calc(100% - 3rem);
+        flex-basis: calc(100% - 3.5rem);
+    }
+
+    .connection-banner .banner-content .btn:first-of-type {
+        margin-left: auto;
     }
 }
 
