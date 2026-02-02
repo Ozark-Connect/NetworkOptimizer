@@ -774,21 +774,17 @@ WantedBy=multi-user.target
                 return (false, $"Invalid ping target: {safePingHost.error}");
             }
 
-            // Run 3 pings with 1 second timeout each, binding to the specified interface
-            // -c 3: send 3 pings
-            // -W 2: 2 second timeout per ping
-            // -I: bind to specific interface
+            // Run 3 pings with 2 second timeout each, binding to the specified interface
+            // Success if exit code 0 OR output contains successful ping response
             var pingCmd = $"ping -c 3 -W 2 -I {interfaceName} {pingHost} 2>&1";
             var pingResult = await RunCommandAsync(pingCmd, TimeSpan.FromSeconds(15));
 
-            // Check if any pings succeeded (look for "bytes from" in output)
-            if (pingResult.success && pingResult.output.Contains("bytes from"))
+            if (pingResult.success || pingResult.output.Contains("bytes from"))
             {
                 _logger.LogInformation("Ping target {Host} is reachable on {Interface}", pingHost, interfaceName);
                 return (true, null);
             }
 
-            // All pings failed - provide helpful error message
             _logger.LogWarning("Ping target {Host} is not reachable on {Interface}. Output: {Output}",
                 pingHost, interfaceName, pingResult.output);
 
@@ -796,12 +792,12 @@ WantedBy=multi-user.target
                 $"This means the ping-based SQM adjustments won't work.\n\n" +
                 $"To find a suitable ping target:\n" +
                 $"1. SSH to your gateway\n" +
-                $"2. Run: traceroute -i {interfaceName} 8.8.8.8\n" +
-                $"3. Pick a hop that responds (usually hop 1-3 is your ISP)\n\n" +
+                $"2. Test connectivity: ping -c 3 -I {interfaceName} 1.1.1.1\n" +
+                $"3. If that fails, try a hop within your ISP's network\n\n" +
                 $"Common choices:\n" +
-                $"- Your ISP's gateway (first hop)\n" +
-                $"- A reliable DNS server (1.1.1.1, 8.8.8.8)\n" +
-                $"- A CDN edge server in your region";
+                $"- Cloudflare DNS (1.1.1.1)\n" +
+                $"- Google DNS (8.8.8.8)\n" +
+                $"- A router within your ISP's network";
 
             return (false, errorMsg);
         }
