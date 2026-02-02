@@ -28,8 +28,9 @@ public class ScriptGenerator
     /// <summary>
     /// Format a double using invariant culture to ensure consistent decimal point (not comma)
     /// regardless of system locale. Critical for shell script generation.
+    /// Rounds to 10 decimal places to avoid IEEE 754 artifacts like 0.30000000000000004.
     /// </summary>
-    private static string Inv(double value) => value.ToString(CultureInfo.InvariantCulture);
+    private static string Inv(double value) => Math.Round(value, 10).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Generate all scripts required for SQM deployment.
