@@ -306,7 +306,8 @@ public class UnusedPortRuleTests
         result.Should().NotBeNull();
         result!.Metadata.Should().ContainKey("current_forward_mode");
         result.Metadata!["current_forward_mode"].Should().Be("native");
-        result.Metadata.Should().ContainKey("recommendation");
+        result.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("Disable unused ports");
     }
 
     [Fact]

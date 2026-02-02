@@ -63,6 +63,13 @@ public class AccessPortVlanRule : AuditRuleBase
         var network = GetNetwork(port.NativeNetworkId, networks);
         var vlanDesc = allowsAllVlans ? "all VLANs tagged" : $"{taggedVlanCount} VLANs tagged";
 
+        // Different recommendations for "Allow All" vs. threshold exceeded
+        var recommendation = allowsAllVlans
+            ? "Configure the port to allow only the specific VLANs this device requires. " +
+              "'Allow All' automatically exposes any new VLANs added to your network."
+            : $"This single-device port has {taggedVlanCount} tagged VLANs. " +
+              "Most devices only need their native VLAN - restrict tagged VLANs to those actually required.";
+
         return CreateIssue(
             $"Access port for single device has {vlanDesc}",
             port,
@@ -70,9 +77,9 @@ public class AccessPortVlanRule : AuditRuleBase
             {
                 { "network", network?.Name ?? "Unknown" },
                 { "tagged_vlan_count", taggedVlanCount },
-                { "allows_all_vlans", allowsAllVlans },
-                { "recommendation", "Limit tagged VLANs to only those required by this device" }
-            });
+                { "allows_all_vlans", allowsAllVlans }
+            },
+            recommendation);
     }
 
     /// <summary>

@@ -55,9 +55,10 @@ public class MacRestrictionRule : AuditRuleBase
             port,
             new Dictionary<string, object>
             {
-                { "network", network?.Name ?? "Unknown" },
-                { "recommendation", "Restrict access ports to specific MAC addresses to prevent unauthorized devices" }
-            });
+                { "network", network?.Name ?? "Unknown" }
+            },
+            "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
+            "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list.");
     }
 
     /// <summary>

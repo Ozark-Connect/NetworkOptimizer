@@ -247,7 +247,11 @@ public abstract class AuditRuleBase : IAuditRule
     /// <summary>
     /// Create an audit issue from this rule
     /// </summary>
-    protected AuditIssue CreateIssue(string message, PortInfo port, Dictionary<string, object>? metadata = null)
+    protected AuditIssue CreateIssue(
+        string message,
+        PortInfo port,
+        Dictionary<string, object>? metadata = null,
+        string? recommendedAction = null)
     {
         var deviceName = GetBestDeviceName(port);
 
@@ -261,6 +265,7 @@ public abstract class AuditRuleBase : IAuditRule
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             Metadata = metadata,
+            RecommendedAction = recommendedAction,
             RuleId = RuleId,
             ScoreImpact = ScoreImpact
         };
