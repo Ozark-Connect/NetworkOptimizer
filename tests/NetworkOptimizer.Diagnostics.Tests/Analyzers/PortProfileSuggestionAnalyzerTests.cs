@@ -4402,5 +4402,52 @@ public class PortProfileSuggestionAnalyzerTests
         disabledSuggestion.AffectedPorts.Select(p => p.DeviceName).Distinct().Should().HaveCount(2);
     }
 
+    [Fact]
+    public void Analyze_AccessPortsWithDirectMacRestriction_ExcludedFromSuggestion()
+    {
+        // Arrange - 7 access ports, but 2 have MAC restriction enabled directly (not via profile)
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Unrestricted ports (no MAC restriction)
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest" },
+                // Restricted ports (have MAC restriction enabled directly)
+                new() { PortIdx = 6, Forward = "native", NativeNetworkConfId = "network-guest", PortSecurityEnabled = true },
+                new() { PortIdx = 7, Forward = "native", NativeNetworkConfId = "network-guest", PortSecurityMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" } }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - only 5 unrestricted ports should be included, not the 2 with MAC restriction
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "[Access] Guest - Unrestricted");
+
+        accessSuggestion.Should().NotBeNull();
+        accessSuggestion!.AffectedPorts.Should().HaveCount(5);
+        accessSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+        // Ports 6 and 7 should NOT be included since they have MAC restriction
+        accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 6);
+        accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 7);
+    }
+
     #endregion
 }

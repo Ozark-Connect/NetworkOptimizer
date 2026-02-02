@@ -930,6 +930,11 @@ public class PortProfileSuggestionAnalyzer
             .ToList();
 
         _logger?.LogDebug("Found {Count} existing disabled port profiles", disabledProfiles.Count);
+        foreach (var dp in disabledProfiles)
+        {
+            _logger?.LogDebug("Disabled profile '{Name}': Forward={Forward}, PoeMode={PoeMode}",
+                dp.Name, dp.Forward, dp.PoeMode ?? "(null)");
+        }
 
         // Collect all disabled ports without a profile
         var disabledPortsWithoutProfile = new List<(PortReference Reference, string? PoeMode, bool SupportsPoe)>();
@@ -975,9 +980,15 @@ public class PortProfileSuggestionAnalyzer
         var poeCapablePorts = disabledPortsWithoutProfile.Where(p => p.SupportsPoe).ToList();
         var nonPoePorts = disabledPortsWithoutProfile.Where(p => !p.SupportsPoe).ToList();
 
+        _logger?.LogDebug("Disabled ports: {PoECapable} PoE-capable, {NonPoE} non-PoE",
+            poeCapablePorts.Count, nonPoePorts.Count);
+
         // Check if there's an existing disabled profile with PoE off
         var existingDisabledPoeOff = disabledProfiles
             .FirstOrDefault(p => p.PoeMode == "off");
+
+        _logger?.LogDebug("Existing disabled profile with PoE off: {Name}",
+            existingDisabledPoeOff?.Name ?? "(none found)");
 
         // Create suggestion for PoE-capable disabled ports
         if (poeCapablePorts.Count >= MinPortsForDisabledProfileSuggestion)
@@ -1120,6 +1131,13 @@ public class PortProfileSuggestionAnalyzer
                             continue; // Already using an appropriate profile
                     }
                     continue; // Has a profile, skip
+                }
+
+                // Check if port has MAC restriction configured directly (not via profile)
+                // If port has security enabled or has allowed MAC addresses, it's not unrestricted
+                if (port.PortSecurityEnabled || (port.PortSecurityMacAddresses?.Count > 0))
+                {
+                    continue; // Port has MAC restriction, not unrestricted
                 }
 
                 // Get the native VLAN ID

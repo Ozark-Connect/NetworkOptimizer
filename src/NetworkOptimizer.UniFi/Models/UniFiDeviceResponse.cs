@@ -246,6 +246,19 @@ public class SwitchPort
     /// </summary>
     [JsonPropertyName("portconf_id")]
     public string? PortConfId { get; set; }
+
+    /// <summary>
+    /// Whether port security (MAC restriction) is enabled on this port.
+    /// When true, only devices with MACs in PortSecurityMacAddresses can connect.
+    /// </summary>
+    [JsonPropertyName("port_security_enabled")]
+    public bool PortSecurityEnabled { get; set; }
+
+    /// <summary>
+    /// List of MAC addresses allowed on this port when PortSecurityEnabled is true.
+    /// </summary>
+    [JsonPropertyName("port_security_mac_address")]
+    public List<string>? PortSecurityMacAddresses { get; set; }
 }
 
 public class UplinkInfo
