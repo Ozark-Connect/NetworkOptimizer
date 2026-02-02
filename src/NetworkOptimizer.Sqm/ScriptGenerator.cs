@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using NetworkOptimizer.Sqm.Models;
 
@@ -23,6 +24,12 @@ public class ScriptGenerator
             ? InputSanitizer.SanitizeConnectionName(config.Interface)
             : InputSanitizer.SanitizeConnectionName(config.ConnectionName);
     }
+
+    /// <summary>
+    /// Format a double using invariant culture to ensure consistent decimal point (not comma)
+    /// regardless of system locale. Critical for shell script generation.
+    /// </summary>
+    private static string Inv(double value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Generate all scripts required for SQM deployment.
@@ -219,7 +226,7 @@ public class ScriptGenerator
         sb.AppendLine($"MAX_DOWNLOAD_SPEED=\"{_config.MaxDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
-        sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{_config.OverheadMultiplier}\"");
+        sb.AppendLine($"DOWNLOAD_SPEED_MULTIPLIER=\"{Inv(_config.OverheadMultiplier)}\"");
         sb.AppendLine($"RESULT_FILE=\"/data/sqm/{_name}-result.txt\"");
         sb.AppendLine($"LOG_FILE=\"/var/log/sqm-{_name}.log\"");
         sb.AppendLine();
@@ -316,10 +323,10 @@ public class ScriptGenerator
         sb.AppendLine($"INTERFACE=\"{_config.Interface}\"");
         sb.AppendLine($"IFB_DEVICE=\"ifb{_config.Interface}\"");
         sb.AppendLine($"PING_HOST=\"{_config.PingHost}\"");
-        sb.AppendLine($"BASELINE_LATENCY={_config.BaselineLatency}");
-        sb.AppendLine($"LATENCY_THRESHOLD={_config.LatencyThreshold}");
-        sb.AppendLine($"LATENCY_DECREASE={_config.LatencyDecrease}");
-        sb.AppendLine($"LATENCY_INCREASE={_config.LatencyIncrease}");
+        sb.AppendLine($"BASELINE_LATENCY={Inv(_config.BaselineLatency)}");
+        sb.AppendLine($"LATENCY_THRESHOLD={Inv(_config.LatencyThreshold)}");
+        sb.AppendLine($"LATENCY_DECREASE={Inv(_config.LatencyDecrease)}");
+        sb.AppendLine($"LATENCY_INCREASE={Inv(_config.LatencyIncrease)}");
         sb.AppendLine($"MIN_DOWNLOAD_SPEED=\"{_config.MinDownloadSpeed}\"");
         sb.AppendLine($"ABSOLUTE_MAX_DOWNLOAD_SPEED=\"{_config.AbsoluteMaxDownloadSpeed}\"");
         sb.AppendLine($"MAX_DOWNLOAD_SPEED_CONFIG=\"{_config.MaxDownloadSpeed}\"");
@@ -480,13 +487,13 @@ update_all_tc_classes() {
     /// </summary>
     private string GetBaselineBlendingLogic()
     {
-        var withinBaseline = _config.BlendingWeightWithin;
-        var withinMeasured = 1.0 - withinBaseline;
-        var belowBaseline = _config.BlendingWeightBelow;
-        var belowMeasured = 1.0 - belowBaseline;
+        var withinBaseline = Inv(_config.BlendingWeightWithin);
+        var withinMeasured = Inv(1.0 - _config.BlendingWeightWithin);
+        var belowBaseline = Inv(_config.BlendingWeightBelow);
+        var belowMeasured = Inv(1.0 - _config.BlendingWeightBelow);
 
-        var withinRatio = $"{(int)(withinBaseline * 100)}/{(int)(withinMeasured * 100)}";
-        var belowRatio = $"{(int)(belowBaseline * 100)}/{(int)(belowMeasured * 100)}";
+        var withinRatio = $"{(int)(_config.BlendingWeightWithin * 100)}/{(int)((1.0 - _config.BlendingWeightWithin) * 100)}";
+        var belowRatio = $"{(int)(_config.BlendingWeightBelow * 100)}/{(int)((1.0 - _config.BlendingWeightBelow) * 100)}";
 
         return $@"# Baseline blending
 current_day=$(date +%u)
@@ -518,8 +525,9 @@ fi";
     /// </summary>
     private string GetBaselineBlendingLogicForPing()
     {
-        var baselineWeight = _config.BlendingWeightWithin;
-        var measuredWeight = 1.0 - baselineWeight;
+        var baselineWeight = Inv(_config.BlendingWeightWithin);
+        var measuredWeight = Inv(1.0 - _config.BlendingWeightWithin);
+        var overheadMultiplier = Inv(_config.OverheadMultiplier);
 
         return $@"# Baseline blending for ping
 current_day=$(date +%u)
@@ -530,7 +538,7 @@ lookup_key=""${{current_day}}_${{current_hour}}""
 baseline_speed=${{BASELINE[$lookup_key]}}
 
 if [ -n ""$baseline_speed"" ]; then
-    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {_config.OverheadMultiplier} / 1"" | bc)
+    baseline_with_overhead=$(echo ""scale=0; $baseline_speed * {overheadMultiplier} / 1"" | bc)
     if [ ""$baseline_with_overhead"" -gt ""$MAX_DOWNLOAD_SPEED_CONFIG"" ]; then
         baseline_with_overhead=$MAX_DOWNLOAD_SPEED_CONFIG
     fi
