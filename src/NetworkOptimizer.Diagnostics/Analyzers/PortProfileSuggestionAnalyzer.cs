@@ -66,9 +66,11 @@ public class PortProfileSuggestionAnalyzer
         // Collect all trunk ports with their effective configurations
         var trunkPorts = CollectTrunkPorts(devices, profilesById, networksById, allNetworkIds);
 
-        // Analyze disabled ports for profile suggestions
-        var disabledPortSuggestions = AnalyzeDisabledPorts(devices, profileList, networksById);
-        suggestions.AddRange(disabledPortSuggestions);
+        // TODO: Re-enable disabled port profile suggestions when UniFi improves their UX.
+        // Currently it's easier to just disable ports directly rather than use a profile
+        // (too many clicks in the UniFi UI to assign a port profile).
+        // var disabledPortSuggestions = AnalyzeDisabledPorts(devices, profileList, networksById);
+        // suggestions.AddRange(disabledPortSuggestions);
 
         // Analyze unrestricted access ports for profile suggestions
         var accessPortSuggestions = AnalyzeUnrestrictedAccessPorts(devices, profileList, networksById);
