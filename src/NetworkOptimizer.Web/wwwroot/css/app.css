@@ -2575,9 +2575,8 @@ select.form-control {
         flex-wrap: wrap;
     }
 
-    .connection-banner .banner-content .btn {
-        flex: 1;
-        text-align: center;
+    .connection-banner .banner-content .banner-text {
+        flex-basis: calc(100% - 3rem);
     }
 }
 
