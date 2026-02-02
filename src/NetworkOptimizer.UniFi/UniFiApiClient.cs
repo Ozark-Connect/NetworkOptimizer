@@ -1610,7 +1610,7 @@ public class UniFiApiClient : IDisposable
                     // Provide user-friendly error messages for known error codes
                     if (msg == "api.err.NoSiteContext")
                     {
-                        var error = $"Invalid Site ID: The site '{_site}' does not exist on this controller. Check the Site ID in Settings.";
+                        var error = $"Invalid Site ID: The site '{_site}' does not exist on this controller.";
                         return (false, error);
                     }
 
