@@ -6340,6 +6340,21 @@ select.form-control {
     font-weight: 500;
 }
 
+.ap-filter-select {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    min-width: 150px;
+}
+
+.ap-filter-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
 .filter-checkbox {
     display: flex;
     align-items: center;

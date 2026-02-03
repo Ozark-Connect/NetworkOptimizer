@@ -255,6 +255,36 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// Get per-AP Wi-Fi metrics time series (filtered by AP MAC)
+    /// </summary>
+    public async Task<List<WiFi.Models.SiteWiFiMetrics>> GetApMetricsAsync(
+        string[] apMacs,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        WiFi.MetricGranularity granularity = WiFi.MetricGranularity.FiveMinutes)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get AP metrics - not connected to UniFi");
+            return new List<WiFi.Models.SiteWiFiMetrics>();
+        }
+
+        try
+        {
+            var provider = new WiFi.Providers.UniFiLiveDataProvider(
+                _connectionService.Client,
+                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+
+            return await provider.GetApMetricsAsync(apMacs, start, end, granularity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get AP metrics for {ApMacs}", string.Join(",", apMacs));
+            return new List<WiFi.Models.SiteWiFiMetrics>();
+        }
+    }
+
+    /// <summary>
     /// Get per-client Wi-Fi metrics time series
     /// </summary>
     public async Task<List<WiFi.Models.ClientWiFiMetrics>> GetClientMetricsAsync(
