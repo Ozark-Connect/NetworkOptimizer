@@ -5948,9 +5948,9 @@ select.form-control {
     min-height: 4px;
 }
 
-.band-bar.band-2ghz { background: #f97316; }
+.band-bar.band-2ghz { background: #fbbf24; }
 .band-bar.band-5ghz { background: #3b82f6; }
-.band-bar.band-6ghz { background: #8b5cf6; }
+.band-bar.band-6ghz { background: #a855f7; }
 
 .band-value {
     font-size: 1.25rem;
@@ -6185,8 +6185,8 @@ select.form-control {
 }
 
 .radio-band.band-2ghz {
-    background: rgba(249, 115, 22, 0.2);
-    color: #f97316;
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
 }
 
 .radio-band.band-5ghz {
@@ -6195,8 +6195,8 @@ select.form-control {
 }
 
 .radio-band.band-6ghz {
-    background: rgba(139, 92, 246, 0.2);
-    color: #8b5cf6;
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
 }
 
 .radio-channel {
@@ -6414,8 +6414,8 @@ select.form-control {
 }
 
 .band-label.band-2ghz {
-    background: rgba(249, 115, 22, 0.2);
-    color: #f97316;
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
 }
 
 .band-label.band-5ghz {
@@ -6424,8 +6424,8 @@ select.form-control {
 }
 
 .band-label.band-6ghz {
-    background: rgba(139, 92, 246, 0.2);
-    color: #8b5cf6;
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
 }
 
 /* ApexCharts dark theme overrides */
@@ -7843,7 +7843,7 @@ select.form-control {
     border-radius: 2px;
 }
 
-.load-chart-section .legend-color.band-2ghz { background: #22c55e; }
+.load-chart-section .legend-color.band-2ghz { background: #fbbf24; }
 .load-chart-section .legend-color.band-5ghz { background: #3b82f6; }
 .load-chart-section .legend-color.band-6ghz { background: #a855f7; }
 
@@ -7899,7 +7899,7 @@ select.form-control {
     transition: width 0.3s ease;
 }
 
-.load-segment.band-2ghz { background: #22c55e; }
+.load-segment.band-2ghz { background: #fbbf24; }
 .load-segment.band-5ghz { background: #3b82f6; }
 .load-segment.band-6ghz { background: #a855f7; }
 
@@ -8028,8 +8028,8 @@ select.form-control {
 }
 
 .radio-summary .radio-band.band-2ghz {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
 }
 
 .radio-summary .radio-band.band-5ghz {
@@ -8743,7 +8743,7 @@ select.form-control {
 }
 
 .steering-stat-card.band-2ghz-card {
-    border-left: 3px solid #22c55e;
+    border-left: 3px solid #fbbf24;
 }
 .steering-stat-card.band-5ghz-card {
     border-left: 3px solid #3b82f6;
@@ -8931,8 +8931,8 @@ select.form-control {
 }
 
 .band-badge.band-2ghz {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
 }
 
 .band-badge.band-5ghz {
@@ -9966,7 +9966,7 @@ select.form-control {
     border-top: 3px solid var(--border-color);
 }
 
-.band-env-card.band-2ghz { border-top-color: #22c55e; }
+.band-env-card.band-2ghz { border-top-color: #fbbf24; }
 .band-env-card.band-5ghz { border-top-color: #3b82f6; }
 .band-env-card.band-6ghz { border-top-color: #a855f7; }
 
