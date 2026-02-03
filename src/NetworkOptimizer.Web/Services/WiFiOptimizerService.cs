@@ -313,6 +313,34 @@ public class WiFiOptimizerService
             return new List<WiFi.Models.ClientWiFiMetrics>();
         }
     }
+
+    /// <summary>
+    /// Get client connection events (connects, disconnects, roams)
+    /// </summary>
+    public async Task<List<WiFi.Models.ClientConnectionEvent>> GetClientConnectionEventsAsync(
+        string clientMac,
+        int limit = 200)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get client events - not connected to UniFi");
+            return new List<WiFi.Models.ClientConnectionEvent>();
+        }
+
+        try
+        {
+            var provider = new WiFi.Providers.UniFiLiveDataProvider(
+                _connectionService.Client,
+                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+
+            return await provider.GetClientConnectionEventsAsync(clientMac, limit);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get client events for {ClientMac}", clientMac);
+            return new List<WiFi.Models.ClientConnectionEvent>();
+        }
+    }
 }
 
 /// <summary>

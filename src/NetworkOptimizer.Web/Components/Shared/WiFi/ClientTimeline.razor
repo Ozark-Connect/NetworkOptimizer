@@ -140,31 +140,31 @@
             }
         </div>
 
-        <!-- Events List -->
+        <!-- Connection Events List -->
         <div class="events-section">
             <div class="events-header">
-                <span class="events-title">Signal Changes</span>
-                <span class="events-count">@_events.Count notable changes</span>
+                <span class="events-title">Connection Events</span>
+                <span class="events-count">@_connectionEvents.Count events</span>
             </div>
 
-            @if (_events.Count == 0)
+            @if (_connectionEvents.Count == 0)
             {
                 <div class="events-empty">
-                    <p>No significant signal changes in this time period</p>
+                    <p>No connection events recorded</p>
                 </div>
             }
             else
             {
                 <div class="events-list">
-                    @foreach (var evt in _events.Take(50))
+                    @foreach (var evt in _connectionEvents.Take(50))
                     {
                         <div class="event-item @GetEventTypeClass(evt.Type)">
                             <div class="event-icon">@GetEventIcon(evt.Type)</div>
                             <div class="event-content">
-                                <div class="event-title">@evt.Title</div>
-                                <div class="event-details">@evt.Details</div>
+                                <div class="event-title">@GetEventTitle(evt)</div>
+                                <div class="event-details">@GetEventDetails(evt)</div>
                             </div>
-                            <div class="event-time">@evt.Time.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                            <div class="event-time">@evt.Timestamp.ToLocalTime().ToString("MMM d, h:mm tt")</div>
                         </div>
                     }
                 </div>
@@ -183,7 +183,7 @@
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
     private List<ClientWiFiMetrics> _clientMetrics = new();
-    private List<ClientEvent> _events = new();
+    private List<ClientConnectionEvent> _connectionEvents = new();
 
     // Chart data
     private ApexChart<ClientChartPoint>? _signalChart;
@@ -288,7 +288,7 @@
         {
             _selectedClient = null;
             _clientMetrics.Clear();
-            _events.Clear();
+            _connectionEvents.Clear();
             return;
         }
 
@@ -340,8 +340,15 @@
             Logger.LogInformation("Transformed chart data: Signal={SignalCount}, TxRetry={RetryCount}",
                 _signalData.Count, _txRetryData.Count);
 
-            // Generate events (placeholder - would come from roaming/event APIs)
-            GenerateEventsFromMetrics();
+            // Fetch real connection events from UniFi
+            _connectionEvents = await WiFiService.GetClientConnectionEventsAsync(_selectedClientMac);
+            // Filter to time range and sort newest first
+            _connectionEvents = _connectionEvents
+                .Where(e => e.Timestamp >= start && e.Timestamp <= end)
+                .OrderByDescending(e => e.Timestamp)
+                .ToList();
+
+            Logger.LogInformation("Loaded {Count} connection events", _connectionEvents.Count);
         }
         finally
         {
@@ -372,53 +379,38 @@
         _txRetryData = newTxRetryData;
     }
 
-    private void GenerateEventsFromMetrics()
+    private string GetEventTitle(ClientConnectionEvent evt) => evt.Type switch
     {
-        _events.Clear();
+        ClientConnectionEventType.Roamed => $"Roamed to {evt.ToApName ?? "unknown AP"}",
+        ClientConnectionEventType.Connected => $"Connected to {evt.ApName ?? "AP"}",
+        ClientConnectionEventType.Disconnected => "Disconnected",
+        _ => "Event"
+    };
 
-        // Generate events from metrics data
-        // Note: True roaming events require the roaming events API
-        if (_clientMetrics.Count == 0) return;
+    private string GetEventDetails(ClientConnectionEvent evt) => evt.Type switch
+    {
+        ClientConnectionEventType.Roamed =>
+            $"{evt.FromApName ?? "?"} → {evt.ToApName ?? "?"}" +
+            (evt.PreviousSignal.HasValue && evt.Signal.HasValue
+                ? $" ({evt.PreviousSignal} → {evt.Signal} dBm)"
+                : "") +
+            (!string.IsNullOrEmpty(evt.RadioBand)
+                ? $" · {evt.GetRadioBandDisplay()}"
+                : ""),
 
-        var ordered = _clientMetrics.OrderBy(m => m.Timestamp).ToList();
-        int? lastSignal = null;
-        DateTimeOffset? lastSignalChangeTime = null;
+        ClientConnectionEventType.Connected =>
+            (evt.WifiStats ?? "") +
+            (!string.IsNullOrEmpty(evt.IpAddress) ? $" · IP: {evt.IpAddress}" : ""),
 
-        foreach (var metric in ordered)
-        {
-            if (!metric.Signal.HasValue)
-            {
-                lastSignal = null;
-                continue;
-            }
+        ClientConnectionEventType.Disconnected =>
+            (!string.IsNullOrEmpty(evt.Duration) ? $"Duration: {evt.Duration}" : "") +
+            (!string.IsNullOrEmpty(evt.DataUp) && !string.IsNullOrEmpty(evt.DataDown)
+                ? $" · {evt.DataUp} up / {evt.DataDown} down"
+                : "") +
+            (evt.Signal.HasValue ? $" · Last signal: {evt.Signal} dBm" : ""),
 
-            if (lastSignal.HasValue)
-            {
-                var delta = metric.Signal.Value - lastSignal.Value;
-
-                // Significant signal change (>10 dB in either direction)
-                // Skip if too close to previous event (likely same roam)
-                if (Math.Abs(delta) > 10 &&
-                    (!lastSignalChangeTime.HasValue || (metric.Timestamp - lastSignalChangeTime.Value).TotalMinutes > 2))
-                {
-                    var isImprovement = delta > 0;
-                    _events.Add(new ClientEvent
-                    {
-                        Type = isImprovement ? "signal_improve" : "signal_drop",
-                        Title = isImprovement ? "Signal Improved" : "Signal Dropped",
-                        Details = $"{lastSignal} → {metric.Signal} dBm ({(isImprovement ? "+" : "")}{delta} dB)" +
-                                  (Math.Abs(delta) > 15 ? " - possible roam" : ""),
-                        Time = metric.Timestamp
-                    });
-                    lastSignalChangeTime = metric.Timestamp;
-                }
-            }
-
-            lastSignal = metric.Signal;
-        }
-
-        _events = _events.OrderByDescending(e => e.Time).ToList();
-    }
+        _ => evt.WifiStats ?? ""
+    };
 
     private string GetBandCssClass(RadioBand band) => band switch
     {
@@ -442,23 +434,19 @@
         return rate.Value >= 1000 ? $"{rate.Value / 1000.0:F1} Gbps" : $"{rate.Value} Mbps";
     }
 
-    private string GetEventTypeClass(string type) => type switch
+    private string GetEventTypeClass(ClientConnectionEventType type) => type switch
     {
-        "connect" => "event-connect",
-        "disconnect" => "event-disconnect",
-        "roam" => "event-roam",
-        "signal_drop" => "event-warning",
-        "signal_improve" => "event-success",
+        ClientConnectionEventType.Connected => "event-connect",
+        ClientConnectionEventType.Disconnected => "event-disconnect",
+        ClientConnectionEventType.Roamed => "event-roam",
         _ => ""
     };
 
-    private string GetEventIcon(string type) => type switch
+    private string GetEventIcon(ClientConnectionEventType type) => type switch
     {
-        "connect" => "+",
-        "disconnect" => "-",
-        "roam" => "→",
-        "signal_drop" => "↓",
-        "signal_improve" => "↑",
+        ClientConnectionEventType.Connected => "+",
+        ClientConnectionEventType.Disconnected => "-",
+        ClientConnectionEventType.Roamed => "→",
         _ => "•"
     };
 
@@ -473,13 +461,5 @@
             Timestamp = timestamp;
             Value = (decimal)value;
         }
-    }
-
-    public class ClientEvent
-    {
-        public string Type { get; set; } = "";
-        public string Title { get; set; } = "";
-        public string Details { get; set; } = "";
-        public DateTimeOffset Time { get; set; }
     }
 }

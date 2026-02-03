@@ -1889,6 +1889,46 @@ public class UniFiApiClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// GET v2/api/site/{site}/system-log/client-connection/{mac} - Get client connection events (connects, disconnects, roams)
+    /// </summary>
+    /// <param name="clientMac">Client MAC address</param>
+    /// <param name="limit">Maximum number of events to return (default 200)</param>
+    public async Task<JsonElement> GetClientConnectionEventsAsync(
+        string clientMac,
+        int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching client connection events for {ClientMac}", clientMac);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return default;
+        }
+
+        var url = BuildV2ApiPath($"site/{_site}/system-log/client-connection/{clientMac}?mac={clientMac}&separateConnectionSignalParam=false&limit={limit}");
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(url, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                return doc.RootElement.Clone();
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("Client connection events request failed: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+            }
+
+            return default;
+        });
+    }
+
     #endregion
 
     public void Dispose()

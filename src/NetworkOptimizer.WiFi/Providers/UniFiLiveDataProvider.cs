@@ -231,10 +231,191 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         CancellationToken cancellationToken = default)
     {
         // The roaming topology endpoint provides aggregate stats, not individual events.
-        // For now, we return an empty list. Individual events may require parsing
-        // the events/alarm endpoints or the new roaming events API when available.
-        _logger.LogDebug("Roaming events not yet implemented - use GetRoamingTopologyAsync for aggregate stats");
+        // Use GetClientConnectionEventsAsync for individual roaming events.
+        _logger.LogDebug("Roaming events not yet implemented - use GetClientConnectionEventsAsync instead");
         return new List<RoamingEvent>();
+    }
+
+    /// <summary>
+    /// Get client connection events (connects, disconnects, roams) for a specific client
+    /// </summary>
+    public async Task<List<ClientConnectionEvent>> GetClientConnectionEventsAsync(
+        string clientMac,
+        int limit = 200,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogDebug("Fetching client connection events for {ClientMac}", clientMac);
+            var data = await _client.GetClientConnectionEventsAsync(clientMac, limit, cancellationToken);
+            return ParseClientConnectionEvents(data, clientMac);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch client connection events for {ClientMac}", clientMac);
+            return new List<ClientConnectionEvent>();
+        }
+    }
+
+    private List<ClientConnectionEvent> ParseClientConnectionEvents(JsonElement data, string clientMac)
+    {
+        var events = new List<ClientConnectionEvent>();
+
+        if (data.ValueKind != JsonValueKind.Array)
+        {
+            _logger.LogDebug("Client connection events data is not an array");
+            return events;
+        }
+
+        foreach (var item in data.EnumerateArray())
+        {
+            try
+            {
+                var evt = new ClientConnectionEvent
+                {
+                    ClientMac = clientMac
+                };
+
+                if (item.TryGetProperty("id", out var idProp))
+                    evt.Id = idProp.GetString() ?? "";
+
+                if (item.TryGetProperty("key", out var keyProp))
+                    evt.Key = keyProp.GetString() ?? "";
+
+                if (item.TryGetProperty("timestamp", out var tsProp) && tsProp.ValueKind == JsonValueKind.Number)
+                    evt.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(tsProp.GetInt64());
+
+                // Determine event type from key
+                evt.Type = evt.Key switch
+                {
+                    var k when k.Contains("ROAMED") => ClientConnectionEventType.Roamed,
+                    var k when k.Contains("CONNECTED") => ClientConnectionEventType.Connected,
+                    var k when k.Contains("DISCONNECTED") => ClientConnectionEventType.Disconnected,
+                    _ => ClientConnectionEventType.Unknown
+                };
+
+                // Parse parameters
+                if (item.TryGetProperty("parameters", out var paramsProp))
+                {
+                    // Client info
+                    if (paramsProp.TryGetProperty("CLIENT", out var clientProp))
+                    {
+                        evt.ClientName = GetNestedString(clientProp, "name");
+                    }
+
+                    // WLAN
+                    if (paramsProp.TryGetProperty("WLAN", out var wlanProp))
+                    {
+                        evt.WlanName = GetNestedString(wlanProp, "name");
+                    }
+
+                    // IP
+                    if (paramsProp.TryGetProperty("IP", out var ipProp))
+                    {
+                        evt.IpAddress = GetNestedString(ipProp, "name");
+                    }
+
+                    // WiFi stats summary
+                    if (paramsProp.TryGetProperty("WIFI_STATS", out var wifiStatsProp))
+                    {
+                        evt.WifiStats = GetNestedString(wifiStatsProp, "name");
+                    }
+
+                    // Current signal/band/channel
+                    if (paramsProp.TryGetProperty("SIGNAL_STRENGTH", out var sigProp))
+                    {
+                        var sigStr = GetNestedString(sigProp, "name");
+                        if (int.TryParse(sigStr, out var sig)) evt.Signal = sig;
+                    }
+
+                    if (paramsProp.TryGetProperty("RADIO_BAND", out var bandProp))
+                    {
+                        evt.RadioBand = GetNestedString(bandProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("CHANNEL", out var chanProp))
+                    {
+                        var chanStr = GetNestedString(chanProp, "name");
+                        if (int.TryParse(chanStr, out var chan)) evt.Channel = chan;
+                    }
+
+                    if (paramsProp.TryGetProperty("CHANNEL_WIDTH", out var widthProp))
+                    {
+                        var widthStr = GetNestedString(widthProp, "name");
+                        if (int.TryParse(widthStr, out var width)) evt.ChannelWidth = width;
+                    }
+
+                    // Device (for connect events)
+                    if (paramsProp.TryGetProperty("DEVICE", out var deviceProp))
+                    {
+                        evt.ApMac = GetNestedString(deviceProp, "id");
+                        evt.ApName = GetNestedString(deviceProp, "name");
+                    }
+
+                    // Roaming-specific: DEVICE_FROM, DEVICE_TO, previous signal/band
+                    if (paramsProp.TryGetProperty("DEVICE_FROM", out var fromProp))
+                    {
+                        evt.FromApMac = GetNestedString(fromProp, "id");
+                        evt.FromApName = GetNestedString(fromProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("DEVICE_TO", out var toProp))
+                    {
+                        evt.ToApMac = GetNestedString(toProp, "id");
+                        evt.ToApName = GetNestedString(toProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("PREVIOUS_SIGNAL_STRENGTH", out var prevSigProp))
+                    {
+                        var prevSigStr = GetNestedString(prevSigProp, "name");
+                        if (int.TryParse(prevSigStr, out var prevSig)) evt.PreviousSignal = prevSig;
+                    }
+
+                    if (paramsProp.TryGetProperty("PREVIOUS_RADIO_BAND", out var prevBandProp))
+                    {
+                        evt.PreviousRadioBand = GetNestedString(prevBandProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("PREVIOUS_CHANNEL", out var prevChanProp))
+                    {
+                        var prevChanStr = GetNestedString(prevChanProp, "name");
+                        if (int.TryParse(prevChanStr, out var prevChan)) evt.PreviousChannel = prevChan;
+                    }
+
+                    // Disconnect-specific: DURATION, DATA_UP, DATA_DOWN
+                    if (paramsProp.TryGetProperty("DURATION", out var durProp))
+                    {
+                        evt.Duration = GetNestedString(durProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("DATA_UP", out var dataUpProp))
+                    {
+                        evt.DataUp = GetNestedString(dataUpProp, "name");
+                    }
+
+                    if (paramsProp.TryGetProperty("DATA_DOWN", out var dataDownProp))
+                    {
+                        evt.DataDown = GetNestedString(dataDownProp, "name");
+                    }
+                }
+
+                events.Add(evt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse client connection event");
+            }
+        }
+
+        _logger.LogDebug("Parsed {Count} client connection events", events.Count);
+        return events;
+    }
+
+    private static string? GetNestedString(JsonElement el, string prop)
+    {
+        if (el.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.String)
+            return val.GetString();
+        return null;
     }
 
     /// <summary>
