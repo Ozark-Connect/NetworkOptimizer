@@ -10073,3 +10073,588 @@ select.form-control {
         gap: 0.5rem;
     }
 }
+
+/* ============================================
+   Connectivity Flow Component
+   ============================================ */
+
+.connectivity-flow-container {
+    padding: 0.5rem;
+}
+
+.flow-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.flow-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.flow-loading,
+.flow-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Flow Sections */
+.flow-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.flow-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.flow-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.flow-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Flow Diagram - Connection Stages */
+.flow-diagram {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 1rem 0;
+}
+
+.flow-stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    min-width: 140px;
+}
+
+.stage-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.stage-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.stage-icon.success-icon {
+    background: var(--success-color);
+    color: white;
+}
+
+.stage-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.stage-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.stage-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.stage-metrics {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.stage-count {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.stage-count.success { color: var(--success-color); }
+.stage-count.warning { color: var(--warning-color); }
+.stage-count.danger { color: var(--danger-color); }
+
+.stage-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.stage-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: auto;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.bar-fill.success { background: var(--success-color); }
+.bar-fill.warning { background: var(--warning-color); }
+.bar-fill.danger { background: var(--danger-color); }
+
+/* Flow Connector */
+.flow-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.connector-line {
+    width: 100%;
+    height: 2px;
+    background: var(--border-color);
+    position: relative;
+}
+
+.connector-line::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left: 6px solid var(--border-color);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+
+.connector-drop {
+    position: absolute;
+    top: calc(50% + 10px);
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Flow Success Rate */
+.flow-success-rate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1rem;
+    margin-top: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.success-rate-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.success-rate-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.success-rate-value.rate-excellent { color: var(--success-color); }
+.success-rate-value.rate-good { color: #22c55e; }
+.success-rate-value.rate-fair { color: var(--warning-color); }
+.success-rate-value.rate-poor { color: var(--danger-color); }
+
+/* Connection Issues Breakdown */
+.issues-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.issue-category {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border-left: 3px solid var(--border-color);
+}
+
+.issue-category.warning { border-left-color: var(--warning-color); }
+.issue-category.info { border-left-color: var(--info-color); }
+.issue-category.danger { border-left-color: var(--danger-color); }
+
+.issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.issue-icon {
+    font-size: 1rem;
+}
+
+.issue-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.issue-count {
+    font-weight: 700;
+    font-size: 1.125rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.issue-category.warning .issue-count { color: var(--warning-color); }
+.issue-category.info .issue-count { color: var(--info-color); }
+.issue-category.danger .issue-count { color: var(--danger-color); }
+
+.issue-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.affected-clients {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.affected-client {
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.affected-more {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Client Status Summary */
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.status-card {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1.25rem;
+    text-align: center;
+    position: relative;
+    border-top: 3px solid var(--border-color);
+}
+
+.status-card.status-connected { border-top-color: var(--success-color); }
+.status-card.status-authorized { border-top-color: var(--info-color); }
+.status-card.status-guest { border-top-color: #a855f7; }
+.status-card.status-issue { border-top-color: var(--warning-color); }
+
+.status-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.status-card.status-connected .status-value { color: var(--success-color); }
+.status-card.status-issue .status-value { color: var(--warning-color); }
+
+.status-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.status-icon {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+/* Per-AP Connection Stats */
+.ap-success-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ap-success-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 60px;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.ap-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-info .ap-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.ap-info .ap-clients {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ap-success-bar-container {
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.ap-success-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.ap-success-bar.rate-excellent { background: var(--success-color); }
+.ap-success-bar.rate-good { background: #22c55e; }
+.ap-success-bar.rate-fair { background: var(--warning-color); }
+.ap-success-bar.rate-poor { background: var(--danger-color); }
+
+.ap-success-value {
+    font-weight: 600;
+    text-align: right;
+}
+
+.ap-success-value.rate-excellent { color: var(--success-color); }
+.ap-success-value.rate-good { color: #22c55e; }
+.ap-success-value.rate-fair { color: var(--warning-color); }
+.ap-success-value.rate-poor { color: var(--danger-color); }
+
+/* Connectivity Recommendations */
+.recommendations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color);
+}
+
+.recommendation-item.warning { border-left-color: var(--warning-color); }
+.recommendation-item.info { border-left-color: var(--info-color); }
+
+.rec-icon {
+    width: 28px;
+    height: 28px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.recommendation-item.warning .rec-icon {
+    background: var(--warning-color);
+    color: white;
+}
+
+.recommendation-item.info .rec-icon {
+    background: var(--info-color);
+    color: white;
+}
+
+.rec-content {
+    flex: 1;
+}
+
+.rec-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.rec-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Connectivity Flow */
+@media (max-width: 1024px) {
+    .flow-diagram {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .flow-stage {
+        width: 100%;
+        flex-direction: row;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-radius: 0;
+    }
+
+    .flow-stage:first-child {
+        border-radius: 8px 8px 0 0;
+    }
+
+    .flow-stage:last-child {
+        border-radius: 0 0 8px 8px;
+    }
+
+    .stage-header {
+        margin-bottom: 0;
+        flex: 1;
+    }
+
+    .stage-metrics {
+        flex-direction: column;
+        align-items: flex-end;
+        margin-bottom: 0;
+        gap: 0;
+    }
+
+    .stage-bar {
+        display: none;
+    }
+
+    .flow-connector {
+        width: 100%;
+        height: 30px;
+        flex-direction: row;
+    }
+
+    .connector-line {
+        width: 2px;
+        height: 100%;
+    }
+
+    .connector-line::after {
+        right: 50%;
+        top: auto;
+        bottom: 0;
+        transform: translateX(50%);
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 6px solid var(--border-color);
+    }
+
+    .connector-drop {
+        top: auto;
+        left: calc(50% + 20px);
+    }
+
+    .status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .flow-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .flow-success-rate {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .ap-success-row {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .ap-info {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .ap-success-value {
+        text-align: left;
+    }
+
+    .status-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .status-card {
+        padding: 1rem;
+    }
+
+    .status-value {
+        font-size: 1.5rem;
+    }
+}

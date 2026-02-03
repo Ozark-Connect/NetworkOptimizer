@@ -163,6 +163,10 @@
                 @onclick="@(() => SetActiveTab("environment"))">
             Environment
         </button>
+        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("connectivity"))">
+            Connectivity
+        </button>
         <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("overview"))">
             Overview
@@ -247,6 +251,15 @@
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "connectivity")
+    {
+        <!-- Connectivity Flow -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ConnectivityFlow />
             </div>
         </div>
     }
