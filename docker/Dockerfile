@@ -20,6 +20,7 @@ COPY ["src/NetworkOptimizer.Storage/NetworkOptimizer.Storage.csproj", "src/Netwo
 COPY ["src/NetworkOptimizer.Agents/NetworkOptimizer.Agents.csproj", "src/NetworkOptimizer.Agents/"]
 COPY ["src/NetworkOptimizer.Reports/NetworkOptimizer.Reports.csproj", "src/NetworkOptimizer.Reports/"]
 COPY ["src/NetworkOptimizer.Diagnostics/NetworkOptimizer.Diagnostics.csproj", "src/NetworkOptimizer.Diagnostics/"]
+COPY ["src/NetworkOptimizer.WiFi/NetworkOptimizer.WiFi.csproj", "src/NetworkOptimizer.WiFi/"]
 
 # Restore dependencies
 RUN dotnet restore "src/NetworkOptimizer.Web/NetworkOptimizer.Web.csproj"
