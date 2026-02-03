@@ -8179,3 +8179,1897 @@ select.form-control {
         gap: 0.5rem;
     }
 }
+
+/* ============================================
+   Power & Coverage Analysis Component
+   ============================================ */
+
+.power-coverage-container {
+    padding: 0.5rem;
+}
+
+.power-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.power-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.power-loading,
+.power-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Power Stats Row */
+.power-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.power-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.power-stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.power-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.power-stat-card.stat-good .power-stat-value { color: var(--success-color); }
+.power-stat-card.stat-warning .power-stat-value { color: var(--warning-color); }
+.power-stat-card.stat-danger .power-stat-value { color: var(--danger-color); }
+
+/* Signal quality classes */
+.power-stat-card.signal-excellent .power-stat-value,
+.signal-excellent { color: #10b981; }
+.power-stat-card.signal-good .power-stat-value,
+.signal-good { color: #22c55e; }
+.power-stat-card.signal-fair .power-stat-value,
+.signal-fair { color: #eab308; }
+.power-stat-card.signal-weak .power-stat-value,
+.signal-weak { color: #f97316; }
+.power-stat-card.signal-poor .power-stat-value,
+.signal-poor { color: #ef4444; }
+
+/* Power Sections */
+.power-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.power-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.power-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.power-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Signal Distribution Chart */
+.signal-distribution {
+    padding: 1rem 0;
+}
+
+.signal-bars {
+    display: flex;
+    align-items: flex-end;
+    height: 150px;
+    gap: 4px;
+    padding: 0 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.signal-bar-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+}
+
+.signal-bar {
+    width: 100%;
+    border-radius: 4px 4px 0 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 4px;
+    transition: height 0.3s ease;
+    position: relative;
+}
+
+.signal-bar .bar-count {
+    font-size: 0.65rem;
+    color: white;
+    font-weight: 600;
+    position: absolute;
+    top: 4px;
+}
+
+.signal-bar.signal-excellent { background: #10b981; }
+.signal-bar.signal-good { background: #22c55e; }
+.signal-bar.signal-fair { background: #eab308; }
+.signal-bar.signal-weak { background: #f97316; }
+.signal-bar.signal-poor { background: #ef4444; }
+
+.signal-bar-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.signal-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.signal-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.signal-legend .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.signal-legend .legend-color.signal-excellent { background: #10b981; }
+.signal-legend .legend-color.signal-good { background: #22c55e; }
+.signal-legend .legend-color.signal-fair { background: #eab308; }
+.signal-legend .legend-color.signal-weak { background: #f97316; }
+.signal-legend .legend-color.signal-poor { background: #ef4444; }
+
+/* TX Power Grid */
+.ap-power-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.ap-power-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.ap-power-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.ap-power-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-power-header .ap-model {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.radio-power-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.radio-power-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.radio-power-item .radio-info {
+    width: 80px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.radio-power-item .radio-band {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    width: fit-content;
+}
+
+.radio-power-item .radio-channel {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.power-bar-container {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.power-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.power-bar.power-high { background: linear-gradient(90deg, #f97316, #ef4444); }
+.power-bar.power-medium { background: linear-gradient(90deg, #22c55e, #eab308); }
+.power-bar.power-low { background: linear-gradient(90deg, #3b82f6, #22c55e); }
+.power-bar.power-auto { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+
+.power-value {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.power-mode {
+    width: 50px;
+    text-align: right;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: capitalize;
+}
+
+.power-warning {
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(231, 150, 19, 0.1);
+    color: var(--warning-color);
+    font-size: 0.75rem;
+}
+
+/* Coverage Grid */
+.coverage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.coverage-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border: 1px solid transparent;
+}
+
+.coverage-card.coverage-poor {
+    border-color: var(--danger-color);
+}
+
+.coverage-card.coverage-fair {
+    border-color: var(--warning-color);
+}
+
+.coverage-card.coverage-good {
+    border-color: var(--success-color);
+}
+
+.coverage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coverage-header .client-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.coverage-metrics {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-metric {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.coverage-metric .metric-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.coverage-metric .metric-value {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.weak-clients-warning {
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-distribution {
+    height: 8px;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.dist-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.dist-segment.signal-excellent { background: #10b981; }
+.dist-segment.signal-good { background: #22c55e; }
+.dist-segment.signal-fair { background: #eab308; }
+.dist-segment.signal-weak { background: #f97316; }
+.dist-segment.signal-poor { background: #ef4444; }
+
+/* Overlap Issues */
+.overlap-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.overlap-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--warning-color);
+}
+
+.overlap-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.overlap-content {
+    flex: 1;
+}
+
+.overlap-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.overlap-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Power/Coverage Recommendations */
+.power-section .recommendations-list .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Power/Coverage */
+@media (max-width: 768px) {
+    .power-stats-row {
+        flex-direction: column;
+    }
+
+    .power-stat-card {
+        min-width: unset;
+    }
+
+    .signal-bars {
+        height: 120px;
+    }
+
+    .signal-legend {
+        gap: 0.5rem;
+    }
+
+    .ap-power-grid,
+    .coverage-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .coverage-metrics {
+        flex-wrap: wrap;
+    }
+
+    .coverage-metric {
+        min-width: calc(50% - 0.5rem);
+    }
+}
+
+/* ============================================
+   Band Steering Analysis Component
+   ============================================ */
+
+.band-steering-container {
+    padding: 0.5rem;
+}
+
+.steering-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.steering-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-loading,
+.steering-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Steering Stats Row */
+.steering-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.steering-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.steering-stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.steering-stat-card.band-2ghz-card {
+    border-left: 3px solid #22c55e;
+}
+.steering-stat-card.band-5ghz-card {
+    border-left: 3px solid #3b82f6;
+}
+.steering-stat-card.band-6ghz-card {
+    border-left: 3px solid #a855f7;
+}
+
+/* Steering Sections */
+.steering-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.steering-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.steering-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Steering Effectiveness Chart */
+.steering-effectiveness {
+    padding: 1rem 0;
+}
+
+.effectiveness-chart {
+    margin-bottom: 1rem;
+}
+
+.effectiveness-bar {
+    height: 32px;
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+}
+
+.eff-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.eff-segment.optimal { background: #22c55e; }
+.eff-segment.suboptimal { background: #f97316; }
+.eff-segment.legacy { background: #6b7280; }
+
+.effectiveness-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.25rem;
+}
+
+.eff-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.effectiveness-legend {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.effectiveness-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.effectiveness-legend .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.effectiveness-legend .legend-color.optimal { background: #22c55e; }
+.effectiveness-legend .legend-color.suboptimal { background: #f97316; }
+.effectiveness-legend .legend-color.legacy { background: #6b7280; }
+
+/* Steerable Groups */
+.steerable-group {
+    margin-bottom: 1rem;
+}
+
+.steerable-group:last-child {
+    margin-bottom: 0;
+}
+
+.steerable-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.steerable-band {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.steerable-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.steerable-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.steerable-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.steerable-clients {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.steerable-client-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.steerable-client-row .client-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.steerable-client-row .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.steerable-client-row .client-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.steerable-client-row .client-current-band {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.steerable-client-row .current-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.band-badge {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.band-badge.band-2ghz {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+.band-badge.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.band-badge.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.steerable-client-row .client-signal {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    min-width: 60px;
+    text-align: right;
+}
+
+.more-clients {
+    padding: 0.5rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Wi-Fi Generation Breakdown */
+.wifi-gen-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wifi-gen-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.wifi-gen-label {
+    width: 130px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gen-badge {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.gen-badge.gen-7 { background: rgba(99, 102, 241, 0.15); color: #6366f1; }
+.gen-badge.gen-6 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.gen-badge.gen-5 { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.gen-badge.gen-4 { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.gen-badge.gen-legacy { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
+
+.gen-standard {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.wifi-gen-bar-container {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.wifi-gen-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.wifi-gen-bar.gen-7 { background: #6366f1; }
+.wifi-gen-bar.gen-6 { background: #a855f7; }
+.wifi-gen-bar.gen-5 { background: #3b82f6; }
+.wifi-gen-bar.gen-4 { background: #22c55e; }
+.wifi-gen-bar.gen-legacy { background: #6b7280; }
+
+.wifi-gen-count {
+    width: 40px;
+    text-align: right;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Legacy Clients */
+.legacy-clients-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.legacy-client-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.75rem;
+}
+
+.legacy-client-info {
+    margin-bottom: 0.5rem;
+}
+
+.legacy-client-info .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    display: block;
+}
+
+.legacy-client-info .client-manufacturer {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.legacy-client-stats {
+    display: flex;
+    gap: 1rem;
+}
+
+.legacy-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.legacy-stat .stat-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.legacy-stat .stat-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Legacy Warning */
+.legacy-warning {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--warning-color);
+    margin-top: 1rem;
+}
+
+.legacy-warning .warning-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.legacy-warning .warning-content {
+    flex: 1;
+}
+
+.legacy-warning .warning-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.legacy-warning .warning-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Band Steering Recommendations */
+.steering-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Band Steering */
+@media (max-width: 768px) {
+    .steering-stats-row {
+        flex-direction: column;
+    }
+
+    .steering-stat-card {
+        min-width: unset;
+    }
+
+    .steerable-client-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .steerable-client-row .client-current-band {
+        margin-top: 0.25rem;
+    }
+
+    .steerable-client-row .client-signal {
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+
+    .wifi-gen-label {
+        width: 100px;
+    }
+
+    .wifi-gen-bar-container {
+        flex: 1;
+    }
+
+    .legacy-clients-list {
+        grid-template-columns: 1fr;
+    }
+
+    .effectiveness-legend {
+        gap: 0.75rem;
+    }
+}
+
+/* ============================================
+   Airtime Fairness Component
+   ============================================ */
+
+.airtime-container {
+    padding: 0.5rem;
+}
+
+.airtime-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.airtime-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.airtime-loading,
+.airtime-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Airtime Stats Row */
+.airtime-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.airtime-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.airtime-stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.airtime-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.airtime-stat-card.stat-warning .airtime-stat-value {
+    color: var(--warning-color);
+}
+
+/* Concept Explanation */
+.airtime-concept {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--info-color);
+}
+
+.airtime-concept .concept-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--info-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.airtime-concept .concept-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.airtime-concept .concept-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Airtime Sections */
+.airtime-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.airtime-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.airtime-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.airtime-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Radio Utilization Grid */
+.radio-utilization-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.radio-util-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.radio-util-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.radio-util-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.radio-util-header .client-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.radio-util-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.radio-util-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.radio-util-row .radio-info {
+    width: 90px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.radio-util-row .radio-band {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    width: fit-content;
+}
+
+.radio-util-row .radio-channel {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.radio-util-bar-container {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.radio-util-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.radio-util-bar.util-low { background: #22c55e; }
+.radio-util-bar.util-medium { background: #eab308; }
+.radio-util-bar.util-high { background: #ef4444; }
+
+.radio-util-value {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.radio-util-row .radio-clients {
+    width: 30px;
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.util-warning {
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.75rem;
+}
+
+/* Wi-Fi Generation Airtime Chart */
+.gen-airtime-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.gen-airtime-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.gen-airtime-row .gen-label {
+    width: 150px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.gen-airtime-row .gen-factor {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.gen-bar-container {
+    flex: 1;
+    height: 20px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.gen-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.gen-airtime-row .gen-stats {
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.gen-airtime-row .gen-count {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.gen-airtime-row .gen-impact {
+    font-size: 0.65rem;
+}
+
+.gen-impact.impact-low { color: var(--success-color); }
+.gen-impact.impact-medium { color: var(--warning-color); }
+.gen-impact.impact-high { color: var(--danger-color); }
+
+/* Airtime Factor Legend */
+.airtime-factor-legend {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.factor-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.factor-gen {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.factor-value {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* Airtime Clients List */
+.airtime-clients-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.airtime-client-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.75rem;
+    border-left: 3px solid var(--border-color);
+}
+
+.airtime-client-card.airtime-high {
+    border-left-color: var(--danger-color);
+}
+
+.airtime-client-card.airtime-medium {
+    border-left-color: var(--warning-color);
+}
+
+.airtime-client-card .client-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.airtime-client-card .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.airtime-indicator {
+    font-size: 0.7rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+
+.airtime-client-card.airtime-high .airtime-indicator {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+}
+
+.airtime-client-card.airtime-medium .airtime-indicator {
+    background: rgba(234, 179, 8, 0.15);
+    color: var(--warning-color);
+}
+
+.airtime-client-card .client-details {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.airtime-client-card .client-detail {
+    display: flex;
+    flex-direction: column;
+}
+
+.airtime-client-card .detail-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.airtime-client-card .detail-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.airtime-client-card .client-reason {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* TX Retry Rates */
+.retry-rate-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.retry-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.retry-ap-info {
+    width: 180px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.retry-ap-info .ap-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.retry-bar-container {
+    flex: 1;
+    height: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.retry-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.retry-bar.retry-low { background: #22c55e; }
+.retry-bar.retry-medium { background: #eab308; }
+.retry-bar.retry-high { background: #ef4444; }
+
+.retry-value {
+    width: 50px;
+    text-align: right;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.retry-value.retry-low { color: var(--success-color); }
+.retry-value.retry-medium { color: var(--warning-color); }
+.retry-value.retry-high { color: var(--danger-color); }
+
+/* Airtime Recommendations */
+.airtime-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Airtime */
+@media (max-width: 768px) {
+    .airtime-stats-row {
+        flex-direction: column;
+    }
+
+    .airtime-stat-card {
+        min-width: unset;
+    }
+
+    .radio-utilization-grid,
+    .airtime-clients-list {
+        grid-template-columns: 1fr;
+    }
+
+    .gen-airtime-row .gen-label {
+        width: 120px;
+    }
+
+    .gen-airtime-row .gen-stats {
+        width: 80px;
+    }
+
+    .retry-ap-info {
+        width: 140px;
+    }
+
+    .airtime-factor-legend {
+        gap: 0.75rem;
+    }
+}
+
+/* ============================================
+   Environmental Correlation Component
+   ============================================ */
+
+.env-correlation-container {
+    padding: 0.5rem;
+}
+
+.env-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.env-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.time-range-select {
+    padding: 0.375rem 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.env-loading,
+.env-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Environmental Sections */
+.env-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.env-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.env-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Time of Day Grid */
+.time-of-day-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.tod-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border-left: 3px solid var(--border-color);
+}
+
+.tod-card.period-good { border-left-color: var(--success-color); }
+.tod-card.period-fair { border-left-color: var(--warning-color); }
+.tod-card.period-poor { border-left-color: var(--danger-color); }
+
+.tod-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.tod-icon {
+    font-weight: 700;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    color: var(--text-muted);
+}
+
+.tod-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.tod-hours {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.tod-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.tod-metric {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+}
+
+.tod-metric .metric-label {
+    color: var(--text-muted);
+}
+
+.tod-metric .metric-value {
+    font-weight: 500;
+}
+
+.tod-warning {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.7rem;
+    border-radius: 3px;
+    text-align: center;
+}
+
+/* Heatmap */
+.heatmap-container {
+    overflow-x: auto;
+}
+
+.heatmap-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.heatmap-row.header-row {
+    margin-bottom: 4px;
+}
+
+.heatmap-label {
+    width: 40px;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.heatmap-hour-label {
+    flex: 1;
+    min-width: 30px;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.heatmap-cell {
+    flex: 1;
+    min-width: 30px;
+    height: 24px;
+    border-radius: 3px;
+    cursor: default;
+}
+
+.heatmap-cell.heat-low { background: #22c55e; }
+.heatmap-cell.heat-medium { background: #eab308; }
+.heatmap-cell.heat-high { background: #f97316; }
+.heatmap-cell.heat-critical { background: #ef4444; }
+
+.heatmap-legend {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.heatmap-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.heat-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.heat-color.heat-low { background: #22c55e; }
+.heat-color.heat-medium { background: #eab308; }
+.heat-color.heat-high { background: #f97316; }
+.heat-color.heat-critical { background: #ef4444; }
+
+/* Detected Patterns */
+.patterns-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pattern-card {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color);
+}
+
+.pattern-card.warning { border-left-color: var(--warning-color); }
+.pattern-card.info { border-left-color: var(--info-color); }
+
+.pattern-icon {
+    width: 28px;
+    height: 28px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.pattern-card.warning .pattern-icon {
+    background: var(--warning-color);
+    color: white;
+}
+
+.pattern-card.info .pattern-icon {
+    background: var(--info-color);
+    color: white;
+}
+
+.pattern-content {
+    flex: 1;
+}
+
+.pattern-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.pattern-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.pattern-timing {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Band Environment Grid */
+.band-env-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.band-env-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border-top: 3px solid var(--border-color);
+}
+
+.band-env-card.band-2ghz { border-top-color: #22c55e; }
+.band-env-card.band-5ghz { border-top-color: #3b82f6; }
+.band-env-card.band-6ghz { border-top-color: #a855f7; }
+
+.band-env-header {
+    margin-bottom: 0.75rem;
+}
+
+.band-env-header .band-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.band-env-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.band-env-metric .metric-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+
+.band-env-metric .metric-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.band-env-metric .metric-value {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.band-env-metric .metric-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.band-env-metric .metric-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--text-muted);
+    transition: width 0.3s ease;
+}
+
+.band-env-metric .metric-fill.interference-low { background: #22c55e; }
+.band-env-metric .metric-fill.interference-medium { background: #eab308; }
+.band-env-metric .metric-fill.interference-high { background: #ef4444; }
+.band-env-metric .metric-fill.util-low { background: #22c55e; }
+.band-env-metric .metric-fill.util-medium { background: #eab308; }
+.band-env-metric .metric-fill.util-high { background: #ef4444; }
+
+.band-peak-time {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Interference/Util/Retry classes */
+.interference-low, .metric-value.interference-low { color: var(--success-color); }
+.interference-medium, .metric-value.interference-medium { color: var(--warning-color); }
+.interference-high, .metric-value.interference-high { color: var(--danger-color); }
+
+.util-low, .metric-value.util-low { color: var(--success-color); }
+.util-medium, .metric-value.util-medium { color: var(--warning-color); }
+.util-high, .metric-value.util-high { color: var(--danger-color); }
+
+.retry-low, .metric-value.retry-low { color: var(--success-color); }
+.retry-medium, .metric-value.retry-medium { color: var(--warning-color); }
+.retry-high, .metric-value.retry-high { color: var(--danger-color); }
+
+/* Environmental Recommendations */
+.env-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Environmental */
+@media (max-width: 900px) {
+    .time-of-day-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .band-env-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .env-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .env-controls {
+        width: 100%;
+    }
+
+    .time-range-select {
+        flex: 1;
+    }
+
+    .time-of-day-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .heatmap-container {
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+    }
+
+    .heatmap-cell {
+        min-width: 24px;
+    }
+
+    .heatmap-legend {
+        gap: 0.5rem;
+    }
+}

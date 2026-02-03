@@ -147,6 +147,22 @@
                 @onclick="@(() => SetActiveTab("loadbalance"))">
             Load Balance
         </button>
+        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("power"))">
+            Power/Coverage
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("bandsteering"))">
+            Band Steering
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("airtime"))">
+            Airtime
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("environment"))">
+            Environment
+        </button>
         <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("overview"))">
             Overview
@@ -195,6 +211,42 @@
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "power")
+    {
+        <!-- Power & Coverage Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "bandsteering")
+    {
+        <!-- Band Steering Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.BandSteeringAnalysis />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "airtime")
+    {
+        <!-- Airtime Fairness Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.AirtimeFairness />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "environment")
+    {
+        <!-- Environmental Correlation -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation />
             </div>
         </div>
     }

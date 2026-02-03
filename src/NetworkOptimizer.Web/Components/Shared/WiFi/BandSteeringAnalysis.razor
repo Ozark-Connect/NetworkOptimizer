@@ -1,0 +1,549 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="band-steering-container">
+    <div class="steering-header">
+        <h3>Band Steering Analysis</h3>
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+            @if (_loading)
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="steering-loading">
+            <span class="spinner"></span>
+            <span>Analyzing band distribution...</span>
+        </div>
+    }
+    else if (_clients.Count == 0)
+    {
+        <div class="steering-empty">
+            <p>No wireless clients found. Connect to UniFi to view band steering analysis.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="steering-stats-row">
+            <div class="steering-stat-card">
+                <div class="steering-stat-value">@_totalClients</div>
+                <div class="steering-stat-label">Total Clients</div>
+            </div>
+            <div class="steering-stat-card band-2ghz-card">
+                <div class="steering-stat-value">@_clientsOn2g (@GetPercentage(_clientsOn2g)%)</div>
+                <div class="steering-stat-label">2.4 GHz</div>
+            </div>
+            <div class="steering-stat-card band-5ghz-card">
+                <div class="steering-stat-value">@_clientsOn5g (@GetPercentage(_clientsOn5g)%)</div>
+                <div class="steering-stat-label">5 GHz</div>
+            </div>
+            <div class="steering-stat-card band-6ghz-card">
+                <div class="steering-stat-value">@_clientsOn6g (@GetPercentage(_clientsOn6g)%)</div>
+                <div class="steering-stat-label">6 GHz</div>
+            </div>
+        </div>
+
+        <!-- Steering Effectiveness -->
+        <div class="steering-section">
+            <div class="section-header">
+                <h4>Steering Effectiveness</h4>
+                <span class="section-hint">Clients on optimal band for their capabilities</span>
+            </div>
+
+            <div class="steering-effectiveness">
+                <div class="effectiveness-chart">
+                    <div class="effectiveness-bar">
+                        <div class="eff-segment optimal" style="width: @GetPercentage(_optimalBandClients)%"
+                             data-tooltip="Optimal: @_optimalBandClients clients"></div>
+                        <div class="eff-segment suboptimal" style="width: @GetPercentage(_suboptimalBandClients)%"
+                             data-tooltip="Could be on higher band: @_suboptimalBandClients clients"></div>
+                        <div class="eff-segment legacy" style="width: @GetPercentage(_legacyOnlyClients)%"
+                             data-tooltip="Legacy (2.4 GHz only): @_legacyOnlyClients clients"></div>
+                    </div>
+                    <div class="effectiveness-labels">
+                        <span class="eff-label">0%</span>
+                        <span class="eff-label">50%</span>
+                        <span class="eff-label">100%</span>
+                    </div>
+                </div>
+                <div class="effectiveness-legend">
+                    <span class="legend-item"><span class="legend-color optimal"></span>Optimal (@_optimalBandClients)</span>
+                    <span class="legend-item"><span class="legend-color suboptimal"></span>Suboptimal (@_suboptimalBandClients)</span>
+                    <span class="legend-item"><span class="legend-color legacy"></span>Legacy Only (@_legacyOnlyClients)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clients That Could Be Steered Higher -->
+        @if (_steerableTo5g.Count > 0 || _steerableTo6g.Count > 0)
+        {
+            <div class="steering-section">
+                <div class="section-header">
+                    <h4>Steering Opportunities</h4>
+                    <span class="section-hint">Clients that could be on a better band</span>
+                </div>
+
+                @if (_steerableTo6g.Count > 0)
+                {
+                    <div class="steerable-group">
+                        <div class="steerable-header">
+                            <span class="steerable-band band-6ghz">Could use 6 GHz</span>
+                            <span class="steerable-count">@_steerableTo6g.Count clients</span>
+                        </div>
+                        <div class="steerable-clients">
+                            @foreach (var client in _steerableTo6g.Take(10))
+                            {
+                                <div class="steerable-client-row">
+                                    <div class="client-info">
+                                        <span class="client-name">@client.Name</span>
+                                        <span class="client-meta">@client.Manufacturer - @client.WifiProtocol</span>
+                                    </div>
+                                    <div class="client-current-band">
+                                        <span class="current-label">Currently on:</span>
+                                        <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                    </div>
+                                    <div class="client-signal">@(client.Signal ?? 0) dBm</div>
+                                </div>
+                            }
+                            @if (_steerableTo6g.Count > 10)
+                            {
+                                <div class="more-clients">+@(_steerableTo6g.Count - 10) more clients</div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (_steerableTo5g.Count > 0)
+                {
+                    <div class="steerable-group">
+                        <div class="steerable-header">
+                            <span class="steerable-band band-5ghz">Could use 5 GHz</span>
+                            <span class="steerable-count">@_steerableTo5g.Count clients</span>
+                        </div>
+                        <div class="steerable-clients">
+                            @foreach (var client in _steerableTo5g.Take(10))
+                            {
+                                <div class="steerable-client-row">
+                                    <div class="client-info">
+                                        <span class="client-name">@client.Name</span>
+                                        <span class="client-meta">@client.Manufacturer - @(client.WifiProtocol ?? "Unknown")</span>
+                                    </div>
+                                    <div class="client-current-band">
+                                        <span class="current-label">Currently on:</span>
+                                        <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                    </div>
+                                    <div class="client-signal">@(client.Signal ?? 0) dBm</div>
+                                </div>
+                            }
+                            @if (_steerableTo5g.Count > 10)
+                            {
+                                <div class="more-clients">+@(_steerableTo5g.Count - 10) more clients</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Client Capability Breakdown -->
+        <div class="steering-section">
+            <div class="section-header">
+                <h4>Client Capabilities by Wi-Fi Generation</h4>
+                <span class="section-hint">Higher generation = faster potential speeds</span>
+            </div>
+
+            <div class="wifi-gen-breakdown">
+                @foreach (var gen in _wifiGenerations.OrderByDescending(g => g.Generation))
+                {
+                    var widthPct = _totalClients > 0 ? (double)gen.Count / _totalClients * 100 : 0;
+                    <div class="wifi-gen-row">
+                        <div class="wifi-gen-label">
+                            <span class="gen-badge @GetGenCssClass(gen.Generation)">Wi-Fi @gen.Generation</span>
+                            <span class="gen-standard">@gen.Standard</span>
+                        </div>
+                        <div class="wifi-gen-bar-container">
+                            <div class="wifi-gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                        </div>
+                        <div class="wifi-gen-count">@gen.Count</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Legacy Devices (2.4 GHz only) -->
+        @if (_legacyClients.Count > 0)
+        {
+            <div class="steering-section">
+                <div class="section-header">
+                    <h4>Legacy Devices (2.4 GHz Only)</h4>
+                    <span class="section-hint">These devices can only connect to 2.4 GHz</span>
+                </div>
+
+                <div class="legacy-clients-list">
+                    @foreach (var client in _legacyClients.Take(20))
+                    {
+                        <div class="legacy-client-card">
+                            <div class="legacy-client-info">
+                                <span class="client-name">@client.Name</span>
+                                <span class="client-manufacturer">@(client.Manufacturer ?? "Unknown")</span>
+                            </div>
+                            <div class="legacy-client-stats">
+                                <div class="legacy-stat">
+                                    <span class="stat-label">Protocol</span>
+                                    <span class="stat-value">@(client.WifiProtocol ?? "n/a")</span>
+                                </div>
+                                <div class="legacy-stat">
+                                    <span class="stat-label">Signal</span>
+                                    <span class="stat-value @GetSignalClass(client.Signal)">@(client.Signal ?? 0) dBm</span>
+                                </div>
+                                <div class="legacy-stat">
+                                    <span class="stat-label">AP</span>
+                                    <span class="stat-value">@(client.ApName ?? "Unknown")</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    @if (_legacyClients.Count > 20)
+                    {
+                        <div class="more-clients">+@(_legacyClients.Count - 20) more legacy devices</div>
+                    }
+                </div>
+
+                @if (_legacyClients.Count >= 5)
+                {
+                    <div class="legacy-warning">
+                        <div class="warning-icon">!</div>
+                        <div class="warning-content">
+                            <div class="warning-title">Legacy Device Airtime Impact</div>
+                            <div class="warning-description">
+                                Legacy 2.4 GHz devices (@_legacyClients.Count total) use significantly more airtime than modern clients.
+                                A single 802.11n device at low rates can consume 10x the airtime of a Wi-Fi 6 client sending the same data.
+                                Consider isolating IoT devices to a dedicated 2.4 GHz-only SSID.
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Recommendations -->
+        @if (_recommendations.Count > 0)
+        {
+            <div class="steering-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <div class="recommendations-list">
+                    @foreach (var rec in _recommendations)
+                    {
+                        <div class="recommendation-item @rec.Type">
+                            <div class="rec-icon">
+                                @(rec.Type == "warning" ? "!" : "i")
+                            </div>
+                            <div class="rec-content">
+                                <div class="rec-title">@rec.Title</div>
+                                <div class="rec-description">@rec.Description</div>
+                                @if (!string.IsNullOrEmpty(rec.Action))
+                                {
+                                    <div class="rec-action">@rec.Action</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private List<WirelessClientSnapshot> _clients = new();
+
+    // Stats
+    private int _totalClients;
+    private int _clientsOn2g;
+    private int _clientsOn5g;
+    private int _clientsOn6g;
+
+    // Steering analysis
+    private int _optimalBandClients;
+    private int _suboptimalBandClients;
+    private int _legacyOnlyClients;
+
+    // Steerable clients
+    private List<WirelessClientSnapshot> _steerableTo5g = new();
+    private List<WirelessClientSnapshot> _steerableTo6g = new();
+    private List<WirelessClientSnapshot> _legacyClients = new();
+
+    // Wi-Fi generations
+    private List<WiFiGeneration> _wifiGenerations = new();
+
+    private List<Recommendation> _recommendations = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync();
+            var clientsTask = WiFiService.GetWirelessClientsAsync();
+
+            await Task.WhenAll(apsTask, clientsTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+
+            AnalyzeBandSteering();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+
+            await Task.WhenAll(apsTask, clientsTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+
+            AnalyzeBandSteering();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AnalyzeBandSteering()
+    {
+        _totalClients = _clients.Count;
+        _clientsOn2g = _clients.Count(c => c.Band == RadioBand.Band2_4GHz);
+        _clientsOn5g = _clients.Count(c => c.Band == RadioBand.Band5GHz);
+        _clientsOn6g = _clients.Count(c => c.Band == RadioBand.Band6GHz);
+
+        // Determine which APs have which bands available
+        var has5gAps = _accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
+        var has6gAps = _accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz && r.Channel.HasValue));
+
+        _steerableTo5g.Clear();
+        _steerableTo6g.Clear();
+        _legacyClients.Clear();
+
+        _optimalBandClients = 0;
+        _suboptimalBandClients = 0;
+        _legacyOnlyClients = 0;
+
+        foreach (var client in _clients)
+        {
+            var supports5g = client.Capabilities.Supports5GHz;
+            var supports6g = client.Capabilities.Supports6GHz;
+
+            // Determine if client is on optimal band
+            if (client.Band == RadioBand.Band6GHz)
+            {
+                // On 6GHz - optimal
+                _optimalBandClients++;
+            }
+            else if (client.Band == RadioBand.Band5GHz)
+            {
+                // On 5GHz
+                if (supports6g && has6gAps)
+                {
+                    // Could be on 6GHz
+                    _suboptimalBandClients++;
+                    _steerableTo6g.Add(client);
+                }
+                else
+                {
+                    // Optimal for their capabilities
+                    _optimalBandClients++;
+                }
+            }
+            else if (client.Band == RadioBand.Band2_4GHz)
+            {
+                // On 2.4GHz
+                if (supports6g && has6gAps)
+                {
+                    _suboptimalBandClients++;
+                    _steerableTo6g.Add(client);
+                }
+                else if (supports5g && has5gAps)
+                {
+                    _suboptimalBandClients++;
+                    _steerableTo5g.Add(client);
+                }
+                else
+                {
+                    // Legacy device - 2.4GHz only
+                    _legacyOnlyClients++;
+                    _legacyClients.Add(client);
+                }
+            }
+        }
+
+        // Build Wi-Fi generation breakdown
+        _wifiGenerations = _clients
+            .GroupBy(c => c.WifiGeneration ?? 4)
+            .Select(g => new WiFiGeneration
+            {
+                Generation = g.Key,
+                Standard = GetWiFiStandard(g.Key),
+                Count = g.Count()
+            })
+            .OrderByDescending(g => g.Generation)
+            .ToList();
+    }
+
+    private void GenerateRecommendations()
+    {
+        _recommendations.Clear();
+
+        // Check if band steering should be enabled
+        var suboptimalPct = _totalClients > 0 ? (double)_suboptimalBandClients / _totalClients * 100 : 0;
+        if (suboptimalPct >= 30)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "warning",
+                Title = "Enable or Strengthen Band Steering",
+                Description = $"{suboptimalPct:F0}% of clients ({_suboptimalBandClients}) are on a lower band than they support. Enable band steering to push capable devices to faster bands.",
+                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Band Steering - enable 'Prefer 5GHz' or 'Prefer 6GHz'."
+            });
+        }
+
+        // Check for high 2.4GHz usage
+        var pct2g = _totalClients > 0 ? (double)_clientsOn2g / _totalClients * 100 : 0;
+        if (pct2g > 50 && _steerableTo5g.Count + _steerableTo6g.Count > 0)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "warning",
+                Title = "High 2.4 GHz Concentration",
+                Description = $"{pct2g:F0}% of clients are on 2.4 GHz, but {_steerableTo5g.Count + _steerableTo6g.Count} of them support higher bands. This leads to congestion and slower speeds on 2.4 GHz.",
+                Action = "Consider: (1) enabling band steering, (2) reducing 2.4 GHz TX power to encourage clients to use 5 GHz, or (3) creating a separate IoT SSID for 2.4 GHz-only devices."
+            });
+        }
+
+        // Legacy device impact
+        if (_legacyClients.Count >= 5)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "Consider IoT/Legacy SSID",
+                Description = $"You have {_legacyClients.Count} legacy 2.4 GHz-only devices. These devices consume more airtime and can slow down modern devices sharing the same radio.",
+                Action = "Create a dedicated SSID for IoT and legacy devices on 2.4 GHz only, keeping your main SSID for modern dual/tri-band clients."
+            });
+        }
+
+        // Min RSSI recommendation for roaming
+        var has5gOr6g = _accessPoints.Any(ap => ap.Radios.Any(r =>
+            (r.Band == RadioBand.Band5GHz || r.Band == RadioBand.Band6GHz) && r.Channel.HasValue));
+        var hasMinRssi = _accessPoints.Any(ap => ap.Radios.Any(r => r.MinRssiEnabled));
+
+        if (has5gOr6g && !hasMinRssi && _steerableTo5g.Count + _steerableTo6g.Count > 5)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "Enable Minimum RSSI for Better Band Steering",
+                Description = "Minimum RSSI can help push clients to better bands by disconnecting them when signal drops, forcing them to reconnect (often on a better band if available).",
+                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI - try -70 dBm."
+            });
+        }
+    }
+
+    private string GetWiFiStandard(int generation) => generation switch
+    {
+        7 => "802.11be",
+        6 => "802.11ax",
+        5 => "802.11ac",
+        4 => "802.11n",
+        _ => "802.11a/b/g"
+    };
+
+    private int GetPercentage(int count)
+    {
+        if (_totalClients == 0) return 0;
+        return (int)Math.Round((double)count / _totalClients * 100);
+    }
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private string GetGenCssClass(int generation) => generation switch
+    {
+        >= 7 => "gen-7",
+        6 => "gen-6",
+        5 => "gen-5",
+        4 => "gen-4",
+        _ => "gen-legacy"
+    };
+
+    private string GetSignalClass(int? signal)
+    {
+        if (!signal.HasValue) return "";
+        return signal.Value switch
+        {
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -70 => "signal-fair",
+            _ => "signal-poor"
+        };
+    }
+
+    private class WiFiGeneration
+    {
+        public int Generation { get; set; }
+        public string Standard { get; set; } = "";
+        public int Count { get; set; }
+    }
+
+    private class Recommendation
+    {
+        public string Type { get; set; } = "info";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Action { get; set; } = "";
+    }
+}
