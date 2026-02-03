@@ -1,0 +1,462 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="client-timeline-container">
+    <div class="timeline-header">
+        <h3>Client Journey</h3>
+
+        <div class="timeline-controls">
+            <!-- Client Selector -->
+            <div class="client-selector">
+                <select class="form-select" @bind="_selectedClientMac" @bind:after="OnClientSelected">
+                    <option value="">Select a client...</option>
+                    @foreach (var client in _clients)
+                    {
+                        <option value="@client.Mac">@client.Name (@client.Mac)</option>
+                    }
+                </select>
+            </div>
+
+            <!-- Time Range -->
+            <div class="time-range-selector">
+                @foreach (var range in _timeRanges)
+                {
+                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                            @onclick="() => SelectTimeRange(range.Key)"
+                            disabled="@string.IsNullOrEmpty(_selectedClientMac)">
+                        @range.Key
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (string.IsNullOrEmpty(_selectedClientMac))
+    {
+        <div class="timeline-empty">
+            <p>Select a client to view their connection timeline</p>
+        </div>
+    }
+    else if (_loading)
+    {
+        <div class="timeline-loading">
+            <span class="spinner"></span>
+            <span>Loading client data...</span>
+        </div>
+    }
+    else
+    {
+        <!-- Client Info Banner -->
+        @if (_selectedClient != null)
+        {
+            <div class="client-info-banner">
+                <div class="client-info-main">
+                    <span class="client-name">@_selectedClient.Name</span>
+                    <span class="client-mac">@_selectedClient.Mac</span>
+                </div>
+                <div class="client-info-details">
+                    <div class="info-item">
+                        <span class="info-label">Connected To:</span>
+                        <span class="info-value">@(_selectedClient.ApName ?? "Unknown AP")</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Band:</span>
+                        <span class="info-value band-badge @GetBandCssClass(_selectedClient.Band)">
+                            @_selectedClient.Band.ToDisplayString()
+                        </span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Channel:</span>
+                        <span class="info-value">@(_selectedClient.Channel?.ToString() ?? "-")</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Signal:</span>
+                        <span class="info-value @GetSignalClass(_selectedClient.Signal)">
+                            @(_selectedClient.Signal?.ToString() ?? "-") dBm
+                        </span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">TX/RX Rate:</span>
+                        <span class="info-value">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Signal Strength Chart -->
+        <div class="timeline-chart-section">
+            <div class="chart-header">
+                <span class="chart-title">Signal Strength</span>
+                <div class="chart-filters">
+                    <label class="filter-checkbox">
+                        <input type="checkbox" @bind="_showSignal" />
+                        <span class="checkbox-label signal">Signal</span>
+                    </label>
+                    <label class="filter-checkbox">
+                        <input type="checkbox" @bind="_showTxRetries" />
+                        <span class="checkbox-label retries">TX Retries</span>
+                    </label>
+                </div>
+            </div>
+
+            @if (_clientMetrics.Count > 0)
+            {
+                <ApexChart @ref="_signalChart" TItem="ClientChartPoint"
+                           Options="_signalChartOptions"
+                           Height="200">
+
+                    @if (_showSignal)
+                    {
+                        <ApexPointSeries TItem="ClientChartPoint"
+                                         Items="_signalData"
+                                         Name="Signal (dBm)"
+                                         SeriesType="SeriesType.Area"
+                                         XValue="e => e.Timestamp"
+                                         YValue="e => e.Value"
+                                         OrderBy="e => e.X" />
+                    }
+                    @if (_showTxRetries)
+                    {
+                        <ApexPointSeries TItem="ClientChartPoint"
+                                         Items="_txRetryData"
+                                         Name="TX Retries %"
+                                         SeriesType="SeriesType.Line"
+                                         XValue="e => e.Timestamp"
+                                         YValue="e => e.Value"
+                                         OrderBy="e => e.X" />
+                    }
+                </ApexChart>
+            }
+            else
+            {
+                <div class="chart-empty">
+                    <p>No historical data available for this client</p>
+                </div>
+            }
+        </div>
+
+        <!-- Events List -->
+        <div class="events-section">
+            <div class="events-header">
+                <span class="events-title">Connection Events</span>
+                <span class="events-count">@_events.Count events</span>
+            </div>
+
+            @if (_events.Count == 0)
+            {
+                <div class="events-empty">
+                    <p>No events recorded for this time period</p>
+                </div>
+            }
+            else
+            {
+                <div class="events-list">
+                    @foreach (var evt in _events.Take(50))
+                    {
+                        <div class="event-item @GetEventTypeClass(evt.Type)">
+                            <div class="event-icon">@GetEventIcon(evt.Type)</div>
+                            <div class="event-content">
+                                <div class="event-title">@evt.Title</div>
+                                <div class="event-details">@evt.Details</div>
+                            </div>
+                            <div class="event-time">@evt.Time.ToLocalTime().ToString("MMM d, h:mm tt")</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = false;
+    private string _selectedClientMac = "";
+    private string _selectedRange = "1D";
+    private bool _showSignal = true;
+    private bool _showTxRetries = true;
+
+    private List<WirelessClientSnapshot> _clients = new();
+    private WirelessClientSnapshot? _selectedClient;
+    private List<ClientWiFiMetrics> _clientMetrics = new();
+    private List<ClientEvent> _events = new();
+
+    // Chart data
+    private ApexChart<ClientChartPoint>? _signalChart;
+    private ApexChartOptions<ClientChartPoint> _signalChartOptions = new();
+    private List<ClientChartPoint> _signalData = new();
+    private List<ClientChartPoint> _txRetryData = new();
+
+    private readonly Dictionary<string, TimeSpan> _timeRanges = new()
+    {
+        { "1h", TimeSpan.FromHours(1) },
+        { "1D", TimeSpan.FromDays(1) },
+        { "1W", TimeSpan.FromDays(7) },
+        { "1M", TimeSpan.FromDays(30) }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeChartOptions();
+        await LoadClientsAsync();
+    }
+
+    private void InitializeChartOptions()
+    {
+        _signalChartOptions = new ApexChartOptions<ClientChartPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = true },
+                Animations = new Animations { Enabled = true, Speed = 300 }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeFormatter = new DatetimeFormatter
+                    {
+                        Hour = "HH:mm",
+                        Day = "MMM dd"
+                    }
+                }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    SeriesName = "Signal (dBm)",
+                    Min = -100,
+                    Max = -20,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#3b82f6" },
+                        Formatter = "function(val) { return val + ' dBm'; }"
+                    }
+                },
+                new YAxis
+                {
+                    SeriesName = "TX Retries %",
+                    Opposite = true,
+                    Min = 0,
+                    Max = 100,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#ef4444" },
+                        Formatter = "function(val) { return val.toFixed(1) + '%'; }"
+                    }
+                }
+            },
+            Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
+            Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient, FillType.Solid },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.1
+                }
+            },
+            Colors = new List<string> { "#3b82f6", "#ef4444" },
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            }
+        };
+    }
+
+    private async Task LoadClientsAsync()
+    {
+        _clients = await WiFiService.GetWirelessClientsAsync();
+    }
+
+    private async Task OnClientSelected()
+    {
+        if (string.IsNullOrEmpty(_selectedClientMac))
+        {
+            _selectedClient = null;
+            _clientMetrics.Clear();
+            _events.Clear();
+            return;
+        }
+
+        await LoadClientDataAsync();
+    }
+
+    private async Task SelectTimeRange(string range)
+    {
+        _selectedRange = range;
+        if (!string.IsNullOrEmpty(_selectedClientMac))
+        {
+            await LoadClientDataAsync();
+        }
+    }
+
+    private async Task LoadClientDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Get current client info
+            _selectedClient = _clients.FirstOrDefault(c => c.Mac == _selectedClientMac);
+
+            // Get historical metrics
+            var end = DateTimeOffset.UtcNow;
+            var start = end - _timeRanges[_selectedRange];
+
+            var granularity = _selectedRange switch
+            {
+                "1h" => MetricGranularity.FiveMinutes,
+                "1D" => MetricGranularity.FiveMinutes,
+                "1W" => MetricGranularity.Hourly,
+                "1M" => MetricGranularity.Daily,
+                _ => MetricGranularity.FiveMinutes
+            };
+
+            _clientMetrics = await WiFiService.GetClientMetricsAsync(_selectedClientMac, start, end, granularity);
+
+            // Transform for charts
+            TransformChartData();
+
+            // Generate events (placeholder - would come from roaming/event APIs)
+            GenerateEventsFromMetrics();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void TransformChartData()
+    {
+        _signalData.Clear();
+        _txRetryData.Clear();
+
+        foreach (var metric in _clientMetrics.OrderBy(m => m.Timestamp))
+        {
+            var ts = metric.Timestamp.ToLocalTime().DateTime;
+
+            if (metric.Signal.HasValue)
+            {
+                _signalData.Add(new ClientChartPoint(ts, metric.Signal.Value));
+            }
+
+            _txRetryData.Add(new ClientChartPoint(ts, metric.TxRetryPct ?? 0));
+        }
+    }
+
+    private void GenerateEventsFromMetrics()
+    {
+        _events.Clear();
+
+        // Generate pseudo-events from metrics (signal changes, etc.)
+        // In production, this would come from roaming events API
+        if (_clientMetrics.Count == 0) return;
+
+        var first = _clientMetrics.First();
+        _events.Add(new ClientEvent
+        {
+            Type = "connect",
+            Title = "Connected",
+            Details = $"Signal: {first.Signal ?? 0} dBm",
+            Time = first.Timestamp
+        });
+
+        // Detect significant signal drops
+        int? lastSignal = first.Signal;
+        foreach (var metric in _clientMetrics.Skip(1))
+        {
+            if (lastSignal.HasValue && metric.Signal.HasValue)
+            {
+                var drop = lastSignal.Value - metric.Signal.Value;
+                if (drop > 10)
+                {
+                    _events.Add(new ClientEvent
+                    {
+                        Type = "signal_drop",
+                        Title = "Signal Drop",
+                        Details = $"{lastSignal} dBm → {metric.Signal} dBm ({drop} dB drop)",
+                        Time = metric.Timestamp
+                    });
+                }
+            }
+            lastSignal = metric.Signal;
+        }
+
+        _events = _events.OrderByDescending(e => e.Time).ToList();
+    }
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private string GetSignalClass(int? signal) => signal switch
+    {
+        >= -50 => "signal-excellent",
+        >= -60 => "signal-good",
+        >= -70 => "signal-fair",
+        _ => "signal-poor"
+    };
+
+    private string FormatRate(long? rate)
+    {
+        if (!rate.HasValue) return "-";
+        return rate.Value >= 1000 ? $"{rate.Value / 1000.0:F1} Gbps" : $"{rate.Value} Mbps";
+    }
+
+    private string GetEventTypeClass(string type) => type switch
+    {
+        "connect" => "event-connect",
+        "disconnect" => "event-disconnect",
+        "roam" => "event-roam",
+        "signal_drop" => "event-warning",
+        _ => ""
+    };
+
+    private string GetEventIcon(string type) => type switch
+    {
+        "connect" => "+",
+        "disconnect" => "-",
+        "roam" => "→",
+        "signal_drop" => "!",
+        _ => "•"
+    };
+
+    public class ClientChartPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public long X => new DateTimeOffset(Timestamp).ToUnixTimeMilliseconds();
+
+        public ClientChartPoint(DateTime timestamp, double value)
+        {
+            Timestamp = timestamp;
+            Value = (decimal)value;
+        }
+    }
+
+    public class ClientEvent
+    {
+        public string Type { get; set; } = "";
+        public string Title { get; set; } = "";
+        public string Details { get; set; } = "";
+        public DateTimeOffset Time { get; set; }
+    }
+}

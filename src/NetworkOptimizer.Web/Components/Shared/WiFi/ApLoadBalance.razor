@@ -1,0 +1,406 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="load-balance-container">
+    <div class="load-header">
+        <h3>AP Load Balance</h3>
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+            @if (_loading)
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="load-loading">
+            <span class="spinner"></span>
+            <span>Loading AP data...</span>
+        </div>
+    }
+    else if (_accessPoints.Count == 0)
+    {
+        <div class="load-empty">
+            <p>No access points found. Connect to UniFi to view AP load distribution.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="load-stats-row">
+            <div class="load-stat-card">
+                <div class="load-stat-value">@_totalClients</div>
+                <div class="load-stat-label">Total Clients</div>
+            </div>
+            <div class="load-stat-card">
+                <div class="load-stat-value">@_accessPoints.Count</div>
+                <div class="load-stat-label">Access Points</div>
+            </div>
+            <div class="load-stat-card">
+                <div class="load-stat-value">@_avgClientsPerAp.ToString("F1")</div>
+                <div class="load-stat-label">Avg Clients/AP</div>
+            </div>
+            <div class="load-stat-card @GetImbalanceClass(_loadImbalance)">
+                <div class="load-stat-value">@_loadImbalance.ToString("F0")%</div>
+                <div class="load-stat-label">Load Imbalance</div>
+            </div>
+        </div>
+
+        <!-- Load Distribution Chart -->
+        <div class="load-chart-section">
+            <div class="section-header">
+                <h4>Client Distribution</h4>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-color band-2ghz"></span>2.4 GHz</span>
+                    <span class="legend-item"><span class="legend-color band-5ghz"></span>5 GHz</span>
+                    <span class="legend-item"><span class="legend-color band-6ghz"></span>6 GHz</span>
+                </div>
+            </div>
+
+            <div class="load-chart">
+                @foreach (var ap in _accessPoints.OrderByDescending(a => a.TotalClients))
+                {
+                    var maxClients = _accessPoints.Max(a => a.TotalClients);
+                    var widthPct = maxClients > 0 ? (double)ap.TotalClients / maxClients * 100 : 0;
+                    var clients2g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band2_4GHz)?.ClientCount ?? 0;
+                    var clients5g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band5GHz)?.ClientCount ?? 0;
+                    var clients6g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band6GHz)?.ClientCount ?? 0;
+                    var total = ap.TotalClients > 0 ? ap.TotalClients : 1;
+
+                    <div class="load-bar-row">
+                        <div class="load-bar-label">
+                            <span class="ap-name">@ap.Name</span>
+                            <span class="ap-clients">@ap.TotalClients clients</span>
+                        </div>
+                        <div class="load-bar-container">
+                            <div class="load-bar" style="width: @widthPct%">
+                                @if (clients2g > 0)
+                                {
+                                    <div class="load-segment band-2ghz" style="width: @((double)clients2g / total * 100)%"
+                                         data-tooltip="2.4 GHz: @clients2g"></div>
+                                }
+                                @if (clients5g > 0)
+                                {
+                                    <div class="load-segment band-5ghz" style="width: @((double)clients5g / total * 100)%"
+                                         data-tooltip="5 GHz: @clients5g"></div>
+                                }
+                                @if (clients6g > 0)
+                                {
+                                    <div class="load-segment band-6ghz" style="width: @((double)clients6g / total * 100)%"
+                                         data-tooltip="6 GHz: @clients6g"></div>
+                                }
+                            </div>
+                            @if (IsOverloaded(ap))
+                            {
+                                <span class="overload-indicator" data-tooltip="High client load">!</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Ideal distribution line -->
+            @if (_avgClientsPerAp > 0)
+            {
+                <div class="ideal-line-container">
+                    <div class="ideal-marker" style="left: @GetIdealMarkerPosition()%">
+                        <span class="ideal-label">Ideal: @_avgClientsPerAp.ToString("F0")</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Per-AP Details -->
+        <div class="ap-details-section">
+            <div class="section-header">
+                <h4>AP Details</h4>
+            </div>
+
+            <div class="ap-details-grid">
+                @foreach (var ap in _accessPoints.OrderByDescending(a => a.TotalClients))
+                {
+                    var loadClass = GetApLoadClass(ap);
+                    <div class="ap-detail-card @loadClass">
+                        <div class="ap-detail-header">
+                            <div class="ap-info">
+                                <span class="ap-name">@ap.Name</span>
+                                <span class="ap-model">@ap.Model</span>
+                            </div>
+                            <div class="ap-client-count">
+                                <span class="count-value">@ap.TotalClients</span>
+                                <span class="count-label">clients</span>
+                            </div>
+                        </div>
+
+                        <div class="ap-radios-summary">
+                            @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue))
+                            {
+                                <div class="radio-summary">
+                                    <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                    <span class="radio-clients">@(radio.ClientCount ?? 0) clients</span>
+                                    <span class="radio-util @GetUtilizationClass(radio.ChannelUtilization ?? 0)">
+                                        @(radio.ChannelUtilization ?? 0)% util
+                                    </span>
+                                </div>
+                            }
+                        </div>
+
+                        @if (ap.Satisfaction.HasValue)
+                        {
+                            <div class="ap-satisfaction">
+                                <span class="sat-label">Satisfaction:</span>
+                                <span class="sat-value @GetSatisfactionClass(ap.Satisfaction.Value)">@ap.Satisfaction%</span>
+                            </div>
+                        }
+
+                        @if (IsOverloaded(ap))
+                        {
+                            <div class="ap-warning">
+                                High client load - consider load balancing
+                            </div>
+                        }
+                        else if (IsUnderloaded(ap))
+                        {
+                            <div class="ap-info-msg">
+                                Low utilization - clients may be clustering elsewhere
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Recommendations -->
+        @if (_recommendations.Count > 0)
+        {
+            <div class="load-recommendations-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <div class="recommendations-list">
+                    @foreach (var rec in _recommendations)
+                    {
+                        <div class="recommendation-item @rec.Type">
+                            <div class="rec-icon">
+                                @(rec.Type == "warning" ? "!" : "i")
+                            </div>
+                            <div class="rec-content">
+                                <div class="rec-title">@rec.Title</div>
+                                <div class="rec-description">@rec.Description</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private List<WirelessClientSnapshot> _clients = new();
+
+    // Stats
+    private int _totalClients;
+    private double _avgClientsPerAp;
+    private double _loadImbalance;
+    private List<Recommendation> _recommendations = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync();
+            var clientsTask = WiFiService.GetWirelessClientsAsync();
+
+            await Task.WhenAll(apsTask, clientsTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+
+            CalculateStats();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+
+            await Task.WhenAll(apsTask, clientsTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+
+            CalculateStats();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CalculateStats()
+    {
+        _totalClients = _clients.Count;
+        _avgClientsPerAp = _accessPoints.Count > 0 ? (double)_totalClients / _accessPoints.Count : 0;
+
+        // Calculate load imbalance (coefficient of variation)
+        if (_accessPoints.Count > 1 && _avgClientsPerAp > 0)
+        {
+            var clientCounts = _accessPoints.Select(ap => (double)ap.TotalClients).ToList();
+            var stdDev = Math.Sqrt(clientCounts.Average(c => Math.Pow(c - _avgClientsPerAp, 2)));
+            _loadImbalance = (stdDev / _avgClientsPerAp) * 100;
+        }
+        else
+        {
+            _loadImbalance = 0;
+        }
+    }
+
+    private void GenerateRecommendations()
+    {
+        _recommendations.Clear();
+
+        // Check for significant imbalance
+        if (_loadImbalance > 50 && _accessPoints.Count > 1)
+        {
+            var maxAp = _accessPoints.OrderByDescending(a => a.TotalClients).First();
+            var minAp = _accessPoints.OrderBy(a => a.TotalClients).First();
+
+            _recommendations.Add(new Recommendation
+            {
+                Type = "warning",
+                Title = "Significant Load Imbalance",
+                Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. Consider enabling band steering or adjusting TX power to balance load."
+            });
+        }
+
+        // Check for overloaded APs
+        var overloadedAps = _accessPoints.Where(IsOverloaded).ToList();
+        foreach (var ap in overloadedAps)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "warning",
+                Title = $"High Load on {ap.Name}",
+                Description = $"This AP has {ap.TotalClients} clients, which is significantly above average ({_avgClientsPerAp:F0}). Clients may experience degraded performance."
+            });
+        }
+
+        // Check for 2.4 GHz heavy APs
+        foreach (var ap in _accessPoints)
+        {
+            var radio2g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band2_4GHz);
+            var radio5g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band5GHz);
+
+            if (radio2g?.ClientCount > 0 && radio5g?.ClientCount > 0)
+            {
+                var ratio = (double)radio2g.ClientCount / (radio2g.ClientCount + radio5g.ClientCount);
+                if (ratio > 0.6 && radio2g.ClientCount > 5)
+                {
+                    _recommendations.Add(new Recommendation
+                    {
+                        Type = "info",
+                        Title = $"2.4 GHz Heavy on {ap.Name}",
+                        Description = $"{(ratio * 100):F0}% of clients are on 2.4 GHz. Consider enabling band steering to push capable clients to 5 GHz."
+                    });
+                }
+            }
+        }
+    }
+
+    private bool IsOverloaded(AccessPointSnapshot ap)
+    {
+        // AP is overloaded if it has more than 2x average clients
+        return _avgClientsPerAp > 0 && ap.TotalClients > _avgClientsPerAp * 2;
+    }
+
+    private bool IsUnderloaded(AccessPointSnapshot ap)
+    {
+        // AP is underloaded if it has less than 0.25x average clients and there are other APs
+        return _avgClientsPerAp > 0 && _accessPoints.Count > 1 && ap.TotalClients < _avgClientsPerAp * 0.25;
+    }
+
+    private string GetApLoadClass(AccessPointSnapshot ap)
+    {
+        if (IsOverloaded(ap)) return "ap-overloaded";
+        if (IsUnderloaded(ap)) return "ap-underloaded";
+        return "";
+    }
+
+    private double GetIdealMarkerPosition()
+    {
+        var maxClients = _accessPoints.Max(a => a.TotalClients);
+        if (maxClients == 0) return 0;
+        return (_avgClientsPerAp / maxClients) * 100;
+    }
+
+    private string GetImbalanceClass(double imbalance) => imbalance switch
+    {
+        > 50 => "stat-danger",
+        > 30 => "stat-warning",
+        _ => "stat-good"
+    };
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private string GetUtilizationClass(int util) => util switch
+    {
+        > 70 => "util-high",
+        > 50 => "util-medium",
+        _ => "util-low"
+    };
+
+    private string GetSatisfactionClass(int sat) => sat switch
+    {
+        >= 80 => "sat-excellent",
+        >= 60 => "sat-good",
+        >= 40 => "sat-fair",
+        _ => "sat-poor"
+    };
+
+    private class Recommendation
+    {
+        public string Type { get; set; } = "info";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+}

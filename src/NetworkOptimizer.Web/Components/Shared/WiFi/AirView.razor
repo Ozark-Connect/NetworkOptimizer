@@ -1,0 +1,475 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+@implements IDisposable
+
+<div class="airview-container">
+    <div class="airview-header">
+        <div class="airview-title">
+            <h3>AirView</h3>
+            <span class="airview-subtitle">Wi-Fi Performance Metrics</span>
+        </div>
+
+        <div class="airview-controls">
+            <!-- Time Range Selector -->
+            <div class="time-range-selector">
+                @foreach (var range in _timeRanges)
+                {
+                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                            @onclick="() => SelectTimeRange(range.Key)">
+                        @range.Key
+                    </button>
+                }
+            </div>
+
+            <!-- Refresh Button -->
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    <div class="airview-filters">
+        <div class="filter-group">
+            <label class="filter-label">Metrics:</label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_showAirtime" @bind:after="UpdateChartVisibility" />
+                <span class="checkbox-label airtime">Airtime</span>
+            </label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_showInterference" @bind:after="UpdateChartVisibility" />
+                <span class="checkbox-label interference">Interference</span>
+            </label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_showTxRetries" @bind:after="UpdateChartVisibility" />
+                <span class="checkbox-label retries">TX Retries</span>
+            </label>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="airview-loading">
+            <span class="spinner"></span>
+            <span>Loading metrics...</span>
+        </div>
+    }
+    else if (!ConnectionService.IsConnected)
+    {
+        <div class="airview-empty">
+            <p>Connect to UniFi to view Wi-Fi metrics</p>
+        </div>
+    }
+    else if (_metrics.Count == 0)
+    {
+        <div class="airview-empty">
+            <p>No metrics data available for the selected time range</p>
+        </div>
+    }
+    else
+    {
+        <!-- 2.4 GHz Chart -->
+        <div class="band-chart-container">
+            <div class="band-chart-header">
+                <span class="band-label band-2ghz">2.4 GHz</span>
+            </div>
+            <ApexChart @ref="_chart24" TItem="ChartDataPoint"
+                       Options="_chartOptions24"
+                       Height="150">
+
+                @if (_showAirtime)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data24Airtime"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showInterference)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data24Interference"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showTxRetries)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data24TxRetries"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+            </ApexChart>
+        </div>
+
+        <!-- 5 GHz Chart -->
+        <div class="band-chart-container">
+            <div class="band-chart-header">
+                <span class="band-label band-5ghz">5 GHz</span>
+            </div>
+            <ApexChart @ref="_chart5" TItem="ChartDataPoint"
+                       Options="_chartOptions5"
+                       Height="150">
+
+                @if (_showAirtime)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data5Airtime"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showInterference)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data5Interference"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showTxRetries)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data5TxRetries"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+            </ApexChart>
+        </div>
+
+        <!-- 6 GHz Chart -->
+        <div class="band-chart-container">
+            <div class="band-chart-header">
+                <span class="band-label band-6ghz">6 GHz</span>
+            </div>
+            <ApexChart @ref="_chart6" TItem="ChartDataPoint"
+                       Options="_chartOptions6"
+                       Height="150">
+
+                @if (_showAirtime)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data6Airtime"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showInterference)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data6Interference"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+                @if (_showTxRetries)
+                {
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="_data6TxRetries"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                }
+            </ApexChart>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string _selectedRange = "1D";
+    private bool _showAirtime = true;
+    private bool _showInterference = true;
+    private bool _showTxRetries = true;
+
+    private List<SiteWiFiMetrics> _metrics = new();
+
+    // Chart references
+    private ApexChart<ChartDataPoint>? _chart24;
+    private ApexChart<ChartDataPoint>? _chart5;
+    private ApexChart<ChartDataPoint>? _chart6;
+
+    // Chart options
+    private ApexChartOptions<ChartDataPoint> _chartOptions24 = new();
+    private ApexChartOptions<ChartDataPoint> _chartOptions5 = new();
+    private ApexChartOptions<ChartDataPoint> _chartOptions6 = new();
+
+    // Data series for each band
+    private List<ChartDataPoint> _data24Airtime = new();
+    private List<ChartDataPoint> _data24Interference = new();
+    private List<ChartDataPoint> _data24TxRetries = new();
+
+    private List<ChartDataPoint> _data5Airtime = new();
+    private List<ChartDataPoint> _data5Interference = new();
+    private List<ChartDataPoint> _data5TxRetries = new();
+
+    private List<ChartDataPoint> _data6Airtime = new();
+    private List<ChartDataPoint> _data6Interference = new();
+    private List<ChartDataPoint> _data6TxRetries = new();
+
+    private readonly Dictionary<string, TimeSpan> _timeRanges = new()
+    {
+        { "30m", TimeSpan.FromMinutes(30) },
+        { "1h", TimeSpan.FromHours(1) },
+        { "1D", TimeSpan.FromDays(1) },
+        { "1W", TimeSpan.FromDays(7) },
+        { "1M", TimeSpan.FromDays(30) }
+    };
+
+    protected override void OnInitialized()
+    {
+        InitializeChartOptions();
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private void InitializeChartOptions()
+    {
+        var baseOptions = new ApexChartOptions<ChartDataPoint>
+        {
+            Chart = new Chart
+            {
+                Background = "transparent",
+                Toolbar = new Toolbar { Show = false },
+                Zoom = new Zoom { Enabled = false },
+                Animations = new Animations
+                {
+                    Enabled = true,
+                    Speed = 300,
+                    AnimateGradually = new AnimateGradually { Enabled = false }
+                }
+            },
+            Xaxis = new XAxis
+            {
+                Type = XAxisType.Datetime,
+                Labels = new XAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                    DatetimeFormatter = new DatetimeFormatter
+                    {
+                        Hour = "HH:mm",
+                        Day = "MMM dd",
+                        Month = "MMM"
+                    }
+                },
+                AxisBorder = new AxisBorder { Show = false },
+                AxisTicks = new AxisTicks { Show = false }
+            },
+            Yaxis = new List<YAxis>
+            {
+                new YAxis
+                {
+                    Min = 0,
+                    Max = 100,
+                    Labels = new YAxisLabels
+                    {
+                        Style = new AxisLabelStyle { Colors = "#9ca3af" },
+                        Formatter = "function(val) { return val + '%'; }"
+                    }
+                }
+            },
+            Grid = new Grid
+            {
+                BorderColor = "#374151",
+                StrokeDashArray = 3
+            },
+            Stroke = new Stroke
+            {
+                Curve = Curve.Smooth,
+                Width = 2
+            },
+            Fill = new Fill
+            {
+                Type = new List<FillType> { FillType.Gradient, FillType.Solid, FillType.Solid },
+                Gradient = new FillGradient
+                {
+                    ShadeIntensity = 0.3,
+                    OpacityFrom = 0.4,
+                    OpacityTo = 0.1
+                }
+            },
+            Colors = new List<string> { "#10b981", "#f59e0b", "#ef4444" }, // Airtime, Interference, TX Retries
+            Legend = new Legend { Show = false },
+            Tooltip = new Tooltip
+            {
+                Theme = Mode.Dark,
+                X = new TooltipX { Format = "MMM dd, HH:mm" }
+            }
+        };
+
+        _chartOptions24 = CloneOptions(baseOptions);
+        _chartOptions5 = CloneOptions(baseOptions);
+        _chartOptions6 = CloneOptions(baseOptions);
+    }
+
+    private ApexChartOptions<ChartDataPoint> CloneOptions(ApexChartOptions<ChartDataPoint> source)
+    {
+        // Create a new instance with same settings
+        return new ApexChartOptions<ChartDataPoint>
+        {
+            Chart = source.Chart,
+            Xaxis = source.Xaxis,
+            Yaxis = source.Yaxis,
+            Grid = source.Grid,
+            Stroke = source.Stroke,
+            Fill = source.Fill,
+            Colors = source.Colors,
+            Legend = source.Legend,
+            Tooltip = source.Tooltip
+        };
+    }
+
+    private async void OnConnectionChanged()
+    {
+        await LoadDataAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SelectTimeRange(string range)
+    {
+        _selectedRange = range;
+        await LoadDataAsync();
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var end = DateTimeOffset.UtcNow;
+            var start = end - _timeRanges[_selectedRange];
+
+            // Choose granularity based on time range
+            var granularity = _selectedRange switch
+            {
+                "30m" or "1h" => MetricGranularity.FiveMinutes,
+                "1D" => MetricGranularity.FiveMinutes,
+                "1W" => MetricGranularity.Hourly,
+                "1M" => MetricGranularity.Daily,
+                _ => MetricGranularity.FiveMinutes
+            };
+
+            _metrics = await WiFiService.GetSiteMetricsAsync(start, end, granularity);
+
+            // Transform data for charts
+            TransformDataForCharts();
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void TransformDataForCharts()
+    {
+        // Clear existing data
+        _data24Airtime.Clear();
+        _data24Interference.Clear();
+        _data24TxRetries.Clear();
+        _data5Airtime.Clear();
+        _data5Interference.Clear();
+        _data5TxRetries.Clear();
+        _data6Airtime.Clear();
+        _data6Interference.Clear();
+        _data6TxRetries.Clear();
+
+        foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
+        {
+            var ts = metric.Timestamp.ToLocalTime().DateTime;
+
+            // 2.4 GHz
+            if (metric.ByBand.TryGetValue(RadioBand.Band2_4GHz, out var band24))
+            {
+                _data24Airtime.Add(new ChartDataPoint(ts, band24.ChannelUtilization ?? 0));
+                _data24Interference.Add(new ChartDataPoint(ts, band24.Interference ?? 0));
+                _data24TxRetries.Add(new ChartDataPoint(ts, band24.TxRetryPct ?? 0));
+            }
+
+            // 5 GHz
+            if (metric.ByBand.TryGetValue(RadioBand.Band5GHz, out var band5))
+            {
+                _data5Airtime.Add(new ChartDataPoint(ts, band5.ChannelUtilization ?? 0));
+                _data5Interference.Add(new ChartDataPoint(ts, band5.Interference ?? 0));
+                _data5TxRetries.Add(new ChartDataPoint(ts, band5.TxRetryPct ?? 0));
+            }
+
+            // 6 GHz
+            if (metric.ByBand.TryGetValue(RadioBand.Band6GHz, out var band6))
+            {
+                _data6Airtime.Add(new ChartDataPoint(ts, band6.ChannelUtilization ?? 0));
+                _data6Interference.Add(new ChartDataPoint(ts, band6.Interference ?? 0));
+                _data6TxRetries.Add(new ChartDataPoint(ts, band6.TxRetryPct ?? 0));
+            }
+        }
+    }
+
+    private async Task UpdateChartVisibility()
+    {
+        // Force re-render of charts when visibility changes
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+    }
+
+    // Data point class for ApexCharts
+    public class ChartDataPoint
+    {
+        public DateTime Timestamp { get; set; }
+        public decimal Value { get; set; }
+        public long X => new DateTimeOffset(Timestamp).ToUnixTimeMilliseconds();
+
+        public ChartDataPoint(DateTime timestamp, double value)
+        {
+            Timestamp = timestamp;
+            Value = (decimal)value;
+        }
+    }
+}

@@ -1,0 +1,481 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="roaming-analytics-container">
+    <div class="roaming-header">
+        <h3>Roaming Analytics</h3>
+        <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+            @if (_loading)
+            {
+                <span class="spinner-sm"></span>
+            }
+            else
+            {
+                <span>Refresh</span>
+            }
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="roaming-loading">
+            <span class="spinner"></span>
+            <span>Loading roaming data...</span>
+        </div>
+    }
+    else if (_topology == null || _topology.Edges.Count == 0)
+    {
+        <div class="roaming-empty">
+            <p>No roaming data available. Roaming events are recorded when clients move between access points.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="roaming-stats-row">
+            <div class="roaming-stat-card">
+                <div class="roaming-stat-value">@_topology.Vertices.Count</div>
+                <div class="roaming-stat-label">Access Points</div>
+            </div>
+            <div class="roaming-stat-card">
+                <div class="roaming-stat-value">@_topology.Clients.Count</div>
+                <div class="roaming-stat-label">Roaming Clients</div>
+            </div>
+            <div class="roaming-stat-card">
+                <div class="roaming-stat-value">@_totalRoamAttempts</div>
+                <div class="roaming-stat-label">Total Roams</div>
+            </div>
+            <div class="roaming-stat-card @GetSuccessRateClass(_overallSuccessRate)">
+                <div class="roaming-stat-value">@_overallSuccessRate.ToString("F1")%</div>
+                <div class="roaming-stat-label">Success Rate</div>
+            </div>
+            <div class="roaming-stat-card">
+                <div class="roaming-stat-value">@_fastRoamingPct.ToString("F0")%</div>
+                <div class="roaming-stat-label">Fast Roaming (802.11r)</div>
+            </div>
+        </div>
+
+        <!-- Topology Visualization -->
+        <div class="roaming-topology-section">
+            <div class="section-header">
+                <h4>AP Roaming Topology</h4>
+                <span class="section-subtitle">@_topology.Edges.Count roaming path@(_topology.Edges.Count != 1 ? "s" : "") between APs</span>
+            </div>
+
+            <div class="topology-graph">
+                @foreach (var vertex in _topology.Vertices)
+                {
+                    var position = GetNodePosition(vertex.Mac);
+                    <div class="topology-node" style="left: @position.Left%; top: @position.Top%">
+                        <div class="node-icon">
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+                                <path d="M12 18c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2m0-4c2.8 0 5.4 1.1 7.4 3l-1.4 1.4C16.2 16.9 14.2 16 12 16s-4.2.9-6 2.4L4.6 17c2-1.9 4.6-3 7.4-3m0-4c4 0 7.7 1.6 10.4 4.2l-1.4 1.4C18.6 13.2 15.4 12 12 12s-6.6 1.2-9 3.6L1.6 14.2C4.3 11.6 8 10 12 10m0-4c5.2 0 10 2 13.6 5.3l-1.4 1.4C21.2 10.2 16.8 8 12 8S2.8 10.2.2 12.7L-1.2 11.3C2 8 6.8 6 12 6z"/>
+                            </svg>
+                        </div>
+                        <div class="node-label">@vertex.Name</div>
+                        <div class="node-model">@vertex.Model</div>
+                    </div>
+                }
+
+                <!-- Render edges as lines connecting nodes -->
+                <svg class="topology-edges" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    @foreach (var edge in _topology.Edges)
+                    {
+                        var pos1 = GetNodePosition(edge.Endpoint1Mac);
+                        var pos2 = GetNodePosition(edge.Endpoint2Mac);
+                        var strokeClass = GetEdgeClass(edge.SuccessRate);
+                        var strokeWidth = GetEdgeWidth(edge.TotalRoamAttempts);
+                        <line x1="@pos1.Left" y1="@pos1.Top"
+                              x2="@pos2.Left" y2="@pos2.Top"
+                              class="topology-edge @strokeClass"
+                              stroke-width="@strokeWidth"
+                              data-tooltip="@GetEdgeTooltip(edge)" />
+                    }
+                </svg>
+            </div>
+
+            <div class="topology-legend">
+                <div class="legend-item">
+                    <span class="legend-line legend-excellent"></span>
+                    <span>Excellent (95%+)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-line legend-good"></span>
+                    <span>Good (80-95%)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-line legend-fair"></span>
+                    <span>Fair (60-80%)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-line legend-poor"></span>
+                    <span>Poor (&lt;60%)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Roaming Paths Table -->
+        <div class="roaming-paths-section">
+            <div class="section-header">
+                <h4>Roaming Paths</h4>
+            </div>
+
+            <div class="roaming-paths-table">
+                <div class="paths-header">
+                    <div class="path-col path-aps">AP Pair</div>
+                    <div class="path-col path-attempts">Attempts</div>
+                    <div class="path-col path-success">Success</div>
+                    <div class="path-col path-rate">Rate</div>
+                    <div class="path-col path-fast">Fast Roam</div>
+                </div>
+                @foreach (var edge in _topology.Edges.OrderByDescending(e => e.TotalRoamAttempts))
+                {
+                    var ap1 = _topology.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint1Mac);
+                    var ap2 = _topology.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint2Mac);
+                    <div class="paths-row" @onclick="() => SelectEdge(edge)">
+                        <div class="path-col path-aps">
+                            <span class="ap-name">@(ap1?.Name ?? "Unknown")</span>
+                            <span class="path-arrow">↔</span>
+                            <span class="ap-name">@(ap2?.Name ?? "Unknown")</span>
+                        </div>
+                        <div class="path-col path-attempts">@edge.TotalRoamAttempts</div>
+                        <div class="path-col path-success">@edge.TotalSuccessfulRoams</div>
+                        <div class="path-col path-rate @GetSuccessRateClass(edge.SuccessRate)">
+                            @edge.SuccessRate.ToString("F1")%
+                        </div>
+                        <div class="path-col path-fast">
+                            @GetFastRoamingPct(edge).ToString("F0")%
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Selected Edge Details -->
+        @if (_selectedEdge != null)
+        {
+            var ap1 = _topology.Vertices.FirstOrDefault(v => v.Mac == _selectedEdge.Endpoint1Mac);
+            var ap2 = _topology.Vertices.FirstOrDefault(v => v.Mac == _selectedEdge.Endpoint2Mac);
+
+            <div class="edge-details-section">
+                <div class="section-header">
+                    <h4>@(ap1?.Name ?? "AP1") ↔ @(ap2?.Name ?? "AP2") Details</h4>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => _selectedEdge = null">Close</button>
+                </div>
+
+                <div class="edge-details-grid">
+                    <!-- Direction 1 -->
+                    <div class="direction-card">
+                        <div class="direction-header">
+                            <span class="direction-from">@(ap1?.Name ?? "AP1")</span>
+                            <span class="direction-arrow">→</span>
+                            <span class="direction-to">@(ap2?.Name ?? "AP2")</span>
+                        </div>
+                        <div class="direction-stats">
+                            <div class="direction-stat">
+                                <span class="stat-label">Attempts</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint1ToEndpoint2.RoamAttempts</span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Successful</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint1ToEndpoint2.SuccessfulRoams</span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Success Rate</span>
+                                <span class="stat-value @GetSuccessRateClass(_selectedEdge.Endpoint1ToEndpoint2.SuccessRate)">
+                                    @_selectedEdge.Endpoint1ToEndpoint2.SuccessRate.ToString("F1")%
+                                </span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Fast Roaming</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint1ToEndpoint2.FastRoaming</span>
+                            </div>
+                        </div>
+                        <div class="trigger-stats">
+                            <div class="trigger-item">
+                                <span>Min RSSI Triggered:</span>
+                                <span>@_selectedEdge.Endpoint1ToEndpoint2.TriggeredByMinimalRssi</span>
+                            </div>
+                            <div class="trigger-item">
+                                <span>Roaming Assistant:</span>
+                                <span>@_selectedEdge.Endpoint1ToEndpoint2.TriggeredByRoamingAssistant</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Direction 2 -->
+                    <div class="direction-card">
+                        <div class="direction-header">
+                            <span class="direction-from">@(ap2?.Name ?? "AP2")</span>
+                            <span class="direction-arrow">→</span>
+                            <span class="direction-to">@(ap1?.Name ?? "AP1")</span>
+                        </div>
+                        <div class="direction-stats">
+                            <div class="direction-stat">
+                                <span class="stat-label">Attempts</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint2ToEndpoint1.RoamAttempts</span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Successful</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint2ToEndpoint1.SuccessfulRoams</span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Success Rate</span>
+                                <span class="stat-value @GetSuccessRateClass(_selectedEdge.Endpoint2ToEndpoint1.SuccessRate)">
+                                    @_selectedEdge.Endpoint2ToEndpoint1.SuccessRate.ToString("F1")%
+                                </span>
+                            </div>
+                            <div class="direction-stat">
+                                <span class="stat-label">Fast Roaming</span>
+                                <span class="stat-value">@_selectedEdge.Endpoint2ToEndpoint1.FastRoaming</span>
+                            </div>
+                        </div>
+                        <div class="trigger-stats">
+                            <div class="trigger-item">
+                                <span>Min RSSI Triggered:</span>
+                                <span>@_selectedEdge.Endpoint2ToEndpoint1.TriggeredByMinimalRssi</span>
+                            </div>
+                            <div class="trigger-item">
+                                <span>Roaming Assistant:</span>
+                                <span>@_selectedEdge.Endpoint2ToEndpoint1.TriggeredByRoamingAssistant</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Roaming Clients for this Edge -->
+                @if (_selectedEdge.TopRoamingClients.Count > 0)
+                {
+                    <div class="top-clients-section">
+                        <h5>Top Roaming Clients</h5>
+                        <div class="top-clients-list">
+                            @foreach (var client in _selectedEdge.TopRoamingClients.Take(5))
+                            {
+                                var clientInfo = _topology.Clients.FirstOrDefault(c => c.Mac == client.Mac);
+                                <div class="top-client-item">
+                                    <span class="client-name">@(clientInfo?.Name ?? client.Mac)</span>
+                                    <span class="client-mac">@client.Mac</span>
+                                    <span class="client-roams">@client.RoamAttempts roams</span>
+                                    <span class="client-rate @GetSuccessRateClass(client.SuccessRate)">
+                                        @client.SuccessRate.ToString("F0")%
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- All Roaming Clients -->
+        <div class="roaming-clients-section">
+            <div class="section-header">
+                <h4>Roaming Clients</h4>
+                <span class="section-subtitle">@_topology.Clients.Count client@(_topology.Clients.Count != 1 ? "s" : "") with roaming history</span>
+            </div>
+
+            <div class="clients-grid">
+                @foreach (var client in _topology.Clients.Take(20))
+                {
+                    var stats = GetClientStats(client.Mac);
+                    <div class="client-card">
+                        <div class="client-info">
+                            <span class="client-name">@(client.Name ?? "Unknown")</span>
+                            <span class="client-mac">@client.Mac</span>
+                        </div>
+                        @if (stats != null)
+                        {
+                            <div class="client-stats">
+                                <span class="stat">@stats.TotalRoams roams</span>
+                                <span class="stat @GetSuccessRateClass(stats.SuccessRate)">@stats.SuccessRate.ToString("F0")% success</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private RoamingTopology? _topology;
+    private RoamingEdge? _selectedEdge;
+
+    // Calculated stats
+    private int _totalRoamAttempts;
+    private double _overallSuccessRate;
+    private double _fastRoamingPct;
+
+    // Node positions for topology graph (calculated once)
+    private Dictionary<string, (double Left, double Top)> _nodePositions = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            _topology = await WiFiService.GetRoamingTopologyAsync();
+
+            if (_topology != null)
+            {
+                CalculateStats();
+                CalculateNodePositions();
+            }
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            _topology = await WiFiService.GetRoamingTopologyAsync(forceRefresh: true);
+
+            if (_topology != null)
+            {
+                CalculateStats();
+                CalculateNodePositions();
+            }
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CalculateStats()
+    {
+        if (_topology == null) return;
+
+        _totalRoamAttempts = _topology.Edges.Sum(e => e.TotalRoamAttempts);
+        var totalSuccessful = _topology.Edges.Sum(e => e.TotalSuccessfulRoams);
+        _overallSuccessRate = _totalRoamAttempts > 0
+            ? (double)totalSuccessful / _totalRoamAttempts * 100
+            : 100;
+
+        var totalFastRoaming = _topology.Edges.Sum(e =>
+            e.Endpoint1ToEndpoint2.FastRoaming + e.Endpoint2ToEndpoint1.FastRoaming);
+        _fastRoamingPct = totalSuccessful > 0
+            ? (double)totalFastRoaming / totalSuccessful * 100
+            : 0;
+    }
+
+    private void CalculateNodePositions()
+    {
+        _nodePositions.Clear();
+        if (_topology == null || _topology.Vertices.Count == 0) return;
+
+        // Arrange nodes in a circle
+        var count = _topology.Vertices.Count;
+        var centerX = 50.0;
+        var centerY = 50.0;
+        var radius = 35.0;
+
+        for (int i = 0; i < count; i++)
+        {
+            var angle = (2 * Math.PI * i / count) - Math.PI / 2; // Start at top
+            var x = centerX + radius * Math.Cos(angle);
+            var y = centerY + radius * Math.Sin(angle);
+            _nodePositions[_topology.Vertices[i].Mac] = (x, y);
+        }
+    }
+
+    private (double Left, double Top) GetNodePosition(string mac)
+    {
+        return _nodePositions.TryGetValue(mac, out var pos) ? pos : (50, 50);
+    }
+
+    private void SelectEdge(RoamingEdge edge)
+    {
+        _selectedEdge = _selectedEdge == edge ? null : edge;
+    }
+
+    private double GetFastRoamingPct(RoamingEdge edge)
+    {
+        var total = edge.TotalSuccessfulRoams;
+        if (total == 0) return 0;
+        var fastRoams = edge.Endpoint1ToEndpoint2.FastRoaming + edge.Endpoint2ToEndpoint1.FastRoaming;
+        return (double)fastRoams / total * 100;
+    }
+
+    private ClientAggregateStats? GetClientStats(string mac)
+    {
+        if (_topology == null) return null;
+
+        var totalRoams = 0;
+        var successfulRoams = 0;
+
+        foreach (var edge in _topology.Edges)
+        {
+            foreach (var client in edge.TopRoamingClients.Where(c => c.Mac == mac))
+            {
+                totalRoams += client.RoamAttempts;
+                successfulRoams += client.SuccessfulRoams;
+            }
+        }
+
+        if (totalRoams == 0) return null;
+
+        return new ClientAggregateStats
+        {
+            TotalRoams = totalRoams,
+            SuccessRate = (double)successfulRoams / totalRoams * 100
+        };
+    }
+
+    private string GetSuccessRateClass(double rate) => rate switch
+    {
+        >= 95 => "rate-excellent",
+        >= 80 => "rate-good",
+        >= 60 => "rate-fair",
+        _ => "rate-poor"
+    };
+
+    private string GetEdgeClass(double successRate) => successRate switch
+    {
+        >= 95 => "edge-excellent",
+        >= 80 => "edge-good",
+        >= 60 => "edge-fair",
+        _ => "edge-poor"
+    };
+
+    private string GetEdgeWidth(int attempts) => attempts switch
+    {
+        >= 100 => "3",
+        >= 50 => "2",
+        >= 10 => "1.5",
+        _ => "1"
+    };
+
+    private string GetEdgeTooltip(RoamingEdge edge)
+    {
+        var ap1 = _topology?.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint1Mac);
+        var ap2 = _topology?.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint2Mac);
+        return $"{ap1?.Name ?? "AP1"} ↔ {ap2?.Name ?? "AP2"}: {edge.TotalRoamAttempts} roams, {edge.SuccessRate:F1}% success";
+    }
+
+    private class ClientAggregateStats
+    {
+        public int TotalRoams { get; set; }
+        public double SuccessRate { get; set; }
+    }
+}

@@ -1,0 +1,302 @@
+using Microsoft.Extensions.Logging;
+using NetworkOptimizer.WiFi;
+using NetworkOptimizer.WiFi.Analyzers;
+using NetworkOptimizer.WiFi.Models;
+using NetworkOptimizer.WiFi.Providers;
+
+namespace NetworkOptimizer.Web.Services;
+
+/// <summary>
+/// Service layer for Wi-Fi Optimizer feature.
+/// Coordinates data providers and analyzers.
+/// </summary>
+public class WiFiOptimizerService
+{
+    private readonly UniFiConnectionService _connectionService;
+    private readonly ILogger<WiFiOptimizerService> _logger;
+    private readonly SiteHealthScorer _healthScorer;
+
+    // Cached data (refreshed on demand)
+    private List<AccessPointSnapshot>? _cachedAps;
+    private List<WirelessClientSnapshot>? _cachedClients;
+    private RoamingTopology? _cachedRoamingData;
+    private SiteHealthScore? _cachedHealthScore;
+    private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
+    private readonly TimeSpan _cacheExpiry = TimeSpan.FromSeconds(30);
+
+    public WiFiOptimizerService(
+        UniFiConnectionService connectionService,
+        ILogger<WiFiOptimizerService> logger)
+    {
+        _connectionService = connectionService;
+        _logger = logger;
+        _healthScorer = new SiteHealthScorer();
+    }
+
+    /// <summary>
+    /// Get current site health score
+    /// </summary>
+    public async Task<SiteHealthScore?> GetSiteHealthScoreAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            _logger.LogDebug("Cannot get health score - not connected to UniFi");
+            return null;
+        }
+
+        if (!forceRefresh && _cachedHealthScore != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedHealthScore;
+        }
+
+        try
+        {
+            await RefreshDataAsync();
+            if (_cachedAps == null || _cachedClients == null)
+            {
+                return null;
+            }
+
+            _cachedHealthScore = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
+            return _cachedHealthScore;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate site health score");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get all access points with current Wi-Fi data
+    /// </summary>
+    public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            return new List<AccessPointSnapshot>();
+        }
+
+        if (!forceRefresh && _cachedAps != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedAps;
+        }
+
+        await RefreshDataAsync();
+        return _cachedAps ?? new List<AccessPointSnapshot>();
+    }
+
+    /// <summary>
+    /// Get all wireless clients with current connection data
+    /// </summary>
+    public async Task<List<WirelessClientSnapshot>> GetWirelessClientsAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            return new List<WirelessClientSnapshot>();
+        }
+
+        if (!forceRefresh && _cachedClients != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedClients;
+        }
+
+        await RefreshDataAsync();
+        return _cachedClients ?? new List<WirelessClientSnapshot>();
+    }
+
+    /// <summary>
+    /// Get roaming topology data
+    /// </summary>
+    public async Task<RoamingTopology?> GetRoamingTopologyAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            return null;
+        }
+
+        if (!forceRefresh && _cachedRoamingData != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedRoamingData;
+        }
+
+        await RefreshDataAsync();
+        return _cachedRoamingData;
+    }
+
+    /// <summary>
+    /// Get summary statistics for dashboard display
+    /// </summary>
+    public async Task<WiFiSummary> GetSummaryAsync()
+    {
+        var summary = new WiFiSummary();
+
+        if (!_connectionService.IsConnected)
+        {
+            return summary;
+        }
+
+        try
+        {
+            var aps = await GetAccessPointsAsync();
+            var clients = await GetWirelessClientsAsync();
+            var healthScore = await GetSiteHealthScoreAsync();
+
+            summary.TotalAps = aps.Count;
+            summary.TotalClients = clients.Count;
+            summary.ClientsOn2_4GHz = clients.Count(c => c.Band == RadioBand.Band2_4GHz);
+            summary.ClientsOn5GHz = clients.Count(c => c.Band == RadioBand.Band5GHz);
+            summary.ClientsOn6GHz = clients.Count(c => c.Band == RadioBand.Band6GHz);
+            summary.HealthScore = healthScore?.OverallScore;
+            summary.HealthGrade = healthScore?.Grade;
+
+            if (clients.Any(c => c.Satisfaction.HasValue))
+            {
+                summary.AvgSatisfaction = (int)clients
+                    .Where(c => c.Satisfaction.HasValue)
+                    .Average(c => c.Satisfaction!.Value);
+            }
+
+            if (clients.Any(c => c.Signal.HasValue))
+            {
+                summary.AvgSignal = (int)clients
+                    .Where(c => c.Signal.HasValue)
+                    .Average(c => c.Signal!.Value);
+            }
+
+            summary.WeakSignalClients = clients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get Wi-Fi summary");
+        }
+
+        return summary;
+    }
+
+    private async Task RefreshDataAsync()
+    {
+        if (_connectionService.Client == null)
+        {
+            _logger.LogWarning("UniFi client not available");
+            return;
+        }
+
+        try
+        {
+            var provider = new UniFiLiveDataProvider(
+                _connectionService.Client,
+                _logger as ILogger<UniFiLiveDataProvider> ??
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<UniFiLiveDataProvider>.Instance);
+
+            // Fetch data in parallel
+            var apsTask = provider.GetAccessPointsAsync();
+            var clientsTask = provider.GetWirelessClientsAsync();
+            var roamingTask = provider.GetRoamingTopologyAsync();
+
+            await Task.WhenAll(apsTask, clientsTask, roamingTask);
+
+            _cachedAps = await apsTask;
+            _cachedClients = await clientsTask;
+            _cachedRoamingData = await roamingTask;
+            _lastRefresh = DateTimeOffset.UtcNow;
+
+            _logger.LogDebug("Refreshed Wi-Fi data: {ApCount} APs, {ClientCount} clients",
+                _cachedAps.Count, _cachedClients.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh Wi-Fi data from UniFi");
+        }
+    }
+
+    /// <summary>
+    /// Clear cached data to force refresh on next request
+    /// </summary>
+    public void ClearCache()
+    {
+        _cachedAps = null;
+        _cachedClients = null;
+        _cachedRoamingData = null;
+        _cachedHealthScore = null;
+        _lastRefresh = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Get site-wide Wi-Fi metrics time series for AirView charts
+    /// </summary>
+    public async Task<List<WiFi.Models.SiteWiFiMetrics>> GetSiteMetricsAsync(
+        DateTimeOffset start,
+        DateTimeOffset end,
+        WiFi.MetricGranularity granularity = WiFi.MetricGranularity.FiveMinutes)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get site metrics - not connected to UniFi");
+            return new List<WiFi.Models.SiteWiFiMetrics>();
+        }
+
+        try
+        {
+            var provider = new WiFi.Providers.UniFiLiveDataProvider(
+                _connectionService.Client,
+                _logger as ILogger<WiFi.Providers.UniFiLiveDataProvider> ??
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<WiFi.Providers.UniFiLiveDataProvider>.Instance);
+
+            return await provider.GetSiteMetricsAsync(start, end, granularity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get site metrics");
+            return new List<WiFi.Models.SiteWiFiMetrics>();
+        }
+    }
+
+    /// <summary>
+    /// Get per-client Wi-Fi metrics time series
+    /// </summary>
+    public async Task<List<WiFi.Models.ClientWiFiMetrics>> GetClientMetricsAsync(
+        string clientMac,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        WiFi.MetricGranularity granularity = WiFi.MetricGranularity.FiveMinutes)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get client metrics - not connected to UniFi");
+            return new List<WiFi.Models.ClientWiFiMetrics>();
+        }
+
+        try
+        {
+            var provider = new WiFi.Providers.UniFiLiveDataProvider(
+                _connectionService.Client,
+                _logger as ILogger<WiFi.Providers.UniFiLiveDataProvider> ??
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<WiFi.Providers.UniFiLiveDataProvider>.Instance);
+
+            return await provider.GetClientMetricsAsync(clientMac, start, end, granularity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get client metrics for {ClientMac}", clientMac);
+            return new List<WiFi.Models.ClientWiFiMetrics>();
+        }
+    }
+}
+
+/// <summary>
+/// Summary data for dashboard display
+/// </summary>
+public class WiFiSummary
+{
+    public int TotalAps { get; set; }
+    public int TotalClients { get; set; }
+    public int ClientsOn2_4GHz { get; set; }
+    public int ClientsOn5GHz { get; set; }
+    public int ClientsOn6GHz { get; set; }
+    public int? HealthScore { get; set; }
+    public string? HealthGrade { get; set; }
+    public int? AvgSatisfaction { get; set; }
+    public int? AvgSignal { get; set; }
+    public int WeakSignalClients { get; set; }
+}

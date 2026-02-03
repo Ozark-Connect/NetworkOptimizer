@@ -1,3 +1,4 @@
+using ApexCharts;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
@@ -257,6 +258,10 @@ builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostic
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<AgentService>();
+builder.Services.AddScoped<WiFiOptimizerService>();
+
+// Add ApexCharts for Wi-Fi Optimizer visualizations
+builder.Services.AddApexCharts();
 
 // Configure HTTP client for API calls
 builder.Services.AddHttpClient();
