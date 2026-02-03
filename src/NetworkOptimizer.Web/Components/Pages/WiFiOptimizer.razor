@@ -127,9 +127,9 @@
 
     <!-- View Tabs -->
     <div class="wifi-view-tabs">
-        <button class="wifi-view-tab @(_activeTab == "airview" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("airview"))">
-            AirView
+        <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("metrics"))">
+            Metrics
         </button>
         <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("client"))">
@@ -173,12 +173,12 @@
         </button>
     </div>
 
-    @if (_activeTab == "airview")
+    @if (_activeTab == "metrics")
     {
-        <!-- AirView - Time Series Charts -->
+        <!-- Metrics - Time Series Charts -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.AirView />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics />
             </div>
         </div>
     }

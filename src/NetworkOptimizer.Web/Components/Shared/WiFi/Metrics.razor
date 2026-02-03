@@ -5,14 +5,14 @@
 @inject UniFiConnectionService ConnectionService
 @implements IDisposable
 
-<div class="airview-container">
-    <div class="airview-header">
-        <div class="airview-title">
-            <h3>AirView</h3>
-            <span class="airview-subtitle">Wi-Fi Performance Metrics</span>
+<div class="metrics-container">
+    <div class="metrics-header">
+        <div class="metrics-title">
+            <h3>Metrics</h3>
+            <span class="metrics-subtitle">Wi-Fi Performance Metrics</span>
         </div>
 
-        <div class="airview-controls">
+        <div class="metrics-controls">
             <!-- Time Range Selector -->
             <div class="time-range-selector">
                 @foreach (var range in _timeRanges)
@@ -38,7 +38,7 @@
         </div>
     </div>
 
-    <div class="airview-filters">
+    <div class="metrics-filters">
         <div class="filter-group">
             <label class="filter-label">Metrics:</label>
             <label class="filter-checkbox">
@@ -58,20 +58,20 @@
 
     @if (_loading)
     {
-        <div class="airview-loading">
+        <div class="metrics-loading">
             <span class="spinner"></span>
             <span>Loading metrics...</span>
         </div>
     }
     else if (!ConnectionService.IsConnected)
     {
-        <div class="airview-empty">
+        <div class="metrics-empty">
             <p>Connect to UniFi to view Wi-Fi metrics</p>
         </div>
     }
     else if (_metrics.Count == 0)
     {
-        <div class="airview-empty">
+        <div class="metrics-empty">
             <p>No metrics data available for the selected time range</p>
         </div>
     }

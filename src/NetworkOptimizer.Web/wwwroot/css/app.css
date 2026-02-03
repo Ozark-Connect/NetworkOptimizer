@@ -6256,16 +6256,16 @@ select.form-control {
 }
 
 /* ================================
-   AirView Component
+   Metrics Component
    ================================ */
 
-.airview-container {
+.metrics-container {
     display: flex;
     flex-direction: column;
     gap: 1rem;
 }
 
-.airview-header {
+.metrics-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -6273,19 +6273,19 @@ select.form-control {
     gap: 1rem;
 }
 
-.airview-title h3 {
+.metrics-title h3 {
     margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
-.airview-subtitle {
+.metrics-subtitle {
     font-size: 0.875rem;
     color: var(--text-muted);
 }
 
-.airview-controls {
+.metrics-controls {
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -6319,7 +6319,7 @@ select.form-control {
     color: white;
 }
 
-.airview-filters {
+.metrics-filters {
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
@@ -6360,8 +6360,8 @@ select.form-control {
 .checkbox-label.interference { color: #f59e0b; }
 .checkbox-label.retries { color: #ef4444; }
 
-.airview-loading,
-.airview-empty {
+.metrics-loading,
+.metrics-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -6430,12 +6430,12 @@ select.form-control {
 }
 
 @media (max-width: 768px) {
-    .airview-header {
+    .metrics-header {
         flex-direction: column;
         align-items: flex-start;
     }
 
-    .airview-controls {
+    .metrics-controls {
         width: 100%;
         justify-content: space-between;
     }

@@ -76,6 +76,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         try
         {
+            _logger.LogDebug("Fetching site metrics: {ReportType}, start={Start}, end={End}",
+                reportType, start, end);
+
             var reportData = await _client.PostSiteReportAsync(
                 reportType,
                 start.ToUnixTimeMilliseconds(),
@@ -83,7 +86,13 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 attrs,
                 cancellationToken);
 
-            return ParseSiteMetrics(reportData);
+            _logger.LogDebug("Site report response: ValueKind={ValueKind}, ArrayLength={Length}",
+                reportData.ValueKind,
+                reportData.ValueKind == System.Text.Json.JsonValueKind.Array ? reportData.GetArrayLength() : 0);
+
+            var metrics = ParseSiteMetrics(reportData);
+            _logger.LogInformation("Parsed {Count} site metrics data points", metrics.Count);
+            return metrics;
         }
         catch (Exception ex)
         {
@@ -115,6 +124,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         try
         {
+            _logger.LogDebug("Fetching client metrics for {ClientMac}: {ReportType}, start={Start}, end={End}",
+                clientMac, reportType, start, end);
+
             var reportData = await _client.PostUserReportAsync(
                 reportType,
                 clientMac,
@@ -123,7 +135,14 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 attrs,
                 cancellationToken);
 
-            return ParseClientMetrics(reportData, clientMac);
+            _logger.LogDebug("Client report response for {ClientMac}: ValueKind={ValueKind}, ArrayLength={Length}",
+                clientMac,
+                reportData.ValueKind,
+                reportData.ValueKind == System.Text.Json.JsonValueKind.Array ? reportData.GetArrayLength() : 0);
+
+            var metrics = ParseClientMetrics(reportData, clientMac);
+            _logger.LogInformation("Parsed {Count} client metrics data points for {ClientMac}", metrics.Count, clientMac);
+            return metrics;
         }
         catch (Exception ex)
         {
@@ -340,7 +359,19 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     {
         var metrics = new List<SiteWiFiMetrics>();
 
-        if (data.ValueKind != JsonValueKind.Array) return metrics;
+        if (data.ValueKind != JsonValueKind.Array)
+        {
+            _logger.LogWarning("Site metrics data is not an array: {ValueKind}", data.ValueKind);
+            return metrics;
+        }
+
+        // Log first item properties for debugging
+        if (data.GetArrayLength() > 0)
+        {
+            var first = data[0];
+            var props = first.EnumerateObject().Select(p => p.Name).Take(10).ToList();
+            _logger.LogDebug("First site metrics item properties (first 10): {Properties}", string.Join(", ", props));
+        }
 
         foreach (var item in data.EnumerateArray())
         {
