@@ -65,6 +65,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         var attrs = new[]
         {
+            "time",  // Must include time to get the timestamp
             "ap-ng-cu_total", "ap-na-cu_total", "ap-6e-cu_total",
             "ap-ng-cu_interf", "ap-na-cu_interf", "ap-6e-cu_interf",
             "ap-ng-tx_retries", "ap-na-tx_retries", "ap-6e-tx_retries",
@@ -381,34 +382,25 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         foreach (var item in data.EnumerateArray())
         {
-            // Try common timestamp field names
-            long timestamp = 0;
-            if (item.TryGetProperty("time", out var timeProp))
+            // The "time" field contains the Unix timestamp in milliseconds
+            if (!item.TryGetProperty("time", out var timeProp))
             {
-                if (timeProp.ValueKind == JsonValueKind.Number)
-                    timestamp = timeProp.GetInt64();
-                else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
-                    timestamp = parsed;
-            }
-            else if (item.TryGetProperty("datetime", out var dtProp))
-            {
-                if (dtProp.ValueKind == JsonValueKind.Number)
-                    timestamp = dtProp.GetInt64();
-                else if (dtProp.ValueKind == JsonValueKind.String && long.TryParse(dtProp.GetString(), out var parsed))
-                    timestamp = parsed;
-            }
-            else if (item.TryGetProperty("o", out var oProp))
-            {
-                // Some UniFi responses use "o" for the timestamp (can be string or number)
-                if (oProp.ValueKind == JsonValueKind.Number)
-                    timestamp = oProp.GetInt64();
-                else if (oProp.ValueKind == JsonValueKind.String && long.TryParse(oProp.GetString(), out var parsed))
-                    timestamp = parsed;
+                _logger.LogWarning("Site metrics item missing 'time' field");
+                continue;
             }
 
-            if (timestamp == 0)
+            long timestamp;
+            if (timeProp.ValueKind == JsonValueKind.Number)
             {
-                _logger.LogWarning("Site metrics item missing or invalid timestamp field");
+                timestamp = timeProp.GetInt64();
+            }
+            else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
+            {
+                timestamp = parsed;
+            }
+            else
+            {
+                _logger.LogWarning("Site metrics item has invalid 'time' field type: {Type}", timeProp.ValueKind);
                 continue;
             }
 
