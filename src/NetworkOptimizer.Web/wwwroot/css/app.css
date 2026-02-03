@@ -6342,7 +6342,7 @@ select.form-control {
 }
 
 .ap-filter-select {
-    background: var(--surface-color);
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 4px;
     color: var(--text-primary);
@@ -6354,6 +6354,11 @@ select.form-control {
 .ap-filter-select:focus {
     outline: none;
     border-color: var(--primary-color);
+}
+
+.ap-filter-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .filter-checkbox {
@@ -6520,6 +6525,11 @@ select.form-control {
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     width: 100%;
+}
+
+.client-selector .form-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .timeline-loading,
