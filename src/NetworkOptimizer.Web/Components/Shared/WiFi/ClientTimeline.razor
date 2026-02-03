@@ -143,14 +143,14 @@
         <!-- Events List -->
         <div class="events-section">
             <div class="events-header">
-                <span class="events-title">Connection Events</span>
-                <span class="events-count">@_events.Count events</span>
+                <span class="events-title">Signal Changes</span>
+                <span class="events-count">@_events.Count notable changes</span>
             </div>
 
             @if (_events.Count == 0)
             {
                 <div class="events-empty">
-                    <p>No events recorded for this time period</p>
+                    <p>No significant signal changes in this time period</p>
                 </div>
             }
             else
@@ -376,37 +376,44 @@
     {
         _events.Clear();
 
-        // Generate pseudo-events from metrics (signal changes, etc.)
-        // In production, this would come from roaming events API
+        // Generate events from metrics data
+        // Note: True roaming events require the roaming events API
         if (_clientMetrics.Count == 0) return;
 
-        var first = _clientMetrics.First();
-        _events.Add(new ClientEvent
-        {
-            Type = "connect",
-            Title = "Connected",
-            Details = $"Signal: {first.Signal ?? 0} dBm",
-            Time = first.Timestamp
-        });
+        var ordered = _clientMetrics.OrderBy(m => m.Timestamp).ToList();
+        int? lastSignal = null;
+        DateTimeOffset? lastSignalChangeTime = null;
 
-        // Detect significant signal drops
-        int? lastSignal = first.Signal;
-        foreach (var metric in _clientMetrics.Skip(1))
+        foreach (var metric in ordered)
         {
-            if (lastSignal.HasValue && metric.Signal.HasValue)
+            if (!metric.Signal.HasValue)
             {
-                var drop = lastSignal.Value - metric.Signal.Value;
-                if (drop > 10)
+                lastSignal = null;
+                continue;
+            }
+
+            if (lastSignal.HasValue)
+            {
+                var delta = metric.Signal.Value - lastSignal.Value;
+
+                // Significant signal change (>10 dB in either direction)
+                // Skip if too close to previous event (likely same roam)
+                if (Math.Abs(delta) > 10 &&
+                    (!lastSignalChangeTime.HasValue || (metric.Timestamp - lastSignalChangeTime.Value).TotalMinutes > 2))
                 {
+                    var isImprovement = delta > 0;
                     _events.Add(new ClientEvent
                     {
-                        Type = "signal_drop",
-                        Title = "Signal Drop",
-                        Details = $"{lastSignal} dBm → {metric.Signal} dBm ({drop} dB drop)",
+                        Type = isImprovement ? "signal_improve" : "signal_drop",
+                        Title = isImprovement ? "Signal Improved" : "Signal Dropped",
+                        Details = $"{lastSignal} → {metric.Signal} dBm ({(isImprovement ? "+" : "")}{delta} dB)" +
+                                  (Math.Abs(delta) > 15 ? " - possible roam" : ""),
                         Time = metric.Timestamp
                     });
+                    lastSignalChangeTime = metric.Timestamp;
                 }
             }
+
             lastSignal = metric.Signal;
         }
 
@@ -441,6 +448,7 @@
         "disconnect" => "event-disconnect",
         "roam" => "event-roam",
         "signal_drop" => "event-warning",
+        "signal_improve" => "event-success",
         _ => ""
     };
 
@@ -449,7 +457,8 @@
         "connect" => "+",
         "disconnect" => "-",
         "roam" => "→",
-        "signal_drop" => "!",
+        "signal_drop" => "↓",
+        "signal_improve" => "↑",
         _ => "•"
     };
 

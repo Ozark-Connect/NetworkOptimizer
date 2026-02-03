@@ -6714,6 +6714,11 @@ select.form-control {
     color: #fbbf24;
 }
 
+.event-success .event-icon {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
 .event-content {
     flex: 1;
     min-width: 0;
