@@ -369,16 +369,36 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         if (data.GetArrayLength() > 0)
         {
             var first = data[0];
-            var props = first.EnumerateObject().Select(p => p.Name).Take(10).ToList();
-            _logger.LogDebug("First site metrics item properties (first 10): {Properties}", string.Join(", ", props));
+            var props = first.EnumerateObject().Select(p => p.Name).ToList();
+            _logger.LogDebug("First site metrics item properties (all {Count}): {Properties}", props.Count, string.Join(", ", props));
         }
 
         foreach (var item in data.EnumerateArray())
         {
+            // Try common timestamp field names
+            long timestamp = 0;
+            if (item.TryGetProperty("time", out var timeProp))
+            {
+                timestamp = timeProp.GetInt64();
+            }
+            else if (item.TryGetProperty("datetime", out var dtProp))
+            {
+                timestamp = dtProp.GetInt64();
+            }
+            else if (item.TryGetProperty("o", out var oProp))
+            {
+                // Some UniFi responses use "o" for the timestamp
+                timestamp = oProp.GetInt64();
+            }
+            else
+            {
+                _logger.LogWarning("Site metrics item missing timestamp field");
+                continue;
+            }
+
             var metric = new SiteWiFiMetrics
             {
-                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(
-                    item.GetProperty("time").GetInt64()),
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
                 ByBand = new Dictionary<RadioBand, BandMetrics>()
             };
 
