@@ -617,6 +617,14 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         if (data.ValueKind != JsonValueKind.Array) return metrics;
 
+        // Log first item for debugging
+        if (data.GetArrayLength() > 0)
+        {
+            var first = data[0];
+            var props = first.EnumerateObject().Select(p => $"{p.Name}:{p.Value.ValueKind}").ToList();
+            _logger.LogDebug("First client metrics item properties: {Properties}", string.Join(", ", props));
+        }
+
         foreach (var item in data.EnumerateArray())
         {
             // Parse timestamp (required)
@@ -628,7 +636,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             long timestamp;
             if (timeProp.ValueKind == JsonValueKind.Number)
             {
-                timestamp = timeProp.GetInt64();
+                // Use GetDouble and cast to handle both integer and decimal values
+                timestamp = (long)timeProp.GetDouble();
             }
             else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
             {
@@ -636,6 +645,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             }
             else
             {
+                _logger.LogDebug("Skipping client metric item with invalid time type: {Type}", timeProp.ValueKind);
                 continue;
             }
 
@@ -814,7 +824,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private static int? GetIntOrNull(JsonElement el, string prop)
     {
         if (el.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.Number)
-            return val.GetInt32();
+        {
+            // Use GetDouble and cast to handle potential decimal values
+            return (int)val.GetDouble();
+        }
         return null;
     }
 
