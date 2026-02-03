@@ -1823,10 +1823,7 @@ public class UniFiApiClient : IDisposable
             return default;
         }
 
-        // V2 API uses a different path structure
-        var url = _isUniFiOs
-            ? $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/wlan/enriched-configuration"
-            : $"{_controllerUrl}/v2/api/site/{_site}/wlan/enriched-configuration";
+        var url = BuildV2ApiPath($"site/{_site}/wlan/enriched-configuration");
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
@@ -1861,10 +1858,7 @@ public class UniFiApiClient : IDisposable
             return default;
         }
 
-        // V2 API uses a different path structure
-        var url = _isUniFiOs
-            ? $"{_controllerUrl}/proxy/network/v2/api/site/{_site}/wifi-connectivity/roaming/topology"
-            : $"{_controllerUrl}/v2/api/site/{_site}/wifi-connectivity/roaming/topology";
+        var url = BuildV2ApiPath($"site/{_site}/wifi-connectivity/roaming/topology");
 
         return await _retryPolicy.ExecuteAsync(async () =>
         {
