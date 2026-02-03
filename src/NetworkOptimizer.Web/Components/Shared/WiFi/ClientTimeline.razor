@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using Microsoft.Extensions.Logging
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject ILogger<ClientTimeline> Logger
 
 <div class="client-timeline-container">
     <div class="timeline-header">
@@ -325,10 +327,18 @@
                 _ => MetricGranularity.FiveMinutes
             };
 
+            Logger.LogInformation("Loading client metrics for {Mac}, range={Range}, granularity={Gran}",
+                _selectedClientMac, _selectedRange, granularity);
+
             _clientMetrics = await WiFiService.GetClientMetricsAsync(_selectedClientMac, start, end, granularity);
+
+            Logger.LogInformation("Loaded {Count} client metrics data points", _clientMetrics.Count);
 
             // Transform for charts
             TransformChartData();
+
+            Logger.LogInformation("Transformed chart data: Signal={SignalCount}, TxRetry={RetryCount}",
+                _signalData.Count, _txRetryData.Count);
 
             // Generate events (placeholder - would come from roaming/event APIs)
             GenerateEventsFromMetrics();
@@ -342,8 +352,9 @@
 
     private void TransformChartData()
     {
-        _signalData.Clear();
-        _txRetryData.Clear();
+        // Create new lists to trigger Blazor change detection
+        var newSignalData = new List<ClientChartPoint>();
+        var newTxRetryData = new List<ClientChartPoint>();
 
         foreach (var metric in _clientMetrics.OrderBy(m => m.Timestamp))
         {
@@ -351,11 +362,14 @@
 
             if (metric.Signal.HasValue)
             {
-                _signalData.Add(new ClientChartPoint(ts, metric.Signal.Value));
+                newSignalData.Add(new ClientChartPoint(ts, metric.Signal.Value));
             }
 
-            _txRetryData.Add(new ClientChartPoint(ts, metric.TxRetryPct ?? 0));
+            newTxRetryData.Add(new ClientChartPoint(ts, metric.TxRetryPct ?? 0));
         }
+
+        _signalData = newSignalData;
+        _txRetryData = newTxRetryData;
     }
 
     private void GenerateEventsFromMetrics()

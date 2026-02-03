@@ -176,6 +176,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         var attrs = new[]
         {
+            "time",  // Must include time to get timestamp
             "signal", "tx_retries", "tx_packets", "rx_packets",
             "wifi_tx_attempts", "wifi_tx_dropped"
         };
@@ -618,10 +619,29 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         foreach (var item in data.EnumerateArray())
         {
+            // Parse timestamp (required)
+            if (!item.TryGetProperty("time", out var timeProp))
+            {
+                continue;
+            }
+
+            long timestamp;
+            if (timeProp.ValueKind == JsonValueKind.Number)
+            {
+                timestamp = timeProp.GetInt64();
+            }
+            else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
+            {
+                timestamp = parsed;
+            }
+            else
+            {
+                continue;
+            }
+
             var metric = new ClientWiFiMetrics
             {
-                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(
-                    item.GetProperty("time").GetInt64()),
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
                 ClientMac = clientMac,
                 Signal = GetIntOrNull(item, "signal"),
                 TxRetries = GetLongOrNull(item, "tx_retries"),
