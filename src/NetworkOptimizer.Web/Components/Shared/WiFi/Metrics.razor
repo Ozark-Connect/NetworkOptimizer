@@ -284,7 +284,15 @@
 
     private void InitializeChartOptions()
     {
-        var baseOptions = new ApexChartOptions<ChartDataPoint>
+        // Each chart needs completely independent options (ApexCharts mutates them)
+        _chartOptions24 = CreateChartOptions();
+        _chartOptions5 = CreateChartOptions();
+        _chartOptions6 = CreateChartOptions();
+    }
+
+    private ApexChartOptions<ChartDataPoint> CreateChartOptions()
+    {
+        return new ApexChartOptions<ChartDataPoint>
         {
             Chart = new Chart
             {
@@ -355,27 +363,6 @@
                 X = new TooltipX { Format = "MMM dd, HH:mm" }
             }
         };
-
-        _chartOptions24 = CloneOptions(baseOptions);
-        _chartOptions5 = CloneOptions(baseOptions);
-        _chartOptions6 = CloneOptions(baseOptions);
-    }
-
-    private ApexChartOptions<ChartDataPoint> CloneOptions(ApexChartOptions<ChartDataPoint> source)
-    {
-        // Create a new instance with same settings
-        return new ApexChartOptions<ChartDataPoint>
-        {
-            Chart = source.Chart,
-            Xaxis = source.Xaxis,
-            Yaxis = source.Yaxis,
-            Grid = source.Grid,
-            Stroke = source.Stroke,
-            Fill = source.Fill,
-            Colors = source.Colors,
-            Legend = source.Legend,
-            Tooltip = source.Tooltip
-        };
     }
 
     private async void OnConnectionChanged()
@@ -423,21 +410,7 @@
         finally
         {
             _loading = false;
-            await InvokeAsync(StateHasChanged);
-
-            // Force chart re-render after state change
-            await Task.Delay(100); // Small delay to let DOM update
-            try
-            {
-                if (_chart24 != null) await _chart24.RenderAsync();
-                if (_chart5 != null) await _chart5.RenderAsync();
-                if (_chart6 != null) await _chart6.RenderAsync();
-                Logger.LogInformation("Charts re-rendered");
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to re-render charts");
-            }
+            StateHasChanged();
         }
     }
 
