@@ -379,20 +379,30 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             long timestamp = 0;
             if (item.TryGetProperty("time", out var timeProp))
             {
-                timestamp = timeProp.GetInt64();
+                if (timeProp.ValueKind == JsonValueKind.Number)
+                    timestamp = timeProp.GetInt64();
+                else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
+                    timestamp = parsed;
             }
             else if (item.TryGetProperty("datetime", out var dtProp))
             {
-                timestamp = dtProp.GetInt64();
+                if (dtProp.ValueKind == JsonValueKind.Number)
+                    timestamp = dtProp.GetInt64();
+                else if (dtProp.ValueKind == JsonValueKind.String && long.TryParse(dtProp.GetString(), out var parsed))
+                    timestamp = parsed;
             }
             else if (item.TryGetProperty("o", out var oProp))
             {
-                // Some UniFi responses use "o" for the timestamp
-                timestamp = oProp.GetInt64();
+                // Some UniFi responses use "o" for the timestamp (can be string or number)
+                if (oProp.ValueKind == JsonValueKind.Number)
+                    timestamp = oProp.GetInt64();
+                else if (oProp.ValueKind == JsonValueKind.String && long.TryParse(oProp.GetString(), out var parsed))
+                    timestamp = parsed;
             }
-            else
+
+            if (timestamp == 0)
             {
-                _logger.LogWarning("Site metrics item missing timestamp field");
+                _logger.LogWarning("Site metrics item missing or invalid timestamp field");
                 continue;
             }
 
