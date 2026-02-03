@@ -14,6 +14,7 @@ public class WiFiOptimizerService
 {
     private readonly UniFiConnectionService _connectionService;
     private readonly ILogger<WiFiOptimizerService> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly SiteHealthScorer _healthScorer;
 
     // Cached data (refreshed on demand)
@@ -26,10 +27,12 @@ public class WiFiOptimizerService
 
     public WiFiOptimizerService(
         UniFiConnectionService connectionService,
-        ILogger<WiFiOptimizerService> logger)
+        ILogger<WiFiOptimizerService> logger,
+        ILoggerFactory loggerFactory)
     {
         _connectionService = connectionService;
         _logger = logger;
+        _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
     }
 
@@ -240,8 +243,7 @@ public class WiFiOptimizerService
         {
             var provider = new WiFi.Providers.UniFiLiveDataProvider(
                 _connectionService.Client,
-                _logger as ILogger<WiFi.Providers.UniFiLiveDataProvider> ??
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<WiFi.Providers.UniFiLiveDataProvider>.Instance);
+                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
 
             return await provider.GetSiteMetricsAsync(start, end, granularity);
         }
@@ -271,8 +273,7 @@ public class WiFiOptimizerService
         {
             var provider = new WiFi.Providers.UniFiLiveDataProvider(
                 _connectionService.Client,
-                _logger as ILogger<WiFi.Providers.UniFiLiveDataProvider> ??
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<WiFi.Providers.UniFiLiveDataProvider>.Instance);
+                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
 
             return await provider.GetClientMetricsAsync(clientMac, start, end, granularity);
         }
