@@ -322,4 +322,40 @@ public class WirelessCameraVlanRuleTests
     }
 
     #endregion
+
+    #region Message Format Tests - For UI Title Generation
+
+    [Fact]
+    public void Evaluate_SecuritySystemOnWrongVlan_MessageStartsWithSecuritySystem()
+    {
+        // Arrange - This test verifies the message format that GetIssueTitle relies on
+        var corpNetwork = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.SecuritySystem, corpNetwork, "Alarm Panel");
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Message must start with "Security System" for correct UI title
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("Security System");
+    }
+
+    [Fact]
+    public void Evaluate_CameraOnWrongVlan_MessageStartsWithCamera()
+    {
+        // Arrange - Verify cameras have correct message format (not "Security System")
+        var corpNetwork = new NetworkInfo { Id = "corp", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var client = CreateWirelessClient(ClientDeviceCategory.Camera, corpNetwork, "Backyard Camera");
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(client, networks);
+
+        // Assert - Message must start with "Camera" for correct UI title
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("Camera");
+    }
+
+    #endregion
 }

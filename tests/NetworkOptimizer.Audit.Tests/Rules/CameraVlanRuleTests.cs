@@ -1246,4 +1246,72 @@ public class CameraVlanRuleTests
     }
 
     #endregion
+
+    #region Security System Tests - Non-Cloud Security Systems Should Be Handled
+
+    [Fact]
+    public void Evaluate_SecuritySystemOnCorporateVlan_ReturnsIssue()
+    {
+        // Arrange - Security systems (alarm panels, etc.) should be on Security VLAN
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Alarm Panel", deviceCategory: ClientDeviceCategory.SecuritySystem, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Should flag security system on wrong VLAN
+        result.Should().NotBeNull();
+        result!.Type.Should().Be("CAMERA-VLAN-001");
+        result.Severity.Should().Be(AuditSeverity.Critical);
+    }
+
+    [Fact]
+    public void Evaluate_SecuritySystemOnCorporateVlan_MessageStartsWithSecuritySystem()
+    {
+        // Arrange - This test verifies the message format that GetIssueTitle relies on
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Alarm Panel", deviceCategory: ClientDeviceCategory.SecuritySystem, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Message must start with "Security System" for correct UI title
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("Security System");
+    }
+
+    [Fact]
+    public void Evaluate_SecuritySystemOnSecurityVlan_ReturnsNull()
+    {
+        // Arrange - Security system correctly placed on Security VLAN
+        var securityNetwork = new NetworkInfo { Id = "sec-net", Name = "Security", VlanId = 30, Purpose = NetworkPurpose.Security };
+        var port = CreatePort(portName: "Alarm Panel", deviceCategory: ClientDeviceCategory.SecuritySystem, networkId: securityNetwork.Id);
+        var networks = CreateNetworkList(securityNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Correctly placed, no issue
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public void Evaluate_CameraOnCorporateVlan_MessageStartsWithCamera()
+    {
+        // Arrange - Verify cameras have correct message format (not "Security System")
+        var corpNetwork = new NetworkInfo { Id = "corp-net", Name = "Corporate", VlanId = 10, Purpose = NetworkPurpose.Corporate };
+        var port = CreatePort(portName: "Backyard Camera", deviceCategory: ClientDeviceCategory.Camera, networkId: corpNetwork.Id);
+        var networks = CreateNetworkList(corpNetwork);
+
+        // Act
+        var result = _rule.Evaluate(port, networks);
+
+        // Assert - Message must start with "Camera" for correct UI title
+        result.Should().NotBeNull();
+        result!.Message.Should().StartWith("Camera");
+    }
+
+    #endregion
 }
