@@ -64,7 +64,7 @@ public class FingerprintDetector
         { 116, ClientDeviceCategory.SecuritySystem }, // Surveillance System
         { 80, ClientDeviceCategory.SecuritySystem },  // Smart Home Security System
         { 173, ClientDeviceCategory.SecuritySystem }, // Home Security System
-        { 199, ClientDeviceCategory.SecuritySystem }, // Smart Smoke Detector
+        { 199, ClientDeviceCategory.SmartSensor },    // Smart Smoke Detector
         { 248, ClientDeviceCategory.SecuritySystem }, // Smart Access Control
         { 278, ClientDeviceCategory.SecuritySystem }, // Biometric Reader
 
@@ -351,7 +351,7 @@ public class FingerprintDetector
         { 49, ClientDeviceCategory.IoTGeneric },      // Network & Peripheral
         { 51, ClientDeviceCategory.IoTGeneric },      // Smart Device
         { 58, ClientDeviceCategory.IoTGeneric },      // Cloud Device
-        { 60, ClientDeviceCategory.IoTGeneric },      // Alarm System
+        { 60, ClientDeviceCategory.SecuritySystem },   // Alarm System
         { 64, ClientDeviceCategory.IoTGeneric },      // Smart Garden Device
         { 66, ClientDeviceCategory.IoTGeneric },      // IoT Device
         { 67, ClientDeviceCategory.IoTGeneric },      // Smart Cars
