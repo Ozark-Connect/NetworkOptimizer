@@ -655,7 +655,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private static long? GetLongOrNull(JsonElement el, string prop)
     {
         if (el.TryGetProperty(prop, out var val) && val.ValueKind == JsonValueKind.Number)
-            return val.GetInt64();
+        {
+            // API may return floats, so convert to long via double
+            return (long)val.GetDouble();
+        }
         return null;
     }
 
