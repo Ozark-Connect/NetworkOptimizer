@@ -371,6 +371,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             var first = data[0];
             var props = first.EnumerateObject().Select(p => p.Name).ToList();
             _logger.LogDebug("First site metrics item properties (all {Count}): {Properties}", props.Count, string.Join(", ", props));
+
+            // Log the actual value of "o" if present
+            if (first.TryGetProperty("o", out var oVal))
+            {
+                _logger.LogDebug("Value of 'o' field: {Value} (type: {Type})", oVal.ToString(), oVal.ValueKind);
+            }
         }
 
         foreach (var item in data.EnumerateArray())
