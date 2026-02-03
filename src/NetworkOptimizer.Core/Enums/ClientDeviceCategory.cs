@@ -251,12 +251,13 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.SmartThermostat => true,  // Convenience device, not security
         ClientDeviceCategory.RoboticVacuum => true,
         ClientDeviceCategory.IoTGeneric => true,       // Generic IoT (scales, washers, etc)
+        ClientDeviceCategory.SmartSensor => true,      // Temperature, air quality, water leak sensors
         _ => false
     };
 
     /// <summary>
     /// Check if the category is a high-risk IoT device.
-    /// High-risk: cameras, locks (security), hubs (control many devices), sensors (presence detection)
+    /// High-risk: cameras, locks (physical access), hubs (control many devices)
     /// These should always be isolated and get Critical severity when misplaced.
     /// </summary>
     public static bool IsHighRiskIoT(this ClientDeviceCategory category) => category switch
@@ -267,7 +268,6 @@ public static class ClientDeviceCategoryExtensions
         ClientDeviceCategory.SecuritySystem => true,
         ClientDeviceCategory.CloudSecuritySystem => true,
         ClientDeviceCategory.SmartHub => true,
-        ClientDeviceCategory.SmartSensor => true,
         _ => false
     };
 

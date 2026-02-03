@@ -43,7 +43,7 @@ public class VlanPlacementCheckerTests
     [InlineData(ClientDeviceCategory.SmartThermostat, true)]  // Thermostats are low-risk (convenience, not security)
     [InlineData(ClientDeviceCategory.SmartLock, false)]       // Locks are high-risk (security/access control)
     [InlineData(ClientDeviceCategory.SmartHub, false)]        // Hubs are high-risk (control many devices)
-    [InlineData(ClientDeviceCategory.SmartSensor, false)]     // Sensors are high-risk (presence detection)
+    [InlineData(ClientDeviceCategory.SmartSensor, true)]      // Sensors are low-risk (temperature, air quality, etc.)
     [InlineData(ClientDeviceCategory.Camera, false)]          // Cameras are high-risk (security)
     [InlineData(ClientDeviceCategory.CloudCamera, false)]     // Cloud cameras are high-risk (security)
     [InlineData(ClientDeviceCategory.IoTGeneric, true)]       // Generic IoT is low-risk
