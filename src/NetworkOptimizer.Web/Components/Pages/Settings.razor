@@ -1728,20 +1728,24 @@
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
 
             // Find online non-gateway devices (AP, switch, or modem)
-            // Prioritize APs first since they're the primary target for SSH features (speed tests)
+            // Interleave types (AP, modem, switch, AP, ...) so we try variety before giving up
             var testableTypes = new[]
             {
                 NetworkOptimizer.Core.Enums.DeviceType.AccessPoint,
-                NetworkOptimizer.Core.Enums.DeviceType.Switch,
-                NetworkOptimizer.Core.Enums.DeviceType.CellularModem
+                NetworkOptimizer.Core.Enums.DeviceType.CellularModem,
+                NetworkOptimizer.Core.Enums.DeviceType.Switch
             };
 
             var testableDevices = devices
                 .Where(d => testableTypes.Contains(d.Type)
                             && d.State == 1 && !string.IsNullOrEmpty(d.IpAddress))
-                .OrderBy(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint ? 0 :
-                              d.Type == NetworkOptimizer.Core.Enums.DeviceType.CellularModem ? 1 : 2)
-                .ThenBy(d => d.Name)
+                .GroupBy(d => d.Type)
+                .SelectMany(g => g.OrderBy(d => d.Name).Select((d, i) => new { Device = d, Index = i }))
+                .OrderBy(x => x.Index) // Round-robin: all first-of-type, then all second-of-type, etc.
+                .ThenBy(x => x.Device.Type == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint ? 0 :
+                             x.Device.Type == NetworkOptimizer.Core.Enums.DeviceType.CellularModem ? 1 : 2)
+                .Take(4)
+                .Select(x => x.Device)
                 .ToList();
 
             if (!testableDevices.Any())
