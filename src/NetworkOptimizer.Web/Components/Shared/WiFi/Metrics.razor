@@ -1,8 +1,10 @@
 @using NetworkOptimizer.Web.Services
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using Microsoft.Extensions.Logging
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject ILogger<Metrics> Logger
 @implements IDisposable
 
 <div class="metrics-container">
@@ -418,9 +420,23 @@
         _data6Interference.Clear();
         _data6TxRetries.Clear();
 
+        Logger.LogInformation("TransformDataForCharts: Processing {Count} metrics", _metrics.Count);
+
         foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
         {
             var ts = metric.Timestamp.ToLocalTime().DateTime;
+
+            // Log bands available in each metric
+            var bandsInMetric = string.Join(", ", metric.ByBand.Keys.Select(k => k.ToString()));
+            if (_metrics.IndexOf(metric) == 0)
+            {
+                Logger.LogInformation("First metric bands available: {Bands}", bandsInMetric);
+                foreach (var kvp in metric.ByBand)
+                {
+                    Logger.LogInformation("  Band {Band}: CU={CU}, Interf={Interf}, RetryPct={RetryPct}",
+                        kvp.Key, kvp.Value.ChannelUtilization, kvp.Value.Interference, kvp.Value.TxRetryPct);
+                }
+            }
 
             // 2.4 GHz
             if (metric.ByBand.TryGetValue(RadioBand.Band2_4GHz, out var band24))
@@ -446,6 +462,17 @@
                 _data6TxRetries.Add(new ChartDataPoint(ts, band6.TxRetryPct ?? 0));
             }
         }
+
+        Logger.LogInformation("TransformDataForCharts complete: 2.4GHz={Count24}, 5GHz={Count5}, 6GHz={Count6}",
+            _data24Airtime.Count, _data5Airtime.Count, _data6Airtime.Count);
+
+        // Log sample values from each band
+        if (_data24Airtime.Count > 0)
+            Logger.LogInformation("2.4GHz sample: Airtime={V}", _data24Airtime[0].Value);
+        if (_data5Airtime.Count > 0)
+            Logger.LogInformation("5GHz sample: Airtime={V}", _data5Airtime[0].Value);
+        if (_data6Airtime.Count > 0)
+            Logger.LogInformation("6GHz sample: Airtime={V}", _data6Airtime[0].Value);
     }
 
     private async Task UpdateChartVisibility()
