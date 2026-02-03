@@ -474,7 +474,7 @@
                     }
                     else
                     {
-                        <span>Test Connection</span>
+                        <span>Test SSH Connection</span>
                     }
                 </button>
             </div>
@@ -1727,7 +1727,8 @@
             // (accounts for UDM-family devices acting as mesh APs)
             var devices = await ConnectionService.GetDiscoveredDevicesAsync();
 
-            // Find first online non-gateway device (AP, switch, or modem)
+            // Find online non-gateway devices (AP, switch, or modem)
+            // Prioritize APs first since they're the primary target for SSH features (speed tests)
             var testableTypes = new[]
             {
                 NetworkOptimizer.Core.Enums.DeviceType.AccessPoint,
@@ -1735,12 +1736,15 @@
                 NetworkOptimizer.Core.Enums.DeviceType.CellularModem
             };
 
-            var testDevice = devices
+            var testableDevices = devices
                 .Where(d => testableTypes.Contains(d.Type)
                             && d.State == 1 && !string.IsNullOrEmpty(d.IpAddress))
-                .FirstOrDefault();
+                .OrderBy(d => d.Type == NetworkOptimizer.Core.Enums.DeviceType.AccessPoint ? 0 :
+                              d.Type == NetworkOptimizer.Core.Enums.DeviceType.CellularModem ? 1 : 2)
+                .ThenBy(d => d.Name)
+                .ToList();
 
-            if (testDevice == null)
+            if (!testableDevices.Any())
             {
                 sshMessage = "No online devices found. Ensure you have adopted APs, switches, or modems in your network.";
                 sshMessageClass = "warning";
@@ -1749,10 +1753,7 @@
                 return;
             }
 
-            sshMessage = $"Testing SSH connection to {testDevice.Name} ({testDevice.IpAddress})...";
-            StateHasChanged();
-
-            // Build a DeviceSshConfiguration from form values to test current settings
+            // Build credentials once (reused for all device attempts)
             // If password field is empty but we have a saved password, load it for the test
             var testPassword = sshPassword;
             if (string.IsNullOrEmpty(testPassword) && hasSshPassword)
@@ -1761,33 +1762,50 @@
                 testPassword = savedSettings?.Password;
             }
 
-            var testConfig = new DeviceSshConfiguration
+            // Try devices until one succeeds (some devices may reject SSH even with correct credentials)
+            var failedDevices = new List<string>();
+            foreach (var testDevice in testableDevices)
             {
-                Host = testDevice.IpAddress,
-                SshUsername = sshUsername,
-                SshPassword = testPassword,
-                SshPrivateKeyPath = sshPrivateKeyPath
-            };
+                sshMessage = $"Testing SSH connection to {testDevice.Name} ({testDevice.IpAddress})...";
+                StateHasChanged();
 
-            var (success, message) = await SshService.TestConnectionAsync(testConfig);
-            if (success)
-            {
-                sshMessage = $"SSH connection to {testDevice.Name} successful!";
-                sshMessageClass = "success";
-
-                // Update last tested timestamp on saved settings
-                if (sshSettings != null)
+                var testConfig = new DeviceSshConfiguration
                 {
-                    sshSettings.LastTestedAt = DateTime.UtcNow;
-                    sshSettings.LastTestResult = "Success";
-                    await SshService.SaveSettingsAsync(sshSettings);
+                    Host = testDevice.IpAddress,
+                    SshUsername = sshUsername,
+                    SshPassword = testPassword,
+                    SshPrivateKeyPath = sshPrivateKeyPath
+                };
+
+                var (success, message) = await SshService.TestConnectionAsync(testConfig);
+                if (success)
+                {
+                    sshMessage = $"SSH connection to {testDevice.Name} successful!";
+                    sshMessageClass = "success";
+
+                    // Update last tested timestamp on saved settings
+                    if (sshSettings != null)
+                    {
+                        sshSettings.LastTestedAt = DateTime.UtcNow;
+                        sshSettings.LastTestResult = "Success";
+                        await SshService.SaveSettingsAsync(sshSettings);
+                    }
+                    return; // Success - exit early
                 }
+
+                failedDevices.Add($"{testDevice.Name}: {message}");
+            }
+
+            // All devices failed
+            if (failedDevices.Count == 1)
+            {
+                sshMessage = $"SSH connection failed: {failedDevices[0]}";
             }
             else
             {
-                sshMessage = $"SSH connection failed: {message}";
-                sshMessageClass = "danger";
+                sshMessage = $"SSH connection failed on all {failedDevices.Count} devices. First error: {failedDevices[0]}";
             }
+            sshMessageClass = "danger";
         }
         catch (Exception ex)
         {
