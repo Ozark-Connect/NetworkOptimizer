@@ -6379,8 +6379,16 @@ select.form-control {
 }
 
 .band-chart-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.5rem 1rem;
     border-bottom: 1px solid var(--border-color);
+}
+
+.band-count {
+    font-size: 0.75rem;
+    color: #6b7280;
 }
 
 .band-label {
