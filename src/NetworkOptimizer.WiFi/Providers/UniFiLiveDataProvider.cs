@@ -102,6 +102,63 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         }
     }
 
+    public async Task<List<SiteWiFiMetrics>> GetApMetricsAsync(
+        string[] apMacs,
+        DateTimeOffset start,
+        DateTimeOffset end,
+        MetricGranularity granularity = MetricGranularity.FiveMinutes,
+        CancellationToken cancellationToken = default)
+    {
+        var reportType = granularity switch
+        {
+            MetricGranularity.FiveMinutes => "5minutes",
+            MetricGranularity.Hourly => "hourly",
+            MetricGranularity.Daily => "daily",
+            _ => "5minutes"
+        };
+
+        // AP endpoint uses ng-* prefix (no 'ap-' prefix like site endpoint)
+        var attrs = new[]
+        {
+            "time",
+            "ng-cu_total", "na-cu_total", "6e-cu_total",
+            "ng-cu_interf", "na-cu_interf", "6e-cu_interf",
+            "ng-tx_retries", "na-tx_retries", "6e-tx_retries",
+            "ng-wifi_tx_attempts", "na-wifi_tx_attempts", "6e-wifi_tx_attempts",
+            "ng-wifi_tx_dropped", "na-wifi_tx_dropped", "6e-wifi_tx_dropped",
+            "ng-tx_packets", "na-tx_packets", "6e-tx_packets",
+            "ng-rx_packets", "na-rx_packets", "6e-rx_packets"
+        };
+
+        try
+        {
+            _logger.LogDebug("Fetching AP metrics: {ReportType}, APs={Macs}, start={Start}, end={End}",
+                reportType, string.Join(",", apMacs), start, end);
+
+            var reportData = await _client.PostApReportAsync(
+                reportType,
+                apMacs,
+                start.ToUnixTimeMilliseconds(),
+                end.ToUnixTimeMilliseconds(),
+                attrs,
+                cancellationToken);
+
+            _logger.LogDebug("AP report response: ValueKind={ValueKind}, ArrayLength={Length}",
+                reportData.ValueKind,
+                reportData.ValueKind == JsonValueKind.Array ? reportData.GetArrayLength() : 0);
+
+            // Parse using AP-specific prefixes (no 'ap-' prefix)
+            var metrics = ParseApMetrics(reportData);
+            _logger.LogInformation("Parsed {Count} AP metrics data points", metrics.Count);
+            return metrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch AP metrics report");
+            return new List<SiteWiFiMetrics>();
+        }
+    }
+
     public async Task<List<ClientWiFiMetrics>> GetClientMetricsAsync(
         string clientMac,
         DateTimeOffset start,
@@ -447,6 +504,95 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 WifiTxDropped = GetLongOrNull(item, "ap-6e-wifi_tx_dropped"),
                 TxPackets = GetLongOrNull(item, "ap-6e-tx_packets"),
                 RxPackets = GetLongOrNull(item, "ap-6e-rx_packets")
+            };
+
+            // Calculate TX retry percentages
+            foreach (var band in metric.ByBand.Values)
+            {
+                if (band.WifiTxAttempts > 0 && band.TxRetries.HasValue)
+                {
+                    band.TxRetryPct = (double)band.TxRetries.Value / band.WifiTxAttempts.Value * 100;
+                }
+            }
+
+            metrics.Add(metric);
+        }
+
+        return metrics;
+    }
+
+    private List<SiteWiFiMetrics> ParseApMetrics(JsonElement data)
+    {
+        var metrics = new List<SiteWiFiMetrics>();
+
+        if (data.ValueKind != JsonValueKind.Array)
+        {
+            _logger.LogWarning("AP metrics data is not an array: {ValueKind}", data.ValueKind);
+            return metrics;
+        }
+
+        foreach (var item in data.EnumerateArray())
+        {
+            if (!item.TryGetProperty("time", out var timeProp))
+            {
+                continue;
+            }
+
+            long timestamp;
+            if (timeProp.ValueKind == JsonValueKind.Number)
+            {
+                timestamp = timeProp.GetInt64();
+            }
+            else if (timeProp.ValueKind == JsonValueKind.String && long.TryParse(timeProp.GetString(), out var parsed))
+            {
+                timestamp = parsed;
+            }
+            else
+            {
+                continue;
+            }
+
+            var metric = new SiteWiFiMetrics
+            {
+                Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(timestamp),
+                ByBand = new Dictionary<RadioBand, BandMetrics>()
+            };
+
+            // AP endpoint uses ng-* prefix (no 'ap-' prefix)
+            metric.ByBand[RadioBand.Band2_4GHz] = new BandMetrics
+            {
+                Band = RadioBand.Band2_4GHz,
+                ChannelUtilization = GetDoubleOrNull(item, "ng-cu_total"),
+                Interference = GetDoubleOrNull(item, "ng-cu_interf"),
+                TxRetries = GetLongOrNull(item, "ng-tx_retries"),
+                WifiTxAttempts = GetLongOrNull(item, "ng-wifi_tx_attempts"),
+                WifiTxDropped = GetLongOrNull(item, "ng-wifi_tx_dropped"),
+                TxPackets = GetLongOrNull(item, "ng-tx_packets"),
+                RxPackets = GetLongOrNull(item, "ng-rx_packets")
+            };
+
+            metric.ByBand[RadioBand.Band5GHz] = new BandMetrics
+            {
+                Band = RadioBand.Band5GHz,
+                ChannelUtilization = GetDoubleOrNull(item, "na-cu_total"),
+                Interference = GetDoubleOrNull(item, "na-cu_interf"),
+                TxRetries = GetLongOrNull(item, "na-tx_retries"),
+                WifiTxAttempts = GetLongOrNull(item, "na-wifi_tx_attempts"),
+                WifiTxDropped = GetLongOrNull(item, "na-wifi_tx_dropped"),
+                TxPackets = GetLongOrNull(item, "na-tx_packets"),
+                RxPackets = GetLongOrNull(item, "na-rx_packets")
+            };
+
+            metric.ByBand[RadioBand.Band6GHz] = new BandMetrics
+            {
+                Band = RadioBand.Band6GHz,
+                ChannelUtilization = GetDoubleOrNull(item, "6e-cu_total"),
+                Interference = GetDoubleOrNull(item, "6e-cu_interf"),
+                TxRetries = GetLongOrNull(item, "6e-tx_retries"),
+                WifiTxAttempts = GetLongOrNull(item, "6e-wifi_tx_attempts"),
+                WifiTxDropped = GetLongOrNull(item, "6e-wifi_tx_dropped"),
+                TxPackets = GetLongOrNull(item, "6e-tx_packets"),
+                RxPackets = GetLongOrNull(item, "6e-rx_packets")
             };
 
             // Calculate TX retry percentages

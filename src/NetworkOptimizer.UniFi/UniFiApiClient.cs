@@ -1689,6 +1689,67 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// POST stat/report/{granularity}.ap - Get per-AP Wi-Fi metrics time series
+    /// </summary>
+    /// <param name="granularity">Report granularity: 5minutes, hourly, daily</param>
+    /// <param name="apMacs">AP MAC addresses to filter by</param>
+    /// <param name="startMs">Start time in Unix milliseconds</param>
+    /// <param name="endMs">End time in Unix milliseconds</param>
+    /// <param name="attrs">Attributes to fetch (e.g., ng-cu_total, na-cu_total - note: no 'ap-' prefix for .ap endpoint)</param>
+    public async Task<JsonElement> PostApReportAsync(
+        string granularity,
+        string[] apMacs,
+        long startMs,
+        long endMs,
+        string[] attrs,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching {Granularity} AP report for {ApCount} APs", granularity, apMacs.Length);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return default;
+        }
+
+        var url = BuildApiPath($"stat/report/{granularity}.ap");
+        var payload = new
+        {
+            attrs,
+            macs = apMacs,
+            start = startMs,
+            end = endMs
+        };
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var content = new StringContent(
+                JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            var response = await _httpClient!.PostAsync(url, content, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("data", out var data))
+                {
+                    return data.Clone();
+                }
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning("AP report request failed: {StatusCode} - {Error}",
+                    response.StatusCode, error);
+            }
+
+            return default;
+        });
+    }
+
+    /// <summary>
     /// POST stat/report/{granularity}.user - Get per-client Wi-Fi metrics time series
     /// </summary>
     /// <param name="granularity">Report granularity: 5minutes, hourly, daily</param>
@@ -1716,6 +1777,7 @@ public class UniFiApiClient : IDisposable
         {
             attrs,
             macs = new[] { clientMac },
+            oid = clientMac,  // Required by UniFi API
             start = startMs,
             end = endMs
         };
