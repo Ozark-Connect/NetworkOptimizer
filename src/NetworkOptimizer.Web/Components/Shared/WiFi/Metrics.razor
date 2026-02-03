@@ -409,27 +409,27 @@
 
     private void TransformDataForCharts()
     {
-        // Clear existing data
-        _data24Airtime.Clear();
-        _data24Interference.Clear();
-        _data24TxRetries.Clear();
-        _data5Airtime.Clear();
-        _data5Interference.Clear();
-        _data5TxRetries.Clear();
-        _data6Airtime.Clear();
-        _data6Interference.Clear();
-        _data6TxRetries.Clear();
-
         Logger.LogInformation("TransformDataForCharts: Processing {Count} metrics", _metrics.Count);
+
+        // Create new lists (ApexCharts detects object reference changes better than mutations)
+        var new24Airtime = new List<ChartDataPoint>();
+        var new24Interference = new List<ChartDataPoint>();
+        var new24TxRetries = new List<ChartDataPoint>();
+        var new5Airtime = new List<ChartDataPoint>();
+        var new5Interference = new List<ChartDataPoint>();
+        var new5TxRetries = new List<ChartDataPoint>();
+        var new6Airtime = new List<ChartDataPoint>();
+        var new6Interference = new List<ChartDataPoint>();
+        var new6TxRetries = new List<ChartDataPoint>();
 
         foreach (var metric in _metrics.OrderBy(m => m.Timestamp))
         {
             var ts = metric.Timestamp.ToLocalTime().DateTime;
 
-            // Log bands available in each metric
-            var bandsInMetric = string.Join(", ", metric.ByBand.Keys.Select(k => k.ToString()));
+            // Log bands available in first metric
             if (_metrics.IndexOf(metric) == 0)
             {
+                var bandsInMetric = string.Join(", ", metric.ByBand.Keys.Select(k => k.ToString()));
                 Logger.LogInformation("First metric bands available: {Bands}", bandsInMetric);
                 foreach (var kvp in metric.ByBand)
                 {
@@ -441,27 +441,38 @@
             // 2.4 GHz
             if (metric.ByBand.TryGetValue(RadioBand.Band2_4GHz, out var band24))
             {
-                _data24Airtime.Add(new ChartDataPoint(ts, band24.ChannelUtilization ?? 0));
-                _data24Interference.Add(new ChartDataPoint(ts, band24.Interference ?? 0));
-                _data24TxRetries.Add(new ChartDataPoint(ts, band24.TxRetryPct ?? 0));
+                new24Airtime.Add(new ChartDataPoint(ts, band24.ChannelUtilization ?? 0));
+                new24Interference.Add(new ChartDataPoint(ts, band24.Interference ?? 0));
+                new24TxRetries.Add(new ChartDataPoint(ts, band24.TxRetryPct ?? 0));
             }
 
             // 5 GHz
             if (metric.ByBand.TryGetValue(RadioBand.Band5GHz, out var band5))
             {
-                _data5Airtime.Add(new ChartDataPoint(ts, band5.ChannelUtilization ?? 0));
-                _data5Interference.Add(new ChartDataPoint(ts, band5.Interference ?? 0));
-                _data5TxRetries.Add(new ChartDataPoint(ts, band5.TxRetryPct ?? 0));
+                new5Airtime.Add(new ChartDataPoint(ts, band5.ChannelUtilization ?? 0));
+                new5Interference.Add(new ChartDataPoint(ts, band5.Interference ?? 0));
+                new5TxRetries.Add(new ChartDataPoint(ts, band5.TxRetryPct ?? 0));
             }
 
             // 6 GHz
             if (metric.ByBand.TryGetValue(RadioBand.Band6GHz, out var band6))
             {
-                _data6Airtime.Add(new ChartDataPoint(ts, band6.ChannelUtilization ?? 0));
-                _data6Interference.Add(new ChartDataPoint(ts, band6.Interference ?? 0));
-                _data6TxRetries.Add(new ChartDataPoint(ts, band6.TxRetryPct ?? 0));
+                new6Airtime.Add(new ChartDataPoint(ts, band6.ChannelUtilization ?? 0));
+                new6Interference.Add(new ChartDataPoint(ts, band6.Interference ?? 0));
+                new6TxRetries.Add(new ChartDataPoint(ts, band6.TxRetryPct ?? 0));
             }
         }
+
+        // Assign new lists to trigger Blazor change detection
+        _data24Airtime = new24Airtime;
+        _data24Interference = new24Interference;
+        _data24TxRetries = new24TxRetries;
+        _data5Airtime = new5Airtime;
+        _data5Interference = new5Interference;
+        _data5TxRetries = new5TxRetries;
+        _data6Airtime = new6Airtime;
+        _data6Interference = new6Interference;
+        _data6TxRetries = new6TxRetries;
 
         Logger.LogInformation("TransformDataForCharts complete: 2.4GHz={Count24}, 5GHz={Count5}, 6GHz={Count6}",
             _data24Airtime.Count, _data5Airtime.Count, _data6Airtime.Count);
