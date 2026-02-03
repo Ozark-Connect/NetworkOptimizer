@@ -784,8 +784,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
             }
             else if (!string.IsNullOrEmpty(currentMac) && currentPort.HasValue)
             {
-                // Wired uplink - get port speed from upstream switch
-                deviceHop.IngressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
+                // Wired uplink - prefer device's reported uplink speed (from API Uplink.Speed),
+                // fall back to upstream switch's port table if not available.
+                // This handles scenarios where there's an unmanaged switch between the device
+                // and the UniFi switch, where the upstream port may report a different speed.
+                deviceHop.IngressSpeedMbps = targetDevice.UplinkSpeedMbps > 0
+                    ? targetDevice.UplinkSpeedMbps
+                    : GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
             }
 
@@ -1104,8 +1109,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                     }
                     else
                     {
+                        // Wired uplink - prefer device's reported uplink speed (from API Uplink.Speed),
+                        // fall back to upstream device's port table if not available.
+                        // This handles scenarios where there's an unmanaged switch between devices.
                         hop.EgressPort = device.UplinkPort;
-                        hop.EgressSpeedMbps = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
+                        hop.EgressSpeedMbps = device.UplinkSpeedMbps > 0
+                            ? device.UplinkSpeedMbps
+                            : GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
                     }
                 }
