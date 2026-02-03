@@ -6315,8 +6315,9 @@ select.form-control {
 }
 
 .time-btn.active {
-    background: var(--primary);
+    background: var(--primary-color);
     color: white;
+    border-radius: 4px;
 }
 
 .metrics-filters {
