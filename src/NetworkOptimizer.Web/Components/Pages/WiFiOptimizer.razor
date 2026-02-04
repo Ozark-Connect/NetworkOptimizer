@@ -42,25 +42,25 @@
     <!-- Quick Stats Row -->
     <div class="stats-row">
         <div class="stat-card">
-            <div class="stat-icon wifi-health-icon @GetHealthGradeClass(_summary?.HealthGrade)">
+            <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
                 @if (_loading)
                 {
                     <span class="spinner-sm"></span>
                 }
                 else
                 {
-                    <span class="health-grade">@(_summary?.HealthGrade ?? "-")</span>
+                    <span class="health-score-num">@(_summary?.HealthScore?.ToString() ?? "-")</span>
                 }
             </div>
             <div class="stat-content">
-                <div class="stat-value">
+                <div class="stat-value @GetScoreClass(_summary?.HealthScore)">
                     @if (_loading)
                     {
                         <span class="spinner-sm"></span>
                     }
                     else
                     {
-                        @(_summary?.HealthScore?.ToString() ?? "-")
+                        @GetScoreLabel(_summary?.HealthScore)
                     }
                 </div>
                 <div class="stat-label">Site Health</div>
@@ -301,10 +301,11 @@
                 {
                     <div class="health-score-display">
                         <div class="health-score-main">
-                            <div class="health-score-value @GetHealthGradeClass(_healthScore.Grade)">
-                                <span class="score-number">@_healthScore.OverallScore</span>
-                                <span class="score-grade">@_healthScore.Grade</span>
+                            <div class="score-circle @GetScoreClass(_healthScore.OverallScore)">
+                                <span class="score-value">@_healthScore.OverallScore</span>
+                                <span class="score-max">/100</span>
                             </div>
+                            <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
                             <div class="health-score-timestamp">
                                 Last updated: @_healthScore.Timestamp.ToLocalTime().ToString("h:mm tt")
                             </div>
@@ -611,14 +612,21 @@
         yield return _healthScore.CapacityHeadroom;
     }
 
-    private string GetHealthGradeClass(string? grade) => grade switch
+    private string GetScoreClass(int? score) => score switch
     {
-        "A" => "grade-a",
-        "B" => "grade-b",
-        "C" => "grade-c",
-        "D" => "grade-d",
-        "F" => "grade-f",
-        _ => ""
+        >= 90 => "score-excellent",
+        >= 75 => "score-good",
+        >= 60 => "score-fair",
+        _ => "score-poor"
+    };
+
+    private string GetScoreLabel(int? score) => score switch
+    {
+        null => "-",
+        >= 90 => "Excellent",
+        >= 75 => "Good",
+        >= 60 => "Fair",
+        _ => "Needs Work"
     };
 
     private string GetDimensionBarClass(int score) => score switch

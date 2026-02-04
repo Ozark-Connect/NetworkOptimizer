@@ -5788,7 +5788,7 @@ select.form-control {
     color: var(--primary);
 }
 
-/* Health grade icon in stat card */
+/* Health score icon in stat card */
 .wifi-health-icon {
     display: flex;
     align-items: center;
@@ -5800,35 +5800,36 @@ select.form-control {
     border: 2px solid var(--border-color);
 }
 
-.wifi-health-icon .health-grade {
-    font-size: 1.5rem;
+.wifi-health-icon .health-score-num {
+    font-size: 1.25rem;
     font-weight: 700;
 }
 
-.wifi-health-icon.grade-a {
-    border-color: #22c55e;
-    color: #22c55e;
+.wifi-health-icon.score-excellent {
+    border-color: var(--success-color);
+    color: var(--success-color);
 }
 
-.wifi-health-icon.grade-b {
-    border-color: #84cc16;
-    color: #84cc16;
+.wifi-health-icon.score-good {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
 }
 
-.wifi-health-icon.grade-c {
-    border-color: #fbbf24;
-    color: #fbbf24;
+.wifi-health-icon.score-fair {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
 }
 
-.wifi-health-icon.grade-d {
-    border-color: #f97316;
-    color: #f97316;
+.wifi-health-icon.score-poor {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
 }
 
-.wifi-health-icon.grade-f {
-    border-color: #ef4444;
-    color: #ef4444;
-}
+/* Score label colors for stat card */
+.stat-value.score-excellent { color: var(--success-color); }
+.stat-value.score-good { color: var(--primary-color); }
+.stat-value.score-fair { color: var(--warning-color); }
+.stat-value.score-poor { color: var(--danger-color); }
 
 /* Health Score Display */
 .health-score-display {
@@ -5841,34 +5842,19 @@ select.form-control {
     text-align: center;
 }
 
-.health-score-value {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 0.5rem;
-}
-
-.health-score-value .score-number {
-    font-size: 4rem;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.health-score-value .score-grade {
-    font-size: 2rem;
-    font-weight: 600;
-    opacity: 0.8;
-}
-
-.health-score-value.grade-a { color: #22c55e; }
-.health-score-value.grade-b { color: #84cc16; }
-.health-score-value.grade-c { color: #fbbf24; }
-.health-score-value.grade-d { color: #f97316; }
-.health-score-value.grade-f { color: #ef4444; }
-
 .health-score-timestamp {
     font-size: 0.75rem;
     color: var(--text-muted);
+    margin-top: 0.5rem;
+}
+
+/* Override score circle size for WiFi health display */
+.health-score-main .score-circle {
+    width: 120px;
+    height: 120px;
+}
+
+.health-score-main .score-label {
     margin-top: 0.5rem;
 }
 
@@ -6246,12 +6232,9 @@ select.form-control {
         grid-template-columns: 1fr;
     }
 
-    .health-score-value .score-number {
-        font-size: 3rem;
-    }
-
-    .health-score-value .score-grade {
-        font-size: 1.5rem;
+    .health-score-main .score-circle {
+        width: 100px;
+        height: 100px;
     }
 }
 
