@@ -89,7 +89,7 @@
                         <div class="your-channel-chip @GetBandClass(channel.Band)">
                             <span class="channel-number">Ch @channel.Channel</span>
                             <span class="channel-width">@(channel.Width ?? 20) MHz</span>
-                            @if (!string.IsNullOrEmpty(channel.ApName) && string.IsNullOrEmpty(selectedApMac))
+                            @if (!string.IsNullOrEmpty(channel.ApName))
                             {
                                 <span class="channel-ap">@channel.ApName</span>
                             }
@@ -816,12 +816,13 @@
             ? accessPoints
             : accessPoints.Where(ap => ap.Mac == selectedApMac);
 
+        // Show each AP's channel - don't deduplicate so we can see when multiple APs share a channel
         return aps
             .SelectMany(ap => ap.Radios
                 .Where(r => r.Channel.HasValue && r.Band == selectedBand)
                 .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name)))
-            .DistinctBy(c => c.Channel)
             .OrderBy(c => c.Channel)
+            .ThenBy(c => c.ApName)
             .ToList();
     }
 

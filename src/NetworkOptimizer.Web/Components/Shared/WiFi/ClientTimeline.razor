@@ -106,7 +106,9 @@
 
             @if (_clientMetrics.Count > 0)
             {
+                @* Key forces chart recreation when series visibility changes *@
                 <ApexChart @ref="_signalChart" TItem="ClientChartPoint"
+                           @key="_chartKey"
                            Options="_signalChartOptions"
                            Height="200">
 
@@ -179,6 +181,7 @@
     private string _selectedRange = "1D";
     private bool _showSignal = true;
     private bool _showTxRetries = true;
+    private string _chartKey = "signal_retries"; // Key to force chart recreation
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -229,45 +232,8 @@
                     }
                 }
             },
-            Yaxis = new List<YAxis>
-            {
-                new YAxis
-                {
-                    SeriesName = "Signal (dBm)",
-                    Min = -100,
-                    Max = -20,
-                    Labels = new YAxisLabels
-                    {
-                        Style = new AxisLabelStyle { Colors = "#3b82f6" },
-                        Formatter = "function(val) { return val + ' dBm'; }"
-                    }
-                },
-                new YAxis
-                {
-                    SeriesName = "TX Retries %",
-                    Opposite = true,
-                    Min = 0,
-                    Max = 100,
-                    Labels = new YAxisLabels
-                    {
-                        Style = new AxisLabelStyle { Colors = "#ef4444" },
-                        Formatter = "function(val) { return val.toFixed(1) + '%'; }"
-                    }
-                }
-            },
             Grid = new Grid { BorderColor = "#374151", StrokeDashArray = 3 },
             Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
-            Fill = new Fill
-            {
-                Type = new List<FillType> { FillType.Gradient, FillType.Solid },
-                Gradient = new FillGradient
-                {
-                    ShadeIntensity = 0.3,
-                    OpacityFrom = 0.4,
-                    OpacityTo = 0.1
-                }
-            },
-            Colors = new List<string> { "#3b82f6", "#ef4444" },
             Legend = new Legend { Show = false },
             Tooltip = new Tooltip
             {
@@ -275,6 +241,9 @@
                 X = new TooltipX { Format = "MMM dd, HH:mm" }
             }
         };
+
+        // Set up Y-axes, colors, and fill based on initial filter state
+        UpdateChartOptionsForVisibleSeries();
     }
 
     private async Task LoadClientsAsync()
@@ -377,14 +346,76 @@
 
         _signalData = newSignalData;
         _txRetryData = newTxRetryData;
+
+        // Ensure chart options match current filter state
+        UpdateChartOptionsForVisibleSeries();
     }
 
-    private async Task OnChartFilterChanged()
+    private Task OnChartFilterChanged()
     {
-        if (_signalChart != null)
+        // Rebuild chart options to match visible series
+        UpdateChartOptionsForVisibleSeries();
+
+        // Update the key to force chart recreation with new series/colors/axes
+        _chartKey = $"{_showSignal}_{_showTxRetries}_{DateTime.UtcNow.Ticks}";
+
+        return Task.CompletedTask;
+    }
+
+    private void UpdateChartOptionsForVisibleSeries()
+    {
+        var yAxes = new List<YAxis>();
+        var colors = new List<string>();
+        var fillTypes = new List<FillType>();
+
+        if (_showSignal)
         {
-            await _signalChart.RenderAsync();
+            yAxes.Add(new YAxis
+            {
+                SeriesName = "Signal (dBm)",
+                Min = -100,
+                Max = -20,
+                Labels = new YAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#3b82f6" },
+                    Formatter = "function(val) { return val + ' dBm'; }"
+                }
+            });
+            colors.Add("#3b82f6");
+            fillTypes.Add(FillType.Gradient);
         }
+
+        if (_showTxRetries)
+        {
+            yAxes.Add(new YAxis
+            {
+                SeriesName = "TX Retries %",
+                Opposite = _showSignal, // Only opposite if signal is also shown
+                Min = 0,
+                Max = 100,
+                Labels = new YAxisLabels
+                {
+                    Style = new AxisLabelStyle { Colors = "#ef4444" },
+                    Formatter = "function(val) { return val.toFixed(1) + '%'; }"
+                }
+            });
+            colors.Add("#ef4444");
+            fillTypes.Add(FillType.Solid);
+        }
+
+        // Update chart options
+        _signalChartOptions.Yaxis = yAxes;
+        _signalChartOptions.Colors = colors;
+        _signalChartOptions.Fill = new Fill
+        {
+            Type = fillTypes,
+            Gradient = new FillGradient
+            {
+                ShadeIntensity = 0.3,
+                OpacityFrom = 0.4,
+                OpacityTo = 0.1
+            }
+        };
     }
 
     private string GetEventTitle(ClientConnectionEvent evt) => evt.Type switch
