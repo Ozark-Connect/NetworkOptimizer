@@ -508,6 +508,12 @@
     {
         // Force re-render of charts when visibility changes
         StateHasChanged();
+
+        // ApexCharts needs explicit re-render when series are toggled
+        await Task.Yield(); // Allow Blazor to process state change first
+        if (_chart24 != null) await _chart24.RenderAsync();
+        if (_chart5 != null) await _chart5.RenderAsync();
+        if (_chart6 != null) await _chart6.RenderAsync();
     }
 
     public void Dispose()
