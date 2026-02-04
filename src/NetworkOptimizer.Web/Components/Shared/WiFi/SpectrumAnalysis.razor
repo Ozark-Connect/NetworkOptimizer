@@ -233,8 +233,11 @@
                                     </td>
                                     <td>@(item.Network.Width ?? 20) MHz</td>
                                     <td>
-                                        <span class="signal-indicator @GetSignalClass(item.Network.Signal ?? -100)">
-                                            @(item.Network.Signal ?? 0) dBm
+                                        @{
+                                            var displaySignal = GetDisplaySignal(item);
+                                        }
+                                        <span class="signal-indicator @GetSignalClass(displaySignal)">
+                                            @displaySignal dBm
                                         </span>
                                     </td>
                                     <td>
@@ -882,6 +885,7 @@
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             // but track all APs that detected each network (both names and MACs for filtering)
+            // Also store per-AP signal levels for accurate display when filtering by AP
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -896,6 +900,12 @@
                     var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
                     strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
                     strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
+                    // Store signal per AP for filtering - if same AP detected multiple times, keep strongest
+                    strongest.SignalByApMac = g
+                        .GroupBy(n => n.ApMac.ToLowerInvariant())
+                        .ToDictionary(
+                            apGroup => apGroup.Key,
+                            apGroup => apGroup.Max(n => n.Network.Signal ?? -100));
                     return strongest;
                 })
                 .ToList();
@@ -931,6 +941,7 @@
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             // but track all APs that detected each network (both names and MACs for filtering)
+            // Also store per-AP signal levels for accurate display when filtering by AP
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -945,6 +956,12 @@
                     var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
                     strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
                     strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
+                    // Store signal per AP for filtering - if same AP detected multiple times, keep strongest
+                    strongest.SignalByApMac = g
+                        .GroupBy(n => n.ApMac.ToLowerInvariant())
+                        .ToDictionary(
+                            apGroup => apGroup.Key,
+                            apGroup => apGroup.Max(n => n.Network.Signal ?? -100));
                     return strongest;
                 })
                 .ToList();
@@ -1150,9 +1167,10 @@
             "bssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Bssid) : networks.OrderBy(n => n.Network.Bssid),
             "channel" => sortDescending ? networks.OrderByDescending(n => n.Network.Channel) : networks.OrderBy(n => n.Network.Channel),
             "width" => sortDescending ? networks.OrderByDescending(n => n.Network.Width) : networks.OrderBy(n => n.Network.Width),
-            "signal" => sortDescending ? networks.OrderByDescending(n => n.Network.Signal) : networks.OrderBy(n => n.Network.Signal),
+            // Sort by display signal (AP-specific when filtered, or strongest overall)
+            "signal" => sortDescending ? networks.OrderByDescending(GetDisplaySignal) : networks.OrderBy(GetDisplaySignal),
             "lastSeen" => sortDescending ? networks.OrderByDescending(n => n.Network.LastSeen) : networks.OrderBy(n => n.Network.LastSeen),
-            _ => networks.OrderByDescending(n => n.Network.Signal)
+            _ => networks.OrderByDescending(GetDisplaySignal)
         };
 
         return networks;
@@ -1293,6 +1311,21 @@
         band == RadioBand.Band5GHz &&
         ((channel >= 52 && channel <= 64) || (channel >= 100 && channel <= 144));
 
+    /// <summary>
+    /// Gets the signal to display for a neighbor network.
+    /// When filtering by a specific AP, shows that AP's signal reading.
+    /// Otherwise shows the strongest signal across all detecting APs.
+    /// </summary>
+    private int GetDisplaySignal(NeighborWithAp neighbor)
+    {
+        if (!string.IsNullOrEmpty(selectedApMac) &&
+            neighbor.SignalByApMac.TryGetValue(selectedApMac.ToLowerInvariant(), out var apSignal))
+        {
+            return apSignal;
+        }
+        return neighbor.Network.Signal ?? -100;
+    }
+
     // Helper classes
     private class NeighborWithAp
     {
@@ -1302,6 +1335,8 @@
         public RadioBand Band { get; set; }
         public List<string> DetectedByAps { get; set; } = new();
         public List<string> DetectedByApMacs { get; set; } = new();
+        // Signal per detecting AP MAC (lowercase) - allows showing AP-specific signal when filtering
+        public Dictionary<string, int> SignalByApMac { get; set; } = new();
     }
 
     private class ChannelDensity
