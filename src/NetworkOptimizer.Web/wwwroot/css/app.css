@@ -9041,10 +9041,11 @@ select.form-control {
 }
 
 .wifi-gen-bar.gen-7 { background: #6366f1; }
-.wifi-gen-bar.gen-6 { background: #a855f7; }
-.wifi-gen-bar.gen-5 { background: #3b82f6; }
-.wifi-gen-bar.gen-4 { background: #22c55e; }
-.wifi-gen-bar.gen-legacy { background: #6b7280; }
+.wifi-gen-bar.gen-6, .gen-bar.gen-6 { background: #a855f7; }
+.wifi-gen-bar.gen-5, .gen-bar.gen-5 { background: #3b82f6; }
+.wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #22c55e; }
+.wifi-gen-bar.gen-legacy, .gen-bar.gen-legacy { background: #6b7280; }
+.gen-bar.gen-7 { background: #a855f7; }
 
 .wifi-gen-count {
     width: 40px;
