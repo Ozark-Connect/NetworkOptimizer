@@ -228,7 +228,7 @@ public class DeviceInfo
         DeviceType.Switch => "Switch",
         DeviceType.AccessPoint => "Access Point",
         DeviceType.CellularModem => "Cellular Modem",
-        DeviceType.SmartPower => "Smart Power",
+        DeviceType.SmartPower => "SmartPower",
         _ => "Unknown"
     };
 }

@@ -121,7 +121,7 @@ public static class DeviceTypeExtensions
         DeviceType.BuildingBridge => "Building Bridge",
         DeviceType.DeviceBridge => "Device Bridge",
         DeviceType.CloudKey => "CloudKey",
-        DeviceType.SmartPower => "Smart Power",
+        DeviceType.SmartPower => "SmartPower",
         DeviceType.ProtectDevice => "Protect Device",
         DeviceType.TalkDevice => "Talk Device",
         DeviceType.AccessDevice => "Access Device",
