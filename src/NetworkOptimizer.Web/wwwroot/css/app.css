@@ -10669,8 +10669,8 @@ select.form-control {
 .bar-fill.warning { background: var(--warning-color); }
 .bar-fill.danger { background: var(--danger-color); }
 
-/* Flow Connector */
-.flow-connector {
+/* Flow Connector - scoped to connectivity-flow to avoid conflict with speed test trace */
+.connectivity-flow-container .flow-connector {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -10680,14 +10680,14 @@ select.form-control {
     position: relative;
 }
 
-.connector-line {
+.connectivity-flow-container .connector-line {
     width: 100%;
     height: 2px;
     background: var(--border-color);
     position: relative;
 }
 
-.connector-line::after {
+.connectivity-flow-container .connector-line::after {
     content: "";
     position: absolute;
     right: 0;
@@ -10698,7 +10698,7 @@ select.form-control {
     border-bottom: 4px solid transparent;
 }
 
-.connector-drop {
+.connectivity-flow-container .connector-drop {
     position: absolute;
     top: calc(50% + 10px);
     background: rgba(239, 68, 68, 0.15);
@@ -10915,18 +10915,18 @@ select.form-control {
         display: none;
     }
 
-    .flow-connector {
+    .connectivity-flow-container .flow-connector {
         width: 100%;
         height: 30px;
         flex-direction: row;
     }
 
-    .connector-line {
+    .connectivity-flow-container .connector-line {
         width: 2px;
         height: 100%;
     }
 
-    .connector-line::after {
+    .connectivity-flow-container .connector-line::after {
         right: 50%;
         top: auto;
         bottom: 0;
@@ -10936,7 +10936,7 @@ select.form-control {
         border-top: 6px solid var(--border-color);
     }
 
-    .connector-drop {
+    .connectivity-flow-container .connector-drop {
         top: auto;
         left: calc(50% + 20px);
     }
