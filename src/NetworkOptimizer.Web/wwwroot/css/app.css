@@ -6861,12 +6861,19 @@ select.form-control {
 }
 
 .topology-graph {
-    position: relative;
     width: 100%;
     height: 300px;
     background: var(--bg-tertiary);
     border-radius: 8px;
     overflow: hidden;
+    padding: 10px 0;
+}
+
+.topology-graph-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    margin-top: -15px;
 }
 
 .topology-node {
@@ -6876,13 +6883,13 @@ select.form-control {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
 }
 
 .node-icon {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     background: var(--bg-secondary);
     border: 2px solid var(--primary-color);
     border-radius: 50%;

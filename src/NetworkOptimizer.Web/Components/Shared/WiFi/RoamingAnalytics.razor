@@ -66,34 +66,36 @@
             </div>
 
             <div class="topology-graph">
-                @foreach (var vertex in _topology.Vertices)
-                {
-                    var position = GetNodePosition(vertex.Mac);
-                    <div class="topology-node" style="left: @position.Left%; top: @position.Top%">
-                        <div class="node-icon">
-                            <DeviceIcon Model="@vertex.Model" Size="xl" />
-                        </div>
-                        <div class="node-label">@vertex.Name</div>
-                        <div class="node-model">@vertex.Model</div>
-                    </div>
-                }
-
-                <!-- Render edges as lines connecting nodes -->
-                <svg class="topology-edges" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    @foreach (var edge in _topology.Edges)
+                <div class="topology-graph-inner">
+                    @foreach (var vertex in _topology.Vertices)
                     {
-                        var pos1 = GetNodePosition(edge.Endpoint1Mac);
-                        var pos2 = GetNodePosition(edge.Endpoint2Mac);
-                        var strokeClass = GetEdgeClass(edge.SuccessRate);
-                        var strokeWidth = GetEdgeWidth(edge.TotalRoamAttempts);
-                        <line x1="@pos1.Left" y1="@pos1.Top"
-                              x2="@pos2.Left" y2="@pos2.Top"
-                              class="topology-edge @strokeClass"
-                              stroke-width="@strokeWidth"
-                              vector-effect="non-scaling-stroke"
-                              data-tooltip="@GetEdgeTooltip(edge)" />
+                        var position = GetNodePosition(vertex.Mac);
+                        <div class="topology-node" style="left: @position.Left%; top: @position.Top%">
+                            <div class="node-icon">
+                                <DeviceIcon Model="@vertex.Model" Size="xl" />
+                            </div>
+                            <div class="node-label">@vertex.Name</div>
+                            <div class="node-model">@vertex.Model</div>
+                        </div>
                     }
-                </svg>
+
+                    <!-- Render edges as lines connecting nodes -->
+                    <svg class="topology-edges" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        @foreach (var edge in _topology.Edges)
+                        {
+                            var pos1 = GetNodePosition(edge.Endpoint1Mac);
+                            var pos2 = GetNodePosition(edge.Endpoint2Mac);
+                            var strokeClass = GetEdgeClass(edge.SuccessRate);
+                            var strokeWidth = GetEdgeWidth(edge.TotalRoamAttempts);
+                            <line x1="@pos1.Left" y1="@pos1.Top"
+                                  x2="@pos2.Left" y2="@pos2.Top"
+                                  class="topology-edge @strokeClass"
+                                  stroke-width="@strokeWidth"
+                                  vector-effect="non-scaling-stroke"
+                                  data-tooltip="@GetEdgeTooltip(edge)" />
+                        }
+                    </svg>
+                </div>
             </div>
 
             <div class="topology-legend">
