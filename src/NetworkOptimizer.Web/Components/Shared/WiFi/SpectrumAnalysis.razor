@@ -168,12 +168,12 @@
                                          data-tooltip="@channelGroup.Count neighbor networks">
                                     </div>
                                 </div>
-                                @* Your AP bar *@
+                                @* Your AP bar - selected AP is full width, others proportional to total APs *@
                                 <div class="channel-bar-wrapper your-ap-bar-wrapper">
                                     @if (channelGroup.IsYourChannel)
                                     {
                                         <div class="channel-bar your-ap-bar @(channelGroup.IsSelectedApChannel ? "selected-ap" : "")"
-                                             style="width: 100%"
+                                             style="width: @(channelGroup.IsSelectedApChannel ? 100 : GetYourApBarWidth(channelGroup.YourApCount))%"
                                              data-tooltip="@string.Join(", ", channelGroup.YourApNames)">
                                         </div>
                                     }
@@ -1155,6 +1155,17 @@
         var maxCount = groups.Max(g => g.Count());
         if (maxCount == 0) return 0;
         return Math.Min(100, (int)(count * 100.0 / maxCount));
+    }
+
+    /// <summary>
+    /// Gets the bar width for "Your APs" relative to total AP count.
+    /// </summary>
+    private int GetYourApBarWidth(int apCountOnChannel)
+    {
+        var totalAps = accessPoints.Count;
+        if (totalAps == 0) return 0;
+        // Scale relative to total APs, minimum 15% so single AP is visible
+        return Math.Max(15, Math.Min(100, (int)(apCountOnChannel * 100.0 / totalAps)));
     }
 
     private IEnumerable<NeighborWithAp> GetSortedNetworks()
