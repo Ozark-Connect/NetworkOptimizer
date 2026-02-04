@@ -7449,6 +7449,61 @@ select.form-control {
     background: rgba(59, 130, 246, 0.1);
 }
 
+/* Channel width grouping - shows bonded channels */
+.channel-slot.width-group {
+    position: relative;
+}
+
+.channel-slot.width-group::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    height: 3px;
+    background: var(--success-color);
+    border-radius: 2px;
+}
+
+.channel-slot.group-start::before {
+    left: 0;
+    right: -0.5rem;
+    border-radius: 2px 0 0 2px;
+}
+
+.channel-slot.group-middle::before {
+    left: -0.5rem;
+    right: -0.5rem;
+    border-radius: 0;
+}
+
+.channel-slot.group-end::before {
+    left: -0.5rem;
+    right: 0;
+    border-radius: 0 2px 2px 0;
+}
+
+.channel-slot.group-single::before {
+    left: 0;
+    right: 0;
+    border-radius: 2px;
+}
+
+/* Different colors for different widths */
+.channel-slot.width-40::before {
+    background: #22c55e;
+}
+
+.channel-slot.width-80::before {
+    background: #3b82f6;
+}
+
+.channel-slot.width-160::before {
+    background: #a855f7;
+}
+
+.channel-slot.width-320::before {
+    background: #ec4899;
+}
+
 .channel-number {
     font-size: 0.875rem;
     font-weight: 600;

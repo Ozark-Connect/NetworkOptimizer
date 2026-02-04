@@ -91,7 +91,7 @@
                     var utilization = GetChannelUtilization(_selectedBand, channel);
                     var interference = GetChannelInterference(_selectedBand, channel);
 
-                    <div class="channel-slot @(isOccupied ? "occupied" : "") @(hasActualOverlap ? "overlap" : hasMeshPair ? "mesh" : "")"
+                    <div class="channel-slot @(isOccupied ? "occupied" : "") @(hasActualOverlap ? "overlap" : hasMeshPair ? "mesh" : "") @GetChannelGroupClass(_selectedBand, channel)"
                          @onclick="() => SelectChannel(_selectedBand, channel)">
                         <div class="channel-number">@channel</div>
                         @if (isOccupied)
@@ -304,6 +304,9 @@
     private HashSet<int> _channelsInUse = new();
     private List<ChannelIssue> _channelIssues = new();
 
+    // Width groups: maps (band, channel) -> group info for visual grouping
+    private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
+
     private readonly RadioBand[] _bands = { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
 
     protected override async Task OnInitializedAsync()
@@ -365,6 +368,9 @@
         {
             _channelsInUse.Add(radio.Channel!.Value);
         }
+
+        // Calculate width groups for visual display
+        CalculateWidthGroups(allRadios);
 
         // Find co-channel issues per band
         foreach (var band in _bands)
@@ -648,5 +654,168 @@
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
         public string? Recommendation { get; set; }
+    }
+
+    private class WidthGroupInfo
+    {
+        public int Width { get; set; }          // Channel width in MHz
+        public int GroupId { get; set; }        // Unique ID for the group
+        public string Position { get; set; } = "single";  // "start", "middle", "end", "single"
+        public string ApName { get; set; } = "";
+    }
+
+    private void CalculateWidthGroups(List<RadioSnapshot> allRadios)
+    {
+        _widthGroups.Clear();
+        var groupId = 0;
+
+        foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
+        {
+            var band = radio.Band;
+            var primaryChannel = radio.Channel!.Value;
+            var width = radio.ChannelWidth!.Value;
+            var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
+
+            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width);
+
+            if (spannedChannels.Count <= 1)
+            {
+                // Single channel (20 MHz)
+                if (!_widthGroups.ContainsKey((band, primaryChannel)))
+                {
+                    _widthGroups[(band, primaryChannel)] = new WidthGroupInfo
+                    {
+                        Width = width,
+                        GroupId = groupId++,
+                        Position = "single",
+                        ApName = apName
+                    };
+                }
+            }
+            else
+            {
+                // Multiple channels - mark positions
+                var currentGroupId = groupId++;
+                for (int i = 0; i < spannedChannels.Count; i++)
+                {
+                    var ch = spannedChannels[i];
+                    var position = i == 0 ? "start" : i == spannedChannels.Count - 1 ? "end" : "middle";
+
+                    // Only add if not already in a group (first AP wins)
+                    if (!_widthGroups.ContainsKey((band, ch)))
+                    {
+                        _widthGroups[(band, ch)] = new WidthGroupInfo
+                        {
+                            Width = width,
+                            GroupId = currentGroupId,
+                            Position = position,
+                            ApName = apName
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width)
+    {
+        var channels = new List<int>();
+
+        if (width <= 20)
+        {
+            channels.Add(primaryChannel);
+            return channels;
+        }
+
+        if (band == RadioBand.Band2_4GHz)
+        {
+            // 2.4 GHz: channels overlap, each ~22 MHz wide, 5 MHz spacing
+            // 20 MHz affects roughly +/- 2 channels, 40 MHz affects roughly +/- 4
+            int halfSpan = width == 40 ? 4 : 2;
+            for (int ch = Math.Max(1, primaryChannel - halfSpan); ch <= Math.Min(14, primaryChannel + halfSpan); ch++)
+            {
+                channels.Add(ch);
+            }
+        }
+        else
+        {
+            // 5 GHz and 6 GHz: 20 MHz channel spacing (4 channel numbers apart)
+            // Find the bonding group start based on width
+            int channelCount = width / 20;  // 40=2, 80=4, 160=8, 320=16
+            int groupSize = channelCount * 4;  // Channel number span
+
+            // Calculate the group start (channels align to bonding boundaries)
+            // For 5 GHz: 36-48 = UNII-1, 52-64 = UNII-2A, 100-144 = UNII-2C, 149-165 = UNII-3
+            int groupStart;
+
+            if (band == RadioBand.Band5GHz)
+            {
+                groupStart = Get5GHzGroupStart(primaryChannel, width);
+            }
+            else // 6 GHz
+            {
+                // 6 GHz channels start at 1 and increment by 4
+                // Group start aligns to groupSize boundaries: 1, 1+groupSize, 1+2*groupSize, etc.
+                int offset = primaryChannel - 1;  // Offset from channel 1
+                int groupIndex = offset / groupSize;
+                groupStart = 1 + (groupIndex * groupSize);
+            }
+
+            // Add all channels in the group
+            for (int i = 0; i < channelCount; i++)
+            {
+                int ch = groupStart + (i * 4);
+                channels.Add(ch);
+            }
+        }
+
+        return channels;
+    }
+
+    private int Get5GHzGroupStart(int primaryChannel, int width)
+    {
+        // 5 GHz has non-contiguous channel ranges, need specific bonding rules
+        int channelCount = width / 20;
+
+        // Define valid 160 MHz groups
+        var groups160 = new List<(int start, int end)> { (36, 64), (100, 128) };
+
+        // Define valid 80 MHz groups
+        var groups80 = new List<(int start, int end)> { (36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161) };
+
+        // Define valid 40 MHz groups
+        var groups40 = new List<(int start, int end)>
+        {
+            (36, 40), (44, 48), (52, 56), (60, 64),
+            (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
+            (149, 153), (157, 161)
+        };
+
+        List<(int start, int end)> groups = width switch
+        {
+            160 => groups160,
+            80 => groups80,
+            _ => groups40
+        };
+
+        foreach (var (start, end) in groups)
+        {
+            if (primaryChannel >= start && primaryChannel <= end)
+            {
+                return start;
+            }
+        }
+
+        // Fallback: just use the primary channel
+        return primaryChannel;
+    }
+
+    private string GetChannelGroupClass(RadioBand band, int channel)
+    {
+        if (_widthGroups.TryGetValue((band, channel), out var info))
+        {
+            return $"width-group width-{info.Width} group-{info.Position}";
+        }
+        return "";
     }
 }
