@@ -6102,7 +6102,7 @@ select.form-control {
 }
 
 .ap-card {
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
@@ -6110,9 +6110,15 @@ select.form-control {
 
 .ap-header {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
+    gap: 0.75rem;
     margin-bottom: 0.75rem;
+}
+
+.ap-header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
 }
 
 .ap-name {
