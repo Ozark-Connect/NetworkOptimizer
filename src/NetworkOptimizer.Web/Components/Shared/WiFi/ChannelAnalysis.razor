@@ -3,7 +3,6 @@
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
-@inject ILogger<ChannelAnalysis> Logger
 
 <div class="channel-analysis-container">
     <div class="channel-header">
@@ -703,10 +702,6 @@
                 g.Channels.Count == orderedChannels.Count &&
                 g.Channels.SequenceEqual(orderedChannels));
 
-            // Debug: Log each radio being processed
-            Logger.LogWarning("[WidthGroups] Processing radio: {Band} ch{Channel}({Width}MHz) '{ApName}' -> spans [{Channels}], alreadyExists={Exists}",
-                band.ToDisplayString(), primaryChannel, width, apName, string.Join(",", orderedChannels), alreadyExists);
-
             if (!alreadyExists)
             {
                 uniqueGroups.Add((band, primaryChannel, orderedChannels, width, apName));
@@ -718,18 +713,6 @@
             .OrderBy(g => g.Band)
             .ThenBy(g => g.PrimaryChannel)
             .ToList();
-
-        // Debug: Log unique groups per band
-        foreach (var band in _bands)
-        {
-            var bandGroups = sortedGroups.Where(g => g.Band == band).ToList();
-            if (bandGroups.Any())
-            {
-                var groupInfo = string.Join(", ", bandGroups.Select(g => $"ch{g.PrimaryChannel}({g.Width}MHz)"));
-                Logger.LogWarning("[WidthGroups] {Band}: {Count} unique groups - {Groups}",
-                    band.ToDisplayString(), bandGroups.Count, groupInfo);
-            }
-        }
 
         // Step 3: Assign group IDs per band and populate _widthGroups
         var groupIdPerBand = new Dictionary<RadioBand, int>();
@@ -743,12 +726,6 @@
             }
 
             var channels = group.Channels;
-
-            // Debug: Log group assignment
-            var hatOrCup = (groupId % 2 == 0) ? "hat" : "cup";
-            Logger.LogWarning("[WidthGroups] {Band} ch{Primary}: GroupId={GroupId} ({HatCup}), spans [{Channels}]",
-                group.Band.ToDisplayString(), group.PrimaryChannel, groupId, hatOrCup,
-                string.Join(",", channels));
 
             for (int i = 0; i < channels.Count; i++)
             {
@@ -771,15 +748,11 @@
                 if (!_widthGroups.ContainsKey(key))
                 {
                     _widthGroups[key] = groupInfo;
-                    Logger.LogWarning("[WidthGroups] Added to _widthGroups: {Band} ch{Ch} -> GroupId={GroupId}, position={Position}",
-                        group.Band.ToDisplayString(), ch, groupId, position);
                 }
                 else if (!_widthGroups2.ContainsKey(key))
                 {
                     // Second group for this channel - store for additive rendering
                     _widthGroups2[key] = groupInfo;
-                    Logger.LogWarning("[WidthGroups] Added to _widthGroups2: {Band} ch{Ch} -> GroupId={GroupId}, position={Position}",
-                        group.Band.ToDisplayString(), ch, groupId, position);
                 }
                 // Third+ groups ignored for now
             }
