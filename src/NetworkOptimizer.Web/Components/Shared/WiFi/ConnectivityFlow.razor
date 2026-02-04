@@ -236,7 +236,7 @@
                 {
                     <div class="ap-success-row">
                         <div class="ap-info">
-                            <span class="ap-name">@apStat.ApName</span>
+                            <span class="ap-name"><DeviceIcon Model="@apStat.ApModel" Size="sm" /> @apStat.ApName</span>
                             <span class="ap-clients">@apStat.TotalClients clients</span>
                         </div>
                         <div class="ap-success-bar-container">
@@ -480,6 +480,7 @@
             {
                 ApMac = ap.Mac,
                 ApName = ap.Name,
+                ApModel = ap.Model,
                 TotalClients = total,
                 FullyConnectedClients = fullyConnected,
                 SuccessRate = total > 0 ? (int)Math.Round((double)fullyConnected / total * 100) : 100
@@ -573,6 +574,7 @@
     {
         public string ApMac { get; set; } = "";
         public string ApName { get; set; } = "";
+        public string ApModel { get; set; } = "";
         public int TotalClients { get; set; }
         public int FullyConnectedClients { get; set; }
         public int SuccessRate { get; set; }

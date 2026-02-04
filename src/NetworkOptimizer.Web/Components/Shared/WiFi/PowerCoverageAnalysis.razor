@@ -101,7 +101,7 @@
                 {
                     <div class="ap-power-card">
                         <div class="ap-power-header">
-                            <span class="ap-name">@ap.Name</span>
+                            <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="sm" /> @ap.Name</span>
                             <span class="ap-model">@ap.Model</span>
                         </div>
 
@@ -150,7 +150,7 @@
                     var qualityClass = GetCoverageQualityClass(apCoverage);
                     <div class="coverage-card @qualityClass">
                         <div class="coverage-header">
-                            <span class="ap-name">@apCoverage.ApName</span>
+                            <span class="ap-name"><DeviceIcon Model="@apCoverage.ApModel" Size="sm" /> @apCoverage.ApName</span>
                             <span class="client-count">@apCoverage.ClientCount clients</span>
                         </div>
 
@@ -433,6 +433,7 @@
             {
                 ApMac = ap.Mac,
                 ApName = ap.Name,
+                ApModel = ap.Model,
                 ClientCount = apClients.Count,
                 AvgSignal = clientsWithSignal.Any() ? (int?)clientsWithSignal.Average(c => c.Signal!.Value) : null,
                 MinSignal = clientsWithSignal.Any() ? clientsWithSignal.Min(c => c.Signal!.Value) : null,
@@ -653,6 +654,7 @@
     {
         public string ApMac { get; set; } = "";
         public string ApName { get; set; } = "";
+        public string ApModel { get; set; } = "";
         public int ClientCount { get; set; }
         public int? AvgSignal { get; set; }
         public int? MinSignal { get; set; }
