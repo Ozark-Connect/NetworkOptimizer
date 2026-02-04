@@ -1,3 +1,4 @@
+@using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
@@ -218,7 +219,7 @@
                                     <td>
                                         @if (string.IsNullOrEmpty(item.Network.Ssid))
                                         {
-                                            <span class="hidden-ssid">(Hidden)</span>
+                                            <span class="hidden-ssid">@BssidIdentifier.GetDisplayName(null, item.Network.Bssid)</span>
                                         }
                                         else
                                         {
