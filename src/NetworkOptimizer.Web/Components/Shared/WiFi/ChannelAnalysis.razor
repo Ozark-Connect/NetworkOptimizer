@@ -681,9 +681,10 @@
         _widthGroups.Clear();
         _widthGroups2.Clear();
 
-        // Step 1: Collect all width groups (one per radio)
-        // No de-duplication - we want to show overlapping groups from different APs
-        var allGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
+        // Step 1: Collect width groups, de-duplicating by primary channel
+        // Same primary = same group (e.g., mesh APs both on channel 108)
+        // Different primaries in same span = separate groups to show overlap (e.g., 36 vs 64 in 160 MHz)
+        var uniqueGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
 
         foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
         {
@@ -695,11 +696,19 @@
             var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width);
             var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
 
-            allGroups.Add((band, primaryChannel, orderedChannels, width, apName));
+            // De-duplicate by primary channel - same primary = same group
+            var alreadyExists = uniqueGroups.Any(g =>
+                g.Band == band &&
+                g.PrimaryChannel == primaryChannel);
+
+            if (!alreadyExists)
+            {
+                uniqueGroups.Add((band, primaryChannel, orderedChannels, width, apName));
+            }
         }
 
         // Step 2: Sort by band then primary channel, and assign group IDs PER BAND
-        var sortedGroups = allGroups
+        var sortedGroups = uniqueGroups
             .OrderBy(g => g.Band)
             .ThenBy(g => g.PrimaryChannel)
             .ToList();
