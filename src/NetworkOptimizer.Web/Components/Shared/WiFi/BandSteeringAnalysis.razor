@@ -459,15 +459,15 @@
             });
         }
 
-        // Legacy device impact
+        // Legacy device impact - suggest separate SSID to enable aggressive band steering on main
         if (_legacyClients.Count >= 5)
         {
             _recommendations.Add(new Recommendation
             {
                 Type = "info",
                 Title = "Consider IoT/Legacy SSID",
-                Description = $"You have {_legacyClients.Count} legacy 2.4 GHz-only devices. These devices consume more airtime and can slow down modern devices sharing the same radio.",
-                Action = "Create a dedicated SSID for IoT and legacy devices on 2.4 GHz only, keeping your main SSID for modern dual/tri-band clients."
+                Description = $"You have {_legacyClients.Count} legacy 2.4 GHz-only devices. A separate IoT SSID lets you enable aggressive band steering on your main SSID without breaking these devices.",
+                Action = "Create a 2.4 GHz-only SSID for IoT/legacy devices (with band steering off), then enable band steering on your main SSID to push capable devices to 5 GHz."
             });
         }
 

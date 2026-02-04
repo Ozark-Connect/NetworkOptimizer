@@ -267,6 +267,7 @@
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();
+    private List<WlanConfiguration> _wlanConfigs = new();
 
     // Stats
     private int _totalClients;
@@ -296,11 +297,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync();
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
 
             AnalyzeAirtime();
             GenerateRecommendations();
@@ -321,11 +324,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
 
             AnalyzeAirtime();
             GenerateRecommendations();
@@ -404,8 +409,8 @@
             {
                 Type = "warning",
                 Title = "Legacy Client Airtime Impact",
-                Description = $"{_legacyClients} legacy clients ({legacyPct:F0}% of total) are consuming disproportionate airtime. A single legacy device can consume 5-10x the airtime of a modern device for the same data transfer.",
-                Action = "Create a separate SSID for IoT/legacy devices with lower minimum data rates, or enable minimum data rate restrictions on your main SSID."
+                Description = $"{_legacyClients} legacy clients ({legacyPct:F0}% of total) are consuming disproportionate airtime. Legacy devices use slower modulation rates, taking 5-10x longer to transmit the same data.",
+                Action = "Increase the minimum data rate on 2.4 GHz (e.g., 12 Mbps) to force higher modulation. Note: very old devices may disconnect if they can't maintain the rate."
             });
         }
 
@@ -425,19 +430,35 @@
             });
         }
 
-        // 2.4GHz congestion
-        var clients2g = _clients.Count(c => c.Band == RadioBand.Band2_4GHz);
+        // 2.4GHz congestion - only suggest band steering if not already enabled on relevant SSIDs
+        var clients2g = _clients.Where(c => c.Band == RadioBand.Band2_4GHz).ToList();
         var clients5g6g = _clients.Count(c => c.Band == RadioBand.Band5GHz || c.Band == RadioBand.Band6GHz);
 
-        if (clients2g > clients5g6g && _totalClients >= 5)
+        if (clients2g.Count > clients5g6g && _totalClients >= 5)
         {
-            _recommendations.Add(new Recommendation
+            // Find SSIDs where 2.4 GHz clients are connected and band steering is NOT enabled
+            var ssidsWithout2gClients = clients2g
+                .Where(c => !string.IsNullOrEmpty(c.Essid))
+                .Select(c => c.Essid)
+                .Distinct()
+                .ToList();
+
+            var ssidsNeedingBandSteering = _wlanConfigs
+                .Where(w => w.Enabled && !w.BandSteeringEnabled && ssidsWithout2gClients.Contains(w.Name))
+                .ToList();
+
+            // Only show recommendation if there are SSIDs without band steering
+            if (ssidsNeedingBandSteering.Any())
             {
-                Type = "info",
-                Title = "Consider Band Steering",
-                Description = $"More clients are on 2.4 GHz ({clients2g}) than 5/6 GHz ({clients5g6g}). 2.4 GHz has limited airtime due to only 3 non-overlapping channels and lower data rates.",
-                Action = "Enable band steering to push capable clients to 5 GHz or 6 GHz, which have more channels and higher speeds."
-            });
+                var ssidNames = string.Join(", ", ssidsNeedingBandSteering.Select(s => $"\"{s.Name}\""));
+                _recommendations.Add(new Recommendation
+                {
+                    Type = "info",
+                    Title = "Consider Band Steering",
+                    Description = $"More clients are on 2.4 GHz ({clients2g.Count}) than 5/6 GHz ({clients5g6g}). Band steering is not enabled on: {ssidNames}.",
+                    Action = "Enable band steering on these SSIDs to push capable clients to 5 GHz or 6 GHz."
+                });
+            }
         }
 
         // Minimum data rates suggestion
