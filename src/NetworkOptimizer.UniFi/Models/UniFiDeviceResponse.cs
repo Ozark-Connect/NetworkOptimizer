@@ -156,10 +156,31 @@ public class UniFiDeviceResponse
     public bool? SpectrumScanning { get; set; }
 
     /// <summary>
-    /// Scan radio table - results from RF environment scans
+    /// Whether quickscan is currently active on this device
+    /// </summary>
+    [JsonPropertyName("quickscan_scanning")]
+    public bool? QuickscanScanning { get; set; }
+
+    /// <summary>
+    /// Scan radio table - results from RF environment scans.
+    /// May contain a dedicated scan radio (radio: "scan") on supported APs.
     /// </summary>
     [JsonPropertyName("scan_radio_table")]
     public List<ScanRadioEntry>? ScanRadioTable { get; set; }
+
+    /// <summary>
+    /// Whether this AP has a dedicated scan radio that can scan without disrupting clients.
+    /// APs with dedicated scan hardware have an entry in scan_radio_table with radio="scan".
+    /// </summary>
+    public bool HasDedicatedScanRadio =>
+        ScanRadioTable?.Any(s => s.Radio?.Equals("scan", StringComparison.OrdinalIgnoreCase) == true) ?? false;
+
+    /// <summary>
+    /// Whether this AP supports spectrum/RF environment scanning.
+    /// All modern APs with scan_radio_table support quickscan; APs with dedicated
+    /// scan radio can scan without impacting client connectivity.
+    /// </summary>
+    public bool SupportsSpectrumScan => ScanRadioTable != null;
 
     // Configuration
     [JsonPropertyName("config_network")]
@@ -846,7 +867,13 @@ public class WifiTxLatency
 public class ScanRadioEntry
 {
     /// <summary>
-    /// Radio band code: ng=2.4GHz, na=5GHz, 6e=6GHz
+    /// Radio name (wifi0, wifi1, wifi2, wifi3 for dedicated scan radio)
+    /// </summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// Radio band code: ng=2.4GHz, na=5GHz, 6e=6GHz, or "scan" for dedicated scan radio
     /// </summary>
     [JsonPropertyName("radio")]
     public string Radio { get; set; } = string.Empty;
@@ -856,6 +883,18 @@ public class ScanRadioEntry
     /// </summary>
     [JsonPropertyName("scanning")]
     public bool? Scanning { get; set; }
+
+    /// <summary>
+    /// Radio capabilities bitmask
+    /// </summary>
+    [JsonPropertyName("radio_caps")]
+    public long? RadioCaps { get; set; }
+
+    /// <summary>
+    /// Radio capabilities bitmask (extended)
+    /// </summary>
+    [JsonPropertyName("radio_caps2")]
+    public long? RadioCaps2 { get; set; }
 
     /// <summary>
     /// Spectrum table with per-channel scan results
@@ -904,4 +943,130 @@ public class SpectrumEntry
     /// </summary>
     [JsonPropertyName("dfs_state")]
     public string? DfsState { get; set; }
+}
+
+/// <summary>
+/// Response from GET /api/s/{site}/stat/rogueap - Neighboring Wi-Fi networks detected by APs
+/// </summary>
+public class UniFiRogueApResponse
+{
+    /// <summary>
+    /// SSID of the neighboring network (may be empty for hidden networks)
+    /// </summary>
+    [JsonPropertyName("essid")]
+    public string Essid { get; set; } = string.Empty;
+
+    /// <summary>
+    /// BSSID (MAC address) of the neighboring network
+    /// </summary>
+    [JsonPropertyName("bssid")]
+    public string Bssid { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Channel number
+    /// </summary>
+    [JsonPropertyName("channel")]
+    public int Channel { get; set; }
+
+    /// <summary>
+    /// Channel width in MHz
+    /// </summary>
+    [JsonPropertyName("bw")]
+    public int? Width { get; set; }
+
+    /// <summary>
+    /// Signal strength in dBm
+    /// </summary>
+    [JsonPropertyName("signal")]
+    public int? Signal { get; set; }
+
+    /// <summary>
+    /// RSSI value
+    /// </summary>
+    [JsonPropertyName("rssi")]
+    public int? Rssi { get; set; }
+
+    /// <summary>
+    /// Noise floor in dBm
+    /// </summary>
+    [JsonPropertyName("noise")]
+    public int? Noise { get; set; }
+
+    /// <summary>
+    /// MAC of the AP that detected this network
+    /// </summary>
+    [JsonPropertyName("ap_mac")]
+    public string ApMac { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Radio band code: ng=2.4GHz, na=5GHz, 6e=6GHz
+    /// </summary>
+    [JsonPropertyName("band")]
+    public string Band { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Radio code (ng, na, 6e)
+    /// </summary>
+    [JsonPropertyName("radio")]
+    public string Radio { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this is a Ubiquiti device
+    /// </summary>
+    [JsonPropertyName("is_ubnt")]
+    public bool IsUbnt { get; set; }
+
+    /// <summary>
+    /// Whether this is marked as rogue
+    /// </summary>
+    [JsonPropertyName("is_rogue")]
+    public bool IsRogue { get; set; }
+
+    /// <summary>
+    /// Whether this is an ad-hoc network
+    /// </summary>
+    [JsonPropertyName("is_adhoc")]
+    public bool IsAdhoc { get; set; }
+
+    /// <summary>
+    /// Security type description
+    /// </summary>
+    [JsonPropertyName("security")]
+    public string? Security { get; set; }
+
+    /// <summary>
+    /// Last seen timestamp (Unix seconds)
+    /// </summary>
+    [JsonPropertyName("last_seen")]
+    public long? LastSeen { get; set; }
+
+    /// <summary>
+    /// Report time (Unix seconds)
+    /// </summary>
+    [JsonPropertyName("report_time")]
+    public long? ReportTime { get; set; }
+
+    /// <summary>
+    /// Center frequency in MHz
+    /// </summary>
+    [JsonPropertyName("center_freq")]
+    public int? CenterFreq { get; set; }
+
+    /// <summary>
+    /// Frequency in MHz
+    /// </summary>
+    [JsonPropertyName("freq")]
+    public int? Freq { get; set; }
+
+    /// <summary>
+    /// OUI (manufacturer) of the device
+    /// </summary>
+    [JsonPropertyName("oui")]
+    public string? Oui { get; set; }
+
+    /// <summary>
+    /// Age of the reading in seconds
+    /// </summary>
+    [JsonPropertyName("age")]
+    public int? Age { get; set; }
 }

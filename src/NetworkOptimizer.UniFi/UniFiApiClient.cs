@@ -1923,6 +1923,39 @@ public class UniFiApiClient : IDisposable
         });
     }
 
+    /// <summary>
+    /// GET /api/s/{site}/stat/rogueap - Get neighboring Wi-Fi networks detected by APs
+    /// </summary>
+    /// <param name="startTime">Start time for filtering (optional, defaults to 1 day ago). UniFi UI uses 30m, 1h, 1D, 1W, 1M ranges.</param>
+    /// <param name="endTime">End time for filtering (optional, defaults to now)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task<List<UniFiRogueApResponse>> GetRogueApsAsync(
+        DateTimeOffset? startTime = null,
+        DateTimeOffset? endTime = null,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching rogue/neighboring APs");
+
+        var end = endTime ?? DateTimeOffset.UtcNow;
+        var start = startTime ?? end.AddDays(-1);
+
+        var startSeconds = start.ToUnixTimeSeconds();
+        var endSeconds = end.ToUnixTimeSeconds();
+
+        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiRogueApResponse>>(
+            () => _httpClient!.GetAsync(BuildApiPath($"stat/rogueap?start={startSeconds}&end={endSeconds}"), cancellationToken),
+            cancellationToken);
+
+        if (response?.Meta.Rc == "ok")
+        {
+            _logger.LogDebug("Found {Count} rogue/neighboring APs", response.Data.Count);
+            return response.Data;
+        }
+
+        _logger.LogWarning("Failed to retrieve rogue APs or received non-ok response");
+        return new List<UniFiRogueApResponse>();
+    }
+
     #endregion
 
     public void Dispose()

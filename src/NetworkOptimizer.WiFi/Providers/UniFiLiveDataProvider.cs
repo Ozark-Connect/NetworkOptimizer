@@ -444,32 +444,70 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
-        var aps = devices.Where(d => d.Type == "uap");
+        var aps = devices.Where(d => d.Type == "uap").ToList();
 
         if (!string.IsNullOrEmpty(apMac))
         {
-            aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase));
+            aps = aps.Where(d => d.Mac.Equals(apMac, StringComparison.OrdinalIgnoreCase)).ToList();
         }
+
+        // Get our own BSSIDs to identify own networks
+        var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ap in devices.Where(d => d.Type == "uap"))
+        {
+            if (ap.VapTable != null)
+            {
+                foreach (var vap in ap.VapTable)
+                {
+                    if (!string.IsNullOrEmpty(vap.Bssid))
+                    {
+                        ownBssids.Add(vap.Bssid);
+                    }
+                }
+            }
+        }
+
+        // Fetch neighboring networks (rogue APs)
+        var rogueAps = await _client.GetRogueApsAsync(cancellationToken: cancellationToken);
+        _logger.LogDebug("Fetched {Count} neighboring networks from rogueap endpoint", rogueAps.Count);
+
+        // Group rogue APs by detecting AP MAC and band
+        var rogueApsByApAndBand = rogueAps
+            .GroupBy(r => (ApMac: r.ApMac.ToLowerInvariant(), Band: r.Band ?? r.Radio))
+            .ToDictionary(
+                g => g.Key,
+                g => g.ToList());
 
         var results = new List<ChannelScanResult>();
         var timestamp = DateTimeOffset.UtcNow;
 
         foreach (var ap in aps)
         {
-            if (ap.ScanRadioTable == null) continue;
+            // Get neighbors for each radio band on this AP
+            var apMacLower = ap.Mac.ToLowerInvariant();
 
-            foreach (var scanRadio in ap.ScanRadioTable)
+            // Create results for each radio (even if no spectrum data)
+            // Use RadioTableStats to get the bands this AP has
+            var radioBands = ap.RadioTableStats?.Select(r => r.Radio).Distinct().ToList()
+                ?? ap.RadioTable?.Select(r => r.Radio).Distinct().ToList()
+                ?? new List<string>();
+
+            foreach (var bandCode in radioBands)
             {
+                var band = RadioBandExtensions.FromUniFiCode(bandCode);
                 var result = new ChannelScanResult
                 {
                     ApMac = ap.Mac,
                     ApName = ap.Name,
-                    Band = RadioBandExtensions.FromUniFiCode(scanRadio.Radio),
+                    Band = band,
                     ScanTime = timestamp,
-                    Channels = new List<ChannelInfo>()
+                    Channels = new List<ChannelInfo>(),
+                    Neighbors = new List<NeighborNetwork>()
                 };
 
-                if (scanRadio.SpectrumTable != null)
+                // Add spectrum data if available from scan_radio_table
+                var scanRadio = ap.ScanRadioTable?.FirstOrDefault(sr => sr.Radio == bandCode);
+                if (scanRadio?.SpectrumTable != null)
                 {
                     foreach (var spectrum in scanRadio.SpectrumTable)
                     {
@@ -485,9 +523,35 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     }
                 }
 
+                // Add neighbors from rogueap endpoint
+                if (rogueApsByApAndBand.TryGetValue((apMacLower, bandCode), out var neighbors))
+                {
+                    foreach (var neighbor in neighbors)
+                    {
+                        result.Neighbors.Add(new NeighborNetwork
+                        {
+                            Ssid = neighbor.Essid,
+                            Bssid = neighbor.Bssid,
+                            Channel = neighbor.Channel,
+                            Width = neighbor.Width,
+                            Signal = neighbor.Signal,
+                            IsOwnNetwork = neighbor.IsUbnt || ownBssids.Contains(neighbor.Bssid),
+                            Security = neighbor.Security,
+                            LastSeen = neighbor.LastSeen.HasValue
+                                ? DateTimeOffset.FromUnixTimeSeconds(neighbor.LastSeen.Value)
+                                : null
+                        });
+                    }
+                }
+
                 results.Add(result);
             }
         }
+
+        _logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ResultCount} scan results, Found {NeighborCount} neighboring networks",
+            aps.Count,
+            results.Count,
+            results.Sum(r => r.Neighbors.Count));
 
         return results;
     }
