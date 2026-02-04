@@ -146,6 +146,10 @@
                 @onclick="@(() => SetActiveTab("channels"))">
             Channels
         </button>
+        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("spectrum"))">
+            Spectrum
+        </button>
         <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("loadbalance"))">
             Load Balance
@@ -209,6 +213,15 @@
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "spectrum")
+    {
+        <!-- Spectrum Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis />
             </div>
         </div>
     }

@@ -1,0 +1,1010 @@
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+@inject ILogger<SpectrumAnalysis> Logger
+
+<div class="spectrum-container">
+    <!-- Controls Row -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">RF Environment</h2>
+            <div class="spectrum-controls">
+                <div class="ap-selector">
+                    <label>Access Point:</label>
+                    <select @bind="selectedApMac" @bind:after="OnApFilterChanged">
+                        <option value="">All APs</option>
+                        @foreach (var ap in accessPoints)
+                        {
+                            <option value="@ap.Mac">@ap.Name (@ap.Model)</option>
+                        }
+                    </select>
+                </div>
+                <div class="filter-tabs">
+                    <button class="tab @(selectedBand == RadioBand.Unknown ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Unknown)'>All Bands</button>
+                    <button class="tab @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
+                    <button class="tab @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
+                    <button class="tab @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
+                </div>
+                <button class="btn btn-secondary" @onclick="RefreshData" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="loading-state">
+                    <span class="spinner"></span>
+                    <span>Scanning RF environment...</span>
+                </div>
+            </div>
+        </div>
+    }
+    else if (!ConnectionService.IsConnected)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <div class="empty-icon-img"><img src="/icons/chart-v2.png" alt="" /></div>
+                    <h3>Not Connected</h3>
+                    <p>Connect to your UniFi Console to view spectrum analysis.</p>
+                </div>
+            </div>
+        </div>
+    }
+    else if (allNeighbors.Count == 0)
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="empty-state">
+                    <div class="empty-icon-img"><img src="/icons/chart-v2.png" alt="" /></div>
+                    <h3>No Scan Data</h3>
+                    <p>No neighboring networks detected. Your APs may not have recent RF scan data available.</p>
+                    <button class="btn btn-primary" @onclick="RefreshData">Scan Now</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="card">
+            <div class="card-body">
+                <div class="spectrum-stats-row">
+                    <div class="spectrum-stat-card">
+                        <div class="stat-value">@filteredNeighbors.Count</div>
+                        <div class="stat-label">Networks Detected</div>
+                    </div>
+                    <div class="spectrum-stat-card">
+                        <div class="stat-value">@filteredNeighbors.Count(r => r.Network.IsOwnNetwork)</div>
+                        <div class="stat-label">Your Networks</div>
+                    </div>
+                    <div class="spectrum-stat-card">
+                        <div class="stat-value">@GetNetworksOnYourChannels()</div>
+                        <div class="stat-label">On Your Channels</div>
+                    </div>
+                    <div class="spectrum-stat-card">
+                        <div class="stat-value">@GetAvailableDfsChannels()</div>
+                        <div class="stat-label">DFS Available</div>
+                    </div>
+                    <div class="spectrum-stat-card highlight">
+                        <div class="stat-value">@GetCleanestChannel()</div>
+                        <div class="stat-label">Cleanest Channel</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Channel Heatmap -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Channel Density</h2>
+            </div>
+            <div class="card-body">
+                <div class="channel-heatmap">
+                    @foreach (var channelGroup in GetChannelDensity())
+                    {
+                        <div class="channel-bar-container">
+                            <div class="channel-label @(channelGroup.IsYourChannel ? "your-channel" : "") @(channelGroup.IsDfs ? "dfs-channel" : "")">
+                                @channelGroup.Channel
+                                @if (channelGroup.IsDfs)
+                                {
+                                    <span class="dfs-badge" data-tooltip="DFS Channel">D</span>
+                                }
+                            </div>
+                            <div class="channel-bar-wrapper">
+                                <div class="channel-bar @GetDensityClass(channelGroup.Count)"
+                                     style="width: @(GetBarWidth(channelGroup.Count))%"
+                                     data-tooltip="@channelGroup.Count networks">
+                                </div>
+                            </div>
+                            <div class="channel-count">@channelGroup.Count</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Neighboring Networks Table -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Neighboring Networks (@filteredNeighbors.Count)</h2>
+                <div class="filter-tabs">
+                    <button class="tab @(showOwnNetworks ? "" : "active")" @onclick="() => showOwnNetworks = false">
+                        Others (@filteredNeighbors.Count(r => !r.Network.IsOwnNetwork))
+                    </button>
+                    <button class="tab @(showOwnNetworks ? "active" : "")" @onclick="() => showOwnNetworks = true">
+                        Your Networks (@filteredNeighbors.Count(r => r.Network.IsOwnNetwork))
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable @GetSortClass("ssid")" @onclick='() => SetSort("ssid")'>SSID</th>
+                                <th class="sortable @GetSortClass("bssid")" @onclick='() => SetSort("bssid")'>BSSID</th>
+                                <th class="sortable @GetSortClass("channel")" @onclick='() => SetSort("channel")'>Channel</th>
+                                <th class="sortable @GetSortClass("width")" @onclick='() => SetSort("width")'>Width</th>
+                                <th class="sortable @GetSortClass("signal")" @onclick='() => SetSort("signal")'>Signal</th>
+                                <th>Detected By</th>
+                                <th class="sortable @GetSortClass("lastSeen")" @onclick='() => SetSort("lastSeen")'>Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in GetSortedNetworks())
+                            {
+                                <tr class="@(item.Network.IsOwnNetwork ? "own-network" : "")">
+                                    <td>
+                                        @if (string.IsNullOrEmpty(item.Network.Ssid))
+                                        {
+                                            <span class="hidden-ssid">(Hidden)</span>
+                                        }
+                                        else
+                                        {
+                                            @item.Network.Ssid
+                                        }
+                                        @if (item.Network.IsOwnNetwork)
+                                        {
+                                            <span class="own-badge">Your Network</span>
+                                        }
+                                    </td>
+                                    <td class="monospace">@item.Network.Bssid</td>
+                                    <td>
+                                        <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel) ? "dfs" : "")">
+                                            @item.Network.Channel
+                                        </span>
+                                    </td>
+                                    <td>@(item.Network.Width ?? 20) MHz</td>
+                                    <td>
+                                        <span class="signal-indicator @GetSignalClass(item.Network.Signal ?? -100)">
+                                            @(item.Network.Signal ?? 0) dBm
+                                        </span>
+                                    </td>
+                                    <td>@item.ApName</td>
+                                    <td>@FormatLastSeen(item.Network.LastSeen)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- DFS Status -->
+        @if (selectedBand == RadioBand.Unknown || selectedBand == RadioBand.Band5GHz)
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">DFS Channel Status</h2>
+                </div>
+                <div class="card-body">
+                    <div class="dfs-status-grid">
+                        @foreach (var dfsChannel in GetDfsChannelStatus())
+                        {
+                            <div class="dfs-channel-card @(dfsChannel.IsAvailable ? "available" : "occupied") @(dfsChannel.IsYourChannel ? "your-channel" : "")">
+                                <div class="dfs-channel-number">@dfsChannel.Channel</div>
+                                <div class="dfs-channel-status">
+                                    @if (dfsChannel.IsYourChannel)
+                                    {
+                                        <span class="status-badge in-use">In Use</span>
+                                    }
+                                    else if (dfsChannel.IsAvailable)
+                                    {
+                                        <span class="status-badge available">Available</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="status-badge occupied">@dfsChannel.NetworkCount networks</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <p class="dfs-note">
+                        DFS channels (52-64, 100-144) require radar detection. They're often less congested but may not be usable if radar is detected.
+                    </p>
+                </div>
+            </div>
+        }
+
+        <!-- Recommendations -->
+        @if (GetRecommendations().Any())
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Recommendations</h2>
+                </div>
+                <div class="card-body">
+                    <div class="recommendations-list">
+                        @foreach (var rec in GetRecommendations())
+                        {
+                            <div class="recommendation-item @rec.Type">
+                                <div class="recommendation-icon">
+                                    @if (rec.Type == "warning")
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>
+                                    }
+                                </div>
+                                <div class="recommendation-content">
+                                    <div class="recommendation-title">@rec.Title</div>
+                                    <div class="recommendation-description">@rec.Description</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .spectrum-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .spectrum-controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .ap-selector {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .ap-selector label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+
+    .ap-selector select {
+        padding: 0.5rem;
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-primary);
+        min-width: 200px;
+    }
+
+    .spectrum-stats-row {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .spectrum-stat-card {
+        flex: 1;
+        min-width: 120px;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .spectrum-stat-card.highlight {
+        background: linear-gradient(135deg, var(--accent-color) 0%, #5a4fcf 100%);
+    }
+
+    .spectrum-stat-card .stat-value {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .spectrum-stat-card.highlight .stat-value {
+        color: white;
+    }
+
+    .spectrum-stat-card .stat-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+    }
+
+    .spectrum-stat-card.highlight .stat-label {
+        color: rgba(255, 255, 255, 0.8);
+    }
+
+    /* Channel Heatmap */
+    .channel-heatmap {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .channel-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .channel-label {
+        width: 50px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        text-align: right;
+        color: var(--text-secondary);
+    }
+
+    .channel-label.your-channel {
+        color: var(--accent-color);
+        font-weight: 600;
+    }
+
+    .channel-label.dfs-channel {
+        font-style: italic;
+    }
+
+    .dfs-badge {
+        font-size: 0.65rem;
+        background: var(--warning-color);
+        color: white;
+        padding: 0 0.25rem;
+        border-radius: 2px;
+        margin-left: 0.25rem;
+        vertical-align: super;
+    }
+
+    .channel-bar-wrapper {
+        flex: 1;
+        height: 20px;
+        background: var(--bg-secondary);
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .channel-bar {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.3s ease;
+    }
+
+    .channel-bar.density-low {
+        background: var(--success-color);
+    }
+
+    .channel-bar.density-medium {
+        background: var(--warning-color);
+    }
+
+    .channel-bar.density-high {
+        background: var(--danger-color);
+    }
+
+    .channel-count {
+        width: 30px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    /* Network Table */
+    .hidden-ssid {
+        color: var(--text-muted);
+        font-style: italic;
+    }
+
+    .own-badge {
+        font-size: 0.7rem;
+        background: var(--accent-color);
+        color: white;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        margin-left: 0.5rem;
+    }
+
+    .own-network {
+        background: rgba(var(--accent-color-rgb), 0.1);
+    }
+
+    .channel-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .channel-badge.band-2g {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+    }
+
+    .channel-badge.band-5g {
+        background: rgba(34, 197, 94, 0.2);
+        color: #4ade80;
+    }
+
+    .channel-badge.band-6g {
+        background: rgba(168, 85, 247, 0.2);
+        color: #c084fc;
+    }
+
+    .channel-badge.dfs {
+        border: 1px dashed var(--warning-color);
+    }
+
+    .signal-indicator {
+        font-weight: 500;
+    }
+
+    .signal-indicator.signal-excellent {
+        color: var(--success-color);
+    }
+
+    .signal-indicator.signal-good {
+        color: #4ade80;
+    }
+
+    .signal-indicator.signal-fair {
+        color: var(--warning-color);
+    }
+
+    .signal-indicator.signal-weak {
+        color: var(--danger-color);
+    }
+
+    /* DFS Status Grid */
+    .dfs-status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .dfs-channel-card {
+        padding: 0.75rem;
+        border-radius: 8px;
+        text-align: center;
+        background: var(--bg-secondary);
+        border: 2px solid transparent;
+    }
+
+    .dfs-channel-card.available {
+        border-color: var(--success-color);
+    }
+
+    .dfs-channel-card.occupied {
+        border-color: var(--border-color);
+    }
+
+    .dfs-channel-card.your-channel {
+        border-color: var(--accent-color);
+        background: rgba(var(--accent-color-rgb), 0.1);
+    }
+
+    .dfs-channel-number {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .dfs-channel-status {
+        margin-top: 0.25rem;
+    }
+
+    .status-badge {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 3px;
+    }
+
+    .status-badge.available {
+        background: rgba(34, 197, 94, 0.2);
+        color: var(--success-color);
+    }
+
+    .status-badge.occupied {
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+    }
+
+    .status-badge.in-use {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .dfs-note {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+    }
+
+    /* Recommendations */
+    .recommendations-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .recommendation-item {
+        display: flex;
+        gap: 1rem;
+        padding: 1rem;
+        background: var(--bg-secondary);
+        border-radius: 8px;
+        border-left: 3px solid var(--info-color);
+    }
+
+    .recommendation-item.warning {
+        border-left-color: var(--warning-color);
+    }
+
+    .recommendation-icon {
+        flex-shrink: 0;
+        color: var(--info-color);
+    }
+
+    .recommendation-item.warning .recommendation-icon {
+        color: var(--warning-color);
+    }
+
+    .recommendation-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .recommendation-description {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+
+    /* Responsive */
+    @@media (max-width: 768px) {
+        .spectrum-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .ap-selector {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .ap-selector select {
+            min-width: 100%;
+        }
+
+        .spectrum-stats-row {
+            flex-direction: column;
+        }
+
+        .spectrum-stat-card {
+            min-width: 100%;
+        }
+    }
+</style>
+
+@code {
+    private List<ChannelScanResult> scanResults = new();
+    private List<AccessPointSnapshot> accessPoints = new();
+    private bool isLoading = true;
+    private string selectedApMac = "";
+    private RadioBand selectedBand = RadioBand.Unknown; // Unknown = All bands
+    private bool showOwnNetworks = false;
+    private string sortColumn = "signal";
+    private bool sortDescending = true;
+
+    // Flattened view of all neighbors with their source AP info
+    private List<NeighborWithAp> allNeighbors = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apTask = WiFiService.GetAccessPointsAsync();
+            var scanTask = WiFiService.GetChannelScanResultsAsync();
+
+            await Task.WhenAll(apTask, scanTask);
+
+            accessPoints = apTask.Result;
+            scanResults = scanTask.Result;
+
+            // Flatten neighbors from all scan results
+            allNeighbors = scanResults
+                .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
+                {
+                    Network = n,
+                    ApMac = sr.ApMac,
+                    ApName = sr.ApName ?? "Unknown AP",
+                    Band = sr.Band
+                }))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load spectrum data");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            var scanTask = WiFiService.GetChannelScanResultsAsync(forceRefresh: true);
+
+            await Task.WhenAll(apTask, scanTask);
+
+            accessPoints = apTask.Result;
+            scanResults = scanTask.Result;
+
+            // Flatten neighbors from all scan results
+            allNeighbors = scanResults
+                .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
+                {
+                    Network = n,
+                    ApMac = sr.ApMac,
+                    ApName = sr.ApName ?? "Unknown AP",
+                    Band = sr.Band
+                }))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to refresh spectrum data");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private List<NeighborWithAp> filteredNeighbors =>
+        allNeighbors
+            .Where(n => string.IsNullOrEmpty(selectedApMac) || n.ApMac == selectedApMac)
+            .Where(n => selectedBand == RadioBand.Unknown || n.Band == selectedBand)
+            .ToList();
+
+    private void SetBandFilter(RadioBand band)
+    {
+        selectedBand = band;
+    }
+
+    private void OnApFilterChanged()
+    {
+        // State already updated via binding
+    }
+
+    private int GetNetworksOnYourChannels()
+    {
+        var yourChannels = accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Channel.HasValue)
+            .Select(r => r.Channel!.Value)
+            .ToHashSet();
+
+        return filteredNeighbors
+            .Where(n => !n.Network.IsOwnNetwork)
+            .Count(n => yourChannels.Contains(n.Network.Channel));
+    }
+
+    private int GetAvailableDfsChannels()
+    {
+        var dfsChannels = new[] { 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144 };
+        var occupiedDfs = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz && dfsChannels.Contains(n.Network.Channel))
+            .Select(n => n.Network.Channel)
+            .ToHashSet();
+
+        return dfsChannels.Length - occupiedDfs.Count;
+    }
+
+    private string GetCleanestChannel()
+    {
+        var channelCounts = filteredNeighbors
+            .Where(n => !n.Network.IsOwnNetwork)
+            .GroupBy(n => n.Network.Channel)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Get channels in use by your APs
+        var yourChannels = accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Channel.HasValue)
+            .Where(r => selectedBand == RadioBand.Unknown || r.Band == selectedBand)
+            .Select(r => r.Channel!.Value)
+            .Distinct()
+            .ToList();
+
+        // Find common channels for the selected band
+        var commonChannels = selectedBand switch
+        {
+            RadioBand.Band2_4GHz => new[] { 1, 6, 11 },
+            RadioBand.Band5GHz => new[] { 36, 40, 44, 48, 149, 153, 157, 161, 165 },
+            RadioBand.Band6GHz => new[] { 1, 5, 9, 13, 17, 21, 25, 29, 33, 37 },
+            _ => yourChannels.Any() ? yourChannels.ToArray() : new[] { 1, 6, 11, 36, 149 }
+        };
+
+        var cleanest = commonChannels
+            .OrderBy(ch => channelCounts.GetValueOrDefault(ch, 0))
+            .FirstOrDefault();
+
+        return cleanest > 0 ? cleanest.ToString() : "-";
+    }
+
+    private IEnumerable<ChannelDensity> GetChannelDensity()
+    {
+        var yourChannels = accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Channel.HasValue)
+            .Where(r => selectedBand == RadioBand.Unknown || r.Band == selectedBand)
+            .Select(r => r.Channel!.Value)
+            .ToHashSet();
+
+        return filteredNeighbors
+            .GroupBy(n => n.Network.Channel)
+            .Select(g => new ChannelDensity
+            {
+                Channel = g.Key,
+                Count = g.Count(),
+                IsYourChannel = yourChannels.Contains(g.Key),
+                IsDfs = IsDfsChannel(g.Key),
+                Band = g.First().Band
+            })
+            .OrderBy(d => d.Band)
+            .ThenBy(d => d.Channel);
+    }
+
+    private string GetDensityClass(int count)
+    {
+        return count switch
+        {
+            <= 3 => "density-low",
+            <= 8 => "density-medium",
+            _ => "density-high"
+        };
+    }
+
+    private int GetBarWidth(int count)
+    {
+        var groups = filteredNeighbors.GroupBy(n => n.Network.Channel).ToList();
+        if (!groups.Any()) return 0;
+        var maxCount = groups.Max(g => g.Count());
+        if (maxCount == 0) return 0;
+        return Math.Min(100, (int)(count * 100.0 / maxCount));
+    }
+
+    private IEnumerable<NeighborWithAp> GetSortedNetworks()
+    {
+        var networks = filteredNeighbors.Where(n => showOwnNetworks ? n.Network.IsOwnNetwork : !n.Network.IsOwnNetwork);
+
+        networks = sortColumn switch
+        {
+            "ssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Ssid) : networks.OrderBy(n => n.Network.Ssid),
+            "bssid" => sortDescending ? networks.OrderByDescending(n => n.Network.Bssid) : networks.OrderBy(n => n.Network.Bssid),
+            "channel" => sortDescending ? networks.OrderByDescending(n => n.Network.Channel) : networks.OrderBy(n => n.Network.Channel),
+            "width" => sortDescending ? networks.OrderByDescending(n => n.Network.Width) : networks.OrderBy(n => n.Network.Width),
+            "signal" => sortDescending ? networks.OrderByDescending(n => n.Network.Signal) : networks.OrderBy(n => n.Network.Signal),
+            "lastSeen" => sortDescending ? networks.OrderByDescending(n => n.Network.LastSeen) : networks.OrderBy(n => n.Network.LastSeen),
+            _ => networks.OrderByDescending(n => n.Network.Signal)
+        };
+
+        return networks;
+    }
+
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortDescending = column == "signal" || column == "lastSeen"; // Default descending for these
+        }
+    }
+
+    private string GetSortClass(string column)
+    {
+        if (sortColumn != column) return "";
+        return sortDescending ? "sort-desc" : "sort-asc";
+    }
+
+    private string GetBandClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2g",
+        RadioBand.Band5GHz => "band-5g",
+        RadioBand.Band6GHz => "band-6g",
+        _ => ""
+    };
+
+    private string GetSignalClass(int signal) => signal switch
+    {
+        >= -50 => "signal-excellent",
+        >= -60 => "signal-good",
+        >= -70 => "signal-fair",
+        _ => "signal-weak"
+    };
+
+    private string FormatLastSeen(DateTimeOffset? lastSeen)
+    {
+        if (!lastSeen.HasValue) return "-";
+
+        var ago = DateTimeOffset.UtcNow - lastSeen.Value;
+
+        if (ago.TotalSeconds < 60) return "Just now";
+        if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
+
+        return lastSeen.Value.ToLocalTime().ToString("MMM d HH:mm");
+    }
+
+    private IEnumerable<DfsChannelStatus> GetDfsChannelStatus()
+    {
+        var dfsChannels = new[] { 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144 };
+
+        var yourChannels = accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue)
+            .Select(r => r.Channel!.Value)
+            .ToHashSet();
+
+        var channelCounts = filteredNeighbors
+            .Where(n => n.Band == RadioBand.Band5GHz && !n.Network.IsOwnNetwork)
+            .GroupBy(n => n.Network.Channel)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        return dfsChannels.Select(ch => new DfsChannelStatus
+        {
+            Channel = ch,
+            NetworkCount = channelCounts.GetValueOrDefault(ch, 0),
+            IsAvailable = !channelCounts.ContainsKey(ch) || channelCounts[ch] == 0,
+            IsYourChannel = yourChannels.Contains(ch)
+        });
+    }
+
+    private IEnumerable<Recommendation> GetRecommendations()
+    {
+        var recommendations = new List<Recommendation>();
+
+        // Check for congested channels
+        var yourChannels = accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Channel.HasValue)
+            .Select(r => new { Channel = r.Channel!.Value, r.Band })
+            .Distinct()
+            .ToList();
+
+        foreach (var ch in yourChannels)
+        {
+            var neighborCount = filteredNeighbors
+                .Count(n => n.Network.Channel == ch.Channel && !n.Network.IsOwnNetwork);
+
+            if (neighborCount > 5)
+            {
+                var cleanest = GetCleanestChannel();
+                recommendations.Add(new Recommendation
+                {
+                    Type = "warning",
+                    Title = $"Channel {ch.Channel} is congested",
+                    Description = $"There are {neighborCount} other networks on channel {ch.Channel}. Consider switching to channel {cleanest} for better performance."
+                });
+            }
+        }
+
+        // Check for DFS opportunity
+        var availableDfs = GetAvailableDfsChannels();
+        if (availableDfs > 10 && !yourChannels.Any(c => c.Band == RadioBand.Band5GHz && IsDfsChannel(c.Channel)))
+        {
+            recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "DFS channels available",
+                Description = $"{availableDfs} DFS channels are available with no detected networks. Consider enabling DFS on your 5 GHz radios for less interference."
+            });
+        }
+
+        // Check for wide channel interference
+        var wideChannelNetworks = filteredNeighbors
+            .Where(n => (n.Network.Width ?? 20) >= 80 && !n.Network.IsOwnNetwork)
+            .Count();
+
+        if (wideChannelNetworks > 3)
+        {
+            recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "Wide channel usage detected",
+                Description = $"{wideChannelNetworks} networks are using 80 MHz or wider channels. In dense environments, narrower channels (40 MHz) often perform better."
+            });
+        }
+
+        return recommendations;
+    }
+
+    private bool IsDfsChannel(int channel) =>
+        (channel >= 52 && channel <= 64) || (channel >= 100 && channel <= 144);
+
+    // Helper classes
+    private class NeighborWithAp
+    {
+        public NeighborNetwork Network { get; set; } = null!;
+        public string ApMac { get; set; } = "";
+        public string ApName { get; set; } = "";
+        public RadioBand Band { get; set; }
+    }
+
+    private class ChannelDensity
+    {
+        public int Channel { get; set; }
+        public int Count { get; set; }
+        public bool IsYourChannel { get; set; }
+        public bool IsDfs { get; set; }
+        public RadioBand Band { get; set; }
+    }
+
+    private class DfsChannelStatus
+    {
+        public int Channel { get; set; }
+        public int NetworkCount { get; set; }
+        public bool IsAvailable { get; set; }
+        public bool IsYourChannel { get; set; }
+    }
+
+    private class Recommendation
+    {
+        public string Type { get; set; } = "info";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+}

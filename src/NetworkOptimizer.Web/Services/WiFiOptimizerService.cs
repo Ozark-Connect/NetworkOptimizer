@@ -259,7 +259,43 @@ public class WiFiOptimizerService
         _cachedWlanConfigs = null;
         _cachedRoamingData = null;
         _cachedHealthScore = null;
+        _cachedScanResults = null;
         _lastRefresh = DateTimeOffset.MinValue;
+    }
+
+    // Cached channel scan results
+    private List<ChannelScanResult>? _cachedScanResults;
+
+    /// <summary>
+    /// Get RF environment channel scan results from APs
+    /// </summary>
+    public async Task<List<ChannelScanResult>> GetChannelScanResultsAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get scan results - not connected to UniFi");
+            return new List<ChannelScanResult>();
+        }
+
+        if (!forceRefresh && _cachedScanResults != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedScanResults;
+        }
+
+        try
+        {
+            var provider = new WiFi.Providers.UniFiLiveDataProvider(
+                _connectionService.Client,
+                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+
+            _cachedScanResults = await provider.GetChannelScanResultsAsync();
+            return _cachedScanResults;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get channel scan results");
+            return new List<ChannelScanResult>();
+        }
     }
 
     /// <summary>
