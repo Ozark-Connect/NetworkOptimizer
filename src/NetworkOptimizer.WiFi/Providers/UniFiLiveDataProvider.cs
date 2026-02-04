@@ -27,7 +27,13 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
-        var aps = devices.Where(d => d.Type == "uap").ToList();
+
+        // Filter to devices with Wi-Fi radios. This includes:
+        // - Dedicated APs (type="uap")
+        // - UDM/UX devices with built-in Wi-Fi (type="udm" but have radio_table)
+        // And excludes:
+        // - USP-Strip and other power devices (may have type="uap" but no radio_table)
+        var aps = devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
         // Build a set of AP MACs for mesh parent detection
@@ -42,10 +48,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var wirelessClients = clients.Where(c => c.IsWired == false).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
-        // Get AP names for lookup
+        // Get AP names for lookup (devices with Wi-Fi radios)
         var devices = await _client.GetDevicesAsync(cancellationToken);
         var apNames = devices
-            .Where(d => d.Type == "uap")
+            .Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0)
             .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
 
         return wirelessClients.Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp)).ToList();
@@ -446,7 +452,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
-        var aps = devices.Where(d => d.Type == "uap").ToList();
+        var aps = devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0).ToList();
 
         if (!string.IsNullOrEmpty(apMac))
         {
@@ -455,7 +461,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         // Get our own BSSIDs to identify own networks
         var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ap in devices.Where(d => d.Type == "uap"))
+        foreach (var ap in devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0))
         {
             if (ap.VapTable != null)
             {
