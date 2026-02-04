@@ -662,6 +662,7 @@
         public int GroupId { get; set; }        // Unique ID for the group
         public string Position { get; set; } = "single";  // "start", "middle", "end", "single"
         public string ApName { get; set; } = "";
+        public RadioBand Band { get; set; }     // Band for color matching
     }
 
     private void CalculateWidthGroups(List<RadioSnapshot> allRadios)
@@ -688,7 +689,8 @@
                         Width = width,
                         GroupId = groupId++,
                         Position = "single",
-                        ApName = apName
+                        ApName = apName,
+                        Band = band
                     };
                 }
             }
@@ -709,7 +711,8 @@
                             Width = width,
                             GroupId = currentGroupId,
                             Position = position,
-                            ApName = apName
+                            ApName = apName,
+                            Band = band
                         };
                     }
                 }
@@ -814,7 +817,14 @@
     {
         if (_widthGroups.TryGetValue((band, channel), out var info))
         {
-            return $"width-group width-{info.Width} group-{info.Position}";
+            var bandClass = info.Band switch
+            {
+                RadioBand.Band2_4GHz => "band-2ghz",
+                RadioBand.Band5GHz => "band-5ghz",
+                RadioBand.Band6GHz => "band-6ghz",
+                _ => ""
+            };
+            return $"width-group {bandClass} group-{info.Position}";
         }
         return "";
     }

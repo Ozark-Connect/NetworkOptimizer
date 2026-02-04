@@ -7449,59 +7449,57 @@ select.form-control {
     background: rgba(59, 130, 246, 0.1);
 }
 
-/* Channel width grouping - shows bonded channels */
+/* Channel width grouping - shows bonded channels with full outline */
 .channel-slot.width-group {
     position: relative;
+    --group-border-color: var(--success-color);
 }
 
+/* Band-specific colors matching the badge colors */
+.channel-slot.band-2ghz { --group-border-color: #fbbf24; }
+.channel-slot.band-5ghz { --group-border-color: #3b82f6; }
+.channel-slot.band-6ghz { --group-border-color: #a855f7; }
+
+/* Full outline rectangle for bonded channels */
 .channel-slot.width-group::before {
     content: '';
     position: absolute;
-    top: -4px;
-    height: 3px;
-    background: var(--success-color);
-    border-radius: 2px;
+    top: -3px;
+    bottom: -3px;
+    border-top: 2px solid var(--group-border-color);
+    border-bottom: 2px solid var(--group-border-color);
+    pointer-events: none;
 }
 
-.channel-slot.group-start::before {
-    left: 0;
-    right: -0.5rem;
-    border-radius: 2px 0 0 2px;
-}
-
-.channel-slot.group-middle::before {
-    left: -0.5rem;
-    right: -0.5rem;
-    border-radius: 0;
-}
-
-.channel-slot.group-end::before {
-    left: -0.5rem;
-    right: 0;
-    border-radius: 0 2px 2px 0;
-}
-
+/* Single channel (20 MHz) - all 4 borders */
 .channel-slot.group-single::before {
     left: 0;
     right: 0;
-    border-radius: 2px;
+    border-left: 2px solid var(--group-border-color);
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 4px;
 }
 
-/* Different colors for different widths */
-.channel-slot.width-40::before {
-    background: #22c55e;
+/* Start of group - left border + top/bottom extending right */
+.channel-slot.group-start::before {
+    left: 0;
+    right: calc(-0.5rem - 1px);
+    border-left: 2px solid var(--group-border-color);
+    border-radius: 4px 0 0 4px;
 }
 
-.channel-slot.width-80::before {
-    background: #3b82f6;
+/* Middle of group - top/bottom only, extending both directions */
+.channel-slot.group-middle::before {
+    left: calc(-0.5rem - 1px);
+    right: calc(-0.5rem - 1px);
 }
 
-.channel-slot.width-160::before {
-    background: #a855f7;
-}
-
-.channel-slot.width-320::before {
-    background: #ec4899;
+/* End of group - right border + top/bottom extending left */
+.channel-slot.group-end::before {
+    left: calc(-0.5rem - 1px);
+    right: 0;
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 0 4px 4px 0;
 }
 
 .channel-number {
