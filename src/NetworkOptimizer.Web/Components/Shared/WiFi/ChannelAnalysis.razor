@@ -187,12 +187,15 @@
                                         <span class="detail-label">Clients:</span>
                                         <span class="detail-value">@(radio.ClientCount?.ToString() ?? "-")</span>
                                     </div>
-                                    <div class="detail-item">
-                                        <span class="detail-label">Satisfaction:</span>
-                                        <span class="detail-value @GetSatisfactionClass(radio.Satisfaction ?? 0)">
-                                            @(radio.Satisfaction?.ToString() ?? "-")%
-                                        </span>
-                                    </div>
+                                    @if (radio.Satisfaction.HasValue && radio.Satisfaction.Value >= 0)
+                                    {
+                                        <div class="detail-item">
+                                            <span class="detail-label">Satisfaction:</span>
+                                            <span class="detail-value @GetSatisfactionClass(radio.Satisfaction.Value)">
+                                                @(radio.Satisfaction)%
+                                            </span>
+                                        </div>
+                                    }
                                 }
                             </div>
                         </div>
