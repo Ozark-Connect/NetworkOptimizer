@@ -209,6 +209,7 @@
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
     private List<WirelessClientSnapshot> _clients = new();
+    private List<WlanConfiguration> _wlanConfigs = new();
 
     // Stats
     private int _totalClients;
@@ -230,11 +231,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync();
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
 
             CalculateStats();
             GenerateRecommendations();
@@ -255,11 +258,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
 
             CalculateStats();
             GenerateRecommendations();
@@ -319,26 +324,56 @@
             });
         }
 
-        // Check for 2.4 GHz heavy APs
-        foreach (var ap in _accessPoints)
-        {
-            var radio2g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band2_4GHz);
-            var radio5g = ap.Radios.FirstOrDefault(r => r.Band == RadioBand.Band5GHz);
+        // Check for 2.4 GHz heavy network and recommend band steering on specific SSID
+        var ssidsWithoutBandSteering = _wlanConfigs
+            .Where(w => w.Enabled && !w.BandSteeringEnabled)
+            .ToList();
 
-            if (radio2g?.ClientCount > 0 && radio5g?.ClientCount > 0)
-            {
-                var ratio = (double)radio2g.ClientCount / (radio2g.ClientCount + radio5g.ClientCount);
-                if (ratio > 0.6 && radio2g.ClientCount > 5)
+        if (ssidsWithoutBandSteering.Any())
+        {
+            // Count 2.4 GHz clients per SSID (for SSIDs without band steering)
+            var clients2gPerSsid = _clients
+                .Where(c => c.Band == RadioBand.Band2_4GHz && !string.IsNullOrEmpty(c.Essid))
+                .GroupBy(c => c.Essid)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            // Find the SSID without band steering that has the most 2.4 GHz clients
+            var targetSsid = ssidsWithoutBandSteering
+                .Select(ssid => new
                 {
-                    _recommendations.Add(new Recommendation
-                    {
-                        Type = "info",
-                        Title = $"2.4 GHz Heavy on {ap.Name}",
-                        Description = $"{(ratio * 100):F0}% of clients are on 2.4 GHz. Consider enabling band steering to push capable clients to 5 GHz."
-                    });
-                }
+                    Ssid = ssid,
+                    Count2g = clients2gPerSsid.GetValueOrDefault(ssid.Name, 0)
+                })
+                .Where(x => x.Count2g > 0)
+                .OrderByDescending(x => x.Count2g)
+                .FirstOrDefault();
+
+            if (targetSsid != null && targetSsid.Count2g >= 3)
+            {
+                var total2gClients = _clients.Count(c => c.Band == RadioBand.Band2_4GHz);
+                var totalClients = _clients.Count;
+                var pct2g = totalClients > 0 ? (total2gClients * 100 / totalClients) : 0;
+
+                _recommendations.Add(new Recommendation
+                {
+                    Type = "info",
+                    Title = "Enable Band Steering",
+                    Description = $"{pct2g}% of clients are on 2.4 GHz. Enable band steering on \"{targetSsid.Ssid.Name}\" ({targetSsid.Count2g} clients on 2.4 GHz) to push capable devices to 5 GHz."
+                });
             }
         }
+    }
+
+    /// <summary>
+    /// Checks if band steering is enabled on all active (enabled) SSIDs.
+    /// </summary>
+    private bool IsBandSteeringEnabledOnAllSsids()
+    {
+        var enabledSsids = _wlanConfigs.Where(w => w.Enabled).ToList();
+        if (!enabledSsids.Any())
+            return false;
+
+        return enabledSsids.All(w => w.BandSteeringEnabled);
     }
 
     private bool IsOverloaded(AccessPointSnapshot ap)

@@ -30,7 +30,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var aps = devices.Where(d => d.Type == "uap").ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
-        return aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp)).ToList();
+        // Build a set of AP MACs for mesh parent detection
+        var apMacs = new HashSet<string>(aps.Select(ap => ap.Mac.ToLowerInvariant()));
+
+        return aps.Select(ap => MapToAccessPointSnapshot(ap, timestamp, apMacs)).ToList();
     }
 
     public async Task<List<WirelessClientSnapshot>> GetWirelessClientsAsync(CancellationToken cancellationToken = default)
@@ -491,8 +494,28 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     #region Mapping Helpers
 
-    private AccessPointSnapshot MapToAccessPointSnapshot(UniFiDeviceResponse ap, DateTimeOffset timestamp)
+    private AccessPointSnapshot MapToAccessPointSnapshot(UniFiDeviceResponse ap, DateTimeOffset timestamp, HashSet<string> apMacs)
     {
+        // Check if this AP has a wireless uplink to another AP (mesh child)
+        var isMeshChild = false;
+        string? meshParentMac = null;
+        RadioBand? meshUplinkBand = null;
+        int? meshUplinkChannel = null;
+
+        if (ap.Uplink != null &&
+            ap.Uplink.Type?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true &&
+            !string.IsNullOrEmpty(ap.Uplink.UplinkMac))
+        {
+            var uplinkMacLower = ap.Uplink.UplinkMac.ToLowerInvariant();
+            if (apMacs.Contains(uplinkMacLower))
+            {
+                isMeshChild = true;
+                meshParentMac = uplinkMacLower;
+                meshUplinkBand = RadioBandExtensions.FromUniFiCode(ap.Uplink.RadioBand);
+                meshUplinkChannel = ap.Uplink.Channel;
+            }
+        }
+
         var snapshot = new AccessPointSnapshot
         {
             Mac = ap.Mac,
@@ -502,7 +525,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Satisfaction = ap.Satisfaction,
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
-            Vaps = new List<VapSnapshot>()
+            Vaps = new List<VapSnapshot>(),
+            IsMeshChild = isMeshChild,
+            MeshParentMac = meshParentMac,
+            MeshUplinkBand = meshUplinkBand,
+            MeshUplinkChannel = meshUplinkChannel
         };
 
         // Map radio_table_stats (runtime stats)
@@ -511,6 +538,16 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             foreach (var radioStats in ap.RadioTableStats)
             {
                 var radioConfig = ap.RadioTable?.FirstOrDefault(r => r.Name == radioStats.Name);
+
+                // Calculate interference as total utilization minus self-utilization
+                // Interference = cu_total - cu_self_rx - cu_self_tx
+                int? interference = null;
+                if (radioStats.CuTotal.HasValue)
+                {
+                    var selfRx = radioStats.CuSelfRx ?? 0;
+                    var selfTx = radioStats.CuSelfTx ?? 0;
+                    interference = Math.Max(0, radioStats.CuTotal.Value - selfRx - selfTx);
+                }
 
                 snapshot.Radios.Add(new RadioSnapshot
                 {
@@ -523,7 +560,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     Satisfaction = radioStats.Satisfaction,
                     ClientCount = radioStats.NumSta,
                     ChannelUtilization = radioStats.CuTotal,
-                    Interference = radioStats.Interference,
+                    Interference = interference,
                     TxRetriesPct = radioStats.TxRetriesPct,
                     MinRssiEnabled = radioConfig?.MinRssiEnabled ?? false,
                     MinRssi = radioConfig?.MinRssi,
@@ -894,6 +931,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 FastRoamingEnabled = config.TryGetProperty("fast_roaming_enabled", out var fr) && fr.GetBoolean(),
                 BssTransitionEnabled = config.TryGetProperty("bss_transition", out var bss) && bss.GetBoolean(),
                 L2IsolationEnabled = config.TryGetProperty("l2_isolation", out var l2) && l2.GetBoolean(),
+                BandSteeringEnabled = config.TryGetProperty("no2ghz_oui", out var bs) && bs.GetBoolean(),
                 CurrentClientCount = stats.ValueKind != JsonValueKind.Undefined
                     ? stats.TryGetProperty("current_client_count", out var cc) ? cc.GetInt32() : 0
                     : 0,

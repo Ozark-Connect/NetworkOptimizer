@@ -35,6 +35,13 @@ public class WlanConfiguration
     /// <summary>Whether L2 isolation is enabled</summary>
     public bool L2IsolationEnabled { get; set; }
 
+    /// <summary>
+    /// Whether OUI-based 2.4GHz blocking is enabled (no2ghz_oui).
+    /// When true, devices with known 5GHz-capable OUIs are blocked from 2.4GHz,
+    /// effectively steering them to 5GHz. This is UniFi's band steering mechanism.
+    /// </summary>
+    public bool BandSteeringEnabled { get; set; }
+
     /// <summary>Minimum data rate settings</summary>
     public MinRateSettings? MinRateSettings { get; set; }
 

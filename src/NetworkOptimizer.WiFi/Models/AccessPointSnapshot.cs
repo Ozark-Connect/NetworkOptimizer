@@ -31,6 +31,18 @@ public class AccessPointSnapshot
 
     /// <summary>When this snapshot was taken</summary>
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>Whether this AP is a mesh child (has wireless uplink to another AP)</summary>
+    public bool IsMeshChild { get; set; }
+
+    /// <summary>MAC address of the mesh parent AP (if this is a mesh child)</summary>
+    public string? MeshParentMac { get; set; }
+
+    /// <summary>Radio band used for mesh uplink (if mesh child)</summary>
+    public RadioBand? MeshUplinkBand { get; set; }
+
+    /// <summary>Channel used for mesh uplink (if mesh child)</summary>
+    public int? MeshUplinkChannel { get; set; }
 }
 
 /// <summary>

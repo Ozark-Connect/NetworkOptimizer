@@ -20,6 +20,7 @@ public class WiFiOptimizerService
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
     private List<WirelessClientSnapshot>? _cachedClients;
+    private List<WlanConfiguration>? _cachedWlanConfigs;
     private RoamingTopology? _cachedRoamingData;
     private SiteHealthScore? _cachedHealthScore;
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
@@ -128,6 +129,25 @@ public class WiFiOptimizerService
     }
 
     /// <summary>
+    /// Get WLAN configurations with band steering settings
+    /// </summary>
+    public async Task<List<WlanConfiguration>> GetWlanConfigurationsAsync(bool forceRefresh = false)
+    {
+        if (!_connectionService.IsConnected)
+        {
+            return new List<WlanConfiguration>();
+        }
+
+        if (!forceRefresh && _cachedWlanConfigs != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        {
+            return _cachedWlanConfigs;
+        }
+
+        await RefreshDataAsync();
+        return _cachedWlanConfigs ?? new List<WlanConfiguration>();
+    }
+
+    /// <summary>
     /// Get summary statistics for dashboard display
     /// </summary>
     public async Task<WiFiSummary> GetSummaryAsync()
@@ -196,12 +216,14 @@ public class WiFiOptimizerService
             var apsTask = provider.GetAccessPointsAsync();
             var clientsTask = provider.GetWirelessClientsAsync();
             var roamingTask = provider.GetRoamingTopologyAsync();
+            var wlanTask = provider.GetWlanConfigurationsAsync();
 
-            await Task.WhenAll(apsTask, clientsTask, roamingTask);
+            await Task.WhenAll(apsTask, clientsTask, roamingTask, wlanTask);
 
             _cachedAps = await apsTask;
             _cachedClients = await clientsTask;
             _cachedRoamingData = await roamingTask;
+            _cachedWlanConfigs = await wlanTask;
             _lastRefresh = DateTimeOffset.UtcNow;
 
             // Enrich roaming topology with proper model names from AP data
@@ -234,6 +256,7 @@ public class WiFiOptimizerService
     {
         _cachedAps = null;
         _cachedClients = null;
+        _cachedWlanConfigs = null;
         _cachedRoamingData = null;
         _cachedHealthScore = null;
         _lastRefresh = DateTimeOffset.MinValue;
