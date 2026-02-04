@@ -2676,60 +2676,6 @@ select.form-control {
     }
 }
 
-/* MLO Warning Banner */
-.mlo-warning-banner {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%);
-    border: 1px solid var(--warning-color);
-    border-radius: var(--border-radius);
-    padding: 1rem 1.5rem;
-    margin-bottom: 1.5rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 1rem;
-}
-
-.mlo-warning-icon {
-    font-size: 1rem;
-    font-weight: bold;
-    background: var(--warning-color);
-    color: white;
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    min-width: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 0.1rem;
-}
-
-.mlo-warning-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.mlo-warning-content strong {
-    font-size: 0.95rem;
-    color: var(--warning-color);
-}
-
-.mlo-warning-content span {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
-}
-
-@media (max-width: 768px) {
-    .mlo-warning-banner {
-        padding: 0.875rem 1rem;
-    }
-
-    .mlo-warning-content span {
-        font-size: 0.8rem;
-    }
-}
-
 /* Loading State */
 .loading-state {
     display: flex;

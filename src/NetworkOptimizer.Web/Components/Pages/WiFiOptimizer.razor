@@ -128,17 +128,6 @@
         </div>
     </div>
 
-    @if (_summary?.MloEnabled == true)
-    {
-        <div class="mlo-warning-banner">
-            <div class="mlo-warning-icon">!</div>
-            <div class="mlo-warning-content">
-                <strong>MLO Enabled</strong>
-                <span>Multi-Link Operation is enabled on one or more SSIDs. While MLO can improve speeds for Wi-Fi 7 devices, it has been observed to reduce 5 GHz and 6 GHz throughput for non-MLO clients, even on APs not serving MLO connections.</span>
-            </div>
-        </div>
-    }
-
     <!-- View Tabs -->
     <div class="wifi-view-tabs">
         <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"

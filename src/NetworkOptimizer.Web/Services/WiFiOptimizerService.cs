@@ -62,6 +62,20 @@ public class WiFiOptimizerService
             }
 
             _cachedHealthScore = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
+
+            // Add MLO issue if enabled on any WLAN
+            if (_cachedWlanConfigs?.Any(w => w.Enabled && w.MloEnabled) == true)
+            {
+                _cachedHealthScore.Issues.Add(new HealthIssue
+                {
+                    Severity = HealthIssueSeverity.Info,
+                    Dimension = "Airtime Efficiency",
+                    Title = "MLO enabled",
+                    Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO can improve speeds for Wi-Fi 7 devices but has been observed to reduce 5 GHz and 6 GHz throughput for non-MLO clients.",
+                    Recommendation = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing reduced throughput"
+                });
+            }
+
             return _cachedHealthScore;
         }
         catch (Exception ex)
