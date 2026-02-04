@@ -557,6 +557,18 @@ public class RadioTableEntry
     public int? MinRssi { get; set; }
 
     /// <summary>
+    /// Whether Roaming Assistant (soft roaming via BSS transition) is enabled (5 GHz only)
+    /// </summary>
+    [JsonPropertyName("assisted_roaming_enabled")]
+    public bool? AssistedRoamingEnabled { get; set; }
+
+    /// <summary>
+    /// Roaming Assistant RSSI threshold (dBm) - clients below this get BSS transition request
+    /// </summary>
+    [JsonPropertyName("assisted_roaming_rssi")]
+    public int? AssistedRoamingRssi { get; set; }
+
+    /// <summary>
     /// Whether hard noise floor is enabled
     /// </summary>
     [JsonPropertyName("hard_noise_floor_enabled")]

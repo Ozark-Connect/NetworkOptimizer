@@ -631,6 +631,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     TxRetriesPct = radioStats.TxRetriesPct,
                     MinRssiEnabled = radioConfig?.MinRssiEnabled ?? false,
                     MinRssi = radioConfig?.MinRssi,
+                    RoamingAssistantEnabled = radioConfig?.AssistedRoamingEnabled ?? false,
+                    RoamingAssistantRssi = radioConfig?.AssistedRoamingRssi,
                     HasDfs = radioConfig?.HasDfs ?? false
                 });
             }

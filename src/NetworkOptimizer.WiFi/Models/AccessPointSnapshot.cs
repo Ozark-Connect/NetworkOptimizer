@@ -89,11 +89,17 @@ public class RadioSnapshot
     /// <summary>TX retries as percentage</summary>
     public double? TxRetriesPct { get; set; }
 
-    /// <summary>Whether min RSSI steering is enabled</summary>
+    /// <summary>Whether min RSSI steering is enabled (hard disconnect)</summary>
     public bool MinRssiEnabled { get; set; }
 
     /// <summary>Min RSSI threshold if enabled (dBm)</summary>
     public int? MinRssi { get; set; }
+
+    /// <summary>Whether Roaming Assistant is enabled (soft BSS transition, 5 GHz only)</summary>
+    public bool RoamingAssistantEnabled { get; set; }
+
+    /// <summary>Roaming Assistant RSSI threshold (dBm)</summary>
+    public int? RoamingAssistantRssi { get; set; }
 
     /// <summary>Whether DFS channels are available</summary>
     public bool HasDfs { get; set; }

@@ -589,6 +589,21 @@
             });
         }
 
+        // Roaming Assistant recommendation (5 GHz only, uses soft BSS transition instead of hard disconnect)
+        var apsWithout5gRoamingAssistant = _accessPoints
+            .Where(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue && !r.RoamingAssistantEnabled))
+            .ToList();
+        if (apsWithout5gRoamingAssistant.Count > 0 && _accessPoints.Count > 1)
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "success",
+                Title = "Enable Roaming Assistant (Recommended)",
+                Description = $"{apsWithout5gRoamingAssistant.Count} AP(s) don't have Roaming Assistant enabled on 5 GHz. Unlike Minimum RSSI, this uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
+                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Roaming Assistant. Recommended threshold: -70 to -75 dBm."
+            });
+        }
+
         // Power mode diversity recommendation
         var powerModes = _accessPoints
             .SelectMany(ap => ap.Radios.Where(r => r.Channel.HasValue))
