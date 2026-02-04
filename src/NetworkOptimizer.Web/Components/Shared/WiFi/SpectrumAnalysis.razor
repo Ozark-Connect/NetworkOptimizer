@@ -138,11 +138,8 @@
                 <h2 class="card-title">Channel Density</h2>
                 <div class="channel-legend">
                     <span class="legend-item"><span class="legend-bar neighbors"></span> Neighbors</span>
-                    @if (string.IsNullOrEmpty(selectedApMac))
-                    {
-                        <span class="legend-item"><span class="legend-bar your-ap"></span> Your APs</span>
-                    }
-                    else
+                    <span class="legend-item"><span class="legend-bar your-ap"></span> Your APs</span>
+                    @if (!string.IsNullOrEmpty(selectedApMac))
                     {
                         <span class="legend-item"><span class="legend-bar selected-ap"></span> @GetSelectedApLabel()</span>
                     }
