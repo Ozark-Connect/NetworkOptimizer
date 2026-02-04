@@ -10503,7 +10503,6 @@ select.form-control {
     padding: 0.25rem 0.5rem;
     background: var(--bg-secondary);
     border-radius: 4px;
-    margin-left: auto;
 }
 
 .issue-item.issue-warning .connection-issue-count { color: var(--warning-color); }
@@ -10514,7 +10513,6 @@ select.form-control {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-top: 0.5rem;
 }
 
 .affected-client {
