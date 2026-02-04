@@ -288,4 +288,82 @@ public class UplinkSpeedPreferenceTests
         meshHop.IsWirelessEgress.Should().BeTrue("mesh AP uplink should be marked as wireless");
         meshHop.IngressSpeedMbps.Should().Be(866, "should use mesh uplink speed (866 Mbps from 866000 Kbps)");
     }
+
+    /// <summary>
+    /// Gateways should NOT use UplinkSpeedMbps (that's WAN speed) - should use port table instead.
+    /// </summary>
+    [Fact]
+    public void BuildHopList_GatewayTarget_UsesPortTableNotWanSpeed()
+    {
+        // Arrange - Gateway has 1000 Mbps WAN, but LAN port is 2500 Mbps
+        var gateway = new DiscoveredDevice
+        {
+            Mac = GatewayMac,
+            IpAddress = "192.0.2.1",
+            Name = "Gateway",
+            Model = "UDM-Pro",
+            Type = DeviceType.Gateway,
+            Adopted = true,
+            State = 1,
+            UplinkSpeedMbps = 1000,  // This is WAN speed - should NOT be used for LAN path
+            IsUplinkConnected = true
+        };
+
+        var ap = NetworkTestData.CreateWiredAccessPoint(
+            mac: ApMac,
+            uplinkMac: GatewayMac,
+            uplinkPort: 9,
+            uplinkSpeed: 2500);
+
+        var topology = new NetworkTopology
+        {
+            Devices = new List<DiscoveredDevice> { gateway, ap },
+            Clients = new List<DiscoveredClient>(),
+            Networks = new List<NetworkInfo>
+            {
+                new NetworkInfo { Id = "default", Name = "Default", VlanId = 1, IpSubnet = "192.0.2.0/24" }
+            }
+        };
+
+        var serverPosition = new ServerPosition
+        {
+            IpAddress = "192.0.2.200",
+            Mac = ServerMac,
+            SwitchMac = GatewayMac,
+            SwitchPort = 1,
+            VlanId = 1
+        };
+
+        // Raw devices with port table - LAN ports are 2500 Mbps
+        var rawDevices = new Dictionary<string, UniFiDeviceResponse>
+        {
+            [GatewayMac] = new UniFiDeviceResponse
+            {
+                Mac = GatewayMac,
+                PortTable = new List<SwitchPort>
+                {
+                    new SwitchPort { PortIdx = 1, Speed = 2500, Up = true },  // Server port
+                    new SwitchPort { PortIdx = 9, Speed = 2500, Up = true }   // AP port
+                }
+            }
+        };
+
+        var path = new NetworkPath
+        {
+            SourceHost = serverPosition.IpAddress,
+            DestinationHost = gateway.IpAddress,
+            RequiresRouting = false,
+            TargetIsGateway = true
+        };
+
+        // Act
+        _analyzer.BuildHopList(path, serverPosition, gateway, null, topology, rawDevices);
+
+        // Assert - Gateway hop should use port table (2500), NOT UplinkSpeedMbps (1000 WAN)
+        var gatewayHop = path.Hops.FirstOrDefault(h => h.DeviceMac == GatewayMac);
+        gatewayHop.Should().NotBeNull("gateway should be in the path");
+        // Gateway's ingress/egress should NOT be 1000 (WAN speed)
+        gatewayHop!.IngressSpeedMbps.Should().NotBe(1000,
+            "should NOT use gateway's WAN uplink speed for LAN path");
+    }
 }

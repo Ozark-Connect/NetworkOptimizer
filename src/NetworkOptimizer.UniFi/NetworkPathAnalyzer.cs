@@ -788,8 +788,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 // fall back to upstream switch's port table if not available.
                 // This handles scenarios where there's an unmanaged switch between the device
                 // and the UniFi switch, where the upstream port may report a different speed.
+                // NOTE: Skip for gateways - their UplinkSpeedMbps is WAN speed, not LAN port speed.
                 var portTableSpeed = GetPortSpeedFromRawDevices(rawDevices, currentMac, currentPort);
-                var useDeviceSpeed = targetDevice.UplinkSpeedMbps > 0;
+                var useDeviceSpeed = targetDevice.UplinkSpeedMbps > 0 && targetDevice.Type != DeviceType.Gateway;
                 deviceHop.IngressSpeedMbps = useDeviceSpeed ? targetDevice.UplinkSpeedMbps : portTableSpeed;
                 deviceHop.EgressSpeedMbps = deviceHop.IngressSpeedMbps;
 
@@ -1123,9 +1124,10 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                         // Wired uplink - prefer device's reported uplink speed (from API Uplink.Speed),
                         // fall back to upstream device's port table if not available.
                         // This handles scenarios where there's an unmanaged switch between devices.
+                        // NOTE: Skip for gateways - their UplinkSpeedMbps is WAN speed, not LAN port speed.
                         hop.EgressPort = device.UplinkPort;
                         var portTableSpeed = GetPortSpeedFromRawDevices(rawDevices, device.UplinkMac, device.UplinkPort);
-                        var useDeviceSpeed = device.UplinkSpeedMbps > 0;
+                        var useDeviceSpeed = device.UplinkSpeedMbps > 0 && device.Type != DeviceType.Gateway;
                         hop.EgressSpeedMbps = useDeviceSpeed ? device.UplinkSpeedMbps : portTableSpeed;
                         hop.EgressPortName = GetPortName(rawDevices, device.UplinkMac, device.UplinkPort);
 
