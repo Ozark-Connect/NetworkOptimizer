@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Enums;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Models;
@@ -24,16 +25,50 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     public string ProviderName => "UniFi Live";
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
+    /// <summary>
+    /// Determines if a device is an access point using centralized classification.
+    /// Uses DeviceType with model-based filtering to exclude smart power devices.
+    /// Also handles UDM/UX devices acting as mesh APs.
+    /// </summary>
+    private static bool IsAccessPoint(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices)
+    {
+        // Use centralized device type classification (excludes smart power devices like USP-Strip)
+        var deviceType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
+
+        // Direct AP classification
+        if (deviceType == DeviceType.AccessPoint)
+            return true;
+
+        // Gateway-class devices (UDM, UDR, UX) may be acting as mesh APs
+        // Check if they have Wi-Fi radios and uplink to another UniFi device
+        if (deviceType == DeviceType.Gateway)
+        {
+            var hasRadios = device.RadioTable?.Count > 0 || device.RadioTableStats?.Count > 0;
+            if (!hasRadios) return false;
+
+            // Check if uplinked to another UniFi device (mesh AP mode)
+            var uplinkMac = device.Uplink?.UplinkMac;
+            if (string.IsNullOrEmpty(uplinkMac)) return false;
+
+            var allDeviceMacs = new HashSet<string>(
+                allDevices.Select(d => d.Mac.ToLowerInvariant()),
+                StringComparer.OrdinalIgnoreCase);
+            return allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
+        }
+
+        return false;
+    }
+
     public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
 
-        // Filter to devices with Wi-Fi radios. This includes:
-        // - Dedicated APs (type="uap")
-        // - UDM/UX devices with built-in Wi-Fi (type="udm" but have radio_table)
-        // And excludes:
-        // - USP-Strip and other power devices (may have type="uap" but no radio_table)
-        var aps = devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0).ToList();
+        // Filter to actual access points using centralized device type classification.
+        // This uses DeviceType.FromUniFiApiType(type, model) which:
+        // - Includes dedicated APs (type="uap", model != smart power)
+        // - Includes UDM/UX devices acting as mesh APs (type="udm" but uplinked to another device)
+        // - Excludes USP-Strip (model="UP6") and other smart power devices
+        var aps = devices.Where(d => IsAccessPoint(d, devices)).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
         // Build a set of AP MACs for mesh parent detection
@@ -48,10 +83,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var wirelessClients = clients.Where(c => c.IsWired == false).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
-        // Get AP names for lookup (devices with Wi-Fi radios)
+        // Get AP names for lookup (using centralized device type classification)
         var devices = await _client.GetDevicesAsync(cancellationToken);
         var apNames = devices
-            .Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0)
+            .Where(d => IsAccessPoint(d, devices))
             .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
 
         return wirelessClients.Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp)).ToList();
@@ -452,7 +487,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
-        var aps = devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0).ToList();
+        var aps = devices.Where(d => IsAccessPoint(d, devices)).ToList();
 
         if (!string.IsNullOrEmpty(apMac))
         {
@@ -461,7 +496,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         // Get our own BSSIDs to identify own networks
         var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ap in devices.Where(d => d.RadioTable?.Count > 0 || d.RadioTableStats?.Count > 0))
+        foreach (var ap in devices.Where(d => IsAccessPoint(d, devices)))
         {
             if (ap.VapTable != null)
             {
