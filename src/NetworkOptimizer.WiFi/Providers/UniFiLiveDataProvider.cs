@@ -897,6 +897,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     {
         if (data.ValueKind == JsonValueKind.Undefined) return null;
 
+        // Log top-level properties in response
+        var topLevelProps = string.Join(", ", data.EnumerateObject().Select(p => p.Name));
+        _logger.LogDebug("Roaming topology response properties: {Props}", topLevelProps);
+
         var topology = new RoamingTopology();
 
         // Parse clients
