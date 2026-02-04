@@ -479,28 +479,37 @@
 
         foreach (var group in radiosByChannel)
         {
-            var apsOnChannel = group.ToList();
+            var apsOnChannel = group.Select(x => x.Ap).ToList();
+            var channel = group.Key.Channel!.Value;
+            var band = group.Key.Band;
 
-            // Check if any of these APs have high power
-            var highPowerAps = apsOnChannel
-                .Where(x => x.Radio.TxPowerMode?.ToLower() == "high" ||
-                            (x.Radio.TxPower.HasValue && x.Radio.TxPower >= 23))
+            // Filter out mesh pairs - they MUST be on the same channel to communicate
+            var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, channel);
+            if (nonMeshAps.Count < 2)
+                continue;
+
+            // Check if any of these non-mesh APs have high power
+            var highPowerAps = nonMeshAps
+                .Where(ap => ap.Radios.Any(r =>
+                    r.Band == band &&
+                    r.Channel == channel &&
+                    (r.TxPowerMode?.ToLower() == "high" || (r.TxPower.HasValue && r.TxPower >= 23))))
                 .ToList();
 
             if (highPowerAps.Count > 1)
             {
                 _overlapIssues.Add(new OverlapIssue
                 {
-                    Title = $"High Power Overlap on {group.Key.Band.ToDisplayString()} Channel {group.Key.Channel}",
-                    Description = $"{string.Join(", ", highPowerAps.Select(x => x.Ap.Name))} are all using high TX power on the same channel, which may cause co-channel interference."
+                    Title = $"High Power Overlap on {band.ToDisplayString()} Channel {channel}",
+                    Description = $"{string.Join(", ", highPowerAps.Select(x => x.Name))} are all using high TX power on the same channel, which may cause co-channel interference."
                 });
             }
-            else if (apsOnChannel.Count > 2 && group.Key.Band == RadioBand.Band2_4GHz)
+            else if (nonMeshAps.Count > 2 && band == RadioBand.Band2_4GHz)
             {
                 _overlapIssues.Add(new OverlapIssue
                 {
-                    Title = $"Co-Channel on 2.4 GHz Channel {group.Key.Channel}",
-                    Description = $"{apsOnChannel.Count} APs ({string.Join(", ", apsOnChannel.Select(x => x.Ap.Name))}) share the same channel. Consider using channels 1, 6, or 11 with proper separation."
+                    Title = $"Co-Channel on 2.4 GHz Channel {channel}",
+                    Description = $"{nonMeshAps.Count} APs ({string.Join(", ", nonMeshAps.Select(x => x.Name))}) share the same channel. Consider using channels 1, 6, or 11 with proper separation."
                 });
             }
         }
