@@ -304,7 +304,7 @@
     }
 
     .spectrum-stat-card.highlight {
-        background: linear-gradient(135deg, var(--accent-color) 0%, #5a4fcf 100%);
+        background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
     }
 
     .spectrum-stat-card .stat-value {
@@ -624,7 +624,7 @@
             Logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ScanCount} scan results",
                 accessPoints.Count, scanResults.Count);
 
-            // Flatten neighbors from all scan results
+            // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -633,9 +633,11 @@
                     ApName = sr.ApName ?? "Unknown AP",
                     Band = sr.Band
                 }))
+                .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
+                .Select(g => g.OrderByDescending(n => n.Network.Signal ?? -100).First())
                 .ToList();
 
-            Logger.LogInformation("Spectrum: Found {NeighborCount} neighboring networks", allNeighbors.Count);
+            Logger.LogInformation("Spectrum: Found {NeighborCount} unique neighboring networks (deduplicated by BSSID)", allNeighbors.Count);
         }
         catch (Exception ex)
         {
@@ -663,7 +665,7 @@
             accessPoints = apTask.Result;
             scanResults = scanTask.Result;
 
-            // Flatten neighbors from all scan results
+            // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -672,6 +674,8 @@
                     ApName = sr.ApName ?? "Unknown AP",
                     Band = sr.Band
                 }))
+                .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
+                .Select(g => g.OrderByDescending(n => n.Network.Signal ?? -100).First())
                 .ToList();
         }
         catch (Exception ex)
