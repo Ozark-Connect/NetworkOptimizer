@@ -915,8 +915,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         // Parse edges (AP pairs)
         if (data.TryGetProperty("edges", out var edges))
         {
+            _logger.LogDebug("Parsing {EdgeCount} edges from roaming topology", edges.GetArrayLength());
             foreach (var edge in edges.EnumerateArray())
             {
+                // Log edge properties
+                var edgeProps = string.Join(", ", edge.EnumerateObject().Select(p => p.Name));
+                _logger.LogDebug("Edge properties: {Props}", edgeProps);
                 var roamingEdge = new RoamingEdge
                 {
                     Endpoint1Mac = edge.GetProperty("endpoint_1_mac").GetString() ?? "",
