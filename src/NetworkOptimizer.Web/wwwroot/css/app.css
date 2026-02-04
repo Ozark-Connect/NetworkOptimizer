@@ -5774,6 +5774,11 @@ select.form-control {
     gap: 1.5rem;
 }
 
+/* Override main dashboard min-height for WiFi overview cards */
+.wifi-content-grid > .card:nth-child(-n+4) {
+    min-height: auto;
+}
+
 @media (max-width: 1024px) {
     .wifi-content-grid {
         grid-template-columns: 1fr;
