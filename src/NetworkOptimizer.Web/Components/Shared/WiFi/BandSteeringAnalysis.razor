@@ -293,6 +293,7 @@
     private List<WiFiGeneration> _wifiGenerations = new();
 
     private List<Recommendation> _recommendations = new();
+    private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -308,11 +309,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
+            var healthTask = WiFiService.GetSiteHealthScoreAsync();
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             AnalyzeBandSteering();
             GenerateRecommendations();
@@ -333,11 +336,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             AnalyzeBandSteering();
             GenerateRecommendations();
@@ -432,6 +437,22 @@
     private void GenerateRecommendations()
     {
         _recommendations.Clear();
+
+        // Pull Channel Health issues from health score (single source of truth)
+        if (_healthScore != null)
+        {
+            foreach (var issue in _healthScore.Issues.Where(i => i.Dimension == "Channel Health"))
+            {
+                _recommendations.Add(new Recommendation
+                {
+                    Type = issue.Severity == HealthIssueSeverity.Critical ? "warning" :
+                           issue.Severity == HealthIssueSeverity.Warning ? "warning" : "info",
+                    Title = issue.Title,
+                    Description = issue.Description,
+                    Action = issue.Recommendation ?? ""
+                });
+            }
+        }
 
         // Check if band steering should be enabled
         var suboptimalPct = _totalClients > 0 ? (double)_suboptimalBandClients / _totalClients * 100 : 0;

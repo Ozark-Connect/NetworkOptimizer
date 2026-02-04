@@ -91,6 +91,22 @@ public class WiFiOptimizerService
                 });
             }
 
+            // Check for 6 GHz capable APs with 6 GHz disabled
+            var hasAps6GHz = _cachedAps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
+            var hasWlan6GHz = _cachedWlanConfigs?.Any(w => w.Enabled && w.EnabledBands.Contains(RadioBand.Band6GHz)) == true;
+            if (hasAps6GHz && !hasWlan6GHz)
+            {
+                var aps6GHzCount = _cachedAps.Count(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
+                _cachedHealthScore.Issues.Add(new HealthIssue
+                {
+                    Severity = HealthIssueSeverity.Info,
+                    Dimension = "Channel Health",
+                    Title = "6 GHz disabled",
+                    Description = $"You have {aps6GHzCount} access point{(aps6GHzCount > 1 ? "s" : "")} with 6 GHz radios, but no SSIDs are broadcasting on 6 GHz. Enabling 6 GHz can offload Wi-Fi 6E/7 capable devices from congested 2.4 GHz and 5 GHz bands.",
+                    Recommendation = "Enable 6 GHz on your SSIDs in UniFi Network: Settings > WiFi > (SSID) > Radio Band."
+                });
+            }
+
             return _cachedHealthScore;
         }
         catch (Exception ex)
