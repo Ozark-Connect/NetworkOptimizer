@@ -228,6 +228,9 @@ public class DeviceInfo
         DeviceType.Switch => "Switch",
         DeviceType.AccessPoint => "Access Point",
         DeviceType.CellularModem => "Cellular Modem",
+        DeviceType.BuildingBridge => "Building Bridge",
+        DeviceType.CloudKey => "CloudKey",
+        DeviceType.DeviceBridge => "Device Bridge",
         DeviceType.SmartPower => "SmartPower",
         _ => "Unknown"
     };
