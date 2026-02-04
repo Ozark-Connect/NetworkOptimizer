@@ -258,14 +258,60 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     {
         try
         {
-            var wlanData = await _client.GetWlanEnrichedConfigurationAsync(cancellationToken);
-            return ParseWlanConfigurations(wlanData);
+            var wlanConfigs = await _client.GetWlanConfigurationsAsync(cancellationToken);
+            return wlanConfigs.Select(w => new WlanConfiguration
+            {
+                Id = w.Id,
+                Name = w.Name,
+                Enabled = w.Enabled,
+                IsGuest = w.IsGuest,
+                HideSsid = w.HideSsid,
+                Security = w.Security,
+                MloEnabled = w.MloEnabled,
+                FastRoamingEnabled = w.FastRoamingEnabled,
+                BssTransitionEnabled = w.BssTransition,
+                L2IsolationEnabled = w.L2Isolation,
+                BandSteeringEnabled = w.No2ghzOui,
+                EnabledBands = ParseBands(w.WlanBands),
+                MinRateSettings = new MinRateSettings
+                {
+                    Enabled2_4GHz = w.MinrateNgEnabled,
+                    MinRate2_4GHz = w.MinrateNgEnabled ? w.MinrateNgDataRateKbps : null,
+                    Enabled5GHz = w.MinrateNaEnabled,
+                    MinRate5GHz = w.MinrateNaEnabled ? w.MinrateNaDataRateKbps : null,
+                    AdvertiseLowerRates = w.MinrateNgAdvertisingRates || w.MinrateNaAdvertisingRates
+                }
+            }).ToList();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to fetch WLAN configurations");
             return new List<WlanConfiguration>();
         }
+    }
+
+    private static List<RadioBand> ParseBands(List<string>? bands)
+    {
+        if (bands == null || bands.Count == 0)
+            return new List<RadioBand>();
+
+        var result = new List<RadioBand>();
+        foreach (var band in bands)
+        {
+            switch (band.ToLowerInvariant())
+            {
+                case "2g":
+                    result.Add(RadioBand.Band2_4GHz);
+                    break;
+                case "5g":
+                    result.Add(RadioBand.Band5GHz);
+                    break;
+                case "6g":
+                    result.Add(RadioBand.Band6GHz);
+                    break;
+            }
+        }
+        return result;
     }
 
     public async Task<List<RoamingEvent>> GetRoamingEventsAsync(
@@ -1031,6 +1077,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         {
             var config = item.GetProperty("configuration");
             var stats = item.TryGetProperty("statistics", out var statsEl) ? statsEl : default;
+
+            // Debug: Check if mlo_enabled exists and its value
+            var wlanName = config.TryGetProperty("name", out var n) ? n.GetString() : "?";
+            var hasMlo = config.TryGetProperty("mlo_enabled", out var mloVal);
+            _logger.LogDebug("WLAN '{Name}' raw mlo_enabled: exists={Exists}, value={Value}",
+                wlanName, hasMlo, hasMlo ? mloVal.ToString() : "N/A");
 
             configs.Add(new WlanConfiguration
             {
