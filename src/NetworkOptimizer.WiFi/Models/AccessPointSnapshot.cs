@@ -106,6 +106,9 @@ public class RadioSnapshot
 
     /// <summary>Whether DFS channels are available</summary>
     public bool HasDfs { get; set; }
+
+    /// <summary>Whether this radio supports 802.11be (Wi-Fi 7). Required for MLO.</summary>
+    public bool Is11Be { get; set; }
 }
 
 /// <summary>

@@ -599,6 +599,13 @@ public class RadioTableEntry
     /// </summary>
     [JsonPropertyName("radio_caps2")]
     public long? RadioCaps2 { get; set; }
+
+    /// <summary>
+    /// Whether the radio supports 802.11be (Wi-Fi 7).
+    /// Required for MLO (Multi-Link Operation) support.
+    /// </summary>
+    [JsonPropertyName("is_11be")]
+    public bool Is11Be { get; set; }
 }
 
 /// <summary>

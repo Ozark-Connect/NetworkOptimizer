@@ -678,7 +678,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     MinRssi = radioConfig?.MinRssi,
                     RoamingAssistantEnabled = radioConfig?.AssistedRoamingEnabled ?? false,
                     RoamingAssistantRssi = radioConfig?.AssistedRoamingRssi,
-                    HasDfs = radioConfig?.HasDfs ?? false
+                    HasDfs = radioConfig?.HasDfs ?? false,
+                    Is11Be = radioConfig?.Is11Be ?? false
                 });
             }
         }

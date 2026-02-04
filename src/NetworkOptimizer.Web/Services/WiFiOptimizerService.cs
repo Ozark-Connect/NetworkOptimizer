@@ -78,8 +78,10 @@ public class WiFiOptimizerService
 
             _cachedHealthScore = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
 
-            // Add MLO issue if enabled (affects airtime efficiency)
-            if (_cachedWlanConfigs?.Any(w => w.Enabled && w.MloEnabled) == true)
+            // Add MLO issue if enabled on Wi-Fi 7 capable APs (affects airtime efficiency)
+            var hasWifi7Aps = _cachedAps.Any(ap => ap.Radios.Any(r => r.Is11Be));
+            var hasMloEnabledWlan = _cachedWlanConfigs?.Any(w => w.Enabled && w.MloEnabled) == true;
+            if (hasWifi7Aps && hasMloEnabledWlan)
             {
                 _cachedHealthScore.Issues.Add(new HealthIssue
                 {

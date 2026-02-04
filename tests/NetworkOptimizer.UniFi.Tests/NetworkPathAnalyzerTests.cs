@@ -1042,4 +1042,116 @@ public class NetworkPathAnalyzerTests
     }
 
     #endregion
+
+    #region Wi-Fi 7 (802.11be) Capability Tests
+
+    [Fact]
+    public void Wifi7Capability_ApWithIs11BeRadio_IsWifi7Capable()
+    {
+        // Arrange - AP has a Wi-Fi 7 capable radio
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = true },
+            new RadioTableEntry { Name = "wifi2", Radio = "6e", Is11Be = true }
+        };
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Wifi7Capability_ApWithoutIs11BeRadio_IsNotWifi7Capable()
+    {
+        // Arrange - AP has no Wi-Fi 7 capable radios (Wi-Fi 6 AP)
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = false }
+        };
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Wifi7Capability_EmptyRadioTable_IsNotWifi7Capable()
+    {
+        // Arrange
+        var radioTable = new List<RadioTableEntry>();
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Wifi7Capability_NullRadioTable_IsNotWifi7Capable()
+    {
+        // Arrange
+        List<RadioTableEntry>? radioTable = null;
+
+        // Act
+        var isWifi7Capable = radioTable?.Any(r => r.Is11Be) == true;
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloRequiresWifi7_NonWifi7ApWithMloSsid_ShouldNotEnableMlo()
+    {
+        // Arrange - Wi-Fi 6 AP broadcasting MLO-enabled SSID
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "HomeNetwork", "IoT" };
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = false }
+        };
+
+        // Act - Check both conditions: has MLO SSID AND is Wi-Fi 7 capable
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+        var shouldEnableMlo = hasMloSsid && isWifi7Capable;
+
+        // Assert - Even though AP broadcasts MLO SSID, it's not Wi-Fi 7 capable
+        hasMloSsid.Should().BeTrue();
+        isWifi7Capable.Should().BeFalse();
+        shouldEnableMlo.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloRequiresWifi7_Wifi7ApWithMloSsid_ShouldEnableMlo()
+    {
+        // Arrange - Wi-Fi 7 AP broadcasting MLO-enabled SSID
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "HomeNetwork", "IoT" };
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = true },
+            new RadioTableEntry { Name = "wifi2", Radio = "6e", Is11Be = true }
+        };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+        var shouldEnableMlo = hasMloSsid && isWifi7Capable;
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+        isWifi7Capable.Should().BeTrue();
+        shouldEnableMlo.Should().BeTrue();
+    }
+
+    #endregion
 }

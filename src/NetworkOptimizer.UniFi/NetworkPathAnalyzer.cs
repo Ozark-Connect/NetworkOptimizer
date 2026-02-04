@@ -587,13 +587,21 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return;
             }
 
-            // Check each AP's vap_table
+            // Check each AP's vap_table and Wi-Fi 7 capability
             foreach (var hop in apHops)
             {
                 var device = devices.FirstOrDefault(d =>
                     string.Equals(d.Mac, hop.DeviceMac, StringComparison.OrdinalIgnoreCase));
 
                 if (device?.VapTable == null || device.VapTable.Count == 0)
+                {
+                    hop.MloEnabled = false;
+                    continue;
+                }
+
+                // AP must be Wi-Fi 7 capable (have at least one radio with is_11be=true) for MLO
+                var isWifi7Capable = device.RadioTable?.Any(r => r.Is11Be) == true;
+                if (!isWifi7Capable)
                 {
                     hop.MloEnabled = false;
                     continue;
