@@ -681,9 +681,9 @@
         _widthGroups.Clear();
         _widthGroups2.Clear();
 
-        // Step 1: Collect all unique width groups (band + primary channel + channel list)
-        // Use primary channel (the channel the AP is actually on) for sorting
-        var uniqueGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
+        // Step 1: Collect all width groups (one per radio)
+        // No de-duplication - we want to show overlapping groups from different APs
+        var allGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
 
         foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
         {
@@ -693,23 +693,13 @@
             var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
 
             var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width);
-
-            // De-duplicate by channel span - same span = same group
-            // Different widths on same channel = different groups (different spans)
             var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
-            var alreadyExists = uniqueGroups.Any(g =>
-                g.Band == band &&
-                g.Channels.Count == orderedChannels.Count &&
-                g.Channels.SequenceEqual(orderedChannels));
 
-            if (!alreadyExists)
-            {
-                uniqueGroups.Add((band, primaryChannel, orderedChannels, width, apName));
-            }
+            allGroups.Add((band, primaryChannel, orderedChannels, width, apName));
         }
 
         // Step 2: Sort by band then primary channel, and assign group IDs PER BAND
-        var sortedGroups = uniqueGroups
+        var sortedGroups = allGroups
             .OrderBy(g => g.Band)
             .ThenBy(g => g.PrimaryChannel)
             .ToList();
