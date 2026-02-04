@@ -5985,108 +5985,6 @@ select.form-control {
 .satisfaction-fair, .signal-fair { color: #fbbf24; }
 .satisfaction-poor, .signal-poor { color: #ef4444; }
 
-/* Issues List */
-.issue-count {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    background: var(--bg-secondary);
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-}
-
-.issues-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-.issue-item {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-    border-left: 4px solid var(--border-color);
-}
-
-.issue-item.issue-critical {
-    border-left-color: #ef4444;
-}
-
-.issue-item.issue-warning {
-    border-left-color: #fbbf24;
-}
-
-.issue-item.issue-info {
-    border-left-color: #3b82f6;
-}
-
-.issue-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-
-.issue-severity-badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    padding: 0.125rem 0.5rem;
-    border-radius: 4px;
-    background: var(--bg-primary);
-}
-
-.issue-critical .issue-severity-badge {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-}
-
-.issue-warning .issue-severity-badge {
-    color: #fbbf24;
-    background: rgba(251, 191, 36, 0.1);
-}
-
-.issue-info .issue-severity-badge {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-}
-
-.issue-dimension {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-}
-
-.issue-impact {
-    font-size: 0.75rem;
-    color: #ef4444;
-    margin-left: auto;
-}
-
-.issue-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.issue-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-
-.issue-entity {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-top: 0.5rem;
-}
-
-.issue-recommendation {
-    font-size: 0.8rem;
-    color: var(--primary);
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border-color);
-}
-
 /* WiFi Health Issues List */
 .wifi-issues-list {
     display: flex;
@@ -10583,58 +10481,19 @@ select.form-control {
 .success-rate-value.rate-fair { color: var(--warning-color); }
 .success-rate-value.rate-poor { color: var(--danger-color); }
 
-/* Connection Issues Breakdown */
-.issues-breakdown {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.issue-category {
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    padding: 1rem;
-    border-left: 3px solid var(--border-color);
-}
-
-.issue-category.warning { border-left-color: var(--warning-color); }
-.issue-category.info { border-left-color: var(--info-color); }
-.issue-category.danger { border-left-color: var(--danger-color); }
-
-.issue-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-}
-
-.issue-icon {
-    font-size: 1rem;
-}
-
-.issue-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    flex: 1;
-}
-
-.issue-count {
+/* Connection Issues - WiFi specific additions */
+.connection-issue-count {
     font-weight: 700;
     font-size: 1.125rem;
     padding: 0.25rem 0.5rem;
     background: var(--bg-secondary);
     border-radius: 4px;
+    margin-left: auto;
 }
 
-.issue-category.warning .issue-count { color: var(--warning-color); }
-.issue-category.info .issue-count { color: var(--info-color); }
-.issue-category.danger .issue-count { color: var(--danger-color); }
-
-.issue-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-}
+.issue-item.issue-warning .connection-issue-count { color: var(--warning-color); }
+.issue-item.issue-info .connection-issue-count { color: var(--info-color); }
+.issue-item.issue-critical .connection-issue-count { color: var(--danger-color); }
 
 .affected-clients {
     display: flex;

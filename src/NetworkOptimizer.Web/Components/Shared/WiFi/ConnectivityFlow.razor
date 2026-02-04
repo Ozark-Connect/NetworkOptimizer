@@ -164,16 +164,17 @@
                     <span class="section-hint">Clients with connectivity problems</span>
                 </div>
 
-                <div class="issues-breakdown">
+                <div class="issues-list">
                     @foreach (var issue in _connectionIssues)
                     {
-                        <div class="issue-category @issue.Severity">
-                            <div class="issue-header">
-                                <span class="issue-icon">@issue.Icon</span>
-                                <span class="issue-title">@issue.Title</span>
-                                <span class="issue-count">@issue.Count</span>
+                        <div class="issue-item issue-@issue.Severity">
+                            <div class="issue-body">
+                                <div class="issue-header">
+                                    <span class="issue-severity">@issue.Title</span>
+                                    <span class="connection-issue-count">@issue.Count</span>
+                                </div>
+                                <div class="issue-description">@issue.Description</div>
                             </div>
-                            <div class="issue-description">@issue.Description</div>
                             @if (issue.AffectedClients.Any())
                             {
                                 <div class="affected-clients">
