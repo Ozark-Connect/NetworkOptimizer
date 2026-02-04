@@ -14,6 +14,9 @@ public class AccessPointSnapshot
     /// <summary>Model name (e.g., "U7 Pro")</summary>
     public string Model { get; set; } = string.Empty;
 
+    /// <summary>Firmware version</summary>
+    public string? FirmwareVersion { get; set; }
+
     /// <summary>IP address</summary>
     public string Ip { get; set; } = string.Empty;
 

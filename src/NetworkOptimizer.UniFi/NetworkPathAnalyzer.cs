@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Core.Enums;
@@ -55,11 +56,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const string TopologyCacheKey = "NetworkTopology";
     private const string ServerPositionCacheKey = "ServerPosition";
     private const string RawDevicesCacheKey = "RawDevices";
+    private const string MloEnabledCacheKey = "MloEnabled";
 
     // Cache duration
     private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MloEnabledCacheDuration = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Empirical realistic maximum throughput by link speed (Mbps).
@@ -437,6 +440,13 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, cancellationToken);
             }
 
+            // Set MLO status on AP hops
+            var mloEnabled = await IsMloEnabledAsync(cancellationToken);
+            foreach (var hop in path.Hops.Where(h => h.Type == HopType.AccessPoint))
+            {
+                hop.MloEnabled = mloEnabled;
+            }
+
             // Calculate bottleneck
             CalculateBottleneck(path);
 
@@ -550,6 +560,59 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         _cache.Set(RawDevicesCacheKey, deviceDict, RawDevicesCacheDuration);
 
         return deviceDict;
+    }
+
+    /// <summary>
+    /// Checks if MLO (Multi-Link Operation) is enabled on any WLAN.
+    /// </summary>
+    private async Task<bool> IsMloEnabledAsync(CancellationToken cancellationToken)
+    {
+        if (_cache.TryGetValue(MloEnabledCacheKey, out bool cached))
+        {
+            return cached;
+        }
+
+        if (!_clientProvider.IsConnected || _clientProvider.Client == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var wlanData = await _clientProvider.Client.GetWlanEnrichedConfigurationAsync(cancellationToken);
+
+            if (wlanData.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var item in wlanData.EnumerateArray())
+            {
+                if (!item.TryGetProperty("configuration", out var config))
+                    continue;
+
+                // Check if WLAN is enabled
+                var isEnabled = config.TryGetProperty("enabled", out var enabledProp) && enabledProp.GetBoolean();
+                if (!isEnabled)
+                    continue;
+
+                // Check if MLO is enabled
+                var mloEnabled = config.TryGetProperty("mlo_enabled", out var mloProp) && mloProp.GetBoolean();
+                if (mloEnabled)
+                {
+                    _cache.Set(MloEnabledCacheKey, true, MloEnabledCacheDuration);
+                    return true;
+                }
+            }
+
+            _cache.Set(MloEnabledCacheKey, false, MloEnabledCacheDuration);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to check MLO status");
+            return false;
+        }
     }
 
     /// <summary>

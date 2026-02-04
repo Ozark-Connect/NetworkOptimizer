@@ -42,6 +42,14 @@ public class WlanConfiguration
     /// </summary>
     public bool BandSteeringEnabled { get; set; }
 
+    /// <summary>
+    /// Whether Multi-Link Operation (MLO) is enabled for Wi-Fi 7.
+    /// When enabled, capable devices can aggregate multiple bands simultaneously.
+    /// Note: MLO has been observed to reduce throughput for non-MLO devices
+    /// on 5 GHz and 6 GHz bands, even on APs not serving MLO clients.
+    /// </summary>
+    public bool MloEnabled { get; set; }
+
     /// <summary>Minimum data rate settings</summary>
     public MinRateSettings? MinRateSettings { get; set; }
 

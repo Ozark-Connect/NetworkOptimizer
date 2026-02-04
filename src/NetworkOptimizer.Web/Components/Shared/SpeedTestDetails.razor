@@ -531,6 +531,13 @@
             lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Firmware:</span> {hop.DeviceFirmware}</div>");
         }
 
+        // Show MLO status for access points
+        if (hop.Type == HopType.AccessPoint && hop.MloEnabled.HasValue)
+        {
+            var mloStatus = hop.MloEnabled.Value ? "enabled" : "disabled";
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>MLO:</span> {mloStatus}</div>");
+        }
+
         return string.Join("", lines);
     }
 

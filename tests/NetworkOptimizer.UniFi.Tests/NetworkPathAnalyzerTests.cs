@@ -871,4 +871,101 @@ public class NetworkPathAnalyzerTests
     }
 
     #endregion
+
+    #region MLO Status Tests
+
+    [Fact]
+    public void NetworkHop_MloEnabled_DefaultsToNull()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP"
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeNull();
+    }
+
+    [Fact]
+    public void NetworkHop_MloEnabled_CanBeSetToTrue()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP",
+            MloEnabled = true
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void NetworkHop_MloEnabled_CanBeSetToFalse()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP",
+            MloEnabled = false
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void NetworkPath_WithMloEnabledAp_TracksMloStatus()
+    {
+        // Arrange
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.WirelessClient, DeviceName = "Client" },
+                new NetworkHop { Type = HopType.AccessPoint, DeviceName = "Test AP", MloEnabled = true },
+                new NetworkHop { Type = HopType.Switch, DeviceName = "Switch" },
+                new NetworkHop { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+
+        // Act
+        var apHop = path.Hops.FirstOrDefault(h => h.Type == HopType.AccessPoint);
+
+        // Assert
+        apHop.Should().NotBeNull();
+        apHop!.MloEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void NetworkPath_WithMloDisabledAp_TracksMloStatus()
+    {
+        // Arrange
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.WirelessClient, DeviceName = "Client" },
+                new NetworkHop { Type = HopType.AccessPoint, DeviceName = "Test AP", MloEnabled = false },
+                new NetworkHop { Type = HopType.Switch, DeviceName = "Switch" },
+                new NetworkHop { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+
+        // Act
+        var apHop = path.Hops.FirstOrDefault(h => h.Type == HopType.AccessPoint);
+
+        // Assert
+        apHop.Should().NotBeNull();
+        apHop!.MloEnabled.Should().BeFalse();
+    }
+
+    #endregion
 }

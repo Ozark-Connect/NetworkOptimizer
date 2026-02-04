@@ -188,6 +188,10 @@ public class WiFiOptimizerService
             }
 
             summary.WeakSignalClients = clients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+
+            // Check if MLO is enabled on any enabled WLAN
+            var wlanConfigs = await GetWlanConfigurationsAsync();
+            summary.MloEnabled = wlanConfigs.Any(w => w.Enabled && w.MloEnabled);
         }
         catch (Exception ex)
         {
@@ -449,4 +453,10 @@ public class WiFiSummary
     public int? AvgSatisfaction { get; set; }
     public int? AvgSignal { get; set; }
     public int WeakSignalClients { get; set; }
+
+    /// <summary>
+    /// Whether MLO (Multi-Link Operation) is enabled on any enabled WLAN.
+    /// When true, may impact throughput for non-MLO devices on 5 GHz and 6 GHz bands.
+    /// </summary>
+    public bool MloEnabled { get; set; }
 }

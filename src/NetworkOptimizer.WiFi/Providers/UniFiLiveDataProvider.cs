@@ -593,6 +593,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Mac = ap.Mac,
             Name = ap.Name,
             Model = ap.FriendlyModelName,
+            FirmwareVersion = ap.DisplayableVersion ?? ap.Version,
             Ip = ap.Ip,
             Satisfaction = ap.Satisfaction,
             Timestamp = timestamp,
@@ -1007,6 +1008,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 BssTransitionEnabled = config.TryGetProperty("bss_transition", out var bss) && bss.GetBoolean(),
                 L2IsolationEnabled = config.TryGetProperty("l2_isolation", out var l2) && l2.GetBoolean(),
                 BandSteeringEnabled = config.TryGetProperty("no2ghz_oui", out var bs) && bs.GetBoolean(),
+                MloEnabled = config.TryGetProperty("mlo_enabled", out var mlo) && mlo.GetBoolean(),
                 CurrentClientCount = stats.ValueKind != JsonValueKind.Undefined
                     ? stats.TryGetProperty("current_client_count", out var cc) ? cc.GetInt32() : 0
                     : 0,
