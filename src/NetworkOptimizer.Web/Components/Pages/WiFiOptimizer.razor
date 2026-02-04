@@ -443,7 +443,7 @@
                             <div class="wifi-issue-item @GetIssueSeverityClass(issue.Severity)">
                                 <div class="wifi-issue-meta">
                                     <span class="wifi-issue-badge">@issue.Severity</span>
-                                    <span class="wifi-issue-dimension">@issue.Dimension</span>
+                                    <span class="wifi-issue-dimension">@FormatDimensions(issue.Dimensions)</span>
                                     <span class="wifi-issue-title">@issue.Title</span>
                                 </div>
                                 <div class="wifi-issue-content">
@@ -660,6 +660,21 @@
         HealthIssueSeverity.Warning => "issue-warning",
         _ => "issue-info"
     };
+
+    private string FormatDimensions(HashSet<HealthDimension> dimensions)
+    {
+        if (dimensions.Count == 0) return "";
+        return string.Join(", ", dimensions.Select(d => d switch
+        {
+            HealthDimension.SignalQuality => "Signal",
+            HealthDimension.ChannelHealth => "Channel",
+            HealthDimension.RoamingPerformance => "Roaming",
+            HealthDimension.AirtimeEfficiency => "Airtime",
+            HealthDimension.ClientSatisfaction => "Satisfaction",
+            HealthDimension.CapacityHeadroom => "Capacity",
+            _ => d.ToString()
+        }));
+    }
 
     private string GetSatisfactionClass(int satisfaction) => satisfaction switch
     {

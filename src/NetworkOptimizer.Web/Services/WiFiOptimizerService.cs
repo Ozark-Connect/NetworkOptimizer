@@ -84,7 +84,7 @@ public class WiFiOptimizerService
                 _cachedHealthScore.Issues.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Info,
-                    Dimension = "Airtime Efficiency",
+                    Dimensions = { HealthDimension.AirtimeEfficiency },
                     Title = "MLO enabled",
                     Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO allows Wi-Fi 7 devices to aggregate multiple bands simultaneously. Non-Wi-Fi 7 devices may see reduced throughput on 5 GHz and 6 GHz bands.",
                     Recommendation = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing slow speeds on 5 GHz or 6 GHz."
@@ -100,7 +100,7 @@ public class WiFiOptimizerService
                 _cachedHealthScore.Issues.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Info,
-                    Dimension = "Channel Health",
+                    Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
                     Title = "6 GHz disabled",
                     Description = $"You have {aps6GHzCount} access point{(aps6GHzCount > 1 ? "s" : "")} with 6 GHz radios, but no SSIDs are broadcasting on 6 GHz. Enabling 6 GHz can offload Wi-Fi 6E/7 capable devices from congested 2.4 GHz and 5 GHz bands.",
                     Recommendation = "Enable 6 GHz on your SSIDs in UniFi Network: Settings > WiFi > (SSID) > Radio Band."

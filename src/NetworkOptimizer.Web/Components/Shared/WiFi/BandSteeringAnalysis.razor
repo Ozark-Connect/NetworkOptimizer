@@ -441,7 +441,7 @@
         // Pull Channel Health issues from health score (single source of truth)
         if (_healthScore != null)
         {
-            foreach (var issue in _healthScore.Issues.Where(i => i.Dimension == "Channel Health"))
+            foreach (var issue in _healthScore.Issues.Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth)))
             {
                 _recommendations.Add(new Recommendation
                 {

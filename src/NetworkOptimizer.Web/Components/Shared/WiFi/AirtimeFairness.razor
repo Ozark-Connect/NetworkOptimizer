@@ -393,7 +393,7 @@
         // Pull Airtime Efficiency issues from health score (single source of truth)
         if (_healthScore != null)
         {
-            foreach (var issue in _healthScore.Issues.Where(i => i.Dimension == "Airtime Efficiency"))
+            foreach (var issue in _healthScore.Issues.Where(i => i.Dimensions.Contains(HealthDimension.AirtimeEfficiency)))
             {
                 _recommendations.Add(new Recommendation
                 {

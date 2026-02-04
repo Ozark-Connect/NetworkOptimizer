@@ -468,7 +468,7 @@ public class SiteHealthScorer
             score.Issues.Add(new HealthIssue
             {
                 Severity = client.Signal < -80 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
-                Dimension = "Signal Quality",
+                Dimensions = { HealthDimension.SignalQuality },
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm)",
                 AffectedEntity = client.Name,
@@ -493,7 +493,7 @@ public class SiteHealthScorer
             score.Issues.Add(new HealthIssue
             {
                 Severity = radio.ChannelUtilization > 90 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
-                Dimension = "Channel Health",
+                Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
                 Title = "High channel utilization",
                 Description = $"{radio.Band.ToDisplayString()} radio at {radio.ChannelUtilization}% utilization",
                 AffectedEntity = ap.Name,
@@ -518,7 +518,7 @@ public class SiteHealthScorer
                 score.Issues.Add(new HealthIssue
                 {
                     Severity = failures > 5 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
-                    Dimension = "Roaming Performance",
+                    Dimensions = { HealthDimension.RoamingPerformance },
                     Title = "Roaming failures",
                     Description = $"{failures} failed roams between these APs",
                     AffectedEntity = $"{ap1Name} ↔ {ap2Name}",
@@ -535,7 +535,7 @@ public class SiteHealthScorer
             score.Issues.Add(new HealthIssue
             {
                 Severity = HealthIssueSeverity.Info,
-                Dimension = "Airtime Efficiency",
+                Dimensions = { HealthDimension.AirtimeEfficiency },
                 Title = "Legacy clients detected",
                 Description = $"{legacyClients.Count} clients using Wi-Fi 4 or older",
                 Recommendation = "Legacy clients consume more airtime - consider upgrading or isolating to separate SSID",

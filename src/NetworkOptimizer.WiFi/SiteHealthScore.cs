@@ -94,8 +94,8 @@ public class HealthIssue
     /// <summary>Issue severity</summary>
     public HealthIssueSeverity Severity { get; set; }
 
-    /// <summary>Affected dimension</summary>
-    public string Dimension { get; set; } = string.Empty;
+    /// <summary>Affected dimensions (an issue can affect multiple dimensions)</summary>
+    public HashSet<HealthDimension> Dimensions { get; set; } = new();
 
     /// <summary>Issue title</summary>
     public string Title { get; set; } = string.Empty;
@@ -111,6 +111,19 @@ public class HealthIssue
 
     /// <summary>Score impact (negative number)</summary>
     public int ScoreImpact { get; set; }
+}
+
+/// <summary>
+/// Health score dimensions that issues can affect
+/// </summary>
+public enum HealthDimension
+{
+    SignalQuality,
+    ChannelHealth,
+    RoamingPerformance,
+    AirtimeEfficiency,
+    ClientSatisfaction,
+    CapacityHeadroom
 }
 
 public enum HealthIssueSeverity
