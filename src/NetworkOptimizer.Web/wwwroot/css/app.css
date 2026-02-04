@@ -6872,10 +6872,12 @@ select.form-control {
 .topology-node {
     position: absolute;
     transform: translate(-50%, -50%);
+    z-index: 2;
     display: flex;
     flex-direction: column;
     align-items: center;
-    z-index: 2;
+    width: 48px;
+    height: 48px;
 }
 
 .node-icon {
@@ -6888,13 +6890,16 @@ select.form-control {
     align-items: center;
     justify-content: center;
     color: var(--primary-color);
+    flex-shrink: 0;
 }
 
 .node-label {
+    position: absolute;
+    top: 100%;
+    margin-top: 0.25rem;
     font-size: 0.75rem;
     font-weight: 500;
     color: var(--text-primary);
-    margin-top: 0.25rem;
     text-align: center;
     max-width: 80px;
     overflow: hidden;
@@ -6903,8 +6908,12 @@ select.form-control {
 }
 
 .node-model {
+    position: absolute;
+    top: calc(100% + 1.1rem);
     font-size: 0.65rem;
     color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
 }
 
 .topology-edges {
