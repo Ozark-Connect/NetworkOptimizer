@@ -471,7 +471,7 @@
             });
         }
 
-        // Min RSSI recommendation for roaming
+        // Min RSSI recommendation for roaming - be cautious as it hard-disconnects clients
         var has5gOr6g = _accessPoints.Any(ap => ap.Radios.Any(r =>
             (r.Band == RadioBand.Band5GHz || r.Band == RadioBand.Band6GHz) && r.Channel.HasValue));
         var hasMinRssi = _accessPoints.Any(ap => ap.Radios.Any(r => r.MinRssiEnabled));
@@ -481,9 +481,9 @@
             _recommendations.Add(new Recommendation
             {
                 Type = "info",
-                Title = "Enable Minimum RSSI for Better Band Steering",
-                Description = "Minimum RSSI can help push clients to better bands by disconnecting them when signal drops, forcing them to reconnect (often on a better band if available).",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI - try -70 dBm."
+                Title = "Consider Minimum RSSI (With Caution)",
+                Description = "Minimum RSSI can help sticky clients roam by hard-disconnecting them when signal drops. Use cautiously as it can cause issues with some clients.",
+                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI. Use a conservative threshold like -75 to -80 dBm."
             });
         }
     }

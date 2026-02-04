@@ -558,18 +558,34 @@
             }
         }
 
-        // Check for min RSSI not enabled
+        // Check for min RSSI settings
+        var apsWithMinRssi = _accessPoints
+            .Where(ap => ap.Radios.Any(r => r.Channel.HasValue && r.MinRssiEnabled))
+            .ToList();
         var apsWithoutMinRssi = _accessPoints
             .Where(ap => ap.Radios.Any(r => r.Channel.HasValue && !r.MinRssiEnabled))
             .ToList();
-        if (apsWithoutMinRssi.Count > 1 && _accessPoints.Count > 1)
+
+        if (apsWithMinRssi.Count > 0)
         {
+            // Warn that min RSSI can cause issues
             _recommendations.Add(new Recommendation
             {
                 Type = "info",
-                Title = "Consider Enabling Minimum RSSI",
-                Description = $"{apsWithoutMinRssi.Count} APs don't have minimum RSSI enabled. This feature can help clients roam to closer APs by disconnecting them when signal falls below a threshold.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI - recommend -70 to -75 dBm for most deployments."
+                Title = "Minimum RSSI Enabled",
+                Description = $"{apsWithMinRssi.Count} AP(s) have Minimum RSSI enabled. This hard-disconnects clients below the threshold, which can cause issues with sticky clients. Monitor for unexpected disconnects.",
+                Action = "If clients are dropping unexpectedly, consider disabling or lowering the threshold to -80 dBm."
+            });
+        }
+        else if (apsWithoutMinRssi.Count > 1 && _accessPoints.Count > 1)
+        {
+            // Suggest enabling with caution
+            _recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "Consider Minimum RSSI (With Caution)",
+                Description = $"{apsWithoutMinRssi.Count} APs don't have Minimum RSSI enabled. This can help sticky clients roam, but it hard-disconnects them when signal drops below threshold.",
+                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI. Use a conservative threshold like -75 to -80 dBm to avoid aggressive disconnects."
             });
         }
 
