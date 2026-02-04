@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.UniFi.Models;
 using NetworkOptimizer.WiFi.Models;
@@ -42,11 +43,11 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var wirelessClients = clients.Where(c => c.IsWired == false).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
-        // Get AP names for lookup
+        // Get AP names for lookup (strip device type prefixes/suffixes)
         var devices = await _client.GetDevicesAsync(cancellationToken);
         var apNames = devices
             .Where(d => d.Type == "uap")
-            .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
+            .ToDictionary(d => d.Mac.ToLowerInvariant(), d => DisplayFormatters.StripDevicePrefix(d.Name));
 
         return wirelessClients.Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp)).ToList();
     }
@@ -353,20 +354,20 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     if (paramsProp.TryGetProperty("DEVICE", out var deviceProp))
                     {
                         evt.ApMac = GetNestedString(deviceProp, "id");
-                        evt.ApName = GetNestedString(deviceProp, "name");
+                        evt.ApName = DisplayFormatters.StripDevicePrefix(GetNestedString(deviceProp, "name"));
                     }
 
                     // Roaming-specific: DEVICE_FROM, DEVICE_TO, previous signal/band
                     if (paramsProp.TryGetProperty("DEVICE_FROM", out var fromProp))
                     {
                         evt.FromApMac = GetNestedString(fromProp, "id");
-                        evt.FromApName = GetNestedString(fromProp, "name");
+                        evt.FromApName = DisplayFormatters.StripDevicePrefix(GetNestedString(fromProp, "name"));
                     }
 
                     if (paramsProp.TryGetProperty("DEVICE_TO", out var toProp))
                     {
                         evt.ToApMac = GetNestedString(toProp, "id");
-                        evt.ToApName = GetNestedString(toProp, "name");
+                        evt.ToApName = DisplayFormatters.StripDevicePrefix(GetNestedString(toProp, "name"));
                     }
 
                     if (paramsProp.TryGetProperty("PREVIOUS_SIGNAL_STRENGTH", out var prevSigProp))
@@ -500,7 +501,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 var result = new ChannelScanResult
                 {
                     ApMac = ap.Mac,
-                    ApName = ap.Name,
+                    ApName = DisplayFormatters.StripDevicePrefix(ap.Name),
                     Band = band,
                     ScanTime = timestamp,
                     Channels = new List<ChannelInfo>(),
@@ -585,7 +586,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var snapshot = new AccessPointSnapshot
         {
             Mac = ap.Mac,
-            Name = ap.Name,
+            Name = DisplayFormatters.StripDevicePrefix(ap.Name),
             Model = ap.FriendlyModelName,
             Ip = ap.Ip,
             Satisfaction = ap.Satisfaction,
@@ -1093,7 +1094,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                 {
                     Mac = vertex.GetProperty("mac").GetString() ?? "",
                     Model = vertex.TryGetProperty("model", out var model) ? model.GetString() ?? "" : "",
-                    Name = vertex.TryGetProperty("name", out var name) ? name.GetString() ?? "" : ""
+                    Name = DisplayFormatters.StripDevicePrefix(vertex.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "")
                 };
 
                 if (vertex.TryGetProperty("radios", out var radios))
