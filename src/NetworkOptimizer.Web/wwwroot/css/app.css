@@ -6087,6 +6087,125 @@ select.form-control {
     border-top: 1px solid var(--border-color);
 }
 
+/* WiFi Health Issues List */
+.wifi-issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.wifi-issue-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    border-left: 4px solid var(--border-color);
+}
+
+.wifi-issue-item.issue-critical {
+    border-left-color: #ef4444;
+}
+
+.wifi-issue-item.issue-warning {
+    border-left-color: #fbbf24;
+}
+
+.wifi-issue-item.issue-info {
+    border-left-color: #3b82f6;
+}
+
+.wifi-issue-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.wifi-issue-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-primary);
+}
+
+.wifi-issue-item.issue-critical .wifi-issue-badge {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.wifi-issue-item.issue-warning .wifi-issue-badge {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.15);
+}
+
+.wifi-issue-item.issue-info .wifi-issue-badge {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.wifi-issue-dimension {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.wifi-issue-impact {
+    font-size: 0.75rem;
+    color: #ef4444;
+    font-weight: 500;
+}
+
+.wifi-issue-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wifi-issue-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.wifi-issue-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.wifi-issue-entity {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.wifi-issue-action {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* WiFi Issues List Responsive */
+@media (max-width: 900px) {
+    .wifi-issue-item {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .wifi-issue-meta {
+        flex-wrap: wrap;
+    }
+
+    .wifi-issue-action {
+        justify-self: start;
+    }
+}
+
 /* Success State */
 .success-state {
     color: #22c55e;

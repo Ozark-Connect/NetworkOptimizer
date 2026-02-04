@@ -437,27 +437,29 @@
                 }
                 else
                 {
-                    <div class="issues-list">
+                    <div class="wifi-issues-list">
                         @foreach (var issue in _healthScore?.Issues ?? new List<HealthIssue>())
                         {
-                            <div class="issue-item @GetIssueSeverityClass(issue.Severity)">
-                                <div class="issue-header">
-                                    <span class="issue-severity-badge">@issue.Severity</span>
-                                    <span class="issue-dimension">@issue.Dimension</span>
+                            <div class="wifi-issue-item @GetIssueSeverityClass(issue.Severity)">
+                                <div class="wifi-issue-meta">
+                                    <span class="wifi-issue-badge">@issue.Severity</span>
+                                    <span class="wifi-issue-dimension">@issue.Dimension</span>
                                     @if (issue.ScoreImpact != 0)
                                     {
-                                        <span class="issue-impact">@issue.ScoreImpact pts</span>
+                                        <span class="wifi-issue-impact">@issue.ScoreImpact pts</span>
+                                    }
+                                    <span class="wifi-issue-title">@issue.Title</span>
+                                </div>
+                                <div class="wifi-issue-content">
+                                    <div class="wifi-issue-description">@issue.Description</div>
+                                    @if (!string.IsNullOrEmpty(issue.AffectedEntity))
+                                    {
+                                        <div class="wifi-issue-entity">Affected: @issue.AffectedEntity</div>
                                     }
                                 </div>
-                                <div class="issue-title">@issue.Title</div>
-                                <div class="issue-description">@issue.Description</div>
-                                @if (!string.IsNullOrEmpty(issue.AffectedEntity))
-                                {
-                                    <div class="issue-entity">Affected: @issue.AffectedEntity</div>
-                                }
                                 @if (!string.IsNullOrEmpty(issue.Recommendation))
                                 {
-                                    <div class="issue-recommendation">@issue.Recommendation</div>
+                                    <div class="wifi-issue-action">@issue.Recommendation</div>
                                 }
                             </div>
                         }
@@ -503,7 +505,7 @@
                                         <span class="ap-stat-value">@ap.TotalClients</span>
                                         <span class="ap-stat-label">Clients</span>
                                     </div>
-                                    @if (ap.Satisfaction.HasValue)
+                                    @if (ap.Satisfaction.HasValue && ap.Satisfaction.Value >= 0 && ap.TotalClients > 0)
                                     {
                                         <div class="ap-stat">
                                             <span class="ap-stat-value @GetSatisfactionClass(ap.Satisfaction.Value)">@ap.Satisfaction%</span>
