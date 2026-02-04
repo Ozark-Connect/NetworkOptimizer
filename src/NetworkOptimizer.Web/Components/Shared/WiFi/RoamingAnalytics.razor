@@ -161,7 +161,7 @@
 
             <div class="edge-details-section">
                 <div class="section-header">
-                    <h4><DeviceIcon Model="@ap1?.Model" Size="md" /> @(ap1?.Name ?? "AP1") ↔ <DeviceIcon Model="@ap2?.Model" Size="md" /> @(ap2?.Name ?? "AP2") Details</h4>
+                    <h4>@(ap1?.Name ?? "AP1") ↔ @(ap2?.Name ?? "AP2") Details</h4>
                     <button class="btn btn-sm btn-ghost" @onclick="() => _selectedEdge = null">Close</button>
                 </div>
 
