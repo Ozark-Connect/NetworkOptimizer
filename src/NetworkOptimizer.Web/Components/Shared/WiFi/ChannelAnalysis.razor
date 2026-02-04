@@ -757,11 +757,7 @@
             }
             else // 6 GHz
             {
-                // 6 GHz channels start at 1 and increment by 4
-                // Group start aligns to groupSize boundaries: 1, 1+groupSize, 1+2*groupSize, etc.
-                int offset = primaryChannel - 1;  // Offset from channel 1
-                int groupIndex = offset / groupSize;
-                groupStart = 1 + (groupIndex * groupSize);
+                groupStart = Get6GHzGroupStart(primaryChannel, width);
             }
 
             // Add all channels in the group
@@ -810,6 +806,66 @@
         }
 
         // Fallback: just use the primary channel
+        return primaryChannel;
+    }
+
+    private int Get6GHzGroupStart(int primaryChannel, int width)
+    {
+        // 6 GHz has regulatory boundaries that affect 320 MHz bonding
+        // UNII-5 ends around channel 93, UNII-6/7 starts around channel 97
+        // 320 MHz blocks don't cross the UNII-5/UNII-6 boundary
+
+        if (width == 320)
+        {
+            // 320 MHz blocks based on US regulatory boundaries
+            var groups320 = new List<(int start, int end)>
+            {
+                (1, 61),      // UNII-5 (channels 1-61)
+                (97, 157),    // UNII-6/7 lower (channels 97-157)
+                (161, 221)    // UNII-7/8 (channels 161-221)
+            };
+
+            foreach (var (start, end) in groups320)
+            {
+                if (primaryChannel >= start && primaryChannel <= end)
+                {
+                    return start;
+                }
+            }
+        }
+        else if (width == 160)
+        {
+            // 160 MHz blocks (8 channels each, 32 channel number span)
+            var groups160 = new List<(int start, int end)>
+            {
+                (1, 29), (33, 61), (65, 93), (97, 125),
+                (129, 157), (161, 189), (193, 221), (225, 253)
+            };
+
+            foreach (var (start, end) in groups160)
+            {
+                if (primaryChannel >= start && primaryChannel <= end)
+                {
+                    return start;
+                }
+            }
+        }
+        else if (width == 80)
+        {
+            // 80 MHz blocks (4 channels each, 16 channel number span)
+            int offset = primaryChannel - 1;
+            int groupIndex = offset / 16;
+            return 1 + (groupIndex * 16);
+        }
+        else // 40 MHz
+        {
+            // 40 MHz blocks (2 channels each, 8 channel number span)
+            int offset = primaryChannel - 1;
+            int groupIndex = offset / 8;
+            return 1 + (groupIndex * 8);
+        }
+
+        // Fallback
         return primaryChannel;
     }
 
