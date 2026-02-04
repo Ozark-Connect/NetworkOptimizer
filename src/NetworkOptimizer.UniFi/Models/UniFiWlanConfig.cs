@@ -72,4 +72,16 @@ public class UniFiWlanConfig
 
     [JsonPropertyName("minrate_na_advertising_rates")]
     public bool MinrateNaAdvertisingRates { get; set; }
+
+    /// <summary>
+    /// AP group mode: "all" means broadcast on all APs, otherwise check ap_group_ids
+    /// </summary>
+    [JsonPropertyName("ap_group_mode")]
+    public string? ApGroupMode { get; set; }
+
+    /// <summary>
+    /// AP group IDs that broadcast this WLAN (when ap_group_mode != "all")
+    /// </summary>
+    [JsonPropertyName("ap_group_ids")]
+    public List<string>? ApGroupIds { get; set; }
 }

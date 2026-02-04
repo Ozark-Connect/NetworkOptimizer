@@ -56,13 +56,11 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     private const string TopologyCacheKey = "NetworkTopology";
     private const string ServerPositionCacheKey = "ServerPosition";
     private const string RawDevicesCacheKey = "RawDevices";
-    private const string MloEnabledCacheKey = "MloEnabled";
 
     // Cache duration
     private static readonly TimeSpan TopologyCacheDuration = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ServerPositionCacheDuration = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan RawDevicesCacheDuration = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan MloEnabledCacheDuration = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Empirical realistic maximum throughput by link speed (Mbps).
@@ -440,12 +438,8 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, cancellationToken);
             }
 
-            // Set MLO status on AP hops
-            var mloEnabled = await IsMloEnabledAsync(cancellationToken);
-            foreach (var hop in path.Hops.Where(h => h.Type == HopType.AccessPoint))
-            {
-                hop.MloEnabled = mloEnabled;
-            }
+            // Set MLO status on AP hops based on which WLANs each AP broadcasts
+            await SetApMloStatusAsync(path.Hops, cancellationToken);
 
             // Calculate bottleneck
             CalculateBottleneck(path);
@@ -563,55 +557,59 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
     }
 
     /// <summary>
-    /// Checks if MLO (Multi-Link Operation) is enabled on any WLAN.
+    /// Sets MLO status on AP hops based on which WLANs each AP broadcasts.
     /// </summary>
-    private async Task<bool> IsMloEnabledAsync(CancellationToken cancellationToken)
+    private async Task SetApMloStatusAsync(List<NetworkHop> hops, CancellationToken cancellationToken)
     {
-        if (_cache.TryGetValue(MloEnabledCacheKey, out bool cached))
-        {
-            return cached;
-        }
+        var apHops = hops.Where(h => h.Type == HopType.AccessPoint && !string.IsNullOrEmpty(h.DeviceMac)).ToList();
+        if (apHops.Count == 0)
+            return;
 
         if (!_clientProvider.IsConnected || _clientProvider.Client == null)
-        {
-            return false;
-        }
+            return;
 
         try
         {
-            var wlanData = await _clientProvider.Client.GetWlanEnrichedConfigurationAsync(cancellationToken);
+            // Get WLAN configs and devices
+            var wlanConfigs = await _clientProvider.Client.GetWlanConfigurationsAsync(cancellationToken);
+            var devices = await _clientProvider.Client.GetDevicesAsync(cancellationToken);
 
-            if (wlanData.ValueKind != JsonValueKind.Array)
+            // Build lookup of MLO-enabled WLAN names
+            var mloEnabledSsids = wlanConfigs
+                .Where(w => w.Enabled && w.MloEnabled)
+                .Select(w => w.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (mloEnabledSsids.Count == 0)
             {
-                return false;
+                // No MLO-enabled WLANs, all APs are false
+                foreach (var hop in apHops)
+                    hop.MloEnabled = false;
+                return;
             }
 
-            foreach (var item in wlanData.EnumerateArray())
+            // Check each AP's vap_table
+            foreach (var hop in apHops)
             {
-                if (!item.TryGetProperty("configuration", out var config))
-                    continue;
+                var device = devices.FirstOrDefault(d =>
+                    string.Equals(d.Mac, hop.DeviceMac, StringComparison.OrdinalIgnoreCase));
 
-                // Check if WLAN is enabled
-                var isEnabled = config.TryGetProperty("enabled", out var enabledProp) && enabledProp.GetBoolean();
-                if (!isEnabled)
-                    continue;
-
-                // Check if MLO is enabled
-                var mloEnabled = config.TryGetProperty("mlo_enabled", out var mloProp) && mloProp.GetBoolean();
-                if (mloEnabled)
+                if (device?.VapTable == null || device.VapTable.Count == 0)
                 {
-                    _cache.Set(MloEnabledCacheKey, true, MloEnabledCacheDuration);
-                    return true;
+                    hop.MloEnabled = false;
+                    continue;
                 }
-            }
 
-            _cache.Set(MloEnabledCacheKey, false, MloEnabledCacheDuration);
-            return false;
+                // Check if any broadcast SSID has MLO enabled
+                hop.MloEnabled = device.VapTable.Any(vap =>
+                    mloEnabledSsids.Contains(vap.Essid));
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to check MLO status");
-            return false;
+            _logger.LogDebug(ex, "Failed to check MLO status for AP hops");
+            foreach (var hop in apHops)
+                hop.MloEnabled = false;
         }
     }
 
