@@ -66,6 +66,10 @@
                     {
                         <span class="issue-indicator">!</span>
                     }
+                    else if (bandData.HasMesh)
+                    {
+                        <span class="mesh-indicator" data-tooltip="Mesh APs sharing channel">M</span>
+                    }
                 </button>
             }
         </div>
@@ -82,11 +86,12 @@
                 {
                     var apsOnChannel = GetApsOnChannel(_selectedBand, channel);
                     var isOccupied = apsOnChannel.Any();
-                    var hasOverlap = apsOnChannel.Count > 1;
+                    var hasActualOverlap = IsChannelOverlapped(_selectedBand, channel);
+                    var hasMeshPair = IsChannelMesh(_selectedBand, channel);
                     var utilization = GetChannelUtilization(_selectedBand, channel);
                     var interference = GetChannelInterference(_selectedBand, channel);
 
-                    <div class="channel-slot @(isOccupied ? "occupied" : "") @(hasOverlap ? "overlap" : "")"
+                    <div class="channel-slot @(isOccupied ? "occupied" : "") @(hasActualOverlap ? "overlap" : hasMeshPair ? "mesh" : "")"
                          @onclick="() => SelectChannel(_selectedBand, channel)">
                         <div class="channel-number">@channel</div>
                         @if (isOccupied)
@@ -123,17 +128,26 @@
         @if (_selectedChannel != null)
         {
             var apsOnChannel = GetApsOnChannel(_selectedBand, _selectedChannel.Value);
+            var hasActualOverlap = IsChannelOverlapped(_selectedBand, _selectedChannel.Value);
+            var hasMeshPair = IsChannelMesh(_selectedBand, _selectedChannel.Value);
             <div class="channel-details-section">
                 <div class="section-header">
                     <h4>Channel @_selectedChannel Details</h4>
                     <button class="btn btn-sm btn-ghost" @onclick="() => _selectedChannel = null">Close</button>
                 </div>
 
-                @if (apsOnChannel.Count > 1)
+                @if (hasActualOverlap)
                 {
                     <div class="overlap-warning">
                         <span class="warning-icon">!</span>
                         <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                    </div>
+                }
+                else if (hasMeshPair)
+                {
+                    <div class="mesh-info">
+                        <span class="mesh-icon">M</span>
+                        <span>These APs are meshing on this channel - shared channel is expected for mesh uplink</span>
                     </div>
                 }
 
@@ -215,7 +229,7 @@
                                     <span class="ap-model">@ap.Model</span>
                                 </div>
                                 <div class="ap-col ap-channel-col">
-                                    <span class="channel-badge @(IsChannelOverlapped(_selectedBand, radio.Channel) ? "overlap" : "")">
+                                    <span class="channel-badge @(IsChannelOverlapped(_selectedBand, radio.Channel) ? "overlap" : IsChannelMesh(_selectedBand, radio.Channel) ? "mesh" : "")">
                                         @(radio.Channel?.ToString() ?? "-")
                                     </span>
                                 </div>
@@ -476,15 +490,50 @@
     private bool IsChannelOverlapped(RadioBand band, int? channel)
     {
         if (!channel.HasValue) return false;
-        return GetApsOnChannel(band, channel.Value).Count > 1;
+        var apsOnChannel = GetApsOnChannel(band, channel.Value);
+        if (apsOnChannel.Count <= 1) return false;
+
+        // Check if all overlap is from mesh pairs
+        var nonMeshAps = FilterOutMeshPairs(apsOnChannel, band, channel.Value);
+        return nonMeshAps.Count > 1;
     }
 
-    private (bool HasIssues, int ChannelCount) GetBandData(RadioBand band)
+    private bool IsChannelMesh(RadioBand band, int? channel)
+    {
+        if (!channel.HasValue) return false;
+        var apsOnChannel = GetApsOnChannel(band, channel.Value);
+        if (apsOnChannel.Count <= 1) return false;
+
+        // Check if there are mesh pairs on this channel
+        return apsOnChannel.Any(ap =>
+            ap.IsMeshChild &&
+            !string.IsNullOrEmpty(ap.MeshParentMac) &&
+            ap.MeshUplinkBand == band &&
+            ap.MeshUplinkChannel == channel.Value &&
+            apsOnChannel.Any(parent => parent.Mac.Equals(ap.MeshParentMac, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private (bool HasIssues, bool HasMesh, int ChannelCount) GetBandData(RadioBand band)
     {
         var radiosInBand = _accessPoints.SelectMany(ap => ap.Radios).Where(r => r.Band == band && r.Channel.HasValue).ToList();
         var channelGroups = radiosInBand.GroupBy(r => r.Channel!.Value).ToList();
-        var hasOverlap = channelGroups.Any(g => g.Count() > 1);
-        return (hasOverlap, channelGroups.Count);
+
+        bool hasActualOverlap = false;
+        bool hasMesh = false;
+
+        foreach (var group in channelGroups.Where(g => g.Count() > 1))
+        {
+            var apsOnChannel = GetApsOnChannel(band, group.Key);
+            var nonMeshAps = FilterOutMeshPairs(apsOnChannel, band, group.Key);
+
+            if (nonMeshAps.Count > 1)
+                hasActualOverlap = true;
+
+            if (apsOnChannel.Count > nonMeshAps.Count || (apsOnChannel.Count > 1 && nonMeshAps.Count == 0))
+                hasMesh = true;
+        }
+
+        return (hasActualOverlap, hasMesh, channelGroups.Count);
     }
 
     private string GetBandDescription(RadioBand band)

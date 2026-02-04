@@ -7365,6 +7365,20 @@ select.form-control {
     margin-left: 0.5rem;
 }
 
+.band-tab .mesh-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: #3b82f6;
+    color: white;
+    border-radius: 50%;
+    font-size: 0.5rem;
+    font-weight: 700;
+    margin-left: 0.5rem;
+}
+
 /* Channel Map */
 .channel-map-section {
     background: var(--bg-secondary);
@@ -7406,6 +7420,11 @@ select.form-control {
 .channel-slot.overlap {
     border-color: var(--warning-color);
     background: rgba(231, 150, 19, 0.1);
+}
+
+.channel-slot.mesh {
+    border-color: #60a5fa;
+    background: rgba(59, 130, 246, 0.1);
 }
 
 .channel-number {
@@ -7492,6 +7511,32 @@ select.form-control {
     justify-content: center;
     font-weight: 700;
     font-size: 0.75rem;
+}
+
+.mesh-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid #60a5fa;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #60a5fa;
+}
+
+.mesh-info .mesh-icon {
+    width: 20px;
+    height: 20px;
+    background: #3b82f6;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.65rem;
 }
 
 .channel-aps-list {
@@ -7625,6 +7670,11 @@ select.form-control {
 .channel-badge.overlap {
     background: rgba(231, 150, 19, 0.2);
     color: var(--warning-color);
+}
+
+.channel-badge.mesh {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
 }
 
 .power-value {

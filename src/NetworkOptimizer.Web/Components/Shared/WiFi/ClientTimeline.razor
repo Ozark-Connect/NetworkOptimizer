@@ -82,7 +82,7 @@
                     </div>
                     <div class="info-item">
                         <span class="info-label">TX/RX Rate:</span>
-                        <span class="info-value">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
+                        <span class="info-value" data-tooltip="TX = AP transmits to client (download), RX = AP receives from client (upload)">@FormatRate(_selectedClient.TxRate) / @FormatRate(_selectedClient.RxRate)</span>
                     </div>
                 </div>
             </div>
@@ -94,11 +94,11 @@
                 <span class="chart-title">Signal Strength</span>
                 <div class="chart-filters">
                     <label class="filter-checkbox">
-                        <input type="checkbox" @bind="_showSignal" />
+                        <input type="checkbox" @bind="_showSignal" @bind:after="OnChartFilterChanged" />
                         <span class="checkbox-label signal">Signal</span>
                     </label>
                     <label class="filter-checkbox">
-                        <input type="checkbox" @bind="_showTxRetries" />
+                        <input type="checkbox" @bind="_showTxRetries" @bind:after="OnChartFilterChanged" />
                         <span class="checkbox-label retries">TX Retries</span>
                     </label>
                 </div>
@@ -379,6 +379,14 @@
         _txRetryData = newTxRetryData;
     }
 
+    private async Task OnChartFilterChanged()
+    {
+        if (_signalChart != null)
+        {
+            await _signalChart.RenderAsync();
+        }
+    }
+
     private string GetEventTitle(ClientConnectionEvent evt) => evt.Type switch
     {
         ClientConnectionEventType.Roamed => $"Roamed to {evt.ToApName ?? "unknown AP"}",
@@ -428,10 +436,11 @@
         _ => "signal-poor"
     };
 
-    private string FormatRate(long? rate)
+    private string FormatRate(long? rateKbps)
     {
-        if (!rate.HasValue) return "-";
-        return rate.Value >= 1000 ? $"{rate.Value / 1000.0:F1} Gbps" : $"{rate.Value} Mbps";
+        if (!rateKbps.HasValue) return "-";
+        var rateMbps = rateKbps.Value / 1000.0;
+        return rateMbps >= 1000 ? $"{rateMbps / 1000.0:F1} Gbps" : $"{rateMbps:F0} Mbps";
     }
 
     private string GetEventTypeClass(ClientConnectionEventType type) => type switch
