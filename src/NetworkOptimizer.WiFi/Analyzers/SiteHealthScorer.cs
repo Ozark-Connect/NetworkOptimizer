@@ -152,7 +152,7 @@ public class SiteHealthScorer
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Weak signal (<-73 dBm)",
+            Name = "Weak signal (<-70 dBm)",
             Value = $"{poor} clients ({poor * 100 / total}%)",
             Impact = poor > 0 ? -20 : 0
         });
@@ -467,7 +467,7 @@ public class SiteHealthScorer
         {
             score.Issues.Add(new HealthIssue
             {
-                Severity = client.Signal < -82 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
+                Severity = client.Signal < -80 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimension = "Signal Quality",
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm)",
@@ -572,7 +572,7 @@ public class SiteHealthScorerOptions
     // Signal thresholds (dBm)
     public int ExcellentSignalThreshold { get; set; } = -50;
     public int GoodSignalThreshold { get; set; } = -65;
-    public int WeakSignalThreshold { get; set; } = -73;
+    public int WeakSignalThreshold { get; set; } = -70;
 
     // Utilization thresholds (%)
     public int HighUtilizationThreshold { get; set; } = 70;
