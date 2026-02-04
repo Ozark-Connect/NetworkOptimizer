@@ -9,9 +9,9 @@
         <div class="card-header">
             <h2 class="card-title">RF Environment</h2>
             <div class="spectrum-controls">
-                <div class="ap-selector">
-                    <label>Access Point:</label>
-                    <select @bind="selectedApMac" @bind:after="OnApFilterChanged">
+                <div class="filter-group">
+                    <label class="filter-label">Access Point:</label>
+                    <select class="ap-filter-select" @bind="selectedApMac" @bind:after="OnApFilterChanged">
                         <option value="">All APs</option>
                         @foreach (var ap in accessPoints)
                         {
@@ -286,26 +286,6 @@
         align-items: center;
         gap: 1rem;
         flex-wrap: wrap;
-    }
-
-    .ap-selector {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    .ap-selector label {
-        color: var(--text-secondary);
-        font-size: 0.9rem;
-    }
-
-    .ap-selector select {
-        padding: 0.5rem;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 4px;
-        color: var(--text-primary);
-        min-width: 200px;
     }
 
     .spectrum-stats-row {
@@ -598,15 +578,6 @@
             align-items: stretch;
         }
 
-        .ap-selector {
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .ap-selector select {
-            min-width: 100%;
-        }
-
         .spectrum-stats-row {
             flex-direction: column;
         }
@@ -650,6 +621,9 @@
             accessPoints = apTask.Result;
             scanResults = scanTask.Result;
 
+            Logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ScanCount} scan results",
+                accessPoints.Count, scanResults.Count);
+
             // Flatten neighbors from all scan results
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
@@ -660,6 +634,8 @@
                     Band = sr.Band
                 }))
                 .ToList();
+
+            Logger.LogInformation("Spectrum: Found {NeighborCount} neighboring networks", allNeighbors.Count);
         }
         catch (Exception ex)
         {
