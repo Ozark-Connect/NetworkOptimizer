@@ -584,6 +584,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             Rssi = client.Rssi,
             Satisfaction = client.Satisfaction,
             WifiProtocol = client.RadioProto,
+            WifiGeneration = ParseWifiGeneration(client.RadioProto),
             TxRate = client.TxRate,
             RxRate = client.RxRate,
             TxBytes = client.TxBytes,
@@ -593,6 +594,24 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             IsGuest = client.IsGuest,
             Manufacturer = client.Oui,
             Timestamp = timestamp
+        };
+    }
+
+    private static int? ParseWifiGeneration(string? radioProto)
+    {
+        if (string.IsNullOrEmpty(radioProto)) return null;
+
+        var proto = radioProto.ToLowerInvariant();
+        return proto switch
+        {
+            "be" => 7,                    // Wi-Fi 7 (802.11be)
+            "ax" => 6,                    // Wi-Fi 6/6E (802.11ax)
+            "ac" => 5,                    // Wi-Fi 5 (802.11ac)
+            "n" or "ng" or "na" => 4,     // Wi-Fi 4 (802.11n)
+            "a" => 2,                     // 802.11a
+            "g" => 3,                     // 802.11g
+            "b" => 1,                     // 802.11b
+            _ => null
         };
     }
 
