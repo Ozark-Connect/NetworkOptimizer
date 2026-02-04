@@ -3,6 +3,7 @@
 @using NetworkOptimizer.WiFi.Models
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
+@inject ILogger<ChannelAnalysis> Logger
 
 <div class="channel-analysis-container">
     <div class="channel-header">
@@ -304,10 +305,10 @@
     private HashSet<int> _channelsInUse = new();
     private List<ChannelIssue> _channelIssues = new();
 
-    // Width groups: maps (band, channel) -> group info for visual grouping
+    // Width groups: maps (band, channel) -> group info for visual grouping (first group)
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
-    // Channels that have overlapping width groups (multiple APs with different bonding)
-    private HashSet<(RadioBand Band, int Channel)> _overlappingWidthChannels = new();
+    // Second group for overlapping channels (renders bottom/cup when first group renders top/hat)
+    private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups2 = new();
 
     private readonly RadioBand[] _bands = { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
 
@@ -673,13 +674,17 @@
         public string Position { get; set; } = "single";  // "start", "middle", "end", "single"
         public string ApName { get; set; } = "";
         public RadioBand Band { get; set; }     // Band for color matching
+        public bool IsOddGroup => GroupId % 2 == 0;  // First group (0) is "odd", second (1) is "even", etc.
     }
 
     private void CalculateWidthGroups(List<RadioSnapshot> allRadios)
     {
         _widthGroups.Clear();
-        _overlappingWidthChannels.Clear();
-        var groupId = 0;
+        _widthGroups2.Clear();
+
+        // Step 1: Collect all unique width groups (band + primary channel + channel list)
+        // Use primary channel (the channel the AP is actually on) for sorting
+        var uniqueGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
 
         foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
         {
@@ -690,53 +695,97 @@
 
             var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width);
 
-            if (spannedChannels.Count <= 1)
-            {
-                // Single channel (20 MHz)
-                if (!_widthGroups.ContainsKey((band, primaryChannel)))
-                {
-                    _widthGroups[(band, primaryChannel)] = new WidthGroupInfo
-                    {
-                        Width = width,
-                        GroupId = groupId++,
-                        Position = "single",
-                        ApName = apName,
-                        Band = band
-                    };
-                }
-                else
-                {
-                    // Already in a group - mark as overlapping
-                    _overlappingWidthChannels.Add((band, primaryChannel));
-                }
-            }
-            else
-            {
-                // Multiple channels - mark positions
-                var currentGroupId = groupId++;
-                for (int i = 0; i < spannedChannels.Count; i++)
-                {
-                    var ch = spannedChannels[i];
-                    var position = i == 0 ? "start" : i == spannedChannels.Count - 1 ? "end" : "middle";
+            // De-duplicate by channel span - same span = same group
+            // Different widths on same channel = different groups (different spans)
+            var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
+            var alreadyExists = uniqueGroups.Any(g =>
+                g.Band == band &&
+                g.Channels.Count == orderedChannels.Count &&
+                g.Channels.SequenceEqual(orderedChannels));
 
-                    if (!_widthGroups.ContainsKey((band, ch)))
-                    {
-                        _widthGroups[(band, ch)] = new WidthGroupInfo
-                        {
-                            Width = width,
-                            GroupId = currentGroupId,
-                            Position = position,
-                            ApName = apName,
-                            Band = band
-                        };
-                    }
-                    else
-                    {
-                        // Already in a different group - mark as overlapping
-                        _overlappingWidthChannels.Add((band, ch));
-                    }
-                }
+            // Debug: Log each radio being processed
+            Logger.LogWarning("[WidthGroups] Processing radio: {Band} ch{Channel}({Width}MHz) '{ApName}' -> spans [{Channels}], alreadyExists={Exists}",
+                band.ToDisplayString(), primaryChannel, width, apName, string.Join(",", orderedChannels), alreadyExists);
+
+            if (!alreadyExists)
+            {
+                uniqueGroups.Add((band, primaryChannel, orderedChannels, width, apName));
             }
+        }
+
+        // Step 2: Sort by band then primary channel, and assign group IDs PER BAND
+        var sortedGroups = uniqueGroups
+            .OrderBy(g => g.Band)
+            .ThenBy(g => g.PrimaryChannel)
+            .ToList();
+
+        // Debug: Log unique groups per band
+        foreach (var band in _bands)
+        {
+            var bandGroups = sortedGroups.Where(g => g.Band == band).ToList();
+            if (bandGroups.Any())
+            {
+                var groupInfo = string.Join(", ", bandGroups.Select(g => $"ch{g.PrimaryChannel}({g.Width}MHz)"));
+                Logger.LogWarning("[WidthGroups] {Band}: {Count} unique groups - {Groups}",
+                    band.ToDisplayString(), bandGroups.Count, groupInfo);
+            }
+        }
+
+        // Step 3: Assign group IDs per band and populate _widthGroups
+        var groupIdPerBand = new Dictionary<RadioBand, int>();
+
+        foreach (var group in sortedGroups)
+        {
+            // Get or initialize group ID counter for this band
+            if (!groupIdPerBand.TryGetValue(group.Band, out var groupId))
+            {
+                groupId = 0;
+            }
+
+            var channels = group.Channels;
+
+            // Debug: Log group assignment
+            var hatOrCup = (groupId % 2 == 0) ? "hat" : "cup";
+            Logger.LogWarning("[WidthGroups] {Band} ch{Primary}: GroupId={GroupId} ({HatCup}), spans [{Channels}]",
+                group.Band.ToDisplayString(), group.PrimaryChannel, groupId, hatOrCup,
+                string.Join(",", channels));
+
+            for (int i = 0; i < channels.Count; i++)
+            {
+                var ch = channels[i];
+                var position = channels.Count == 1 ? "single"
+                    : i == 0 ? "start"
+                    : i == channels.Count - 1 ? "end"
+                    : "middle";
+
+                var key = (group.Band, ch);
+                var groupInfo = new WidthGroupInfo
+                {
+                    Width = group.Width,
+                    GroupId = groupId,
+                    Position = position,
+                    ApName = group.ApName,
+                    Band = group.Band
+                };
+
+                if (!_widthGroups.ContainsKey(key))
+                {
+                    _widthGroups[key] = groupInfo;
+                    Logger.LogWarning("[WidthGroups] Added to _widthGroups: {Band} ch{Ch} -> GroupId={GroupId}, position={Position}",
+                        group.Band.ToDisplayString(), ch, groupId, position);
+                }
+                else if (!_widthGroups2.ContainsKey(key))
+                {
+                    // Second group for this channel - store for additive rendering
+                    _widthGroups2[key] = groupInfo;
+                    Logger.LogWarning("[WidthGroups] Added to _widthGroups2: {Band} ch{Ch} -> GroupId={GroupId}, position={Position}",
+                        group.Band.ToDisplayString(), ch, groupId, position);
+                }
+                // Third+ groups ignored for now
+            }
+
+            // Increment group ID for this band
+            groupIdPerBand[group.Band] = groupId + 1;
         }
     }
 
@@ -891,7 +940,8 @@
 
     private string GetChannelGroupClass(RadioBand band, int channel)
     {
-        if (_widthGroups.TryGetValue((band, channel), out var info))
+        var key = (band, channel);
+        if (_widthGroups.TryGetValue(key, out var info))
         {
             var bandClass = info.Band switch
             {
@@ -900,8 +950,25 @@
                 RadioBand.Band6GHz => "band-6ghz",
                 _ => ""
             };
-            var hatchClass = _overlappingWidthChannels.Contains((band, channel)) ? "width-overlap-hatched" : "";
-            return $"width-group {bandClass} group-{info.Position} {hatchClass}";
+            var oddEvenClass = info.IsOddGroup ? "group-odd" : "group-even";
+
+            // Check for second overlapping group
+            if (_widthGroups2.TryGetValue(key, out var info2))
+            {
+                var bandClass2 = info2.Band switch
+                {
+                    RadioBand.Band2_4GHz => "band-2ghz",
+                    RadioBand.Band5GHz => "band-5ghz",
+                    RadioBand.Band6GHz => "band-6ghz",
+                    _ => ""
+                };
+                var oddEvenClass2 = info2.IsOddGroup ? "group-odd" : "group-even";
+                // First group uses ::before, second group uses ::after (via has-group2 classes)
+                return $"width-group {bandClass} group-{info.Position} {oddEvenClass} " +
+                       $"has-group2 group2-{bandClass2} group2-{info2.Position} group2-{oddEvenClass2} width-overlap-hatched";
+            }
+
+            return $"width-group {bandClass} group-{info.Position} {oddEvenClass}";
         }
         return "";
     }
