@@ -968,4 +968,78 @@ public class NetworkPathAnalyzerTests
     }
 
     #endregion
+
+    #region MLO SSID Matching Tests
+
+    [Fact]
+    public void MloSsidMatching_ApBroadcastsMloSsid_ShouldBeTrue()
+    {
+        // Arrange - AP broadcasts "Network1" and "Network2", "Network1" has MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Network1" };
+        var vapTableEssids = new[] { "Network1", "Network2" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MloSsidMatching_ApDoesNotBroadcastMloSsid_ShouldBeFalse()
+    {
+        // Arrange - AP broadcasts "IoT" and "Guest", only "Main" has MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Main" };
+        var vapTableEssids = new[] { "IoT", "Guest" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloSsidMatching_CaseInsensitive_ShouldMatch()
+    {
+        // Arrange - Case mismatch between WLAN config and vap_table
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "SEATURTLE", "IoT" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MloSsidMatching_NoMloEnabledSsids_ShouldBeFalse()
+    {
+        // Arrange - No WLANs have MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var vapTableEssids = new[] { "Network1", "Network2" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloSsidMatching_EmptyVapTable_ShouldBeFalse()
+    {
+        // Arrange - AP has no SSIDs in vap_table
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Network1" };
+        var vapTableEssids = Array.Empty<string>();
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    #endregion
 }

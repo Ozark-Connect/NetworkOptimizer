@@ -1050,17 +1050,25 @@ public class UniFiApiClient : IDisposable
     {
         _logger.LogDebug("Fetching WLAN configurations from site {Site}", _site);
 
-        var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiWlanConfig>>(
-            () => _httpClient!.GetAsync(BuildApiPath("rest/wlanconf"), cancellationToken),
-            cancellationToken);
-
-        if (response?.Meta.Rc == "ok")
+        try
         {
-            _logger.LogDebug("Retrieved {Count} WLAN configurations", response.Data.Count);
-            return response.Data;
+            var response = await ExecuteApiCallAsync<UniFiApiResponse<UniFiWlanConfig>>(
+                () => _httpClient!.GetAsync(BuildApiPath("rest/wlanconf"), cancellationToken),
+                cancellationToken);
+
+            if (response?.Meta.Rc == "ok")
+            {
+                _logger.LogDebug("Retrieved {Count} WLAN configurations", response.Data.Count);
+                return response.Data;
+            }
+
+            _logger.LogWarning("Failed to retrieve WLAN configurations or received non-ok response");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching or parsing WLAN configurations");
         }
 
-        _logger.LogWarning("Failed to retrieve WLAN configurations or received non-ok response");
         return new List<UniFiWlanConfig>();
     }
 
