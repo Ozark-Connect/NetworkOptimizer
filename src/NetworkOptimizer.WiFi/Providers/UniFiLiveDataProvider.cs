@@ -286,11 +286,12 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     evt.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(tsProp.GetInt64());
 
                 // Determine event type from key
+                // Note: Check DISCONNECTED before CONNECTED since "DISCONNECTED" contains "CONNECTED"
                 evt.Type = evt.Key switch
                 {
                     var k when k.Contains("ROAMED") => ClientConnectionEventType.Roamed,
-                    var k when k.Contains("CONNECTED") => ClientConnectionEventType.Connected,
                     var k when k.Contains("DISCONNECTED") => ClientConnectionEventType.Disconnected,
+                    var k when k.Contains("CONNECTED") => ClientConnectionEventType.Connected,
                     _ => ClientConnectionEventType.Unknown
                 };
 
