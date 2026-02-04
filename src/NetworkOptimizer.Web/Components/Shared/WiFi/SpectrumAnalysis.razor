@@ -138,7 +138,14 @@
                 <h2 class="card-title">Channel Density</h2>
                 <div class="channel-legend">
                     <span class="legend-item"><span class="legend-bar neighbors"></span> Neighbors</span>
-                    <span class="legend-item"><span class="legend-bar your-ap"></span> Your APs</span>
+                    @if (string.IsNullOrEmpty(selectedApMac))
+                    {
+                        <span class="legend-item"><span class="legend-bar your-ap"></span> Your APs</span>
+                    }
+                    else
+                    {
+                        <span class="legend-item"><span class="legend-bar selected-ap"></span> @GetSelectedApLabel()</span>
+                    }
                 </div>
             </div>
             <div class="card-body">
@@ -146,7 +153,7 @@
                     @foreach (var channelGroup in GetChannelDensity())
                     {
                         <div class="channel-bar-container">
-                            <div class="channel-label @(channelGroup.IsYourChannel ? "your-channel" : "") @(channelGroup.IsDfs ? "dfs-channel" : "")">
+                            <div class="channel-label @(channelGroup.IsSelectedApChannel ? "selected-ap-channel" : channelGroup.IsYourChannel ? "your-channel" : "") @(channelGroup.IsDfs ? "dfs-channel" : "")">
                                 @channelGroup.Channel
                                 @if (channelGroup.IsDfs)
                                 {
@@ -165,7 +172,7 @@
                                 <div class="channel-bar-wrapper your-ap-bar-wrapper">
                                     @if (channelGroup.IsYourChannel)
                                     {
-                                        <div class="channel-bar your-ap-bar"
+                                        <div class="channel-bar your-ap-bar @(channelGroup.IsSelectedApChannel ? "selected-ap" : "")"
                                              style="width: 100%"
                                              data-tooltip="@string.Join(", ", channelGroup.YourApNames)">
                                         </div>
@@ -176,7 +183,7 @@
                                 <span class="channel-count">@channelGroup.Count</span>
                                 @if (channelGroup.IsYourChannel)
                                 {
-                                    <span class="your-ap-count" data-tooltip="@string.Join(", ", channelGroup.YourApNames)">@channelGroup.YourApCount</span>
+                                    <span class="your-ap-count @(channelGroup.IsSelectedApChannel ? "selected-ap" : "")" data-tooltip="@string.Join(", ", channelGroup.YourApNames)">@channelGroup.YourApCount</span>
                                 }
                             </div>
                         </div>
@@ -510,6 +517,10 @@
         background: #3b82f6;
     }
 
+    .legend-bar.selected-ap {
+        background: #a855f7;
+    }
+
     .channel-bar-container {
         display: flex;
         align-items: center;
@@ -526,6 +537,11 @@
 
     .channel-label.your-channel {
         color: #3b82f6;
+        font-weight: 600;
+    }
+
+    .channel-label.selected-ap-channel {
+        color: #a855f7;
         font-weight: 600;
     }
 
@@ -583,6 +599,10 @@
         background: #3b82f6;
     }
 
+    .channel-bar.your-ap-bar.selected-ap {
+        background: #a855f7;
+    }
+
     .channel-count-wrapper {
         display: flex;
         flex-direction: column;
@@ -602,6 +622,10 @@
         color: #3b82f6;
         font-weight: 600;
         line-height: 1;
+    }
+
+    .your-ap-count.selected-ap {
+        color: #a855f7;
     }
 
     /* Network Table */
@@ -857,7 +881,7 @@
                 accessPoints.Count, scanResults.Count);
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
-            // but track all APs that detected each network
+            // but track all APs that detected each network (both names and MACs for filtering)
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -871,6 +895,7 @@
                 {
                     var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
                     strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
+                    strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
                     return strongest;
                 })
                 .ToList();
@@ -905,7 +930,7 @@
             scanResults = scanTask.Result;
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
-            // but track all APs that detected each network
+            // but track all APs that detected each network (both names and MACs for filtering)
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -919,6 +944,7 @@
                 {
                     var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
                     strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
+                    strongest.DetectedByApMacs = g.Select(n => n.ApMac.ToLowerInvariant()).Distinct().ToList();
                     return strongest;
                 })
                 .ToList();
@@ -936,7 +962,7 @@
 
     private List<NeighborWithAp> filteredNeighbors =>
         allNeighbors
-            .Where(n => string.IsNullOrEmpty(selectedApMac) || n.ApMac == selectedApMac)
+            .Where(n => string.IsNullOrEmpty(selectedApMac) || n.DetectedByApMacs.Contains(selectedApMac.ToLowerInvariant()))
             .Where(n => n.Band == selectedBand)
             .ToList();
 
@@ -1035,11 +1061,25 @@
         var yourApsByChannel = accessPoints
             .SelectMany(ap => ap.Radios
                 .Where(r => r.Channel.HasValue && r.Band == selectedBand)
-                .Select(r => new { Channel = r.Channel!.Value, ApName = ap.Name }))
+                .Select(r => new { Channel = r.Channel!.Value, ApName = ap.Name, ApMac = ap.Mac }))
             .GroupBy(x => x.Channel)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.ApName).ToList());
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var yourChannels = yourApsByChannel.Keys.ToHashSet();
+
+        // Get channels used by the selected AP (if one is selected)
+        var selectedApChannels = new HashSet<int>();
+        if (!string.IsNullOrEmpty(selectedApMac))
+        {
+            var selectedAp = accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac);
+            if (selectedAp != null)
+            {
+                selectedApChannels = selectedAp.Radios
+                    .Where(r => r.Channel.HasValue && r.Band == selectedBand)
+                    .Select(r => r.Channel!.Value)
+                    .ToHashSet();
+            }
+        }
 
         // Build density for channels with neighbors
         var neighborDensity = filteredNeighbors
@@ -1049,8 +1089,9 @@
                 Channel = g.Key,
                 Count = g.Count(),
                 IsYourChannel = yourChannels.Contains(g.Key),
+                IsSelectedApChannel = selectedApChannels.Contains(g.Key),
                 YourApCount = yourApsByChannel.GetValueOrDefault(g.Key)?.Count ?? 0,
-                YourApNames = yourApsByChannel.GetValueOrDefault(g.Key) ?? new List<string>(),
+                YourApNames = yourApsByChannel.GetValueOrDefault(g.Key)?.Select(x => x.ApName).ToList() ?? new List<string>(),
                 IsDfs = IsDfsChannel(g.Key),
                 Band = g.First().Band
             })
@@ -1067,8 +1108,9 @@
                 Channel = channel,
                 Count = 0,
                 IsYourChannel = true,
+                IsSelectedApChannel = selectedApChannels.Contains(channel),
                 YourApCount = yourApsByChannel[channel].Count,
-                YourApNames = yourApsByChannel[channel],
+                YourApNames = yourApsByChannel[channel].Select(x => x.ApName).ToList(),
                 IsDfs = IsDfsChannel(channel),
                 Band = selectedBand
             });
@@ -1258,6 +1300,7 @@
         public string ApName { get; set; } = "";
         public RadioBand Band { get; set; }
         public List<string> DetectedByAps { get; set; } = new();
+        public List<string> DetectedByApMacs { get; set; } = new();
     }
 
     private class ChannelDensity
@@ -1265,6 +1308,7 @@
         public int Channel { get; set; }
         public int Count { get; set; }
         public bool IsYourChannel { get; set; }
+        public bool IsSelectedApChannel { get; set; } // True when a specific AP is selected and it uses this channel
         public int YourApCount { get; set; }
         public List<string> YourApNames { get; set; } = new();
         public bool IsDfs { get; set; }
