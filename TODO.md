@@ -106,26 +106,21 @@ New audit section focused on network performance issues (distinct from security 
 - Severity: Warning (mismatches cause performance degradation or silent drops)
 - Prerequisite: Reuse SSH infrastructure from SQM/gateway speed tests
 
-### AP / RF Performance Analysis (Design Session Needed)
-- **Goal:** Provide RF performance insights beyond what UniFi Network offers natively
-- **Prerequisite:** Reuse all device classification logic from Security Audit
-- **Potential features to explore:**
-  - Channel utilization analysis per AP
-  - Client distribution balance across APs
-  - Signal strength / SNR reporting per client
-  - Interference detection (co-channel, adjacent channel)
-  - Band steering effectiveness (are 5 GHz capable devices on 2.4 GHz?)
-  - Roaming analysis (frequent roamers, sticky clients)
-  - Airtime fairness issues (slow clients impacting fast clients)
-  - AP placement recommendations based on client distribution
-- **Data sources to investigate:**
-  - UniFi API: What RF metrics are available?
-  - SNMP: Additional metrics not exposed via API?
-  - Client connection history: Roaming patterns
-- **Design questions:**
-  - What problems do users actually face that UniFi doesn't surface well?
-  - What's actionable vs just informational?
-  - How do we present RF data to non-experts?
+### WiFi Optimizer Enhancements
+- **Co-channel interference severity scaling:** Reduce urgency/severity of co-channel interference warnings as AP count increases. With many APs in a dense deployment, some co-channel overlap is unavoidable and expected. Current warnings may be too aggressive for larger deployments.
+- **MLO per-AP detection:** Check MLO status per-AP based on which SSIDs each AP broadcasts (via vap_table), not just global WLAN config. An AP only has MLO impact if it broadcasts an MLO-enabled SSID.
+
+#### Implemented Features (v1.x)
+The following were implemented in the WiFi Optimizer feature:
+- ✅ Channel utilization analysis per AP (Airtime Fairness tab)
+- ✅ Client distribution balance across APs (AP Load Balance tab)
+- ✅ Signal strength / SNR reporting per client (multiple components)
+- ✅ Interference detection - co-channel, adjacent channel (Spectrum Analysis tab)
+- ✅ Band steering effectiveness analysis (Band Steering tab)
+- ✅ Roaming topology visualization (Connectivity Flow tab)
+- ✅ Airtime fairness issues - legacy client impact (Airtime Fairness tab)
+- ✅ Site health score with dimensional breakdown
+- ✅ Power/coverage analysis with TX power recommendations
 
 ## SQM (Smart Queue Management)
 
