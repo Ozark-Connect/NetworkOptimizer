@@ -467,7 +467,7 @@ public class SiteHealthScorer
         {
             score.Issues.Add(new HealthIssue
             {
-                Severity = client.Signal < -80 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
+                Severity = client.Signal < -82 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimension = "Signal Quality",
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm)",
