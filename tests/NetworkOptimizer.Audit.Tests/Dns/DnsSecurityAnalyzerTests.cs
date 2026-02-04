@@ -7349,7 +7349,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
             new NetworkInfo
             {
                 Id = "net1",
-                Name = "TJ Work",
+                Name = "Office Network",
                 VlanId = 30,
                 DhcpEnabled = true,
                 Gateway = "192.168.30.1",
@@ -7376,7 +7376,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var externalDnsIssues = result.Issues.Where(i => i.Type == IssueTypes.DnsExternalBypass).ToList();
         externalDnsIssues.Should().HaveCount(1);
         externalDnsIssues[0].Severity.Should().Be(AuditSeverity.Recommended);
-        externalDnsIssues[0].Message.Should().Contain("TJ Work");
+        externalDnsIssues[0].Message.Should().Contain("Office Network");
         externalDnsIssues[0].Message.Should().Contain("private DNS servers outside configured subnets");
         externalDnsIssues[0].Message.Should().Contain("192.168.3.254");
     }

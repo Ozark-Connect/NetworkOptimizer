@@ -1004,7 +1004,7 @@ public class NetworkPathAnalyzerTests
     {
         // Arrange - Case mismatch between WLAN config and vap_table
         var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
-        var vapTableEssids = new[] { "SEATURTLE", "IoT" };
+        var vapTableEssids = new[] { "HOMENETWORK", "IoT" };
 
         // Act
         var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
