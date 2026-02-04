@@ -6876,13 +6876,13 @@ select.form-control {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 64px;
-    height: 64px;
+    width: 48px;
+    height: 48px;
 }
 
 .node-icon {
-    width: 64px;
-    height: 64px;
+    width: 48px;
+    height: 48px;
     background: var(--bg-secondary);
     border: 2px solid var(--primary-color);
     border-radius: 50%;
