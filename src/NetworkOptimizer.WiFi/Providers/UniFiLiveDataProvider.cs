@@ -1067,53 +1067,6 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return metrics;
     }
 
-    private List<WlanConfiguration> ParseWlanConfigurations(JsonElement data)
-    {
-        var configs = new List<WlanConfiguration>();
-
-        if (data.ValueKind != JsonValueKind.Array) return configs;
-
-        foreach (var item in data.EnumerateArray())
-        {
-            var config = item.GetProperty("configuration");
-            var stats = item.TryGetProperty("statistics", out var statsEl) ? statsEl : default;
-
-            // Debug: Check if mlo_enabled exists and its value
-            var wlanName = config.TryGetProperty("name", out var n) ? n.GetString() : "?";
-            var hasMlo = config.TryGetProperty("mlo_enabled", out var mloVal);
-            _logger.LogDebug("WLAN '{Name}' raw mlo_enabled: exists={Exists}, value={Value}",
-                wlanName, hasMlo, hasMlo ? mloVal.ToString() : "N/A");
-
-            configs.Add(new WlanConfiguration
-            {
-                Id = config.GetProperty("_id").GetString() ?? "",
-                Name = config.GetProperty("name").GetString() ?? "",
-                Enabled = config.TryGetProperty("enabled", out var enabled) && enabled.GetBoolean(),
-                IsGuest = config.TryGetProperty("is_guest", out var guest) && guest.GetBoolean(),
-                HideSsid = config.TryGetProperty("hide_ssid", out var hidden) && hidden.GetBoolean(),
-                FastRoamingEnabled = config.TryGetProperty("fast_roaming_enabled", out var fr) && fr.GetBoolean(),
-                BssTransitionEnabled = config.TryGetProperty("bss_transition", out var bss) && bss.GetBoolean(),
-                L2IsolationEnabled = config.TryGetProperty("l2_isolation", out var l2) && l2.GetBoolean(),
-                BandSteeringEnabled = config.TryGetProperty("no2ghz_oui", out var bs) && bs.GetBoolean(),
-                MloEnabled = config.TryGetProperty("mlo_enabled", out var mlo) && mlo.GetBoolean(),
-                CurrentClientCount = stats.ValueKind != JsonValueKind.Undefined
-                    ? stats.TryGetProperty("current_client_count", out var cc) ? cc.GetInt32() : 0
-                    : 0,
-                CurrentApCount = stats.ValueKind != JsonValueKind.Undefined
-                    ? stats.TryGetProperty("current_access_point_count", out var ac) ? ac.GetInt32() : 0
-                    : 0,
-                CurrentSatisfaction = stats.ValueKind != JsonValueKind.Undefined
-                    ? stats.TryGetProperty("current_satisfaction", out var cs) ? cs.GetInt32() : (int?)null
-                    : null,
-                PeakClientCount = stats.ValueKind != JsonValueKind.Undefined
-                    ? stats.TryGetProperty("peak_client_count", out var pc) ? pc.GetInt32() : (int?)null
-                    : null
-            });
-        }
-
-        return configs;
-    }
-
     private RoamingTopology? ParseRoamingTopology(JsonElement data)
     {
         if (data.ValueKind == JsonValueKind.Undefined) return null;
