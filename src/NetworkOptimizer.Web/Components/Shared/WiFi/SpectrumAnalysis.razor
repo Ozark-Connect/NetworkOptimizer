@@ -224,7 +224,7 @@
                                     </td>
                                     <td class="monospace">@item.Network.Bssid</td>
                                     <td>
-                                        <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel) ? "dfs" : "")">
+                                        <span class="channel-badge @GetBandClass(item.Band) @(IsDfsChannel(item.Network.Channel, item.Band) ? "dfs" : "")">
                                             @item.Network.Channel
                                         </span>
                                     </td>
@@ -1089,7 +1089,7 @@
                 IsSelectedApChannel = selectedApChannels.Contains(g.Key),
                 YourApCount = yourApsByChannel.GetValueOrDefault(g.Key)?.Count ?? 0,
                 YourApNames = yourApsByChannel.GetValueOrDefault(g.Key)?.Select(x => x.ApName).ToList() ?? new List<string>(),
-                IsDfs = IsDfsChannel(g.Key),
+                IsDfs = IsDfsChannel(g.Key, g.First().Band),
                 Band = g.First().Band
             })
             .ToList();
@@ -1108,7 +1108,7 @@
                 IsSelectedApChannel = selectedApChannels.Contains(channel),
                 YourApCount = yourApsByChannel[channel].Count,
                 YourApNames = yourApsByChannel[channel].Select(x => x.ApName).ToList(),
-                IsDfs = IsDfsChannel(channel),
+                IsDfs = IsDfsChannel(channel, selectedBand),
                 Band = selectedBand
             });
         }
@@ -1258,7 +1258,7 @@
 
         // Check for DFS opportunity
         var availableDfs = GetAvailableDfsChannels();
-        if (availableDfs > 10 && !yourChannels.Any(c => c.Band == RadioBand.Band5GHz && IsDfsChannel(c.Channel)))
+        if (availableDfs > 10 && !yourChannels.Any(c => c.Band == RadioBand.Band5GHz && IsDfsChannel(c.Channel, c.Band)))
         {
             recommendations.Add(new Recommendation
             {
@@ -1286,8 +1286,9 @@
         return recommendations;
     }
 
-    private bool IsDfsChannel(int channel) =>
-        (channel >= 52 && channel <= 64) || (channel >= 100 && channel <= 144);
+    private bool IsDfsChannel(int channel, RadioBand band) =>
+        band == RadioBand.Band5GHz &&
+        ((channel >= 52 && channel <= 64) || (channel >= 100 && channel <= 144));
 
     // Helper classes
     private class NeighborWithAp
