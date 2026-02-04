@@ -7519,6 +7519,23 @@ select.form-control {
     border-radius: 0 4px 4px 0;
 }
 
+/* Hatched pattern for overlapping width groups */
+.channel-slot.width-overlap-hatched::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 3px,
+        var(--group-border-color) 3px,
+        var(--group-border-color) 5px
+    );
+    opacity: 0.25;
+    border-radius: 6px;
+    pointer-events: none;
+}
+
 .channel-number {
     font-size: 0.875rem;
     font-weight: 600;

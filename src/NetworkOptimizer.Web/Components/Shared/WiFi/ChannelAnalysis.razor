@@ -306,6 +306,8 @@
 
     // Width groups: maps (band, channel) -> group info for visual grouping
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
+    // Channels that have overlapping width groups (multiple APs with different bonding)
+    private HashSet<(RadioBand Band, int Channel)> _overlappingWidthChannels = new();
 
     private readonly RadioBand[] _bands = { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
 
@@ -676,6 +678,7 @@
     private void CalculateWidthGroups(List<RadioSnapshot> allRadios)
     {
         _widthGroups.Clear();
+        _overlappingWidthChannels.Clear();
         var groupId = 0;
 
         foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
@@ -701,6 +704,11 @@
                         Band = band
                     };
                 }
+                else
+                {
+                    // Already in a group - mark as overlapping
+                    _overlappingWidthChannels.Add((band, primaryChannel));
+                }
             }
             else
             {
@@ -711,7 +719,6 @@
                     var ch = spannedChannels[i];
                     var position = i == 0 ? "start" : i == spannedChannels.Count - 1 ? "end" : "middle";
 
-                    // Only add if not already in a group (first AP wins)
                     if (!_widthGroups.ContainsKey((band, ch)))
                     {
                         _widthGroups[(band, ch)] = new WidthGroupInfo
@@ -722,6 +729,11 @@
                             ApName = apName,
                             Band = band
                         };
+                    }
+                    else
+                    {
+                        // Already in a different group - mark as overlapping
+                        _overlappingWidthChannels.Add((band, ch));
                     }
                 }
             }
@@ -888,7 +900,8 @@
                 RadioBand.Band6GHz => "band-6ghz",
                 _ => ""
             };
-            return $"width-group {bandClass} group-{info.Position}";
+            var hatchClass = _overlappingWidthChannels.Contains((band, channel)) ? "width-overlap-hatched" : "";
+            return $"width-group {bandClass} group-{info.Position} {hatchClass}";
         }
         return "";
     }
