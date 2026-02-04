@@ -585,7 +585,7 @@
                 Type = "info",
                 Title = "Consider Minimum RSSI (With Caution)",
                 Description = $"{apsWithoutMinRssi.Count} APs don't have Minimum RSSI enabled. This can help sticky clients roam, but it hard-disconnects them when signal drops below threshold.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum RSSI. Use a conservative threshold like -75 to -80 dBm to avoid aggressive disconnects."
+                Action = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). Use a conservative threshold like -75 to -80 dBm. Consider setting higher (less aggressive) for perimeter APs."
             });
         }
 
@@ -600,7 +600,7 @@
                 Type = "info",
                 Title = "Enable Roaming Assistant (Recommended)",
                 Description = $"{apsWithout5gRoamingAssistant.Count} AP(s) don't have Roaming Assistant enabled on 5 GHz. Unlike Minimum RSSI, this uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Roaming Assistant. Recommended threshold: -70 to -75 dBm."
+                Action = "Per AP: Devices > (AP) > Settings > Radios > 5 GHz > Roaming Assistant. Or globally: Settings > WiFi > 5 GHz Roaming Assistant with 'Override All APs'. Recommended threshold: -70 to -75 dBm. Consider setting higher (less aggressive) for perimeter APs."
             });
         }
 
