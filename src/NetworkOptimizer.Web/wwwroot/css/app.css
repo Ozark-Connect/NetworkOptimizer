@@ -10694,7 +10694,7 @@ select.form-control {
     color: var(--text-muted);
 }
 
-.status-icon {
+.status-card .status-icon {
     position: absolute;
     top: 0.75rem;
     right: 0.75rem;
