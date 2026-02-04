@@ -6100,7 +6100,7 @@ select.form-control {
     gap: 1rem;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     border-radius: 8px;
     border-left: 4px solid var(--border-color);
 }
@@ -6184,7 +6184,7 @@ select.form-control {
 .wifi-issue-action {
     font-size: 0.8rem;
     padding: 0.5rem 0.75rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: 6px;
     color: var(--text-secondary);
     white-space: nowrap;
