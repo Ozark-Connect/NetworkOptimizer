@@ -282,6 +282,7 @@
     private List<WirelessClientSnapshot> _highAirtimeClientsList = new();
 
     private List<Recommendation> _recommendations = new();
+    private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -298,12 +299,14 @@
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
             var wlanTask = WiFiService.GetWlanConfigurationsAsync();
+            var healthTask = WiFiService.GetSiteHealthScoreAsync();
 
-            await Task.WhenAll(apsTask, clientsTask, wlanTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
 
             AnalyzeAirtime();
             GenerateRecommendations();
@@ -325,12 +328,14 @@
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
             var wlanTask = WiFiService.GetWlanConfigurationsAsync(forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask, wlanTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
 
             AnalyzeAirtime();
             GenerateRecommendations();
@@ -385,16 +390,20 @@
     {
         _recommendations.Clear();
 
-        // MLO enabled
-        if (_wlanConfigs.Any(w => w.Enabled && w.MloEnabled))
+        // Pull Airtime Efficiency issues from health score (single source of truth)
+        if (_healthScore != null)
         {
-            _recommendations.Add(new Recommendation
+            foreach (var issue in _healthScore.Issues.Where(i => i.Dimension == "Airtime Efficiency"))
             {
-                Type = "info",
-                Title = "MLO enabled",
-                Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO can improve speeds for Wi-Fi 7 devices but has been observed to reduce 5 GHz and 6 GHz throughput for non-MLO clients.",
-                Action = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing reduced throughput"
-            });
+                _recommendations.Add(new Recommendation
+                {
+                    Type = issue.Severity == HealthIssueSeverity.Critical ? "warning" :
+                           issue.Severity == HealthIssueSeverity.Warning ? "warning" : "info",
+                    Title = issue.Title,
+                    Description = issue.Description,
+                    Action = issue.Recommendation ?? ""
+                });
+            }
         }
 
         // High utilization radios
