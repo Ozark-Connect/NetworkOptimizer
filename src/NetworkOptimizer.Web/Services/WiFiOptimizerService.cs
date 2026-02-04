@@ -204,6 +204,20 @@ public class WiFiOptimizerService
             _cachedRoamingData = await roamingTask;
             _lastRefresh = DateTimeOffset.UtcNow;
 
+            // Enrich roaming topology with proper model names from AP data
+            if (_cachedRoamingData != null && _cachedAps.Count > 0)
+            {
+                foreach (var vertex in _cachedRoamingData.Vertices)
+                {
+                    var ap = _cachedAps.FirstOrDefault(a =>
+                        string.Equals(a.Mac, vertex.Mac, StringComparison.OrdinalIgnoreCase));
+                    if (ap != null)
+                    {
+                        vertex.Model = ap.Model; // Use the friendly model name
+                    }
+                }
+            }
+
             _logger.LogDebug("Refreshed Wi-Fi data: {ApCount} APs, {ClientCount} clients",
                 _cachedAps.Count, _cachedClients.Count);
         }
