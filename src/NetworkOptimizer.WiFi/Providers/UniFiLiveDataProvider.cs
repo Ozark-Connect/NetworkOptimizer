@@ -294,6 +294,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     _ => ClientConnectionEventType.Unknown
                 };
 
+                // Debug: log event key and whether it has WIFI_STATS
+                var hasWifiStats = item.TryGetProperty("parameters", out var p) && p.TryGetProperty("WIFI_STATS", out _);
+                _logger.LogDebug("Event: key={Key}, type={Type}, hasWifiStats={HasWifiStats}", evt.Key, evt.Type, hasWifiStats);
+
                 // Parse parameters
                 if (item.TryGetProperty("parameters", out var paramsProp))
                 {
