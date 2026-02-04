@@ -5782,10 +5782,11 @@ select.form-control {
 
 /* Stat icon SVG */
 .stat-icon-svg {
-    width: 2rem;
-    height: 2rem;
+    width: 3rem;
+    height: 3rem;
     opacity: 0.8;
     color: var(--primary);
+    flex-shrink: 0;
 }
 
 /* Health score icon in stat card */
