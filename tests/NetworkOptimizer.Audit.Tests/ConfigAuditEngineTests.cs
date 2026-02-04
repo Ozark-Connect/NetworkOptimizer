@@ -229,7 +229,7 @@ public class ConfigAuditEngineTests
         var report = _engine.GenerateTextReport(auditResult);
 
         report.Should().Contain("SWITCH DETAILS");
-        report.Should().Contain("Main Switch");
+        report.Should().Contain("[Switch] Main");  // Name is stripped and prefixed with [Switch]
         report.Should().Contain("Switch 48 PoE");
     }
 
