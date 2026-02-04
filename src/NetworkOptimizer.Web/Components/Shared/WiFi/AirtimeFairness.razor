@@ -75,7 +75,7 @@
             </div>
 
             <div class="radio-utilization-grid">
-                @foreach (var ap in _accessPoints.OrderBy(a => a.Name))
+                @foreach (var ap in _accessPoints)
                 {
                     <div class="radio-util-card">
                         <div class="radio-util-header">
@@ -211,7 +211,7 @@
             </div>
 
             <div class="retry-rate-list">
-                @foreach (var ap in _accessPoints.OrderBy(a => a.Name))
+                @foreach (var ap in _accessPoints)
                 {
                     foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue && r.TxRetriesPct.HasValue))
                     {

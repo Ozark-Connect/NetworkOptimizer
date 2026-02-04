@@ -1,3 +1,4 @@
+using System.Net;
 using NetworkOptimizer.WiFi.Models;
 
 namespace NetworkOptimizer.Web.Components.Shared.WiFi;
@@ -7,6 +8,26 @@ namespace NetworkOptimizer.Web.Components.Shared.WiFi;
 /// </summary>
 public static class WiFiAnalysisHelpers
 {
+    /// <summary>
+    /// Sort access points by IP address (ascending, proper numeric sorting).
+    /// APs without valid IPs are placed at the end.
+    /// </summary>
+    public static List<AccessPointSnapshot> SortByIp(IEnumerable<AccessPointSnapshot> aps)
+    {
+        return aps
+            .OrderBy(ap =>
+            {
+                if (IPAddress.TryParse(ap.Ip, out var ip))
+                {
+                    var bytes = ip.GetAddressBytes();
+                    if (bytes.Length == 4)
+                        return ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+                }
+                return uint.MaxValue;
+            })
+            .ToList();
+    }
+
     /// <summary>
     /// Filters out APs that are mesh parent/child pairs on the same channel.
     /// Mesh pairs must be on the same channel to communicate, so it's expected.
