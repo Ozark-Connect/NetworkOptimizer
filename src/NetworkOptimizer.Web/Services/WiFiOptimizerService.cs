@@ -245,6 +245,13 @@ public class WiFiOptimizerService
             _cachedWlanConfigs = await wlanTask;
             _lastRefresh = DateTimeOffset.UtcNow;
 
+            // Debug: Log WLAN configs and MLO status
+            foreach (var wlan in _cachedWlanConfigs)
+            {
+                _logger.LogDebug("WLAN '{Name}': Enabled={Enabled}, MloEnabled={MloEnabled}",
+                    wlan.Name, wlan.Enabled, wlan.MloEnabled);
+            }
+
             // Enrich roaming topology with proper model names from AP data
             if (_cachedRoamingData != null && _cachedAps.Count > 0)
             {
