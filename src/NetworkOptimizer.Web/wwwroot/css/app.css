@@ -5789,6 +5789,11 @@ select.form-control {
     flex-shrink: 0;
 }
 
+.stat-icon-svg.stat-icon-sm {
+    width: 2.5rem;
+    height: 2.5rem;
+}
+
 /* Health score icon in stat card */
 .wifi-health-icon {
     display: flex;
