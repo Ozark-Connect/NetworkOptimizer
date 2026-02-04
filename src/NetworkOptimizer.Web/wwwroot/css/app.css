@@ -6768,8 +6768,9 @@ select.form-control {
 }
 
 .wifi-view-tab.active {
-    background: var(--primary);
+    background: var(--primary-color);
     color: white;
+    border-radius: 4px;
 }
 
 /* ============================================
