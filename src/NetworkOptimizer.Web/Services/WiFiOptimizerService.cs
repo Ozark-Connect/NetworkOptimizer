@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.UniFi;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
@@ -35,6 +36,20 @@ public class WiFiOptimizerService
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
+    }
+
+    /// <summary>
+    /// Creates a UniFiLiveDataProvider with required dependencies.
+    /// </summary>
+    private UniFiLiveDataProvider CreateProvider()
+    {
+        var discovery = new UniFiDiscovery(
+            _connectionService.Client!,
+            _loggerFactory.CreateLogger<UniFiDiscovery>());
+        return new UniFiLiveDataProvider(
+            _connectionService.Client!,
+            discovery,
+            _loggerFactory.CreateLogger<UniFiLiveDataProvider>());
     }
 
     /// <summary>
@@ -225,10 +240,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new UniFiLiveDataProvider(
-                _connectionService.Client,
-                _logger as ILogger<UniFiLiveDataProvider> ??
-                    Microsoft.Extensions.Logging.Abstractions.NullLogger<UniFiLiveDataProvider>.Instance);
+            var provider = CreateProvider();
 
             // Fetch data in parallel
             var apsTask = provider.GetAccessPointsAsync();
@@ -317,9 +329,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new WiFi.Providers.UniFiLiveDataProvider(
-                _connectionService.Client,
-                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+            var provider = CreateProvider();
 
             _cachedScanResults = await provider.GetChannelScanResultsAsync(
                 apMac: null,
@@ -351,9 +361,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new WiFi.Providers.UniFiLiveDataProvider(
-                _connectionService.Client,
-                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+            var provider = CreateProvider();
 
             return await provider.GetSiteMetricsAsync(start, end, granularity);
         }
@@ -381,9 +389,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new WiFi.Providers.UniFiLiveDataProvider(
-                _connectionService.Client,
-                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+            var provider = CreateProvider();
 
             return await provider.GetApMetricsAsync(apMacs, start, end, granularity);
         }
@@ -411,9 +417,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new WiFi.Providers.UniFiLiveDataProvider(
-                _connectionService.Client,
-                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+            var provider = CreateProvider();
 
             return await provider.GetClientMetricsAsync(clientMac, start, end, granularity);
         }
@@ -439,9 +443,7 @@ public class WiFiOptimizerService
 
         try
         {
-            var provider = new WiFi.Providers.UniFiLiveDataProvider(
-                _connectionService.Client,
-                _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
+            var provider = CreateProvider();
 
             return await provider.GetClientConnectionEventsAsync(clientMac, limit);
         }

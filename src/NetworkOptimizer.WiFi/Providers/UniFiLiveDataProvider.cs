@@ -9,66 +9,28 @@ namespace NetworkOptimizer.WiFi.Providers;
 
 /// <summary>
 /// Wi-Fi data provider that fetches live data from UniFi API.
-/// Wraps the existing UniFiApiClient.
+/// Uses UniFiDiscovery for centralized device classification.
 /// </summary>
 public class UniFiLiveDataProvider : IWiFiDataProvider
 {
     private readonly UniFiApiClient _client;
+    private readonly UniFiDiscovery _discovery;
     private readonly ILogger<UniFiLiveDataProvider> _logger;
 
-    public UniFiLiveDataProvider(UniFiApiClient client, ILogger<UniFiLiveDataProvider> logger)
+    public UniFiLiveDataProvider(UniFiApiClient client, UniFiDiscovery discovery, ILogger<UniFiLiveDataProvider> logger)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public string ProviderName => "UniFi Live";
     public bool SupportsHistoricalData => true; // Via stat/report endpoints
 
-    /// <summary>
-    /// Determines if a device is an access point using centralized classification.
-    /// Uses DeviceType with model-based filtering to exclude smart power devices.
-    /// Also handles UDM/UX devices acting as mesh APs.
-    /// </summary>
-    private static bool IsAccessPoint(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices)
-    {
-        // Use centralized device type classification (excludes smart power devices like USP-Strip)
-        var deviceType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
-
-        // Direct AP classification
-        if (deviceType == DeviceType.AccessPoint)
-            return true;
-
-        // Gateway-class devices (UDM, UDR, UX) may be acting as mesh APs
-        // Check if they have Wi-Fi radios and uplink to another UniFi device
-        if (deviceType == DeviceType.Gateway)
-        {
-            var hasRadios = device.RadioTable?.Count > 0 || device.RadioTableStats?.Count > 0;
-            if (!hasRadios) return false;
-
-            // Check if uplinked to another UniFi device (mesh AP mode)
-            var uplinkMac = device.Uplink?.UplinkMac;
-            if (string.IsNullOrEmpty(uplinkMac)) return false;
-
-            var allDeviceMacs = new HashSet<string>(
-                allDevices.Select(d => d.Mac.ToLowerInvariant()),
-                StringComparer.OrdinalIgnoreCase);
-            return allDeviceMacs.Contains(uplinkMac.ToLowerInvariant());
-        }
-
-        return false;
-    }
-
     public async Task<List<AccessPointSnapshot>> GetAccessPointsAsync(CancellationToken cancellationToken = default)
     {
-        var devices = await _client.GetDevicesAsync(cancellationToken);
-
-        // Filter to actual access points using centralized device type classification.
-        // This uses DeviceType.FromUniFiApiType(type, model) which:
-        // - Includes dedicated APs (type="uap", model != smart power)
-        // - Includes UDM/UX devices acting as mesh APs (type="udm" but uplinked to another device)
-        // - Excludes USP-Strip (model="UP6") and other smart power devices
-        var aps = devices.Where(d => IsAccessPoint(d, devices)).ToList();
+        // Use UniFiDiscovery for centralized device classification (same as Audit and Speed Test)
+        var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
         var timestamp = DateTimeOffset.UtcNow;
 
         // Build a set of AP MACs for mesh parent detection
@@ -83,11 +45,9 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var wirelessClients = clients.Where(c => c.IsWired == false).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
-        // Get AP names for lookup (using centralized device type classification)
-        var devices = await _client.GetDevicesAsync(cancellationToken);
-        var apNames = devices
-            .Where(d => IsAccessPoint(d, devices))
-            .ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
+        // Get AP names for lookup using centralized classification
+        var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
+        var apNames = aps.ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
 
         return wirelessClients.Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp)).ToList();
     }
@@ -532,8 +492,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         DateTimeOffset? endTime = null,
         CancellationToken cancellationToken = default)
     {
-        var devices = await _client.GetDevicesAsync(cancellationToken);
-        var aps = devices.Where(d => IsAccessPoint(d, devices)).ToList();
+        var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
 
         if (!string.IsNullOrEmpty(apMac))
         {
@@ -542,7 +501,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
         // Get our own BSSIDs to identify own networks
         var ownBssids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ap in devices.Where(d => IsAccessPoint(d, devices)))
+        foreach (var ap in aps)
         {
             if (ap.VapTable != null)
             {
@@ -695,6 +654,112 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
                 // Calculate interference as total utilization minus self-utilization
                 // Interference = cu_total - cu_self_rx - cu_self_tx
+                int? interference = null;
+                if (radioStats.CuTotal.HasValue)
+                {
+                    var selfRx = radioStats.CuSelfRx ?? 0;
+                    var selfTx = radioStats.CuSelfTx ?? 0;
+                    interference = Math.Max(0, radioStats.CuTotal.Value - selfRx - selfTx);
+                }
+
+                snapshot.Radios.Add(new RadioSnapshot
+                {
+                    Name = radioStats.Name,
+                    Band = RadioBandExtensions.FromUniFiCode(radioStats.Radio),
+                    Channel = radioStats.Channel,
+                    ChannelWidth = radioConfig?.ChannelWidth,
+                    TxPower = radioStats.TxPower,
+                    TxPowerMode = radioConfig?.TxPowerMode,
+                    AntennaGain = radioConfig?.AntennaGain,
+                    Satisfaction = radioStats.Satisfaction,
+                    ClientCount = radioStats.NumSta,
+                    ChannelUtilization = radioStats.CuTotal,
+                    Interference = interference,
+                    TxRetriesPct = radioStats.TxRetriesPct,
+                    MinRssiEnabled = radioConfig?.MinRssiEnabled ?? false,
+                    MinRssi = radioConfig?.MinRssi,
+                    RoamingAssistantEnabled = radioConfig?.AssistedRoamingEnabled ?? false,
+                    RoamingAssistantRssi = radioConfig?.AssistedRoamingRssi,
+                    HasDfs = radioConfig?.HasDfs ?? false
+                });
+            }
+        }
+
+        // Map vap_table (per-SSID stats)
+        if (ap.VapTable != null)
+        {
+            foreach (var vap in ap.VapTable)
+            {
+                snapshot.Vaps.Add(new VapSnapshot
+                {
+                    Essid = vap.Essid,
+                    Bssid = vap.Bssid,
+                    Band = RadioBandExtensions.FromUniFiCode(vap.Radio),
+                    Channel = vap.Channel,
+                    ClientCount = vap.NumSta,
+                    Satisfaction = vap.Satisfaction,
+                    AvgClientSignal = vap.AvgClientSignal,
+                    IsGuest = vap.IsGuest ?? false,
+                    TxBytes = vap.TxBytes,
+                    RxBytes = vap.RxBytes,
+                    TxRetries = vap.TxRetries,
+                    WifiTxAttempts = vap.WifiTxAttempts,
+                    WifiTxDropped = vap.WifiTxDropped
+                });
+            }
+        }
+
+        snapshot.TotalClients = snapshot.Radios.Sum(r => r.ClientCount ?? 0);
+
+        return snapshot;
+    }
+
+    private AccessPointSnapshot MapToAccessPointSnapshot(DiscoveredDevice ap, DateTimeOffset timestamp, HashSet<string> apMacs)
+    {
+        // Check if this AP has a wireless uplink to another AP (mesh child)
+        var isMeshChild = false;
+        string? meshParentMac = null;
+        RadioBand? meshUplinkBand = null;
+        int? meshUplinkChannel = null;
+
+        if (ap.UplinkType?.Equals("wireless", StringComparison.OrdinalIgnoreCase) == true &&
+            !string.IsNullOrEmpty(ap.UplinkMac))
+        {
+            var uplinkMacLower = ap.UplinkMac.ToLowerInvariant();
+            if (apMacs.Contains(uplinkMacLower))
+            {
+                isMeshChild = true;
+                meshParentMac = uplinkMacLower;
+                meshUplinkBand = RadioBandExtensions.FromUniFiCode(ap.UplinkRadioBand);
+                meshUplinkChannel = ap.UplinkChannel;
+            }
+        }
+
+        var snapshot = new AccessPointSnapshot
+        {
+            Mac = ap.Mac,
+            Name = ap.Name,
+            Model = ap.FriendlyModelName,
+            FirmwareVersion = ap.Firmware,
+            Ip = ap.IpAddress,
+            Satisfaction = ap.Satisfaction,
+            Timestamp = timestamp,
+            Radios = new List<RadioSnapshot>(),
+            Vaps = new List<VapSnapshot>(),
+            IsMeshChild = isMeshChild,
+            MeshParentMac = meshParentMac,
+            MeshUplinkBand = meshUplinkBand,
+            MeshUplinkChannel = meshUplinkChannel
+        };
+
+        // Map radio_table_stats (runtime stats)
+        if (ap.RadioTableStats != null)
+        {
+            foreach (var radioStats in ap.RadioTableStats)
+            {
+                var radioConfig = ap.RadioTable?.FirstOrDefault(r => r.Name == radioStats.Name);
+
+                // Calculate interference as total utilization minus self-utilization
                 int? interference = null;
                 if (radioStats.CuTotal.HasValue)
                 {

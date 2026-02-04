@@ -385,6 +385,18 @@
     {
         _recommendations.Clear();
 
+        // MLO enabled
+        if (_wlanConfigs.Any(w => w.Enabled && w.MloEnabled))
+        {
+            _recommendations.Add(new Recommendation
+            {
+                Type = "info",
+                Title = "MLO enabled",
+                Description = "Multi-Link Operation is enabled on one or more SSIDs. MLO can improve speeds for Wi-Fi 7 devices but has been observed to reduce 5 GHz and 6 GHz throughput for non-MLO clients.",
+                Action = "Consider disabling MLO if you have many non-Wi-Fi 7 devices experiencing reduced throughput"
+            });
+        }
+
         // High utilization radios
         var highUtilRadios = _accessPoints
             .SelectMany(ap => ap.Radios.Where(r => (r.ChannelUtilization ?? 0) > 70))
