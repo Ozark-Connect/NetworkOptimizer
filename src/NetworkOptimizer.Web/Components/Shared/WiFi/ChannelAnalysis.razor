@@ -456,9 +456,12 @@
     {
         return band switch
         {
-            RadioBand.Band2_4GHz => Enumerable.Range(1, 11).ToList(),
+            // 2.4 GHz: Channels 1-14 (12-14 region-dependent)
+            RadioBand.Band2_4GHz => Enumerable.Range(1, 14).ToList(),
+            // 5 GHz: UNII-1 (36-48), UNII-2A (52-64), UNII-2C/DFS (100-144), UNII-3 (149-165)
             RadioBand.Band5GHz => new List<int> { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 },
-            RadioBand.Band6GHz => new List<int> { 1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93 },
+            // 6 GHz: Channels 1-233 (every 4th channel starting at 1)
+            RadioBand.Band6GHz => Enumerable.Range(0, 59).Select(i => 1 + i * 4).ToList(),
             _ => new List<int>()
         };
     }
@@ -543,9 +546,9 @@
     {
         return band switch
         {
-            RadioBand.Band2_4GHz => "Channels 1-11 (20/40 MHz)",
-            RadioBand.Band5GHz => "UNII-1, UNII-2, UNII-2e, UNII-3 (20-160 MHz)",
-            RadioBand.Band6GHz => "Wi-Fi 6E channels (20-320 MHz)",
+            RadioBand.Band2_4GHz => "2412-2484 MHz (20/40 MHz)",
+            RadioBand.Band5GHz => "5180-5885 MHz (20-160 MHz)",
+            RadioBand.Band6GHz => "5935-7115 MHz (20-320 MHz)",
             _ => ""
         };
     }
