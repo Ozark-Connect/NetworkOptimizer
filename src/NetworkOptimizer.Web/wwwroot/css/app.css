@@ -8574,15 +8574,21 @@ select.form-control {
 
 .power-bar-gain {
     height: 100%;
-    background: repeating-linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0.15) 0px,
-        rgba(255, 255, 255, 0.15) 3px,
-        rgba(255, 255, 255, 0.05) 3px,
-        rgba(255, 255, 255, 0.05) 6px
-    );
     border-left: 1px dashed rgba(255, 255, 255, 0.3);
     transition: width 0.3s ease;
+}
+
+.power-bar-gain.power-high {
+    background: repeating-linear-gradient(90deg, #f97316 0px, #f97316 3px, #ea580c 3px, #ea580c 6px);
+}
+.power-bar-gain.power-medium {
+    background: repeating-linear-gradient(90deg, #22c55e 0px, #22c55e 3px, #16a34a 3px, #16a34a 6px);
+}
+.power-bar-gain.power-low {
+    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
+}
+.power-bar-gain.power-auto {
+    background: repeating-linear-gradient(90deg, #6366f1 0px, #6366f1 3px, #4f46e5 3px, #4f46e5 6px);
 }
 
 .power-values {
