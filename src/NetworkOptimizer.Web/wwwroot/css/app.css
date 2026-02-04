@@ -6384,14 +6384,14 @@ select.form-control {
     cursor: pointer;
 }
 
-.checkbox-label {
+.filter-checkbox .checkbox-label {
     font-size: 0.8rem;
     font-weight: 500;
 }
 
-.checkbox-label.airtime { color: #10b981; }
-.checkbox-label.interference { color: #f59e0b; }
-.checkbox-label.retries { color: #ef4444; }
+.filter-checkbox .checkbox-label.airtime { color: #10b981; }
+.filter-checkbox .checkbox-label.interference { color: #f59e0b; }
+.filter-checkbox .checkbox-label.retries { color: #ef4444; }
 
 .metrics-loading,
 .metrics-empty {
@@ -6643,7 +6643,7 @@ select.form-control {
     color: var(--text-muted);
 }
 
-.checkbox-label.signal { color: #3b82f6; }
+.filter-checkbox .checkbox-label.signal { color: #3b82f6; }
 
 .events-section {
     background: var(--bg-secondary);
