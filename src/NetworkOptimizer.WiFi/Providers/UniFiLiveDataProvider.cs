@@ -986,10 +986,6 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     private RoamingDirectionStats ParseDirectionStats(JsonElement el)
     {
-        // Debug: log all properties in the direction stats
-        var props = string.Join(", ", el.EnumerateObject().Select(p => $"{p.Name}={p.Value}"));
-        _logger.LogDebug("Direction stats properties: {Props}", props);
-
         return new RoamingDirectionStats
         {
             RoamAttempts = el.TryGetProperty("roam_attempts", out var ra) ? ra.GetInt32() : 0,
