@@ -120,10 +120,13 @@
                         <div class="stat-value">@GetNetworksOnYourChannels()</div>
                         <div class="stat-label">On Your Channels</div>
                     </div>
-                    <div class="spectrum-stat-card">
-                        <div class="stat-value">@GetAvailableDfsChannels()</div>
-                        <div class="stat-label">DFS Available</div>
-                    </div>
+                    @if (selectedBand == RadioBand.Band5GHz)
+                    {
+                        <div class="spectrum-stat-card">
+                            <div class="stat-value">@GetAvailableDfsChannels()</div>
+                            <div class="stat-label">DFS Available</div>
+                        </div>
+                    }
                     <div class="spectrum-stat-card highlight">
                         <div class="stat-value">@GetCleanestChannel()</div>
                         <div class="stat-label">Cleanest Channel</div>

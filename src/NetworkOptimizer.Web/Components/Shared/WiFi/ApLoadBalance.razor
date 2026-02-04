@@ -153,7 +153,7 @@
                             }
                         </div>
 
-                        @if (ap.Satisfaction.HasValue)
+                        @if (ap.Satisfaction.HasValue && ap.Satisfaction.Value >= 0)
                         {
                             <div class="ap-satisfaction">
                                 <span class="sat-label">Satisfaction:</span>
@@ -281,12 +281,12 @@
         _totalClients = _clients.Count;
         _avgClientsPerAp = _accessPoints.Count > 0 ? (double)_totalClients / _accessPoints.Count : 0;
 
-        // Calculate load imbalance (coefficient of variation)
+        // Calculate load imbalance (coefficient of variation, capped at 100%)
         if (_accessPoints.Count > 1 && _avgClientsPerAp > 0)
         {
             var clientCounts = _accessPoints.Select(ap => (double)ap.TotalClients).ToList();
             var stdDev = Math.Sqrt(clientCounts.Average(c => Math.Pow(c - _avgClientsPerAp, 2)));
-            _loadImbalance = (stdDev / _avgClientsPerAp) * 100;
+            _loadImbalance = Math.Min(100, (stdDev / _avgClientsPerAp) * 100);
         }
         else
         {
