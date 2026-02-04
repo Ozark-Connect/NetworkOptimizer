@@ -20,7 +20,6 @@
                     </select>
                 </div>
                 <div class="filter-tabs">
-                    <button class="tab @(selectedBand == RadioBand.Unknown ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Unknown)'>All Bands</button>
                     <button class="tab @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
                     <button class="tab @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
                     <button class="tab @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
@@ -77,6 +76,29 @@
     }
     else
     {
+        <!-- Your AP Channels -->
+        <div class="card your-channels-card">
+            <div class="card-body">
+                <div class="your-channels-header">
+                    <h3>Your Channels</h3>
+                    <span class="your-channels-subtitle">@GetSelectedApLabel()</span>
+                </div>
+                <div class="your-channels-row">
+                    @foreach (var channel in GetYourChannels())
+                    {
+                        <div class="your-channel-chip @GetBandClass(channel.Band)">
+                            <span class="channel-number">Ch @channel.Channel</span>
+                            <span class="channel-width">@(channel.Width ?? 20) MHz</span>
+                            @if (!string.IsNullOrEmpty(channel.ApName) && string.IsNullOrEmpty(selectedApMac))
+                            {
+                                <span class="channel-ap">@channel.ApName</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
         <!-- Summary Stats -->
         <div class="card">
             <div class="card-body">
@@ -84,10 +106,6 @@
                     <div class="spectrum-stat-card">
                         <div class="stat-value">@filteredNeighbors.Count</div>
                         <div class="stat-label">Networks Detected</div>
-                    </div>
-                    <div class="spectrum-stat-card">
-                        <div class="stat-value">@filteredNeighbors.Count(r => r.Network.IsOwnNetwork)</div>
-                        <div class="stat-label">Your Networks</div>
                     </div>
                     <div class="spectrum-stat-card">
                         <div class="stat-value">@GetNetworksOnYourChannels()</div>
@@ -139,14 +157,6 @@
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Neighboring Networks (@filteredNeighbors.Count)</h2>
-                <div class="filter-tabs">
-                    <button class="tab @(showOwnNetworks ? "" : "active")" @onclick="() => showOwnNetworks = false">
-                        Others (@filteredNeighbors.Count(r => !r.Network.IsOwnNetwork))
-                    </button>
-                    <button class="tab @(showOwnNetworks ? "active" : "")" @onclick="() => showOwnNetworks = true">
-                        Your Networks (@filteredNeighbors.Count(r => r.Network.IsOwnNetwork))
-                    </button>
-                </div>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -165,7 +175,7 @@
                         <tbody>
                             @foreach (var item in GetSortedNetworks())
                             {
-                                <tr class="@(item.Network.IsOwnNetwork ? "own-network" : "")">
+                                <tr>
                                     <td>
                                         @if (string.IsNullOrEmpty(item.Network.Ssid))
                                         {
@@ -174,10 +184,6 @@
                                         else
                                         {
                                             @item.Network.Ssid
-                                        }
-                                        @if (item.Network.IsOwnNetwork)
-                                        {
-                                            <span class="own-badge">Your Network</span>
                                         }
                                     </td>
                                     <td class="monospace">@item.Network.Bssid</td>
@@ -192,7 +198,16 @@
                                             @(item.Network.Signal ?? 0) dBm
                                         </span>
                                     </td>
-                                    <td>@item.ApName</td>
+                                    <td>
+                                        @if (item.DetectedByAps.Count == 1)
+                                        {
+                                            @item.DetectedByAps[0]
+                                        }
+                                        else
+                                        {
+                                            <span data-tooltip="@string.Join(", ", item.DetectedByAps)">@item.DetectedByAps.Count APs</span>
+                                        }
+                                    </td>
                                     <td>@FormatLastSeen(item.Network.LastSeen)</td>
                                 </tr>
                             }
@@ -203,7 +218,7 @@
         </div>
 
         <!-- DFS Status -->
-        @if (selectedBand == RadioBand.Unknown || selectedBand == RadioBand.Band5GHz)
+        @if (selectedBand == RadioBand.Band5GHz)
         {
             <div class="card">
                 <div class="card-header">
@@ -286,6 +301,76 @@
         align-items: center;
         gap: 1rem;
         flex-wrap: wrap;
+    }
+
+    /* Your Channels Card */
+    .your-channels-card {
+        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+        border: 1px solid var(--primary-color);
+    }
+
+    .your-channels-header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.75rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .your-channels-header h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .your-channels-subtitle {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .your-channels-row {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .your-channel-chip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        background: var(--bg-primary);
+        border: 2px solid transparent;
+    }
+
+    .your-channel-chip.band-2_4 {
+        border-color: #22c55e;
+    }
+
+    .your-channel-chip.band-5 {
+        border-color: #3b82f6;
+    }
+
+    .your-channel-chip.band-6 {
+        border-color: #a855f7;
+    }
+
+    .your-channel-chip .channel-number {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .your-channel-chip .channel-width {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+
+    .your-channel-chip .channel-ap {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
     }
 
     .spectrum-stats-row {
@@ -593,8 +678,7 @@
     private List<AccessPointSnapshot> accessPoints = new();
     private bool isLoading = true;
     private string selectedApMac = "";
-    private RadioBand selectedBand = RadioBand.Unknown; // Unknown = All bands
-    private bool showOwnNetworks = false;
+    private RadioBand selectedBand = RadioBand.Band2_4GHz;
     private string sortColumn = "signal";
     private bool sortDescending = true;
 
@@ -625,6 +709,7 @@
                 accessPoints.Count, scanResults.Count);
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
+            // but track all APs that detected each network
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -634,7 +719,12 @@
                     Band = sr.Band
                 }))
                 .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
-                .Select(g => g.OrderByDescending(n => n.Network.Signal ?? -100).First())
+                .Select(g =>
+                {
+                    var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
+                    strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
+                    return strongest;
+                })
                 .ToList();
 
             Logger.LogInformation("Spectrum: Found {NeighborCount} unique neighboring networks (deduplicated by BSSID)", allNeighbors.Count);
@@ -666,6 +756,7 @@
             scanResults = scanTask.Result;
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
+            // but track all APs that detected each network
             allNeighbors = scanResults
                 .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
                 {
@@ -675,7 +766,12 @@
                     Band = sr.Band
                 }))
                 .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
-                .Select(g => g.OrderByDescending(n => n.Network.Signal ?? -100).First())
+                .Select(g =>
+                {
+                    var strongest = g.OrderByDescending(n => n.Network.Signal ?? -100).First();
+                    strongest.DetectedByAps = g.Select(n => n.ApName).Distinct().ToList();
+                    return strongest;
+                })
                 .ToList();
         }
         catch (Exception ex)
@@ -692,7 +788,7 @@
     private List<NeighborWithAp> filteredNeighbors =>
         allNeighbors
             .Where(n => string.IsNullOrEmpty(selectedApMac) || n.ApMac == selectedApMac)
-            .Where(n => selectedBand == RadioBand.Unknown || n.Band == selectedBand)
+            .Where(n => n.Band == selectedBand)
             .ToList();
 
     private void SetBandFilter(RadioBand band)
@@ -705,6 +801,30 @@
         // State already updated via binding
     }
 
+    private string GetSelectedApLabel()
+    {
+        if (string.IsNullOrEmpty(selectedApMac))
+            return "All APs";
+        return accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac)?.Name ?? "Selected AP";
+    }
+
+    private record YourChannelInfo(int Channel, int? Width, RadioBand Band, string? ApName);
+
+    private List<YourChannelInfo> GetYourChannels()
+    {
+        var aps = string.IsNullOrEmpty(selectedApMac)
+            ? accessPoints
+            : accessPoints.Where(ap => ap.Mac == selectedApMac);
+
+        return aps
+            .SelectMany(ap => ap.Radios
+                .Where(r => r.Channel.HasValue && r.Band == selectedBand)
+                .Select(r => new YourChannelInfo(r.Channel!.Value, r.ChannelWidth, r.Band, ap.Name)))
+            .DistinctBy(c => c.Channel)
+            .OrderBy(c => c.Channel)
+            .ToList();
+    }
+
     private int GetNetworksOnYourChannels()
     {
         var yourChannels = accessPoints
@@ -714,8 +834,7 @@
             .ToHashSet();
 
         return filteredNeighbors
-            .Where(n => !n.Network.IsOwnNetwork)
-            .Count(n => yourChannels.Contains(n.Network.Channel));
+                        .Count(n => yourChannels.Contains(n.Network.Channel));
     }
 
     private int GetAvailableDfsChannels()
@@ -732,8 +851,7 @@
     private string GetCleanestChannel()
     {
         var channelCounts = filteredNeighbors
-            .Where(n => !n.Network.IsOwnNetwork)
-            .GroupBy(n => n.Network.Channel)
+                        .GroupBy(n => n.Network.Channel)
             .ToDictionary(g => g.Key, g => g.Count());
 
         // Get channels in use by your APs
@@ -805,7 +923,7 @@
 
     private IEnumerable<NeighborWithAp> GetSortedNetworks()
     {
-        var networks = filteredNeighbors.Where(n => showOwnNetworks ? n.Network.IsOwnNetwork : !n.Network.IsOwnNetwork);
+        IEnumerable<NeighborWithAp> networks = filteredNeighbors;
 
         networks = sortColumn switch
         {
@@ -880,7 +998,7 @@
             .ToHashSet();
 
         var channelCounts = filteredNeighbors
-            .Where(n => n.Band == RadioBand.Band5GHz && !n.Network.IsOwnNetwork)
+            .Where(n => n.Band == RadioBand.Band5GHz )
             .GroupBy(n => n.Network.Channel)
             .ToDictionary(g => g.Key, g => g.Count());
 
@@ -908,7 +1026,7 @@
         foreach (var ch in yourChannels)
         {
             var neighborCount = filteredNeighbors
-                .Count(n => n.Network.Channel == ch.Channel && !n.Network.IsOwnNetwork);
+                .Count(n => n.Network.Channel == ch.Channel );
 
             if (neighborCount > 5)
             {
@@ -936,7 +1054,7 @@
 
         // Check for wide channel interference
         var wideChannelNetworks = filteredNeighbors
-            .Where(n => (n.Network.Width ?? 20) >= 80 && !n.Network.IsOwnNetwork)
+            .Where(n => (n.Network.Width ?? 20) >= 80 )
             .Count();
 
         if (wideChannelNetworks > 3)
@@ -962,6 +1080,7 @@
         public string ApMac { get; set; } = "";
         public string ApName { get; set; } = "";
         public RadioBand Band { get; set; }
+        public List<string> DetectedByAps { get; set; } = new();
     }
 
     private class ChannelDensity
