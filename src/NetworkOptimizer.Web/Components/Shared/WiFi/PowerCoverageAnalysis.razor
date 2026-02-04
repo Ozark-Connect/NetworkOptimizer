@@ -93,7 +93,7 @@
         <div class="power-section">
             <div class="section-header">
                 <h4>TX Power by Access Point</h4>
-                <span class="section-hint">Per-radio transmit power levels</span>
+                <span class="section-hint">TX Power + Antenna Gain = EIRP</span>
             </div>
 
             <div class="ap-power-grid">
@@ -108,16 +108,31 @@
                         <div class="radio-power-list">
                             @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue).OrderBy(r => r.Band))
                             {
-                                var powerPct = GetPowerPercentage(radio);
+                                var txPowerPct = GetPowerPercentage(radio.TxPower ?? 0);
+                                var eirpPct = GetPowerPercentage(radio.Eirp ?? radio.TxPower ?? 0);
                                 var powerClass = GetPowerClass(radio);
+                                var hasGain = radio.AntennaGain.HasValue && radio.AntennaGain > 0;
                                 <div class="radio-power-item">
                                     <div class="radio-info">
                                         <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                                         <span class="radio-channel">Ch @radio.Channel</span>
                                     </div>
-                                    <div class="power-bar-container">
-                                        <div class="power-bar @powerClass" style="width: @powerPct%"></div>
-                                        <span class="power-value">@(radio.TxPower ?? 0) dBm</span>
+                                    <div class="power-bar-container" data-tooltip="TX: @(radio.TxPower ?? 0) dBm@(hasGain ? $" + {radio.AntennaGain} dBi gain = {radio.Eirp} dBm EIRP" : "")">
+                                        <div class="power-bar-stack">
+                                            <div class="power-bar-tx @powerClass" style="width: @txPowerPct%"></div>
+                                            @if (hasGain)
+                                            {
+                                                <div class="power-bar-gain" style="width: @(eirpPct - txPowerPct)%"></div>
+                                            }
+                                        </div>
+                                        <span class="power-values">
+                                            <span class="power-tx">@(radio.TxPower ?? 0)</span>
+                                            @if (hasGain)
+                                            {
+                                                <span class="power-eirp">→ @radio.Eirp</span>
+                                            }
+                                            <span class="power-unit">dBm</span>
+                                        </span>
                                     </div>
                                     <div class="power-mode">
                                         @(radio.TxPowerMode ?? "auto")
@@ -577,12 +592,11 @@
         }
     }
 
-    private double GetPowerPercentage(RadioSnapshot radio)
+    private double GetPowerPercentage(int power)
     {
-        // Typical AP TX power ranges from about 6-30 dBm
+        // Typical AP TX power ranges from about 6-30 dBm, EIRP can go up to ~36 dBm
         // Map to 0-100% for visualization
-        var power = radio.TxPower ?? 20;
-        return Math.Min(100, Math.Max(0, (power - 6) / 24.0 * 100));
+        return Math.Min(100, Math.Max(0, (power - 6) / 30.0 * 100));
     }
 
     private string GetPowerClass(RadioSnapshot radio)

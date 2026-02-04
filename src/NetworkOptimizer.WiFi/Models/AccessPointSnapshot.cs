@@ -68,6 +68,12 @@ public class RadioSnapshot
     /// <summary>TX power mode (auto, high, medium, low, custom)</summary>
     public string? TxPowerMode { get; set; }
 
+    /// <summary>Antenna gain in dBi</summary>
+    public int? AntennaGain { get; set; }
+
+    /// <summary>EIRP (Effective Isotropic Radiated Power) = TxPower + AntennaGain</summary>
+    public int? Eirp => TxPower.HasValue ? TxPower.Value + (AntennaGain ?? 0) : null;
+
     /// <summary>Radio satisfaction score (0-100)</summary>
     public int? Satisfaction { get; set; }
 

@@ -8529,32 +8529,70 @@ select.form-control {
 
 .power-bar-container {
     flex: 1;
-    height: 16px;
+    height: 20px;
     background: var(--bg-secondary);
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
     position: relative;
+    display: flex;
+    align-items: center;
 }
 
-.power-bar {
+.power-bar-stack {
+    display: flex;
     height: 100%;
-    border-radius: 3px;
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.power-bar-tx {
+    height: 100%;
     transition: width 0.3s ease;
 }
 
-.power-bar.power-high { background: linear-gradient(90deg, #f97316, #ef4444); }
-.power-bar.power-medium { background: linear-gradient(90deg, #22c55e, #eab308); }
-.power-bar.power-low { background: linear-gradient(90deg, #3b82f6, #22c55e); }
-.power-bar.power-auto { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+.power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
+.power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
+.power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+.power-bar-tx.power-auto { background: linear-gradient(90deg, #6366f1, #4f46e5); }
 
-.power-value {
+.power-bar-gain {
+    height: 100%;
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.15) 0px,
+        rgba(255, 255, 255, 0.15) 3px,
+        rgba(255, 255, 255, 0.05) 3px,
+        rgba(255, 255, 255, 0.05) 6px
+    );
+    border-left: 1px dashed rgba(255, 255, 255, 0.3);
+    transition: width 0.3s ease;
+}
+
+.power-values {
     position: absolute;
-    right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.65rem;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.7rem;
     font-weight: 500;
     color: var(--text-primary);
+    z-index: 1;
+}
+
+.power-tx {
+    color: var(--text-primary);
+}
+
+.power-eirp {
+    color: #a5b4fc;
+    font-style: italic;
+}
+
+.power-unit {
+    color: var(--text-muted);
+    margin-left: 2px;
 }
 
 .power-mode {
