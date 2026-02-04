@@ -152,7 +152,7 @@ public class SiteHealthScorer
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Weak signal (<-70 dBm)",
+            Name = "Weak signal (<-75 dBm)",
             Value = $"{poor} clients ({poor * 100 / total}%)",
             Impact = poor > 0 ? -20 : 0
         });
@@ -485,6 +485,11 @@ public class SiteHealthScorer
 
         foreach (var (ap, radio) in highUtilRadios.Take(5))
         {
+            // Tailor recommendation based on band
+            var recommendation = radio.Band == RadioBand.Band2_4GHz
+                ? "Enable band steering to move capable clients to 5 GHz or 6 GHz"
+                : "Try a different channel or reduce channel width";
+
             score.Issues.Add(new HealthIssue
             {
                 Severity = radio.ChannelUtilization > 90 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
@@ -492,7 +497,7 @@ public class SiteHealthScorer
                 Title = "High channel utilization",
                 Description = $"{radio.Band.ToDisplayString()} radio at {radio.ChannelUtilization}% utilization",
                 AffectedEntity = ap.Name,
-                Recommendation = "Consider changing channel or reducing client count",
+                Recommendation = recommendation,
                 ScoreImpact = -10
             });
         }
@@ -567,7 +572,7 @@ public class SiteHealthScorerOptions
     // Signal thresholds (dBm)
     public int ExcellentSignalThreshold { get; set; } = -50;
     public int GoodSignalThreshold { get; set; } = -65;
-    public int WeakSignalThreshold { get; set; } = -70;
+    public int WeakSignalThreshold { get; set; } = -75;
 
     // Utilization thresholds (%)
     public int HighUtilizationThreshold { get; set; } = 70;
