@@ -148,7 +148,7 @@
         </button>
         <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("client"))">
-            Client Journey
+            Client Stats
         </button>
         <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("roaming"))">
@@ -191,7 +191,7 @@
     }
     else if (_activeTab == "client")
     {
-        <!-- Client Journey Timeline -->
+        <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
                 <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline />
