@@ -8522,6 +8522,21 @@ select.form-control {
     width: fit-content;
 }
 
+.radio-power-item .radio-band.band-2ghz {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.radio-power-item .radio-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.radio-power-item .radio-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+}
+
 .radio-power-item .radio-channel {
     font-size: 0.65rem;
     color: var(--text-muted);
