@@ -6419,29 +6419,29 @@ select.form-control {
     border-bottom: 1px solid var(--border-color);
 }
 
-.band-count {
+.band-chart-header .band-count {
     font-size: 0.75rem;
     color: #6b7280;
 }
 
-.band-label {
+.band-chart-header .band-label {
     font-size: 0.875rem;
     font-weight: 600;
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
 }
 
-.band-label.band-2ghz {
+.band-chart-header .band-label.band-2ghz {
     background: rgba(251, 191, 36, 0.2);
     color: #fbbf24;
 }
 
-.band-label.band-5ghz {
+.band-chart-header .band-label.band-5ghz {
     background: rgba(59, 130, 246, 0.2);
     color: #3b82f6;
 }
 
-.band-label.band-6ghz {
+.band-chart-header .band-label.band-6ghz {
     background: rgba(168, 85, 247, 0.2);
     color: #a855f7;
 }
@@ -7041,7 +7041,7 @@ select.form-control {
     font-size: 0.75rem;
 }
 
-.ap-name {
+.path-aps .ap-name {
     font-weight: 500;
 }
 
@@ -7591,32 +7591,32 @@ select.form-control {
     gap: 0.5rem;
 }
 
-.detail-item {
+.ap-radio-details .detail-item {
     display: flex;
     flex-direction: column;
 }
 
-.detail-label {
+.ap-radio-details .detail-label {
     font-size: 0.65rem;
     color: var(--text-muted);
     text-transform: uppercase;
 }
 
-.detail-value {
+.ap-radio-details .detail-value {
     font-size: 0.875rem;
     font-weight: 500;
 }
 
-.detail-value.util-low { color: var(--success-color); }
-.detail-value.util-medium { color: var(--warning-color); }
-.detail-value.util-high { color: var(--danger-color); }
+.ap-radio-details .detail-value.util-low { color: var(--success-color); }
+.ap-radio-details .detail-value.util-medium { color: var(--warning-color); }
+.ap-radio-details .detail-value.util-high { color: var(--danger-color); }
 
-.detail-value.interf-low { color: var(--success-color); }
-.detail-value.interf-medium { color: var(--warning-color); }
-.detail-value.interf-high { color: var(--danger-color); }
+.ap-radio-details .detail-value.interf-low { color: var(--success-color); }
+.ap-radio-details .detail-value.interf-medium { color: var(--warning-color); }
+.ap-radio-details .detail-value.interf-high { color: var(--danger-color); }
 
-.detail-value.sat-excellent { color: var(--success-color); }
-.detail-value.sat-good { color: #3b82f6; }
+.ap-radio-details .detail-value.sat-excellent { color: var(--success-color); }
+.ap-radio-details .detail-value.sat-good { color: #3b82f6; }
 .detail-value.sat-fair { color: var(--warning-color); }
 .detail-value.sat-poor { color: var(--danger-color); }
 
@@ -8250,6 +8250,16 @@ select.form-control {
 .rec-description {
     font-size: 0.875rem;
     color: var(--text-secondary);
+}
+
+.rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
 }
 
 /* Responsive AP Load Balance */
@@ -10621,75 +10631,6 @@ select.form-control {
 .ap-success-value.rate-good { color: #22c55e; }
 .ap-success-value.rate-fair { color: var(--warning-color); }
 .ap-success-value.rate-poor { color: var(--danger-color); }
-
-/* Connectivity Recommendations */
-.recommendations-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.recommendation-item {
-    display: flex;
-    gap: 0.75rem;
-    padding: 1rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    border-left: 3px solid var(--border-color);
-}
-
-.recommendation-item.warning { border-left-color: var(--warning-color); }
-.recommendation-item.info { border-left-color: var(--info-color); }
-
-.rec-icon {
-    width: 28px;
-    height: 28px;
-    background: var(--bg-secondary);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-    color: var(--text-muted);
-}
-
-.recommendation-item.warning .rec-icon {
-    background: var(--warning-color);
-    color: white;
-}
-
-.recommendation-item.info .rec-icon {
-    background: var(--info-color);
-    color: white;
-}
-
-.rec-content {
-    flex: 1;
-}
-
-.rec-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.rec-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.25rem;
-}
-
-.rec-action {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    border-left: 2px solid var(--info-color);
-}
 
 /* Responsive Connectivity Flow */
 @media (max-width: 1024px) {
