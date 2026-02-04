@@ -441,6 +441,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     public async Task<List<ChannelScanResult>> GetChannelScanResultsAsync(
         string? apMac = null,
+        DateTimeOffset? startTime = null,
+        DateTimeOffset? endTime = null,
         CancellationToken cancellationToken = default)
     {
         var devices = await _client.GetDevicesAsync(cancellationToken);
@@ -467,8 +469,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             }
         }
 
-        // Fetch neighboring networks (rogue APs)
-        var rogueAps = await _client.GetRogueApsAsync(cancellationToken: cancellationToken);
+        // Fetch neighboring networks (rogue APs) with time filter
+        var rogueAps = await _client.GetRogueApsAsync(startTime, endTime, cancellationToken);
         _logger.LogDebug("Fetched {Count} neighboring networks from rogueap endpoint", rogueAps.Count);
 
         // Group rogue APs by detecting AP MAC and band

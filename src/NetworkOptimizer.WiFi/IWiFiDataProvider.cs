@@ -66,8 +66,12 @@ public interface IWiFiDataProvider
     /// Get channel scan results (neighboring networks, interference)
     /// </summary>
     /// <param name="apMac">Optional: filter to specific AP</param>
+    /// <param name="startTime">Optional: filter to networks seen since this time</param>
+    /// <param name="endTime">Optional: filter to networks seen until this time</param>
     Task<List<ChannelScanResult>> GetChannelScanResultsAsync(
         string? apMac = null,
+        DateTimeOffset? startTime = null,
+        DateTimeOffset? endTime = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

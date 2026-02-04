@@ -24,6 +24,15 @@
                     <button class="tab @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
                     <button class="tab @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
                 </div>
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == selectedTimeRange ? "active" : "")"
+                                @onclick="() => SetTimeRange(range.Key)">
+                            @range.Key
+                        </button>
+                    }
+                </div>
                 <button class="btn btn-secondary" @onclick="RefreshData" disabled="@isLoading">
                     @if (isLoading)
                     {
@@ -127,6 +136,10 @@
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Channel Density</h2>
+                <div class="channel-legend">
+                    <span class="legend-item"><span class="legend-bar neighbors"></span> Neighbors</span>
+                    <span class="legend-item"><span class="legend-bar your-ap"></span> Your APs</span>
+                </div>
             </div>
             <div class="card-body">
                 <div class="channel-heatmap">
@@ -140,13 +153,32 @@
                                     <span class="dfs-badge" data-tooltip="DFS Channel">D</span>
                                 }
                             </div>
-                            <div class="channel-bar-wrapper">
-                                <div class="channel-bar @GetDensityClass(channelGroup.Count)"
-                                     style="width: @(GetBarWidth(channelGroup.Count))%"
-                                     data-tooltip="@channelGroup.Count networks">
+                            <div class="channel-bars-wrapper">
+                                @* Neighbors bar *@
+                                <div class="channel-bar-wrapper">
+                                    <div class="channel-bar @GetDensityClass(channelGroup.Count)"
+                                         style="width: @(GetBarWidth(channelGroup.Count))%"
+                                         data-tooltip="@channelGroup.Count neighbor networks">
+                                    </div>
+                                </div>
+                                @* Your AP bar *@
+                                <div class="channel-bar-wrapper your-ap-bar-wrapper">
+                                    @if (channelGroup.IsYourChannel)
+                                    {
+                                        <div class="channel-bar your-ap-bar"
+                                             style="width: 100%"
+                                             data-tooltip="@string.Join(", ", channelGroup.YourApNames)">
+                                        </div>
+                                    }
                                 </div>
                             </div>
-                            <div class="channel-count">@channelGroup.Count</div>
+                            <div class="channel-count-wrapper">
+                                <span class="channel-count">@channelGroup.Count</span>
+                                @if (channelGroup.IsYourChannel)
+                                {
+                                    <span class="your-ap-count" data-tooltip="@string.Join(", ", channelGroup.YourApNames)">@channelGroup.YourApCount</span>
+                                }
+                            </div>
                         </div>
                     }
                 </div>
@@ -303,6 +335,37 @@
         flex-wrap: wrap;
     }
 
+    /* Time Range Selector */
+    .time-range-selector {
+        display: flex;
+        gap: 0.25rem;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        padding: 0.25rem;
+    }
+
+    .time-btn {
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        font-weight: 500;
+        background: transparent;
+        border: none;
+        border-radius: 4px;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .time-btn:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+    }
+
+    .time-btn.active {
+        background: var(--primary-color);
+        color: white;
+    }
+
     /* Your Channels Card */
     .your-channels-card {
         background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
@@ -419,6 +482,34 @@
         gap: 0.5rem;
     }
 
+    .channel-legend {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .legend-bar {
+        display: inline-block;
+        width: 16px;
+        height: 10px;
+        border-radius: 2px;
+    }
+
+    .legend-bar.neighbors {
+        background: linear-gradient(90deg, var(--success-color), var(--warning-color), var(--danger-color));
+    }
+
+    .legend-bar.your-ap {
+        background: #3b82f6;
+    }
+
     .channel-bar-container {
         display: flex;
         align-items: center;
@@ -434,7 +525,7 @@
     }
 
     .channel-label.your-channel {
-        color: var(--accent-color);
+        color: #3b82f6;
         font-weight: 600;
     }
 
@@ -452,17 +543,27 @@
         vertical-align: super;
     }
 
-    .channel-bar-wrapper {
+    .channel-bars-wrapper {
         flex: 1;
-        height: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .channel-bar-wrapper {
+        height: 12px;
         background: var(--bg-secondary);
-        border-radius: 4px;
+        border-radius: 3px;
         overflow: hidden;
+    }
+
+    .your-ap-bar-wrapper {
+        height: 8px;
     }
 
     .channel-bar {
         height: 100%;
-        border-radius: 4px;
+        border-radius: 3px;
         transition: width 0.3s ease;
     }
 
@@ -478,10 +579,29 @@
         background: var(--danger-color);
     }
 
-    .channel-count {
+    .channel-bar.your-ap-bar {
+        background: #3b82f6;
+    }
+
+    .channel-count-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
         width: 30px;
-        font-size: 0.85rem;
+        gap: 1px;
+    }
+
+    .channel-count {
+        font-size: 0.8rem;
         color: var(--text-secondary);
+        line-height: 1;
+    }
+
+    .your-ap-count {
+        font-size: 0.7rem;
+        color: #3b82f6;
+        font-weight: 600;
+        line-height: 1;
     }
 
     /* Network Table */
@@ -679,8 +799,19 @@
     private bool isLoading = true;
     private string selectedApMac = "";
     private RadioBand selectedBand = RadioBand.Band2_4GHz;
+    private string selectedTimeRange = "1D";
     private string sortColumn = "signal";
     private bool sortDescending = true;
+
+    // Time range options (matching UniFi UI)
+    private readonly Dictionary<string, TimeSpan> _timeRanges = new()
+    {
+        { "30m", TimeSpan.FromMinutes(30) },
+        { "1h", TimeSpan.FromHours(1) },
+        { "1D", TimeSpan.FromDays(1) },
+        { "1W", TimeSpan.FromDays(7) },
+        { "1M", TimeSpan.FromDays(30) }
+    };
 
     // Flattened view of all neighbors with their source AP info
     private List<NeighborWithAp> allNeighbors = new();
@@ -690,6 +821,22 @@
         await LoadDataAsync();
     }
 
+    private (DateTimeOffset start, DateTimeOffset end) GetTimeRange()
+    {
+        var end = DateTimeOffset.UtcNow;
+        var start = end - _timeRanges[selectedTimeRange];
+        return (start, end);
+    }
+
+    private async Task SetTimeRange(string range)
+    {
+        if (selectedTimeRange != range)
+        {
+            selectedTimeRange = range;
+            await LoadDataAsync();
+        }
+    }
+
     private async Task LoadDataAsync()
     {
         isLoading = true;
@@ -697,8 +844,9 @@
 
         try
         {
+            var (start, end) = GetTimeRange();
             var apTask = WiFiService.GetAccessPointsAsync();
-            var scanTask = WiFiService.GetChannelScanResultsAsync();
+            var scanTask = WiFiService.GetChannelScanResultsAsync(startTime: start, endTime: end);
 
             await Task.WhenAll(apTask, scanTask);
 
@@ -747,8 +895,9 @@
 
         try
         {
+            var (start, end) = GetTimeRange();
             var apTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
-            var scanTask = WiFiService.GetChannelScanResultsAsync(forceRefresh: true);
+            var scanTask = WiFiService.GetChannelScanResultsAsync(forceRefresh: true, startTime: start, endTime: end);
 
             await Task.WhenAll(apTask, scanTask);
 
@@ -882,23 +1031,50 @@
 
     private IEnumerable<ChannelDensity> GetChannelDensity()
     {
-        var yourChannels = accessPoints
-            .SelectMany(ap => ap.Radios)
-            .Where(r => r.Channel.HasValue)
-            .Where(r => selectedBand == RadioBand.Unknown || r.Band == selectedBand)
-            .Select(r => r.Channel!.Value)
-            .ToHashSet();
+        // Get your APs and their channels for the selected band
+        var yourApsByChannel = accessPoints
+            .SelectMany(ap => ap.Radios
+                .Where(r => r.Channel.HasValue && r.Band == selectedBand)
+                .Select(r => new { Channel = r.Channel!.Value, ApName = ap.Name }))
+            .GroupBy(x => x.Channel)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.ApName).ToList());
 
-        return filteredNeighbors
+        var yourChannels = yourApsByChannel.Keys.ToHashSet();
+
+        // Build density for channels with neighbors
+        var neighborDensity = filteredNeighbors
             .GroupBy(n => n.Network.Channel)
             .Select(g => new ChannelDensity
             {
                 Channel = g.Key,
                 Count = g.Count(),
                 IsYourChannel = yourChannels.Contains(g.Key),
+                YourApCount = yourApsByChannel.GetValueOrDefault(g.Key)?.Count ?? 0,
+                YourApNames = yourApsByChannel.GetValueOrDefault(g.Key) ?? new List<string>(),
                 IsDfs = IsDfsChannel(g.Key),
                 Band = g.First().Band
             })
+            .ToList();
+
+        // Add your channels that have no neighbors (still show them with 0 count)
+        var channelsWithNeighbors = neighborDensity.Select(d => d.Channel).ToHashSet();
+        var yourChannelsWithoutNeighbors = yourChannels.Except(channelsWithNeighbors);
+
+        foreach (var channel in yourChannelsWithoutNeighbors)
+        {
+            neighborDensity.Add(new ChannelDensity
+            {
+                Channel = channel,
+                Count = 0,
+                IsYourChannel = true,
+                YourApCount = yourApsByChannel[channel].Count,
+                YourApNames = yourApsByChannel[channel],
+                IsDfs = IsDfsChannel(channel),
+                Band = selectedBand
+            });
+        }
+
+        return neighborDensity
             .OrderBy(d => d.Band)
             .ThenBy(d => d.Channel);
     }
@@ -1089,6 +1265,8 @@
         public int Channel { get; set; }
         public int Count { get; set; }
         public bool IsYourChannel { get; set; }
+        public int YourApCount { get; set; }
+        public List<string> YourApNames { get; set; } = new();
         public bool IsDfs { get; set; }
         public RadioBand Band { get; set; }
     }

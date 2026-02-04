@@ -263,13 +263,20 @@ public class WiFiOptimizerService
         _lastRefresh = DateTimeOffset.MinValue;
     }
 
-    // Cached channel scan results
+    // Cached channel scan results (keyed by time range)
     private List<ChannelScanResult>? _cachedScanResults;
+    private string? _cachedScanResultsTimeKey;
 
     /// <summary>
     /// Get RF environment channel scan results from APs
     /// </summary>
-    public async Task<List<ChannelScanResult>> GetChannelScanResultsAsync(bool forceRefresh = false)
+    /// <param name="forceRefresh">Force refresh even if cached</param>
+    /// <param name="startTime">Optional: filter to networks seen since this time</param>
+    /// <param name="endTime">Optional: filter to networks seen until this time</param>
+    public async Task<List<ChannelScanResult>> GetChannelScanResultsAsync(
+        bool forceRefresh = false,
+        DateTimeOffset? startTime = null,
+        DateTimeOffset? endTime = null)
     {
         if (!_connectionService.IsConnected || _connectionService.Client == null)
         {
@@ -277,9 +284,16 @@ public class WiFiOptimizerService
             return new List<ChannelScanResult>();
         }
 
-        if (!forceRefresh && _cachedScanResults != null && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry)
+        // Create cache key based on time range
+        var timeKey = $"{startTime?.ToUnixTimeSeconds()}_{endTime?.ToUnixTimeSeconds()}";
+        var cacheValid = !forceRefresh
+            && _cachedScanResults != null
+            && _cachedScanResultsTimeKey == timeKey
+            && DateTimeOffset.UtcNow - _lastRefresh < _cacheExpiry;
+
+        if (cacheValid)
         {
-            return _cachedScanResults;
+            return _cachedScanResults!;
         }
 
         try
@@ -288,7 +302,11 @@ public class WiFiOptimizerService
                 _connectionService.Client,
                 _loggerFactory.CreateLogger<WiFi.Providers.UniFiLiveDataProvider>());
 
-            _cachedScanResults = await provider.GetChannelScanResultsAsync();
+            _cachedScanResults = await provider.GetChannelScanResultsAsync(
+                apMac: null,
+                startTime: startTime,
+                endTime: endTime);
+            _cachedScanResultsTimeKey = timeKey;
             return _cachedScanResults;
         }
         catch (Exception ex)
