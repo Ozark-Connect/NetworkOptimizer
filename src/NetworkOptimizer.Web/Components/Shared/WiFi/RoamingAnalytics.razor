@@ -383,11 +383,11 @@
         _nodePositions.Clear();
         if (_topology == null || _topology.Vertices.Count == 0) return;
 
-        // Arrange nodes in a circle
+        // Arrange nodes in a circle (shifted up to leave room for labels below)
         var count = _topology.Vertices.Count;
         var centerX = 50.0;
-        var centerY = 50.0;
-        var radius = 35.0;
+        var centerY = 40.0;
+        var radius = 30.0;
 
         for (int i = 0; i < count; i++)
         {
