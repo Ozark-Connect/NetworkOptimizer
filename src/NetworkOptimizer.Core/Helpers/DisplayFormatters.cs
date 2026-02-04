@@ -10,7 +10,7 @@ public static class DisplayFormatters
 
     // Known network device type keywords for prefix/suffix stripping
     // Note: Avoided "SW" as it commonly means "Southwest" in location names
-    private static readonly string[] DeviceTypeKeywords = { "Gateway", "Switch", "AP", "Router", "RTR" };
+    private static readonly string[] DeviceTypeKeywords = { "Gateway", "Switch", "AP", "Router", "RTR", "Firewall" };
 
     /// <summary>
     /// Strip any existing device type prefix or suffix from a name.
