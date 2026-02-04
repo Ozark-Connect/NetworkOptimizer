@@ -251,7 +251,7 @@ public class WiFiOptimizerService
             await Task.WhenAll(apsTask, clientsTask, roamingTask, wlanTask);
 
             // Sort APs by IP address for consistent display across all components
-            _cachedAps = Components.Shared.WiFi.WiFiAnalysisHelpers.SortByIp(await apsTask);
+            _cachedAps = WiFiAnalysisHelpers.SortByIp(await apsTask);
             _cachedClients = await clientsTask;
             _cachedRoamingData = await roamingTask;
             _cachedWlanConfigs = await wlanTask;

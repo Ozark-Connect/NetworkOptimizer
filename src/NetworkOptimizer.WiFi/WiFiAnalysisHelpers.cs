@@ -1,7 +1,7 @@
 using System.Net;
 using NetworkOptimizer.WiFi.Models;
 
-namespace NetworkOptimizer.Web.Components.Shared.WiFi;
+namespace NetworkOptimizer.WiFi;
 
 /// <summary>
 /// Shared helper methods for WiFi analysis components.
