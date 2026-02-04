@@ -161,11 +161,11 @@
                                 }
                             </div>
                             <div class="channel-bars-wrapper">
-                                @* Neighbors bar *@
+                                @* Neighbors bar - sized and colored by interference score (count + signal strength) *@
                                 <div class="channel-bar-wrapper">
-                                    <div class="channel-bar @GetDensityClass(channelGroup.Count)"
-                                         style="width: @(GetBarWidth(channelGroup.Count))%"
-                                         data-tooltip="@channelGroup.Count neighbor networks">
+                                    <div class="channel-bar @GetDensityClass(channelGroup.InterferenceScore)"
+                                         style="width: @(GetBarWidth(channelGroup.InterferenceScore))%"
+                                         data-tooltip="@channelGroup.Count networks (strongest: @channelGroup.MaxSignal dBm)">
                                     </div>
                                 </div>
                                 @* Your AP bar - selected AP is full width, others proportional to total APs *@
@@ -1101,16 +1101,32 @@
         // Build density for channels with neighbors
         var neighborDensity = filteredNeighbors
             .GroupBy(n => n.Network.Channel)
-            .Select(g => new ChannelDensity
+            .Select(g =>
             {
-                Channel = g.Key,
-                Count = g.Count(),
-                IsYourChannel = yourChannels.Contains(g.Key),
-                IsSelectedApChannel = selectedApChannels.Contains(g.Key),
-                YourApCount = yourApsByChannel.GetValueOrDefault(g.Key)?.Count ?? 0,
-                YourApNames = yourApsByChannel.GetValueOrDefault(g.Key)?.Select(x => x.ApName).ToList() ?? new List<string>(),
-                IsDfs = IsDfsChannel(g.Key, g.First().Band),
-                Band = g.First().Band
+                var signals = g.Select(n => GetDisplaySignal(n)).ToList();
+                var avgSignal = signals.Any() ? (int)signals.Average() : -100;
+                var maxSignal = signals.Any() ? signals.Max() : -100;
+                var count = g.Count();
+
+                // Calculate interference score: combines count and signal strength
+                // Signal weight: -50 dBm = 1.0, -70 dBm = 0.5, -90 dBm = 0.1
+                var signalWeight = Math.Max(0.1, Math.Min(1.0, (maxSignal + 90) / 40.0));
+                var interferenceScore = count * signalWeight;
+
+                return new ChannelDensity
+                {
+                    Channel = g.Key,
+                    Count = count,
+                    IsYourChannel = yourChannels.Contains(g.Key),
+                    IsSelectedApChannel = selectedApChannels.Contains(g.Key),
+                    YourApCount = yourApsByChannel.GetValueOrDefault(g.Key)?.Count ?? 0,
+                    YourApNames = yourApsByChannel.GetValueOrDefault(g.Key)?.Select(x => x.ApName).ToList() ?? new List<string>(),
+                    IsDfs = IsDfsChannel(g.Key, g.First().Band),
+                    Band = g.First().Band,
+                    AvgSignal = avgSignal,
+                    MaxSignal = maxSignal,
+                    InterferenceScore = interferenceScore
+                };
             })
             .ToList();
 
@@ -1138,23 +1154,38 @@
             .ThenBy(d => d.Channel);
     }
 
-    private string GetDensityClass(int count)
+    private string GetDensityClass(double interferenceScore)
     {
-        return count switch
+        // Interference score thresholds based on count * signal weight
+        // Low: score <= 2 (e.g., 2 weak networks or 1 strong network)
+        // Medium: score <= 5 (e.g., 5 weak or 2-3 strong networks)
+        // High: score > 5
+        return interferenceScore switch
         {
-            <= 3 => "density-low",
-            <= 8 => "density-medium",
+            <= 2 => "density-low",
+            <= 5 => "density-medium",
             _ => "density-high"
         };
     }
 
-    private int GetBarWidth(int count)
+    private int GetBarWidth(double interferenceScore)
     {
-        var groups = filteredNeighbors.GroupBy(n => n.Network.Channel).ToList();
-        if (!groups.Any()) return 0;
-        var maxCount = groups.Max(g => g.Count());
-        if (maxCount == 0) return 0;
-        return Math.Min(100, (int)(count * 100.0 / maxCount));
+        // Calculate max interference score across all channels
+        var channelScores = filteredNeighbors
+            .GroupBy(n => n.Network.Channel)
+            .Select(g =>
+            {
+                var signals = g.Select(n => GetDisplaySignal(n)).ToList();
+                var maxSignal = signals.Any() ? signals.Max() : -100;
+                var signalWeight = Math.Max(0.1, Math.Min(1.0, (maxSignal + 90) / 40.0));
+                return g.Count() * signalWeight;
+            })
+            .ToList();
+
+        if (!channelScores.Any()) return 0;
+        var maxScore = channelScores.Max();
+        if (maxScore == 0) return 0;
+        return Math.Min(100, (int)(interferenceScore * 100.0 / maxScore));
     }
 
     /// <summary>
@@ -1360,6 +1391,9 @@
         public List<string> YourApNames { get; set; } = new();
         public bool IsDfs { get; set; }
         public RadioBand Band { get; set; }
+        public int AvgSignal { get; set; } // Average signal strength of neighbors on this channel
+        public int MaxSignal { get; set; } // Strongest neighbor signal on this channel
+        public double InterferenceScore { get; set; } // Combined score factoring count and signal strength
     }
 
     private class DfsChannelStatus
