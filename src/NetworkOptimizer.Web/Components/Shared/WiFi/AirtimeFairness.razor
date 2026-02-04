@@ -79,7 +79,7 @@
                 {
                     <div class="radio-util-card">
                         <div class="radio-util-header">
-                            <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="sm" /> @ap.Name</span>
+                            <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
                             <span class="client-count">@ap.TotalClients clients</span>
                         </div>
 
@@ -219,7 +219,7 @@
                         var retryClass = GetRetryClass(retryPct);
                         <div class="retry-row">
                             <div class="retry-ap-info">
-                                <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="sm" /> @ap.Name</span>
+                                <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
                                 <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
                             </div>
                             <div class="retry-bar-container">

@@ -71,7 +71,7 @@
                     var position = GetNodePosition(vertex.Mac);
                     <div class="topology-node" style="left: @position.Left%; top: @position.Top%">
                         <div class="node-icon">
-                            <DeviceIcon Model="@vertex.Model" Size="md" />
+                            <DeviceIcon Model="@vertex.Model" Size="lg" />
                         </div>
                         <div class="node-label">@vertex.Name</div>
                         <div class="node-model">@vertex.Model</div>
@@ -135,9 +135,9 @@
                     var ap2 = _topology.Vertices.FirstOrDefault(v => v.Mac == edge.Endpoint2Mac);
                     <div class="paths-row" @onclick="() => SelectEdge(edge)">
                         <div class="path-col path-aps">
-                            <span class="ap-name"><DeviceIcon Model="@ap1?.Model" Size="sm" /> @(ap1?.Name ?? "Unknown")</span>
+                            <span class="ap-name"><DeviceIcon Model="@ap1?.Model" Size="md" /> @(ap1?.Name ?? "Unknown")</span>
                             <span class="path-arrow">↔</span>
-                            <span class="ap-name"><DeviceIcon Model="@ap2?.Model" Size="sm" /> @(ap2?.Name ?? "Unknown")</span>
+                            <span class="ap-name"><DeviceIcon Model="@ap2?.Model" Size="md" /> @(ap2?.Name ?? "Unknown")</span>
                         </div>
                         <div class="path-col path-attempts">@edge.TotalRoamAttempts</div>
                         <div class="path-col path-success">@edge.TotalSuccessfulRoams</div>
@@ -160,7 +160,7 @@
 
             <div class="edge-details-section">
                 <div class="section-header">
-                    <h4><DeviceIcon Model="@ap1?.Model" Size="sm" /> @(ap1?.Name ?? "AP1") ↔ <DeviceIcon Model="@ap2?.Model" Size="sm" /> @(ap2?.Name ?? "AP2") Details</h4>
+                    <h4><DeviceIcon Model="@ap1?.Model" Size="md" /> @(ap1?.Name ?? "AP1") ↔ <DeviceIcon Model="@ap2?.Model" Size="md" /> @(ap2?.Name ?? "AP2") Details</h4>
                     <button class="btn btn-sm btn-ghost" @onclick="() => _selectedEdge = null">Close</button>
                 </div>
 
@@ -168,9 +168,9 @@
                     <!-- Direction 1 -->
                     <div class="direction-card">
                         <div class="direction-header">
-                            <span class="direction-from"><DeviceIcon Model="@ap1?.Model" Size="sm" /> @(ap1?.Name ?? "AP1")</span>
+                            <span class="direction-from"><DeviceIcon Model="@ap1?.Model" Size="md" /> @(ap1?.Name ?? "AP1")</span>
                             <span class="direction-arrow">→</span>
-                            <span class="direction-to"><DeviceIcon Model="@ap2?.Model" Size="sm" /> @(ap2?.Name ?? "AP2")</span>
+                            <span class="direction-to"><DeviceIcon Model="@ap2?.Model" Size="md" /> @(ap2?.Name ?? "AP2")</span>
                         </div>
                         <div class="direction-stats">
                             <div class="direction-stat">
@@ -207,9 +207,9 @@
                     <!-- Direction 2 -->
                     <div class="direction-card">
                         <div class="direction-header">
-                            <span class="direction-from"><DeviceIcon Model="@ap2?.Model" Size="sm" /> @(ap2?.Name ?? "AP2")</span>
+                            <span class="direction-from"><DeviceIcon Model="@ap2?.Model" Size="md" /> @(ap2?.Name ?? "AP2")</span>
                             <span class="direction-arrow">→</span>
-                            <span class="direction-to"><DeviceIcon Model="@ap1?.Model" Size="sm" /> @(ap1?.Name ?? "AP1")</span>
+                            <span class="direction-to"><DeviceIcon Model="@ap1?.Model" Size="md" /> @(ap1?.Name ?? "AP1")</span>
                         </div>
                         <div class="direction-stats">
                             <div class="direction-stat">
