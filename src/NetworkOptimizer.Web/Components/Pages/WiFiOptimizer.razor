@@ -130,9 +130,21 @@
 
     <!-- View Tabs -->
     <div class="wifi-view-tabs">
+        <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("overview"))">
+            Overview
+        </button>
         <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("metrics"))">
             Metrics
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("spectrum"))">
+            RF Environment
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("channels"))">
+            Channels
         </button>
         <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("client"))">
@@ -142,21 +154,17 @@
                 @onclick="@(() => SetActiveTab("roaming"))">
             Roaming
         </button>
-        <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("channels"))">
-            Channels
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("spectrum"))">
-            Spectrum
+        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("power"))">
+            Power/Coverage
         </button>
         <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("loadbalance"))">
             Load Balance
         </button>
-        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("power"))">
-            Power/Coverage
+        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("connectivity"))">
+            Connectivity
         </button>
         <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("bandsteering"))">
@@ -169,14 +177,6 @@
         <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
                 @onclick="@(() => SetActiveTab("environment"))">
             Environment
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("connectivity"))">
-            Connectivity
-        </button>
-        <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
-                @onclick="@(() => SetActiveTab("overview"))">
-            Overview
         </button>
     </div>
 
@@ -538,7 +538,7 @@
 @code {
     private bool _loading = true;
     private bool _refreshing = false;
-    private string _activeTab = "metrics";
+    private string _activeTab = "overview";
 
     private void SetActiveTab(string tab)
     {
