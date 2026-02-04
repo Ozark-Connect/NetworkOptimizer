@@ -585,7 +585,7 @@
                 Type = "info",
                 Title = "Consider Minimum RSSI (With Caution)",
                 Description = $"{apsWithoutMinRssi.Count} APs don't have Minimum RSSI enabled. This can help sticky clients roam, but it hard-disconnects them when signal drops below threshold.",
-                Action = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). Use a conservative threshold like -75 to -80 dBm. Consider setting higher (less aggressive) for perimeter APs."
+                Action = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). Use a conservative threshold like -75 to -80 dBm. Consider setting lower (e.g., -80 dBm) for perimeter APs."
             });
         }
 
