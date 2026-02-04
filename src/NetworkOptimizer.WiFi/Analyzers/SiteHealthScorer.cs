@@ -152,7 +152,7 @@ public class SiteHealthScorer
 
         dimension.Factors.Add(new ScoreFactor
         {
-            Name = "Weak signal (<-75 dBm)",
+            Name = "Weak signal (<-73 dBm)",
             Value = $"{poor} clients ({poor * 100 / total}%)",
             Impact = poor > 0 ? -20 : 0
         });
@@ -572,7 +572,7 @@ public class SiteHealthScorerOptions
     // Signal thresholds (dBm)
     public int ExcellentSignalThreshold { get; set; } = -50;
     public int GoodSignalThreshold { get; set; } = -65;
-    public int WeakSignalThreshold { get; set; } = -75;
+    public int WeakSignalThreshold { get; set; } = -73;
 
     // Utilization thresholds (%)
     public int HighUtilizationThreshold { get; set; } = 70;
