@@ -7362,6 +7362,23 @@ select.form-control {
     color: white;
 }
 
+/* Band-specific colors for active tabs */
+.band-tab.active.band-2ghz {
+    background: #fbbf24;
+    border-color: #fbbf24;
+    color: #1a1a1a;
+}
+
+.band-tab.active.band-5ghz {
+    background: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.band-tab.active.band-6ghz {
+    background: #a855f7;
+    border-color: #a855f7;
+}
+
 .band-tab.has-issues::after {
     content: '';
     position: absolute;
@@ -7520,6 +7537,11 @@ select.form-control {
     background: var(--primary-color);
     border-radius: 50%;
 }
+
+/* Band-specific colors for AP dots */
+.channel-ap-dot.band-2ghz { background: #fbbf24; }
+.channel-ap-dot.band-5ghz { background: #3b82f6; }
+.channel-ap-dot.band-6ghz { background: #a855f7; }
 
 .channel-ap-more {
     font-size: 0.6rem;

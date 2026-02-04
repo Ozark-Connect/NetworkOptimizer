@@ -59,7 +59,7 @@
             @foreach (var band in _bands)
             {
                 var bandData = GetBandData(band);
-                <button class="band-tab @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
+                <button class="band-tab @GetBandClass(band) @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
                         @onclick="() => _selectedBand = band">
                     @band.ToDisplayString()
                     @if (bandData.HasIssues)
@@ -99,7 +99,7 @@
                             <div class="channel-aps">
                                 @foreach (var ap in apsOnChannel.Take(3))
                                 {
-                                    <div class="channel-ap-dot" data-tooltip="@ap.Name"></div>
+                                    <div class="channel-ap-dot @GetBandClass(_selectedBand)" data-tooltip="@ap.Name"></div>
                                 }
                                 @if (apsOnChannel.Count > 3)
                                 {
@@ -646,6 +646,14 @@
         >= 60 => "sat-good",
         >= 40 => "sat-fair",
         _ => "sat-poor"
+    };
+
+    private string GetBandClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
     };
 
     private class ChannelIssue
