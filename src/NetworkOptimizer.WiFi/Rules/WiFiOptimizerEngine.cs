@@ -39,9 +39,9 @@ public class WiFiOptimizerEngine
                 wlan.Name, wlan.Id, wlan.NetworkId ?? "null", wlan.Enabled, wlan.BandSteeringEnabled);
         }
 
-        var iotNetwork = context.IoTNetwork;
-        _logger.LogDebug("IoTNetwork found: {Found} (Name={Name})",
-            iotNetwork != null, iotNetwork?.Name ?? "none");
+        var iotNetworks = context.IoTNetworks.ToList();
+        _logger.LogDebug("IoT networks found: {Count} ({Names})",
+            iotNetworks.Count, string.Join(", ", iotNetworks.Select(n => n.Name)));
 
         foreach (var rule in _rules)
         {

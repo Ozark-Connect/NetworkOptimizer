@@ -25,16 +25,21 @@ public class IoTSsidSeparationRule : IWiFiOptimizerRule
             return null;
 
         // Check if user already has IoT SSID + band steering setup
-        var iotNetwork = ctx.IoTNetwork;
-        if (iotNetwork != null)
+        // Check ALL IoT networks, not just the first one
+        var iotNetworkIds = ctx.IoTNetworks.Select(n => n.Id).ToHashSet();
+        if (iotNetworkIds.Count > 0)
         {
-            // Check if IoT network has an SSID bound to it
-            var iotSsid = ctx.Wlans.FirstOrDefault(w => w.Enabled && w.NetworkId == iotNetwork.Id);
-            if (iotSsid != null)
+            // Check if ANY IoT network has an SSID bound to it
+            var iotSsids = ctx.Wlans
+                .Where(w => w.Enabled && w.NetworkId != null && iotNetworkIds.Contains(w.NetworkId))
+                .ToList();
+
+            if (iotSsids.Count > 0)
             {
                 // IoT SSID exists - check if main SSIDs have band steering
+                var iotSsidIds = iotSsids.Select(w => w.Id).ToHashSet();
                 var mainSsids = ctx.Wlans
-                    .Where(w => w.Enabled && !w.IsGuest && w.Id != iotSsid.Id)
+                    .Where(w => w.Enabled && !w.IsGuest && !iotSsidIds.Contains(w.Id))
                     .ToList();
 
                 // If there are no main SSIDs (unusual), don't recommend

@@ -41,9 +41,9 @@ public class WiFiOptimizerContext
     // Convenience accessors
 
     /// <summary>
-    /// First IoT network found (by VlanAnalyzer classification).
+    /// All IoT networks (by VlanAnalyzer classification).
     /// </summary>
-    public NetworkInfo? IoTNetwork => Networks.FirstOrDefault(n => n.Enabled && n.Purpose == NetworkPurpose.IoT);
+    public IEnumerable<NetworkInfo> IoTNetworks => Networks.Where(n => n.Enabled && n.Purpose == NetworkPurpose.IoT);
 
     /// <summary>
     /// First Security/Camera network found.
