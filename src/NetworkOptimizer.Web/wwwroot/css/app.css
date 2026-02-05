@@ -6556,6 +6556,11 @@ select.form-control {
    Client Timeline Component
    ================================ */
 
+.client-timeline-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
 
 .timeline-header {
     display: flex;
