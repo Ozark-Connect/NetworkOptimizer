@@ -318,7 +318,7 @@
                     <div class="health-score-display">
                         <div class="health-score-main">
                             <div class="score-circle @GetScoreClass(_healthScore.OverallScore)">
-                                <span class="score-value">@_healthScore.OverallScore</span>
+                                <span class="score-value @(_healthScore.OverallScore == 100 ? "score-perfect" : "")">@_healthScore.OverallScore</span>
                                 <span class="score-max">/100</span>
                             </div>
                             <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
