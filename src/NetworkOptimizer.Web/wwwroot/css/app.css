@@ -7406,16 +7406,6 @@ select.form-control {
     border-color: #a855f7;
 }
 
-.band-tab.has-issues::after {
-    content: '';
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 10px;
-    height: 10px;
-    background: var(--warning-color);
-    border-radius: 50%;
-}
 
 .band-tab .issue-indicator {
     display: inline-flex;

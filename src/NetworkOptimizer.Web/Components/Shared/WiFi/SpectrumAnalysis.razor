@@ -20,10 +20,10 @@
                         }
                     </select>
                 </div>
-                <div class="filter-tabs">
-                    <button class="tab @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
-                    <button class="tab @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
-                    <button class="tab @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
+                <div class="filter-tabs band-tabs">
+                    <button class="tab band-tab band-2ghz @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
+                    <button class="tab band-tab band-5ghz @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
+                    <button class="tab band-tab band-6ghz @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
                 </div>
                 <div class="time-range-selector">
                     @foreach (var range in _timeRanges)
