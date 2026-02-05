@@ -54,7 +54,6 @@
                     var qualityClass = GetPeriodQualityClass(period);
                     <div class="tod-card @qualityClass">
                         <div class="tod-header">
-                            <span class="tod-icon">@period.Icon</span>
                             <span class="tod-name">@period.Name</span>
                         </div>
                         <div class="tod-hours">@period.TimeRange</div>
@@ -279,10 +278,10 @@
     {
         _timeOfDayStats = new List<TimeOfDayStats>
         {
-            new() { Name = "Morning", Icon = "AM", TimeRange = "6 AM - 12 PM", StartHour = 6, EndHour = 12 },
-            new() { Name = "Afternoon", Icon = "PM", TimeRange = "12 PM - 6 PM", StartHour = 12, EndHour = 18 },
-            new() { Name = "Evening", Icon = "EVE", TimeRange = "6 PM - 12 AM", StartHour = 18, EndHour = 24 },
-            new() { Name = "Night", Icon = "NIG", TimeRange = "12 AM - 6 AM", StartHour = 0, EndHour = 6 }
+            new() { Name = "Morning", TimeRange = "6 AM - 12 PM", StartHour = 6, EndHour = 12 },
+            new() { Name = "Afternoon", TimeRange = "12 PM - 6 PM", StartHour = 12, EndHour = 18 },
+            new() { Name = "Evening", TimeRange = "6 PM - 12 AM", StartHour = 18, EndHour = 24 },
+            new() { Name = "Night", TimeRange = "12 AM - 6 AM", StartHour = 0, EndHour = 6 }
         };
 
         foreach (var period in _timeOfDayStats)
@@ -589,7 +588,6 @@
     private class TimeOfDayStats
     {
         public string Name { get; set; } = "";
-        public string Icon { get; set; } = "";
         public string TimeRange { get; set; } = "";
         public int StartHour { get; set; }
         public int EndHour { get; set; }

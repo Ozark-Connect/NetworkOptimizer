@@ -8955,7 +8955,6 @@ select.form-control {
     flex-direction: column;
     align-items: center;
     height: 100%;
-    background: var(--bg-tertiary);
     border-radius: 0 0 4px 4px;
 }
 
@@ -9098,7 +9097,7 @@ select.form-control {
 .power-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
     position: relative;
@@ -9128,6 +9127,7 @@ select.form-control {
 .power-bar-gain {
     height: 100%;
     border-left: 1px dashed rgba(255, 255, 255, 0.3);
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
@@ -9692,13 +9692,13 @@ select.form-control {
     flex: 1;
     height: 16px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
 
 .wifi-gen-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
@@ -10014,14 +10014,14 @@ select.form-control {
     flex: 1;
     height: 16px;
     background: var(--bg-secondary);
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
     position: relative;
 }
 
 .radio-util-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
@@ -10085,13 +10085,13 @@ select.form-control {
     flex: 1;
     height: 20px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
 
 .gen-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
@@ -10254,13 +10254,13 @@ select.form-control {
     flex: 1;
     height: 12px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
 
 .retry-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
@@ -10416,15 +10416,6 @@ select.form-control {
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.25rem;
-}
-
-.tod-icon {
-    font-weight: 700;
-    font-size: 0.7rem;
-    padding: 0.25rem 0.5rem;
-    background: var(--bg-secondary);
-    border-radius: 3px;
-    color: var(--text-muted);
 }
 
 .tod-name {
@@ -10656,13 +10647,13 @@ select.form-control {
 .band-env-metric .metric-bar {
     height: 6px;
     background: var(--bg-secondary);
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     overflow: hidden;
 }
 
 .band-env-metric .metric-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     background: var(--text-muted);
     transition: width 0.3s ease;
 }
@@ -10889,7 +10880,7 @@ select.form-control {
 
 .stage-bar {
     height: 6px;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: 0 3px 3px 0;
     overflow: hidden;
     margin-top: auto;
@@ -11086,7 +11077,7 @@ select.form-control {
 
 .ap-success-bar-container {
     height: 8px;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
