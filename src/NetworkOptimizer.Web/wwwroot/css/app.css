@@ -5836,7 +5836,13 @@ select.form-control {
     color: var(--danger-color);
 }
 
-/* Score label colors for stat card */
+/* Score label colors and font for stat card */
+.stat-value.score-excellent,
+.stat-value.score-good,
+.stat-value.score-fair,
+.stat-value.score-poor {
+    font-size: 1.2rem;
+}
 .stat-value.score-excellent { color: var(--success-color); }
 .stat-value.score-good { color: var(--primary-color); }
 .stat-value.score-fair { color: var(--warning-color); }
