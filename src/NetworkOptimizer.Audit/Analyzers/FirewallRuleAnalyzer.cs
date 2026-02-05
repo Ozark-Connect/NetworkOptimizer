@@ -1985,7 +1985,7 @@ public class FirewallRuleAnalyzer
         // Use FirewallRuleEvaluator to find the effective rule for internet traffic
         // Predicate matches rules that target this network's internet access
         var evalResult = FirewallRuleEvaluator.Evaluate(firewallRules, rule =>
-            MatchesInternetTrafficPattern(rule, network.Id, externalZoneId));
+            MatchesInternetTrafficPattern(rule, network, externalZoneId));
 
         if (evalResult.IsBlocked)
         {
@@ -2008,13 +2008,10 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Check if a rule matches the pattern for blocking internet access from a specific network.
     /// </summary>
-    private static bool MatchesInternetTrafficPattern(FirewallRule rule, string networkId, string externalZoneId)
+    private static bool MatchesInternetTrafficPattern(FirewallRule rule, NetworkInfo network, string externalZoneId)
     {
-        // Source must be NETWORK type with this network's ID in the list
-        if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(networkId))
+        // Source must match this network (by network ID, IP/CIDR, or ANY)
+        if (!AppliesToSourceNetwork(rule, network))
             return false;
 
         // Destination zone must be the External zone

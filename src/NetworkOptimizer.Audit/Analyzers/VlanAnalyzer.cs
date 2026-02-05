@@ -979,7 +979,7 @@ public class VlanAnalyzer
     /// A rule blocks internet if ALL conditions are met:
     /// - Rule is enabled
     /// - Action is block/drop/reject/deny
-    /// - Source matching target is "NETWORK" and network_ids contains this network's ID
+    /// - Source matches this network (by network ID, IP/CIDR subnet coverage, or ANY)
     /// - Destination zone ID matches the External zone
     /// - Destination matching target is "ANY" (all destinations in the zone)
     /// - Protocol is "all" (blocks all traffic, not just specific ports)
@@ -999,11 +999,8 @@ public class VlanAnalyzer
             if (!rule.ActionType.IsBlockAction())
                 continue;
 
-            // Source must be NETWORK type with this network's ID in the list
-            if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(network.Id))
+            // Source must match this network (by network ID, IP/CIDR, or ANY)
+            if (!FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network))
                 continue;
 
             // Destination zone must be the External zone
