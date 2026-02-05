@@ -5977,7 +5977,7 @@ select.form-control {
     width: 60px;
     height: 120px;
     background: var(--bg-tertiary);
-    border-radius: 6px 6px 0 0;
+    border-radius: 0 0 6px 6px;
     overflow: hidden;
     display: flex;
     align-items: flex-end;
@@ -8956,7 +8956,7 @@ select.form-control {
     align-items: center;
     height: 100%;
     background: var(--bg-tertiary);
-    border-radius: 4px 4px 0 0;
+    border-radius: 0 0 4px 4px;
 }
 
 .signal-bar {
