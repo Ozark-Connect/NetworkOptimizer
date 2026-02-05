@@ -31,13 +31,26 @@
                     <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
                 }
                 <div class="filterable-select @(_dropdownOpen ? "open" : "")">
-                    <input type="text" class="form-select filterable-select-input"
-                           placeholder="Select a client..."
-                           @bind="_clientSearchText"
-                           @bind:event="oninput"
-                           @onclick="OpenDropdown"
-                           @onfocus="OpenDropdown"
-                           @onblur="CloseDropdownDelayed" />
+                    @if (_selectedClient != null && !_dropdownOpen)
+                    {
+                        <!-- Display mode: show selected client -->
+                        <div class="filterable-select-display" @onclick="OpenDropdownForEdit">
+                            <span class="status-dot @(_selectedClient.IsOnline ? "online" : "offline")"></span>
+                            <span class="option-text">@_selectedClient.Name</span>
+                            <span class="option-mac">@_selectedClient.Mac</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- Edit mode: text input for filtering -->
+                        <input type="text" class="form-select filterable-select-input"
+                               placeholder="Select a client..."
+                               @bind="_clientSearchText"
+                               @bind:event="oninput"
+                               @onclick="OpenDropdown"
+                               @onfocus="OpenDropdown"
+                               @onblur="CloseDropdownDelayed" />
+                    }
                     @if (_dropdownOpen)
                     {
                         <div class="filterable-select-dropdown">
@@ -693,6 +706,12 @@
 
     // Dropdown methods
     private void OpenDropdown() => _dropdownOpen = true;
+
+    private void OpenDropdownForEdit()
+    {
+        _clientSearchText = "";
+        _dropdownOpen = true;
+    }
 
     private async Task CloseDropdownDelayed()
     {

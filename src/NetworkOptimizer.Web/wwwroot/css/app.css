@@ -6345,9 +6345,9 @@ select.form-control {
     padding: 0.25rem;
 }
 
-/* Use secondary background when inside cards */
-.card .pill-selector,
-.card .time-range-selector {
+/* Use secondary background when inside nested cards */
+.card .card .pill-selector,
+.card .card .time-range-selector {
     background: var(--bg-secondary);
 }
 
@@ -6679,6 +6679,40 @@ select.form-control {
 
 .filterable-select-input::placeholder {
     color: var(--text-tertiary);
+}
+
+.filterable-select-display {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 2.5rem 0.5rem 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+}
+
+.filterable-select-display:hover {
+    border-color: var(--primary-color);
+}
+
+.filterable-select-display .option-text {
+    flex: 1;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filterable-select-display .option-mac {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: monospace;
 }
 
 .filterable-select-dropdown {
