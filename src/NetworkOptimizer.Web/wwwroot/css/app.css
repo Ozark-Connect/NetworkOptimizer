@@ -6340,9 +6340,15 @@ select.form-control {
 .time-range-selector {
     display: flex;
     gap: 0.25rem;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border-radius: 6px;
     padding: 0.25rem;
+}
+
+/* Use secondary background when inside cards */
+.card .pill-selector,
+.card .time-range-selector {
+    background: var(--bg-secondary);
 }
 
 .pill-btn,
