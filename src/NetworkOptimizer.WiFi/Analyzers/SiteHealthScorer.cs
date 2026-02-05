@@ -465,12 +465,13 @@ public class SiteHealthScorer
         var weakSignalClients = clients.Where(c => c.Signal.HasValue && c.Signal.Value < _options.WeakSignalThreshold).ToList();
         foreach (var client in weakSignalClients.Take(5))
         {
+            var apInfo = !string.IsNullOrEmpty(client.ApName) ? $" on {client.ApName}" : "";
             score.Issues.Add(new HealthIssue
             {
                 Severity = client.Signal < -80 ? HealthIssueSeverity.Critical : HealthIssueSeverity.Warning,
                 Dimensions = { HealthDimension.SignalQuality },
                 Title = "Weak signal",
-                Description = $"Client has weak signal ({client.Signal} dBm)",
+                Description = $"Client has weak signal ({client.Signal} dBm){apInfo}",
                 AffectedEntity = client.Name,
                 Recommendation = "Move closer to AP or add additional coverage",
                 ScoreImpact = -5
