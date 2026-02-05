@@ -32,6 +32,7 @@
                            placeholder="Select a client..."
                            @bind="_clientSearchText"
                            @bind:event="oninput"
+                           @onclick="OpenDropdown"
                            @onfocus="OpenDropdown"
                            @onblur="CloseDropdownDelayed" />
                     @if (_dropdownOpen)
