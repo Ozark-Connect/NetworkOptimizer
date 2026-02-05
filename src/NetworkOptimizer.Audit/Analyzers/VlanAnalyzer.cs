@@ -1016,8 +1016,10 @@ public class VlanAnalyzer
                 continue;
 
             _logger.LogDebug(
-                "Found firewall rule '{RuleName}' that blocks internet for network '{NetworkName}'",
-                rule.Name, network.Name);
+                "Found firewall rule '{RuleName}' that blocks internet for network '{NetworkName}' " +
+                "(sourceMatch={SourceMatchType}, sourceZone={SourceZone}, networkZone={NetworkZone})",
+                rule.Name, network.Name,
+                rule.SourceMatchingTarget, rule.SourceZoneId, network.FirewallZoneId);
 
             return true;
         }

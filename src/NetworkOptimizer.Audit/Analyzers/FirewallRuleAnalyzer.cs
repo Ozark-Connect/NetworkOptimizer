@@ -1989,8 +1989,11 @@ public class FirewallRuleAnalyzer
         if (evalResult.IsBlocked)
         {
             _logger.LogDebug(
-                "Network '{NetworkName}' has internet blocked by rule '{RuleName}' (index={Index})",
-                network.Name, evalResult.EffectiveRule!.Name, evalResult.EffectiveRule.Index);
+                "Network '{NetworkName}' has internet blocked by rule '{RuleName}' " +
+                "(index={Index}, sourceMatch={SourceMatchType}, sourceZone={SourceZone}, networkZone={NetworkZone})",
+                network.Name, evalResult.EffectiveRule!.Name, evalResult.EffectiveRule.Index,
+                evalResult.EffectiveRule.SourceMatchingTarget, evalResult.EffectiveRule.SourceZoneId,
+                network.FirewallZoneId);
             return true;
         }
 
