@@ -93,7 +93,95 @@ public class DeviceTypeClassificationTests
     [Theory]
     [InlineData("uck", DeviceType.CloudKey)]
     [InlineData("UCK", DeviceType.CloudKey)]
+    [InlineData("uas", DeviceType.CloudKey)]  // Application Server maps to CloudKey
+    [InlineData("UAS", DeviceType.CloudKey)]
     public void FromUniFiApiType_CloudKeyTypes_ReturnsCloudKey(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("udb", DeviceType.DeviceBridge)]
+    [InlineData("UDB", DeviceType.DeviceBridge)]
+    [InlineData("uacc", DeviceType.DeviceBridge)]  // Device Bridge accessory type
+    [InlineData("UACC", DeviceType.DeviceBridge)]
+    public void FromUniFiApiType_DeviceBridgeTypes_ReturnsDeviceBridge(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("unas", DeviceType.NAS)]
+    [InlineData("UNAS", DeviceType.NAS)]
+    public void FromUniFiApiType_NasTypes_ReturnsNAS(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("unvr", DeviceType.ProtectDevice)]
+    [InlineData("UNVR", DeviceType.ProtectDevice)]
+    public void FromUniFiApiType_NvrTypes_ReturnsProtectDevice(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("uph", DeviceType.TalkDevice)]
+    [InlineData("UPH", DeviceType.TalkDevice)]
+    public void FromUniFiApiType_PhoneTypes_ReturnsTalkDevice(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("usfp", DeviceType.Accessory)]
+    [InlineData("USFP", DeviceType.Accessory)]
+    public void FromUniFiApiType_AccessoryTypes_ReturnsAccessory(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("uci", DeviceType.CableModem)]
+    [InlineData("UCI", DeviceType.CableModem)]
+    public void FromUniFiApiType_CableModemTypes_ReturnsCableModem(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("utr", DeviceType.TravelRouter)]
+    [InlineData("UTR", DeviceType.TravelRouter)]
+    public void FromUniFiApiType_TravelRouterTypes_ReturnsTravelRouter(string apiType, DeviceType expected)
     {
         // Act
         var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
