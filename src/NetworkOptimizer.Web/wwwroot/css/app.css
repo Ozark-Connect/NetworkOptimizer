@@ -6452,6 +6452,10 @@ select.form-control {
     margin-left: auto;
 }
 
+.metrics-filters .band-tabs {
+    margin-bottom: 0;
+}
+
 /* Band filter label colors */
 .filter-checkbox .checkbox-label.band-2ghz { color: #fbbf24; }
 .filter-checkbox .checkbox-label.band-5ghz { color: #3b82f6; }
