@@ -232,27 +232,29 @@
             </div>
         </div>
 
-        <!-- Recommendations -->
-        @if (_recommendations.Count > 0)
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_airtimeIssues.Count > 0)
         {
             <div class="airtime-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
+                <div class="issues-list">
+                    @foreach (var issue in _airtimeIssues)
                     {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
+                        <div class="issue-item issue-@GetSeverityCssClass(issue.Severity)">
+                            <div class="issue-icon">
+                                @(issue.Severity == HealthIssueSeverity.Warning ? "!" : "i")
                             </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                                @if (!string.IsNullOrEmpty(rec.Action))
+                            <div class="issue-body">
+                                <div class="issue-header">
+                                    <span class="issue-title">@issue.Title</span>
+                                </div>
+                                <div class="issue-item-description">@issue.Description</div>
+                                @if (!string.IsNullOrEmpty(issue.Recommendation))
                                 {
-                                    <div class="rec-action">@rec.Action</div>
+                                    <div class="issue-recommendation">@issue.Recommendation</div>
                                 }
                             </div>
                         </div>
@@ -281,7 +283,7 @@
     // High airtime clients
     private List<WirelessClientSnapshot> _highAirtimeClientsList = new();
 
-    private List<Recommendation> _recommendations = new();
+    private List<HealthIssue> _airtimeIssues = new();
     private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
@@ -388,117 +390,23 @@
 
     private void GenerateRecommendations()
     {
-        _recommendations.Clear();
+        _airtimeIssues.Clear();
 
         // Pull Airtime Efficiency issues from health score (single source of truth)
         if (_healthScore != null)
         {
-            foreach (var issue in _healthScore.Issues.Where(i => i.Dimensions.Contains(HealthDimension.AirtimeEfficiency)))
-            {
-                _recommendations.Add(new Recommendation
-                {
-                    Type = issue.Severity == HealthIssueSeverity.Critical ? "warning" :
-                           issue.Severity == HealthIssueSeverity.Warning ? "warning" : "info",
-                    Title = issue.Title,
-                    Description = issue.Description,
-                    Action = issue.Recommendation ?? ""
-                });
-            }
-        }
-
-        // High utilization radios
-        var highUtilRadios = _accessPoints
-            .SelectMany(ap => ap.Radios.Where(r => (r.ChannelUtilization ?? 0) > 70))
-            .ToList();
-
-        if (highUtilRadios.Any())
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "High Radio Utilization Detected",
-                Description = $"{highUtilRadios.Count} radio(s) have utilization above 70%. Clients may experience slow speeds and higher latency during busy periods.",
-                Action = "Consider: (1) spreading clients across more APs, (2) using wider channels (if interference permits), or (3) reducing legacy device impact."
-            });
-        }
-
-        // Legacy client impact
-        if (_legacyClients >= 3)
-        {
-            var legacyPct = _totalClients > 0 ? (double)_legacyClients / _totalClients * 100 : 0;
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "Legacy Client Airtime Impact",
-                Description = $"{_legacyClients} legacy clients ({legacyPct:F0}% of total) are consuming disproportionate airtime. Legacy devices use slower modulation rates, taking 5-10x longer to transmit the same data.",
-                Action = "Increase the minimum data rate on 2.4 GHz (e.g., 12 Mbps) to force higher modulation. Note: very old devices may disconnect if they can't maintain the rate."
-            });
-        }
-
-        // High retry rates
-        var highRetryRadios = _accessPoints
-            .SelectMany(ap => ap.Radios.Where(r => r.TxRetriesPct.HasValue && r.TxRetriesPct > 15))
-            .ToList();
-
-        if (highRetryRadios.Any())
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "High TX Retry Rates",
-                Description = $"{highRetryRadios.Count} radio(s) have retry rates above 15%. Retries waste airtime and indicate interference, weak signals, or hidden node problems.",
-                Action = "Check for sources of interference, ensure APs are on non-overlapping channels, and verify client signal strength is adequate (-70 dBm or better)."
-            });
-        }
-
-        // 2.4GHz congestion - only suggest band steering if not already enabled on relevant SSIDs
-        var clients2g = _clients.Where(c => c.Band == RadioBand.Band2_4GHz).ToList();
-        var clients5g6g = _clients.Count(c => c.Band == RadioBand.Band5GHz || c.Band == RadioBand.Band6GHz);
-
-        if (clients2g.Count > clients5g6g && _totalClients >= 5)
-        {
-            // Find SSIDs where 2.4 GHz clients are connected and band steering is NOT enabled
-            var ssidsWithout2gClients = clients2g
-                .Where(c => !string.IsNullOrEmpty(c.Essid))
-                .Select(c => c.Essid)
-                .Distinct()
+            _airtimeIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.AirtimeEfficiency))
                 .ToList();
-
-            var ssidsNeedingBandSteering = _wlanConfigs
-                .Where(w => w.Enabled && !w.BandSteeringEnabled && ssidsWithout2gClients.Contains(w.Name))
-                .ToList();
-
-            // Only show recommendation if there are SSIDs without band steering
-            if (ssidsNeedingBandSteering.Any())
-            {
-                var ssidNames = string.Join(", ", ssidsNeedingBandSteering.Select(s => $"\"{s.Name}\""));
-                _recommendations.Add(new Recommendation
-                {
-                    Type = "info",
-                    Title = "Consider Band Steering",
-                    Description = $"More clients are on 2.4 GHz ({clients2g.Count}) than 5/6 GHz ({clients5g6g}). Band steering is not enabled on: {ssidNames}.",
-                    Action = "Enable band steering on these SSIDs to push capable clients to 5 GHz or 6 GHz."
-                });
-            }
-        }
-
-        // Minimum data rates suggestion
-        var legacyOn2g = _clients.Count(c =>
-            c.Band == RadioBand.Band2_4GHz &&
-            c.WifiGeneration.HasValue &&
-            c.WifiGeneration <= 4);
-
-        if (legacyOn2g >= 5)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Consider Minimum Data Rates",
-                Description = "Setting minimum data rates can prevent very slow legacy transmissions from consuming excessive airtime, at the cost of reduced range for legacy devices.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Minimum Data Rate - try 12 Mbps for 2.4 GHz to block very slow rates."
-            });
         }
     }
+
+    private string GetSeverityCssClass(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "critical",
+        HealthIssueSeverity.Warning => "warning",
+        _ => "info"
+    };
 
     private string GetAirtimeFactor(int generation) => generation switch
     {
@@ -604,13 +512,5 @@
     {
         public int Generation { get; set; }
         public int ClientCount { get; set; }
-    }
-
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string Action { get; set; } = "";
     }
 }

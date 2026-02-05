@@ -262,27 +262,29 @@
             </div>
         }
 
-        <!-- Recommendations -->
-        @if (_recommendations.Count > 0)
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_signalQualityIssues.Count > 0)
         {
             <div class="power-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
+                <div class="issues-list">
+                    @foreach (var issue in _signalQualityIssues)
                     {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
+                        <div class="issue-item issue-@GetSeverityCssClass(issue.Severity)">
+                            <div class="issue-icon">
+                                @(issue.Severity == HealthIssueSeverity.Warning ? "!" : "i")
                             </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                                @if (!string.IsNullOrEmpty(rec.Action))
+                            <div class="issue-body">
+                                <div class="issue-header">
+                                    <span class="issue-title">@issue.Title</span>
+                                </div>
+                                <div class="issue-item-description">@issue.Description</div>
+                                @if (!string.IsNullOrEmpty(issue.Recommendation))
                                 {
-                                    <div class="rec-action">@rec.Action</div>
+                                    <div class="issue-recommendation">@issue.Recommendation</div>
                                 }
                             </div>
                         </div>
@@ -313,7 +315,8 @@
 
     // Issues and recommendations
     private List<OverlapIssue> _overlapIssues = new();
-    private List<Recommendation> _recommendations = new();
+    private List<HealthIssue> _signalQualityIssues = new();
+    private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -329,11 +332,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
+            var healthTask = WiFiService.GetSiteHealthScoreAsync();
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             CalculateStats();
             AnalyzeCoverage();
@@ -356,11 +361,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             CalculateStats();
             AnalyzeCoverage();
@@ -517,120 +524,23 @@
 
     private void GenerateRecommendations()
     {
-        _recommendations.Clear();
+        _signalQualityIssues.Clear();
 
-        // Check for APs with all radios on high power
-        foreach (var ap in _accessPoints)
+        // Pull Signal Quality issues from health score (single source of truth)
+        if (_healthScore != null)
         {
-            var highPowerRadios = ap.Radios.Where(r => r.TxPowerMode?.ToLower() == "high").ToList();
-            if (highPowerRadios.Count == ap.Radios.Count(r => r.Channel.HasValue) && highPowerRadios.Count > 0)
-            {
-                _recommendations.Add(new Recommendation
-                {
-                    Type = "warning",
-                    Title = $"All Radios on High Power: {ap.Name}",
-                    Description = "All radios are set to high TX power, which can cause excessive coverage overlap and interference with neighboring APs.",
-                    Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - consider 'Medium' or 'Auto' for balanced coverage."
-                });
-            }
-        }
-
-        // Check for weak signal concentration on specific APs
-        foreach (var apStats in _apCoverageStats.Where(a => a.ClientCount >= 3))
-        {
-            var weakPct = apStats.ClientCount > 0 ? (double)apStats.WeakClientCount / apStats.ClientCount * 100 : 0;
-            if (weakPct >= 50)
-            {
-                _recommendations.Add(new Recommendation
-                {
-                    Type = "warning",
-                    Title = $"Coverage Gap Near {apStats.ApName}",
-                    Description = $"{weakPct:F0}% of clients connected to this AP have weak signal (<-70 dBm). These clients may be too far from the AP or experiencing obstruction.",
-                    Action = "Consider: (1) increasing TX power on this AP, (2) adding an AP closer to weak clients, or (3) checking for physical obstructions."
-                });
-            }
-        }
-
-        // Check for very weak clients overall
-        if (_weakSignalClients > 0 && _totalClients > 0)
-        {
-            var weakPct = (double)_weakSignalClients / _totalClients * 100;
-            if (weakPct >= 30)
-            {
-                _recommendations.Add(new Recommendation
-                {
-                    Type = "warning",
-                    Title = "Significant Weak Signal Population",
-                    Description = $"{_weakSignalClients} clients ({weakPct:F0}% of total) have signal below -70 dBm. This indicates coverage gaps in your deployment.",
-                    Action = "Review AP placement and consider adding access points in areas with weak coverage."
-                });
-            }
-        }
-
-        // Check for min RSSI settings
-        var apsWithMinRssi = _accessPoints
-            .Where(ap => ap.Radios.Any(r => r.Channel.HasValue && r.MinRssiEnabled))
-            .ToList();
-        var apsWithoutMinRssi = _accessPoints
-            .Where(ap => ap.Radios.Any(r => r.Channel.HasValue && !r.MinRssiEnabled))
-            .ToList();
-
-        if (apsWithMinRssi.Count > 0)
-        {
-            // Warn that min RSSI can cause issues
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Minimum RSSI Enabled",
-                Description = $"{apsWithMinRssi.Count} AP(s) have Minimum RSSI enabled. This hard-disconnects clients below the threshold, which can cause issues with sticky clients. Monitor for unexpected disconnects.",
-                Action = "If clients are dropping unexpectedly, consider disabling or lowering the threshold to -80 dBm."
-            });
-        }
-        else if (apsWithoutMinRssi.Count > 1 && _accessPoints.Count > 1)
-        {
-            // Suggest enabling with caution
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Consider Minimum RSSI (With Caution)",
-                Description = $"{apsWithoutMinRssi.Count} APs don't have Minimum RSSI enabled. This can help sticky clients roam, but it hard-disconnects them when signal drops below threshold.",
-                Action = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). Use a conservative threshold like -75 to -80 dBm. Consider setting lower (e.g., -80 dBm) for perimeter APs."
-            });
-        }
-
-        // Roaming Assistant recommendation (5 GHz only, uses soft BSS transition instead of hard disconnect)
-        var apsWithout5gRoamingAssistant = _accessPoints
-            .Where(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue && !r.RoamingAssistantEnabled))
-            .ToList();
-        if (apsWithout5gRoamingAssistant.Count > 0 && _accessPoints.Count > 1)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Enable Roaming Assistant (Recommended)",
-                Description = $"{apsWithout5gRoamingAssistant.Count} AP(s) don't have Roaming Assistant enabled on 5 GHz. Unlike Minimum RSSI, this uses BSS transition frames (soft nudge) instead of hard-disconnecting clients.",
-                Action = "Per AP: Devices > (AP) > Settings > Radios > 5 GHz > Roaming Assistant. Or globally: Settings > WiFi > 5 GHz Roaming Assistant with 'Override All APs'. Recommended threshold: -70 to -75 dBm."
-            });
-        }
-
-        // Power mode diversity recommendation
-        var powerModes = _accessPoints
-            .SelectMany(ap => ap.Radios.Where(r => r.Channel.HasValue))
-            .Select(r => r.TxPowerMode?.ToLower() ?? "auto")
-            .Distinct()
-            .ToList();
-
-        if (powerModes.Count == 1 && powerModes[0] == "high" && _accessPoints.Count > 1)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Consider Varied TX Power Levels",
-                Description = "All APs are set to high power. In multi-AP deployments, using 'Auto' or varied power levels often improves roaming behavior and reduces interference.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - try 'Auto' to let the controller optimize power levels."
-            });
+            _signalQualityIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.SignalQuality))
+                .ToList();
         }
     }
+
+    private string GetSeverityCssClass(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "critical",
+        HealthIssueSeverity.Warning => "warning",
+        _ => "info"
+    };
 
     private double GetPowerPercentage(int power)
     {
@@ -725,13 +635,5 @@
     {
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
-    }
-
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string Action { get; set; } = "";
     }
 }
