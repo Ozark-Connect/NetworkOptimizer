@@ -5935,7 +5935,7 @@ select.form-control {
 
 .dimension-bar-container {
     height: 8px;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     overflow: hidden;
 }
 
@@ -5975,7 +5975,7 @@ select.form-control {
 .band-bar-container {
     width: 60px;
     height: 120px;
-    background: var(--bg-secondary);
+    background: var(--bg-tertiary);
     overflow: hidden;
     display: flex;
     align-items: flex-end;
