@@ -72,6 +72,33 @@ public class WlanConfiguration
     /// Links the WLAN to its associated network/VLAN.
     /// </summary>
     public string? NetworkId { get; set; }
+
+    /// <summary>
+    /// Whether Private Pre-Shared Keys (PPSK) are enabled.
+    /// When enabled, different passwords route to different VLANs.
+    /// </summary>
+    public bool PrivatePresharedKeysEnabled { get; set; }
+
+    /// <summary>
+    /// Network IDs from Private Pre-Shared Key configurations.
+    /// Each entry is a network/VLAN that can be accessed via PPSK.
+    /// </summary>
+    public List<string> PpskNetworkIds { get; set; } = new();
+
+    /// <summary>
+    /// All network IDs this WLAN can route to (direct binding + PPSKs).
+    /// </summary>
+    public IEnumerable<string> AllNetworkIds
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(NetworkId))
+                yield return NetworkId;
+
+            foreach (var id in PpskNetworkIds)
+                yield return id;
+        }
+    }
 }
 
 /// <summary>

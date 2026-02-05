@@ -91,4 +91,30 @@ public class UniFiWlanConfig
     /// </summary>
     [JsonPropertyName("networkconf_id")]
     public string? NetworkConfId { get; set; }
+
+    /// <summary>
+    /// Whether Private Pre-Shared Keys (PPSK) are enabled.
+    /// When enabled, different passwords route to different VLANs.
+    /// </summary>
+    [JsonPropertyName("private_preshared_keys_enabled")]
+    public bool PrivatePresharedKeysEnabled { get; set; }
+
+    /// <summary>
+    /// Private Pre-Shared Key configurations.
+    /// Each entry maps a password to a network/VLAN.
+    /// </summary>
+    [JsonPropertyName("private_preshared_keys")]
+    public List<PrivatePresharedKey>? PrivatePresharedKeys { get; set; }
+}
+
+/// <summary>
+/// A Private Pre-Shared Key entry that maps a password to a network/VLAN.
+/// </summary>
+public class PrivatePresharedKey
+{
+    /// <summary>
+    /// The network configuration ID this PPSK routes to.
+    /// </summary>
+    [JsonPropertyName("networkconf_id")]
+    public string? NetworkConfId { get; set; }
 }

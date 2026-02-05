@@ -35,8 +35,11 @@ public class WiFiOptimizerEngine
 
         foreach (var wlan in context.Wlans)
         {
-            _logger.LogDebug("WLAN: {Name} (Id={Id}, NetworkId={NetworkId}, Enabled={Enabled}, BandSteering={BandSteering})",
-                wlan.Name, wlan.Id, wlan.NetworkId ?? "null", wlan.Enabled, wlan.BandSteeringEnabled);
+            var ppskInfo = wlan.PrivatePresharedKeysEnabled
+                ? $", PPSK={wlan.PpskNetworkIds.Count} networks"
+                : "";
+            _logger.LogDebug("WLAN: {Name} (Id={Id}, NetworkId={NetworkId}, Enabled={Enabled}, BandSteering={BandSteering}{PpskInfo})",
+                wlan.Name, wlan.Id, wlan.NetworkId ?? "null", wlan.Enabled, wlan.BandSteeringEnabled, ppskInfo);
         }
 
         var iotNetworks = context.IoTNetworks.ToList();

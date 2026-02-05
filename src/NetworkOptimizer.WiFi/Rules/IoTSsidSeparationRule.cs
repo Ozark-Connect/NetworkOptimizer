@@ -29,9 +29,9 @@ public class IoTSsidSeparationRule : IWiFiOptimizerRule
         var iotNetworkIds = ctx.IoTNetworks.Select(n => n.Id).ToHashSet();
         if (iotNetworkIds.Count > 0)
         {
-            // Check if ANY IoT network has an SSID bound to it
+            // Check if ANY IoT network has an SSID bound to it (direct binding OR via PPSK)
             var iotSsids = ctx.Wlans
-                .Where(w => w.Enabled && w.NetworkId != null && iotNetworkIds.Contains(w.NetworkId))
+                .Where(w => w.Enabled && w.AllNetworkIds.Any(id => iotNetworkIds.Contains(id)))
                 .ToList();
 
             if (iotSsids.Count > 0)
