@@ -24,25 +24,27 @@
                 <button class="tab band-tab band-5ghz @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
                 <button class="tab band-tab band-6ghz @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
             </div>
-            <div class="time-range-selector">
-                @foreach (var range in _timeRanges)
-                {
-                    <button class="time-btn @(range.Key == selectedTimeRange ? "active" : "")"
-                            @onclick="() => SetTimeRange(range.Key)">
-                        @range.Key
-                    </button>
-                }
+            <div class="time-refresh-group">
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == selectedTimeRange ? "active" : "")"
+                                @onclick="() => SetTimeRange(range.Key)">
+                            @range.Key
+                        </button>
+                    }
+                </div>
+                <button class="btn btn-secondary btn-sm" @onclick="RefreshData" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
-            <button class="btn btn-secondary btn-sm" @onclick="RefreshData" disabled="@isLoading">
-                @if (isLoading)
-                {
-                    <span class="spinner-sm"></span>
-                }
-                else
-                {
-                    <span>Refresh</span>
-                }
-            </button>
         </div>
     </div>
 

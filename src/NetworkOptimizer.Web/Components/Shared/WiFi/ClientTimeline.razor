@@ -76,42 +76,44 @@
             </div>
 
             <!-- Time Range (different state for list vs client view) -->
-            @if (string.IsNullOrEmpty(_selectedClientMac))
-            {
-                <div class="time-range-selector">
-                    @foreach (var range in _timeRanges)
-                    {
-                        <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
-                                @onclick="() => SelectListTimeRange(range.Key)"
-                                disabled="@(_statusFilter == "online")">
-                            @range.Key
-                        </button>
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="time-range-selector">
-                    @foreach (var range in _timeRanges)
-                    {
-                        <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
-                                @onclick="() => SelectTimeRange(range.Key)">
-                            @range.Key
-                        </button>
-                    }
-                </div>
-            }
-
-            <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
-                @if (_refreshing)
+            <div class="time-refresh-group">
+                @if (string.IsNullOrEmpty(_selectedClientMac))
                 {
-                    <span class="spinner-sm"></span>
+                    <div class="time-range-selector">
+                        @foreach (var range in _timeRanges)
+                        {
+                            <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
+                                    @onclick="() => SelectListTimeRange(range.Key)"
+                                    disabled="@(_statusFilter == "online")">
+                                @range.Key
+                            </button>
+                        }
+                    </div>
                 }
                 else
                 {
-                    <span>Refresh</span>
+                    <div class="time-range-selector">
+                        @foreach (var range in _timeRanges)
+                        {
+                            <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                                    @onclick="() => SelectTimeRange(range.Key)">
+                                @range.Key
+                            </button>
+                        }
+                    </div>
                 }
-            </button>
+
+                <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
+                    @if (_refreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
         </div>
     </div>
 

@@ -5898,6 +5898,15 @@ select.form-control {
 .stat-value.score-fair { color: var(--warning-color); }
 .stat-value.score-poor { color: var(--danger-color); }
 
+@media (max-width: 450px) {
+    .stat-value.score-excellent,
+    .stat-value.score-good,
+    .stat-value.score-fair,
+    .stat-value.score-poor {
+        font-size: 5.3vw;
+    }
+}
+
 /* Health Score Display */
 .health-score-display {
     display: flex;
@@ -6391,6 +6400,12 @@ select.form-control {
 
 /* Pill selector - used for toggle buttons (time ranges, status filters, etc.) */
 .pill-selector,
+.time-refresh-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
 .time-range-selector {
     display: flex;
     gap: 0.25rem;

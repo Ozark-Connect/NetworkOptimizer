@@ -14,8 +14,7 @@
             <span class="metrics-subtitle">Wi-Fi Performance Metrics</span>
         </div>
 
-        <div class="metrics-controls">
-            <!-- Time Range Selector -->
+        <div class="time-refresh-group">
             <div class="time-range-selector">
                 @foreach (var range in _timeRanges)
                 {
@@ -25,8 +24,6 @@
                     </button>
                 }
             </div>
-
-            <!-- Refresh Button -->
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)
                 {
