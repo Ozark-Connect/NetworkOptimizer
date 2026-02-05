@@ -5936,6 +5936,7 @@ select.form-control {
 .dimension-bar-container {
     height: 8px;
     background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
 
@@ -5976,6 +5977,7 @@ select.form-control {
     width: 60px;
     height: 120px;
     background: var(--bg-tertiary);
+    border-radius: 6px 6px 0 0;
     overflow: hidden;
     display: flex;
     align-items: flex-end;
@@ -8277,7 +8279,7 @@ select.form-control {
     width: 60px;
     height: 6px;
     background: var(--bg-tertiary);
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     overflow: hidden;
     display: inline-block;
     margin-right: 0.5rem;
@@ -8285,7 +8287,7 @@ select.form-control {
 
 .util-bar {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     transition: width 0.3s ease;
 }
 
@@ -8478,8 +8480,7 @@ select.form-control {
 
 .load-bar {
     height: 24px;
-    background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     display: flex;
     overflow: hidden;
     min-width: 4px;
@@ -8954,6 +8955,8 @@ select.form-control {
     flex-direction: column;
     align-items: center;
     height: 100%;
+    background: var(--bg-tertiary);
+    border-radius: 4px 4px 0 0;
 }
 
 .signal-bar {
@@ -9095,8 +9098,8 @@ select.form-control {
 .power-bar-container {
     flex: 1;
     height: 20px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
     position: relative;
     display: flex;
@@ -9268,6 +9271,7 @@ select.form-control {
     display: flex;
     border-radius: 4px;
     overflow: hidden;
+    background: var(--bg-secondary);
 }
 
 .dist-segment {
@@ -10885,15 +10889,15 @@ select.form-control {
 
 .stage-bar {
     height: 6px;
-    background: var(--bg-secondary);
-    border-radius: 3px;
+    background: var(--bg-tertiary);
+    border-radius: 0 3px 3px 0;
     overflow: hidden;
     margin-top: auto;
 }
 
 .bar-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: 0 3px 3px 0;
     transition: width 0.3s ease;
 }
 
@@ -11082,14 +11086,14 @@ select.form-control {
 
 .ap-success-bar-container {
     height: 8px;
-    background: var(--bg-secondary);
-    border-radius: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
     overflow: hidden;
 }
 
 .ap-success-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
