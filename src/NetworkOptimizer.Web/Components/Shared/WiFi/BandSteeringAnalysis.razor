@@ -220,23 +220,6 @@
                     }
                 </div>
 
-                @if (_legacyClients.Count >= 5)
-                {
-                    <div class="legacy-warning">
-                        <div class="warning-icon">!</div>
-                        <div class="warning-content">
-                            <div class="warning-title">Legacy Device Airtime Impact</div>
-                            <div class="warning-description">
-                                You have @_legacyClients.Count legacy 2.4 GHz-only devices. A separate IoT SSID lets you enable
-                                aggressive band steering on your main SSID without breaking these devices.
-                            </div>
-                            <div class="rec-action">
-                                Create a 2.4 GHz-only SSID for IoT/legacy devices (with band steering off), then enable band steering
-                                on your main SSID to push capable devices to 5 GHz.
-                            </div>
-                        </div>
-                    </div>
-                }
             </div>
         }
 

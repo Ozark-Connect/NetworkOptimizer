@@ -9443,50 +9443,6 @@ select.form-control {
     color: var(--text-secondary);
 }
 
-/* Legacy Warning */
-.legacy-warning {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    border-left: 3px solid var(--warning-color);
-    margin-top: 1rem;
-}
-
-.legacy-warning .warning-icon {
-    width: 24px;
-    height: 24px;
-    background: var(--warning-color);
-    color: white;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-}
-
-.legacy-warning .warning-content {
-    flex: 1;
-}
-
-.legacy-warning .warning-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.legacy-warning .warning-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-
-[class*="-warning"] .rec-action {
-    border-left-color: var(--warning-color);
-}
-
 /* Band Steering Recommendations */
 .steering-section .rec-action {
     margin-top: 0.5rem;
