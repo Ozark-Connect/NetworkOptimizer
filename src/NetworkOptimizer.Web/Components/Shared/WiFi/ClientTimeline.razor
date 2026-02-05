@@ -11,15 +11,18 @@
         <h3>Client Stats</h3>
 
         <div class="timeline-controls">
-            <!-- Status Filter -->
-            <div class="status-filter">
-                <button class="status-filter-btn @(_statusFilter == "all" ? "active" : "")"
-                        @onclick='() => SetStatusFilter("all")'>All</button>
-                <button class="status-filter-btn @(_statusFilter == "online" ? "active" : "")"
-                        @onclick='() => SetStatusFilter("online")'>Online</button>
-                <button class="status-filter-btn @(_statusFilter == "offline" ? "active" : "")"
-                        @onclick='() => SetStatusFilter("offline")'>Offline</button>
-            </div>
+            <!-- Status Filter (only show when no client selected) -->
+            @if (string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <div class="status-filter">
+                    <button class="status-filter-btn @(_statusFilter == "all" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("all")'>All</button>
+                    <button class="status-filter-btn @(_statusFilter == "online" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("online")'>Online</button>
+                    <button class="status-filter-btn @(_statusFilter == "offline" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("offline")'>Offline</button>
+                </div>
+            }
 
             <!-- View All / Client Selector -->
             <div class="client-selector-combo">
