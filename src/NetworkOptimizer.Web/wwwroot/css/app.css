@@ -6523,13 +6523,20 @@ select.form-control {
     flex-direction: column;
     gap: 1rem;
     flex: 1;
-    min-height: 450px;
+    min-height: 50vh;
+}
+
+@media (max-width: 768px) {
+    .band-charts-wrapper {
+        min-height: 70vh;
+    }
 }
 
 .band-chart-container {
     flex: 1;
     min-height: 0;
-    position: relative;
+    display: flex;
+    flex-direction: column;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -6537,11 +6544,8 @@ select.form-control {
 }
 
 .band-chart-container > div:last-child {
-    position: absolute;
-    top: 2rem;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    flex: 1;
+    min-height: 0;
 }
 
 .band-chart-header {
