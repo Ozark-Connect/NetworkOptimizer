@@ -35,7 +35,7 @@ public class LegacyClientAirtimeRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.AirtimeEfficiency },
+            Dimensions = { HealthDimension.BandSteering },
             Title = "Legacy Client Airtime Impact",
             Description = $"{legacyClients.Count} legacy clients ({legacyPct:F0}% of total) are consuming " +
                 "disproportionate airtime. Legacy devices use slower modulation rates, taking 5-10x longer " +
