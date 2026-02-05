@@ -25,7 +25,10 @@ public class FirewallAnyAnyRule
         var isAnyProtocol = rule.Protocol?.Equals("all", StringComparison.OrdinalIgnoreCase) == true
             || string.IsNullOrEmpty(rule.Protocol);
 
-        return isAnySource && isAnyDest && isAnyProtocol && rule.ActionType.IsAllowAction();
+        var hasSpecificPorts = !string.IsNullOrEmpty(rule.DestinationPort)
+            || !string.IsNullOrEmpty(rule.SourcePort);
+
+        return isAnySource && isAnyDest && isAnyProtocol && !hasSpecificPorts && rule.ActionType.IsAllowAction();
     }
 
     private static bool IsAnySource(FirewallRule rule)

@@ -235,7 +235,10 @@ public class FirewallRuleAnalyzer
             var isAnyProtocol = rule.Protocol?.Equals("all", StringComparison.OrdinalIgnoreCase) == true
                 || string.IsNullOrEmpty(rule.Protocol);
 
-            if (isAnySource && isAnyDest && isAnyProtocol && rule.ActionType.IsAllowAction())
+            var hasSpecificPorts = !string.IsNullOrEmpty(rule.DestinationPort)
+                || !string.IsNullOrEmpty(rule.SourcePort);
+
+            if (isAnySource && isAnyDest && isAnyProtocol && !hasSpecificPorts && rule.ActionType.IsAllowAction())
             {
                 issues.Add(new AuditIssue
                 {
@@ -260,7 +263,6 @@ public class FirewallRuleAnalyzer
             // - Web domains limit destination to specific sites
             else if ((isAnySource || isAnyDest) && rule.ActionType.IsAllowAction())
             {
-                var hasSpecificPorts = !string.IsNullOrEmpty(rule.DestinationPort);
                 var hasSpecificSourceIps = rule.SourceIps?.Any() == true;
                 var hasWebDomains = rule.WebDomains?.Any() == true;
 

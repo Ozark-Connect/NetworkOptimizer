@@ -2556,6 +2556,32 @@ public class FirewallRuleAnalyzerTests
     }
 
     [Fact]
+    public void DetectPermissiveRules_AnyAnyAllWithDestPorts_NotFlaggedAsPermissive()
+    {
+        // A rule with source=ANY, dest=ANY, protocol=all but with specific destination ports
+        // (e.g., from a port group) should NOT be flagged as PERMISSIVE_RULE.
+        // It should fall through to the BROAD_RULE check, which also skips it due to specific ports.
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-port-group",
+                Name = "Allow IoT to External Ports",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                DestinationPort = "80,443"
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
     public void CheckInterVlanIsolation_V2ApiFormat_HasBlockRule_NoIssue()
     {
         // Test that v2 API format block rules are properly detected
