@@ -6784,6 +6784,10 @@ select.form-control {
     background: var(--text-muted);
 }
 
+.client-list-section .data-table td:first-child {
+    text-align: center;
+}
+
 .status-dot.online {
     background: var(--success-color);
 }
