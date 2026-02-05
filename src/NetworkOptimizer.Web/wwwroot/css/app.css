@@ -6406,6 +6406,13 @@ select.form-control {
     gap: 1rem;
 }
 
+@media (max-width: 768px) {
+    .time-refresh-group {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
 .time-range-selector {
     display: flex;
     gap: 0.25rem;
