@@ -66,7 +66,7 @@
                 {
                     <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
                             @onclick="() => SelectTimeRange(range.Key)"
-                            disabled="@string.IsNullOrEmpty(_selectedClientMac)">
+                            disabled="@(string.IsNullOrEmpty(_selectedClientMac) && _statusFilter == "online")">
                         @range.Key
                     </button>
                 }
@@ -375,6 +375,11 @@
         {
             await LoadClientDataAsync();
         }
+        else
+        {
+            // Reset to first page when filtering list view
+            _currentPage = 1;
+        }
     }
 
     private async Task LoadClientDataAsync()
@@ -620,6 +625,13 @@
             "offline" => filtered.Where(c => !c.IsOnline),
             _ => filtered
         };
+
+        // Apply time range filter to offline clients (based on LastSeen)
+        if (_statusFilter != "online")
+        {
+            var cutoff = DateTimeOffset.UtcNow - _timeRanges[_selectedRange];
+            filtered = filtered.Where(c => c.IsOnline || (c.LastSeen.HasValue && c.LastSeen.Value >= cutoff));
+        }
 
         // Apply search text filter
         if (!string.IsNullOrWhiteSpace(_clientSearchText))
