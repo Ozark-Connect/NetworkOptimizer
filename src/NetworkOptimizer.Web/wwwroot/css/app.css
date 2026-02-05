@@ -7585,7 +7585,9 @@ select.form-control {
    ============================================ */
 
 .channel-analysis-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .channel-header {
@@ -8329,7 +8331,9 @@ select.form-control {
    ============================================ */
 
 .load-balance-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .load-header {
@@ -8791,7 +8795,9 @@ select.form-control {
    ============================================ */
 
 .power-coverage-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .power-header {
@@ -9359,7 +9365,9 @@ select.form-control {
    ============================================ */
 
 .band-steering-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .steering-header {
@@ -9807,7 +9815,9 @@ select.form-control {
    ============================================ */
 
 .airtime-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .airtime-header {
@@ -10308,7 +10318,9 @@ select.form-control {
    ============================================ */
 
 .env-correlation-container {
-    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .env-header {
