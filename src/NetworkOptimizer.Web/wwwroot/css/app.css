@@ -6651,6 +6651,7 @@ select.form-control {
 
 .client-selector-combo .view-all-btn {
     padding: 0.5rem 0.75rem;
+    margin-right: 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 0.375rem;
     background: var(--bg-secondary);
