@@ -4430,6 +4430,16 @@ select.form-control {
     color: var(--info-color);
 }
 
+/* Compact issue count for card headers */
+.issue-count-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    color: var(--text-muted);
+}
+
 /* Audit Timestamp */
 .audit-timestamp {
     font-size: 0.875rem;
@@ -6546,11 +6556,6 @@ select.form-control {
    Client Timeline Component
    ================================ */
 
-.client-timeline-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .timeline-header {
     display: flex;
@@ -7106,9 +7111,6 @@ select.form-control {
    Roaming Analytics Component
    ============================================ */
 
-.roaming-analytics-container {
-    padding: 0.5rem;
-}
 
 .roaming-header {
     display: flex;
@@ -7584,11 +7586,6 @@ select.form-control {
    Channel Analysis Component
    ============================================ */
 
-.channel-analysis-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .channel-header {
     display: flex;
@@ -8330,11 +8327,6 @@ select.form-control {
    AP Load Balance Component
    ============================================ */
 
-.load-balance-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .load-header {
     display: flex;
@@ -8794,11 +8786,6 @@ select.form-control {
    Power & Coverage Analysis Component
    ============================================ */
 
-.power-coverage-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .power-header {
     display: flex;
@@ -9364,11 +9351,6 @@ select.form-control {
    Band Steering Analysis Component
    ============================================ */
 
-.band-steering-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .steering-header {
     display: flex;
@@ -9814,11 +9796,6 @@ select.form-control {
    Airtime Fairness Component
    ============================================ */
 
-.airtime-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .airtime-header {
     display: flex;
@@ -10317,11 +10294,6 @@ select.form-control {
    Environmental Correlation Component
    ============================================ */
 
-.env-correlation-container {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
 
 .env-header {
     display: flex;
@@ -10749,9 +10721,6 @@ select.form-control {
    Connectivity Flow Component
    ============================================ */
 
-.connectivity-flow-container {
-    padding: 0.5rem;
-}
 
 .flow-header {
     display: flex;
