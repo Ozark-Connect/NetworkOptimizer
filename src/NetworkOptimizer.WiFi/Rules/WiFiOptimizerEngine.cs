@@ -23,29 +23,6 @@ public class WiFiOptimizerEngine
     /// </summary>
     public void EvaluateRules(SiteHealthScore score, WiFiOptimizerContext context)
     {
-        // Debug: Log context state for IoT detection debugging
-        _logger.LogDebug("WiFiOptimizer context: {NetworkCount} networks, {WlanCount} WLANs, {LegacyCount} legacy clients",
-            context.Networks.Count, context.Wlans.Count, context.LegacyClients.Count);
-
-        foreach (var network in context.Networks)
-        {
-            _logger.LogDebug("Network: {Name} (Id={Id}, Purpose={Purpose}, Enabled={Enabled})",
-                network.Name, network.Id, network.Purpose, network.Enabled);
-        }
-
-        foreach (var wlan in context.Wlans)
-        {
-            var ppskInfo = wlan.PrivatePresharedKeysEnabled
-                ? $", PPSK={wlan.PpskNetworkIds.Count} networks"
-                : "";
-            _logger.LogDebug("WLAN: {Name} (Id={Id}, NetworkId={NetworkId}, Enabled={Enabled}, BandSteering={BandSteering}{PpskInfo})",
-                wlan.Name, wlan.Id, wlan.NetworkId ?? "null", wlan.Enabled, wlan.BandSteeringEnabled, ppskInfo);
-        }
-
-        var iotNetworks = context.IoTNetworks.ToList();
-        _logger.LogDebug("IoT networks found: {Count} ({Names})",
-            iotNetworks.Count, string.Join(", ", iotNetworks.Select(n => n.Name)));
-
         foreach (var rule in _rules)
         {
             try

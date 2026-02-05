@@ -240,27 +240,29 @@
             </div>
         }
 
-        <!-- Recommendations -->
-        @if (_recommendations.Count > 0)
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_channelHealthIssues.Count > 0)
         {
             <div class="steering-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
+                <div class="issues-list">
+                    @foreach (var issue in _channelHealthIssues)
                     {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
+                        <div class="issue-item issue-@GetSeverityCssClass(issue.Severity)">
+                            <div class="issue-icon">
+                                @(issue.Severity == HealthIssueSeverity.Warning ? "!" : "i")
                             </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                                @if (!string.IsNullOrEmpty(rec.Action))
+                            <div class="issue-body">
+                                <div class="issue-header">
+                                    <span class="issue-title">@issue.Title</span>
+                                </div>
+                                <div class="issue-item-description">@issue.Description</div>
+                                @if (!string.IsNullOrEmpty(issue.Recommendation))
                                 {
-                                    <div class="rec-action">@rec.Action</div>
+                                    <div class="issue-recommendation">@issue.Recommendation</div>
                                 }
                             </div>
                         </div>
@@ -295,7 +297,8 @@
     // Wi-Fi generations
     private List<WiFiGeneration> _wifiGenerations = new();
 
-    private List<Recommendation> _recommendations = new();
+    // Issues from health score (populated by rule engine)
+    private List<HealthIssue> _channelHealthIssues = new();
     private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
@@ -439,78 +442,23 @@
 
     private void GenerateRecommendations()
     {
-        _recommendations.Clear();
+        _channelHealthIssues.Clear();
 
-        // Pull Channel Health issues from health score (single source of truth)
+        // Pull Channel Health issues from health score (rules provide recommendations)
         if (_healthScore != null)
         {
-            foreach (var issue in _healthScore.Issues.Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth)))
-            {
-                _recommendations.Add(new Recommendation
-                {
-                    Type = issue.Severity == HealthIssueSeverity.Critical ? "warning" :
-                           issue.Severity == HealthIssueSeverity.Warning ? "warning" : "info",
-                    Title = issue.Title,
-                    Description = issue.Description,
-                    Action = issue.Recommendation ?? ""
-                });
-            }
-        }
-
-        // Check if band steering should be enabled
-        var suboptimalPct = _totalClients > 0 ? (double)_suboptimalBandClients / _totalClients * 100 : 0;
-        if (suboptimalPct >= 30)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "Enable or Strengthen Band Steering",
-                Description = $"{suboptimalPct:F0}% of clients ({_suboptimalBandClients}) are on a lower band than they support. Enable band steering to push capable devices to faster bands.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > Band Steering - enable 'Prefer 5GHz' or 'Prefer 6GHz'."
-            });
-        }
-
-        // Check for high 2.4GHz usage
-        var pct2g = _totalClients > 0 ? (double)_clientsOn2g / _totalClients * 100 : 0;
-        if (pct2g > 50 && _steerableTo5g.Count + _steerableTo6g.Count > 0)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "High 2.4 GHz Concentration",
-                Description = $"{pct2g:F0}% of clients are on 2.4 GHz, but {_steerableTo5g.Count + _steerableTo6g.Count} of them support higher bands. This leads to congestion and slower speeds on 2.4 GHz.",
-                Action = "Consider: (1) enabling band steering, (2) reducing 2.4 GHz TX power to encourage clients to use 5 GHz, or (3) creating a separate IoT SSID for 2.4 GHz-only devices."
-            });
-        }
-
-        // Legacy device impact - suggest separate SSID to enable aggressive band steering on main
-        if (_legacyClients.Count >= 5)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Consider IoT/Legacy SSID",
-                Description = $"You have {_legacyClients.Count} legacy 2.4 GHz-only devices. A separate IoT SSID lets you enable aggressive band steering on your main SSID without breaking these devices.",
-                Action = "Create a 2.4 GHz-only SSID for IoT/legacy devices (with band steering off), then enable band steering on your main SSID to push capable devices to 5 GHz."
-            });
-        }
-
-        // Min RSSI recommendation for roaming - be cautious as it hard-disconnects clients
-        var has5gOr6g = _accessPoints.Any(ap => ap.Radios.Any(r =>
-            (r.Band == RadioBand.Band5GHz || r.Band == RadioBand.Band6GHz) && r.Channel.HasValue));
-        var hasMinRssi = _accessPoints.Any(ap => ap.Radios.Any(r => r.MinRssiEnabled));
-
-        if (has5gOr6g && !hasMinRssi && _steerableTo5g.Count + _steerableTo6g.Count > 5)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Consider Minimum RSSI (With Caution)",
-                Description = "Minimum RSSI can help sticky clients roam by hard-disconnecting them when signal drops. Use cautiously as it can cause issues with some clients.",
-                Action = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). Use a conservative threshold like -75 to -80 dBm. Consider setting lower (e.g., -80 dBm) for perimeter APs."
-            });
+            _channelHealthIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
+                .ToList();
         }
     }
+
+    private static string GetSeverityCssClass(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "critical",
+        HealthIssueSeverity.Warning => "warning",
+        _ => "info"
+    };
 
     private string GetWiFiStandard(int generation) => generation switch
     {
@@ -561,13 +509,5 @@
         public int Generation { get; set; }
         public string Standard { get; set; } = "";
         public int Count { get; set; }
-    }
-
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string Action { get; set; } = "";
     }
 }
