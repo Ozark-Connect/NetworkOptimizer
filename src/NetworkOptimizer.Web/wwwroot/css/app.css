@@ -6409,7 +6409,11 @@ select.form-control {
 @media (max-width: 768px) {
     .time-refresh-group {
         width: 100%;
-        justify-content: space-between;
+        justify-content: space-around;
+    }
+
+    .time-range-selector {
+        max-width: 400px;
     }
 }
 
