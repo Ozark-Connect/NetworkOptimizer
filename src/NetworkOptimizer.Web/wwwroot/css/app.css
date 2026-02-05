@@ -8593,12 +8593,24 @@ select.form-control {
     background: var(--bg-tertiary);
 }
 
+.wifi-sections .card .data-table tbody tr {
+    background: var(--bg-secondary);
+}
+
 .wifi-sections .card .card {
     background: var(--bg-secondary);
 }
 
+.wifi-sections .card .card .data-table tbody tr {
+    background: var(--bg-tertiary);
+}
+
 .wifi-sections .card .card .card {
     background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .card .card .data-table tbody tr {
+    background: var(--bg-secondary);
 }
 
 .wifi-sections .card .card .card .card {
