@@ -43,7 +43,8 @@
                     else
                     {
                         <!-- Edit mode: text input for filtering -->
-                        <input type="text" class="form-select filterable-select-input"
+                        <input @ref="_filterInput"
+                               type="text" class="form-select filterable-select-input"
                                placeholder="Select a client..."
                                @bind="_clientSearchText"
                                @bind:event="oninput"
@@ -300,6 +301,7 @@
     private string _clientSearchText = "";
     private string _statusFilter = "all"; // "all", "online", "offline"
     private bool _dropdownOpen = false;
+    private ElementReference _filterInput;
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -708,10 +710,13 @@
     // Dropdown methods
     private void OpenDropdown() => _dropdownOpen = true;
 
-    private void OpenDropdownForEdit()
+    private async Task OpenDropdownForEdit()
     {
         _clientSearchText = "";
         _dropdownOpen = true;
+        StateHasChanged();
+        await Task.Delay(1); // Allow render to complete
+        await _filterInput.FocusAsync();
     }
 
     private void CloseDropdown() => _dropdownOpen = false;
