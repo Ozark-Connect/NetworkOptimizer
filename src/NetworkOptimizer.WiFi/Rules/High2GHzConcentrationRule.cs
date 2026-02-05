@@ -30,7 +30,7 @@ public class High2GHzConcentrationRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.ChannelHealth },
+            Dimensions = { HealthDimension.BandSteering },
             Title = "High 2.4 GHz Concentration",
             Description = $"{pct2g:F0}% of clients are on 2.4 GHz, but {ctx.SteerableClients.Count} of them " +
                 "support higher bands. This leads to congestion and slower speeds on 2.4 GHz.",

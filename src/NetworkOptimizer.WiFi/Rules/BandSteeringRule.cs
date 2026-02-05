@@ -34,7 +34,7 @@ public class BandSteeringRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.ChannelHealth, HealthDimension.AirtimeEfficiency },
+            Dimensions = { HealthDimension.BandSteering, HealthDimension.AirtimeEfficiency },
             Title = "Enable or Strengthen Band Steering",
             Description = $"{steerablePct:F0}% of clients ({ctx.SteerableClients.Count}) are on a lower band than they support. " +
                 "Enable band steering to push capable devices to faster bands.",

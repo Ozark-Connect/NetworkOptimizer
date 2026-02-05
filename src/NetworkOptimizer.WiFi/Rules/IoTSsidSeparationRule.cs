@@ -56,7 +56,7 @@ public class IoTSsidSeparationRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Info,
-            Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.ChannelHealth },
+            Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.BandSteering },
             Title = "Legacy Device Airtime Impact",
             Description = $"You have {ctx.LegacyClients.Count} legacy 2.4 GHz-only devices. " +
                 "A separate IoT SSID lets you enable aggressive band steering on your main SSID " +

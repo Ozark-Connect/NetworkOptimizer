@@ -241,14 +241,14 @@
         }
 
         <!-- Recommendations (from Health Score rules) -->
-        @if (_channelHealthIssues.Count > 0)
+        @if (_bandSteeringIssues.Count > 0)
         {
             <div class="steering-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <IssuesList Issues="_channelHealthIssues" />
+                <IssuesList Issues="_bandSteeringIssues" />
             </div>
         }
     }
@@ -279,7 +279,7 @@
     private List<WiFiGeneration> _wifiGenerations = new();
 
     // Issues from health score (populated by rule engine)
-    private List<HealthIssue> _channelHealthIssues = new();
+    private List<HealthIssue> _bandSteeringIssues = new();
     private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
@@ -423,13 +423,13 @@
 
     private void GenerateRecommendations()
     {
-        _channelHealthIssues.Clear();
+        _bandSteeringIssues.Clear();
 
-        // Pull Channel Health issues from health score (rules provide recommendations)
+        // Pull Band Steering issues from health score (rules provide recommendations)
         if (_healthScore != null)
         {
-            _channelHealthIssues = _healthScore.Issues
-                .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
+            _bandSteeringIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.BandSteering))
                 .ToList();
         }
     }

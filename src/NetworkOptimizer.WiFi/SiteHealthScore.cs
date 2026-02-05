@@ -130,7 +130,8 @@ public enum HealthDimension
     RoamingPerformance,
     AirtimeEfficiency,
     ClientSatisfaction,
-    CapacityHeadroom
+    CapacityHeadroom,
+    BandSteering
 }
 
 public enum HealthIssueSeverity
