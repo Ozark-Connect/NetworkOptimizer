@@ -42,7 +42,8 @@ public class LegacyClientAirtimeRule : IWiFiOptimizerRule
                 "to transmit the same data.",
             Recommendation = "Increase the minimum data rate on 2.4 GHz (e.g., 12 Mbps) to force higher modulation. " +
                 "Note: very old devices may disconnect if they can't maintain the rate.",
-            ScoreImpact = -8
+            ScoreImpact = -8,
+            ShowOnOverview = false
         };
     }
 }

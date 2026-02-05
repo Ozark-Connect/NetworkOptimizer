@@ -33,7 +33,8 @@ public class DhcpIssuesRule : IWiFiOptimizerRule
                 : $"{string.Join(", ", clientsWithoutIp.Take(5).Select(c => c.Name))} +{clientsWithoutIp.Count - 5} more",
             Recommendation = "Check your DHCP server settings. Ensure the IP pool is large enough and the lease time isn't too long. " +
                 "In UniFi: Settings > Networks > (Network) > DHCP Range.",
-            ScoreImpact = -10
+            ScoreImpact = -10,
+            ShowOnOverview = false
         };
     }
 }
