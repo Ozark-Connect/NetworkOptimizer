@@ -61,18 +61,20 @@
         </div>
         <div class="filter-group metrics-filter-right">
             <label class="filter-label">Metrics:</label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_showAirtime" @bind:after="UpdateChartVisibility" />
-                <span class="checkbox-label airtime">Airtime</span>
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_showInterference" @bind:after="UpdateChartVisibility" />
-                <span class="checkbox-label interference">Interference</span>
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_showTxRetries" @bind:after="UpdateChartVisibility" />
-                <span class="checkbox-label retries">TX Retries</span>
-            </label>
+            <div class="filter-checkboxes">
+                <label class="filter-checkbox">
+                    <input type="checkbox" @bind="_showAirtime" @bind:after="UpdateChartVisibility" />
+                    <span class="checkbox-label airtime">Airtime</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" @bind="_showInterference" @bind:after="UpdateChartVisibility" />
+                    <span class="checkbox-label interference">Interference</span>
+                </label>
+                <label class="filter-checkbox">
+                    <input type="checkbox" @bind="_showTxRetries" @bind:after="UpdateChartVisibility" />
+                    <span class="checkbox-label retries">TX Retries</span>
+                </label>
+            </div>
         </div>
     </div>
 

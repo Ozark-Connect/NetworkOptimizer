@@ -6507,6 +6507,12 @@ select.form-control {
 .filter-checkbox .checkbox-label.interference { color: #a78bfa; }
 .filter-checkbox .checkbox-label.retries { color: #ef5858; }
 
+.filter-checkboxes {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
 .metrics-loading,
 .metrics-empty {
     display: flex;
@@ -6730,6 +6736,7 @@ select.form-control {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .client-selector-combo .view-all-btn {
@@ -6755,6 +6762,13 @@ select.form-control {
     position: relative;
     min-width: 400px;
     max-width: 400px;
+}
+
+@media (max-width: 768px) {
+    .filterable-select {
+        min-width: 80vw;
+        max-width: 80vw;
+    }
 }
 
 .filterable-select-input {
