@@ -8589,16 +8589,24 @@ select.form-control {
 .signal-poor { color: #ef4444; }
 
 /* WiFi Page Sections - Alternating Colors */
-[class$="-section"]:nth-child(even) {
+.wifi-sections > *:nth-child(odd) .card {
     background: var(--bg-tertiary);
 }
 
-[class$="-section"]:nth-child(even) .pagination-controls {
-    border-top-color: var(--bg-secondary);
+.wifi-sections > *:nth-child(odd) .card .card {
+    background: var(--bg-secondary);
 }
 
-[class$="-section"]:nth-child(even) .data-table thead {
+.wifi-sections > *:nth-child(even) {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections > *:nth-child(even) .card {
     background: var(--bg-secondary);
+}
+
+.wifi-sections > *:nth-child(even) .card .card {
+    background: var(--bg-tertiary);
 }
 
 /* Power Sections */
