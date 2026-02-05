@@ -6617,7 +6617,7 @@ select.form-control {
     opacity: 1;
 }
 
-/* Client selector combo (View All + search input with datalist) */
+/* Client selector combo (View All + filterable select) */
 .client-selector-combo {
     display: flex;
     gap: 0.5rem;
@@ -6641,18 +6641,73 @@ select.form-control {
     border-color: var(--primary-color);
 }
 
-.client-selector-combo .client-search-input {
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    width: 280px;
+/* Filterable select dropdown */
+.filterable-select {
+    position: relative;
+    min-width: 280px;
 }
 
-.client-selector-combo .client-search-input::placeholder {
+.filterable-select-input {
+    width: 100%;
+    cursor: text;
+}
+
+.filterable-select-input::placeholder {
     color: var(--text-tertiary);
+}
+
+.filterable-select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.filterable-select-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+
+.filterable-select-option:hover {
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.filterable-select-option.offline {
+    opacity: 0.7;
+}
+
+.filterable-select-option .option-text {
+    flex: 1;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filterable-select-option .option-mac {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.filterable-select-empty {
+    padding: 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
 }
 
 /* Client list table */

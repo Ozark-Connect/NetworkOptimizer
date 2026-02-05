@@ -27,15 +27,33 @@
                 {
                     <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
                 }
-                <input type="text" class="client-search-input" list="client-list"
-                       placeholder="Search clients..."
-                       @bind="_clientSearchText" @bind:event="oninput" @bind:after="OnClientSearchChanged" />
-                <datalist id="client-list">
-                    @foreach (var client in GetFilteredClients())
+                <div class="filterable-select @(_dropdownOpen ? "open" : "")">
+                    <input type="text" class="form-select filterable-select-input"
+                           placeholder="Select a client..."
+                           @bind="_clientSearchText"
+                           @bind:event="oninput"
+                           @onfocus="OpenDropdown"
+                           @onblur="CloseDropdownDelayed" />
+                    @if (_dropdownOpen)
                     {
-                        <option value="@client.Name (@client.Mac)"></option>
+                        <div class="filterable-select-dropdown">
+                            @foreach (var client in GetDropdownClients().Take(50))
+                            {
+                                <div class="filterable-select-option @(client.IsOnline ? "" : "offline")"
+                                     @onmousedown="() => SelectClientFromDropdown(client)"
+                                     @onmousedown:preventDefault>
+                                    <span class="status-dot @(client.IsOnline ? "online" : "offline")"></span>
+                                    <span class="option-text">@client.Name</span>
+                                    <span class="option-mac">@client.Mac</span>
+                                </div>
+                            }
+                            @if (!GetDropdownClients().Any())
+                            {
+                                <div class="filterable-select-empty">No clients found</div>
+                            }
+                        </div>
                     }
-                </datalist>
+                </div>
             </div>
 
             <!-- Time Range -->
@@ -263,6 +281,7 @@
     // Search/Filter
     private string _clientSearchText = "";
     private string _statusFilter = "all"; // "all", "online", "offline"
+    private bool _dropdownOpen = false;
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -656,28 +675,54 @@
     private string GetSortClass(string column)
         => _sortColumn != column ? "" : (_sortDescending ? "sort-desc" : "sort-asc");
 
-    private void OnClientSearchChanged()
-    {
-        _currentPage = 1;
+    // Dropdown methods
+    private void OpenDropdown() => _dropdownOpen = true;
 
-        // Check if the search text matches a client exactly (user selected from datalist)
-        // Format is "Name (MAC)"
-        var match = System.Text.RegularExpressions.Regex.Match(_clientSearchText, @"\(([0-9a-fA-F:]+)\)$");
-        if (match.Success)
+    private async Task CloseDropdownDelayed()
+    {
+        // Small delay to allow click on option to register before closing
+        await Task.Delay(150);
+        _dropdownOpen = false;
+        StateHasChanged();
+    }
+
+    private IEnumerable<WirelessClientSnapshot> GetDropdownClients()
+    {
+        var clients = _clients.AsEnumerable();
+
+        // Apply status filter
+        clients = _statusFilter switch
         {
-            var mac = match.Groups[1].Value;
-            var client = _clients.FirstOrDefault(c => c.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
-            if (client != null)
-            {
-                SelectClient(client.Mac);
-            }
+            "online" => clients.Where(c => c.IsOnline),
+            "offline" => clients.Where(c => !c.IsOnline),
+            _ => clients
+        };
+
+        // Apply search text filter
+        if (!string.IsNullOrWhiteSpace(_clientSearchText))
+        {
+            var filter = _clientSearchText.Trim();
+            clients = clients.Where(c =>
+                (c.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false));
         }
+
+        // Sort: online first, then by name
+        return clients.OrderByDescending(c => c.IsOnline).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void SelectClientFromDropdown(WirelessClientSnapshot client)
+    {
+        _dropdownOpen = false;
+        SelectClient(client.Mac);
     }
 
     private void ViewAllClients()
     {
         _selectedClientMac = "";
         _clientSearchText = "";
+        _dropdownOpen = false;
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
