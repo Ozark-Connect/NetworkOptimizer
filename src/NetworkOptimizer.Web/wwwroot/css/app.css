@@ -7089,6 +7089,14 @@ select.form-control {
     margin-bottom: 1.5rem;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.5rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.wifi-view-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
 }
 
 .wifi-view-tab {
@@ -7100,6 +7108,8 @@ select.form-control {
     cursor: pointer;
     border-radius: 6px;
     transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .wifi-view-tab:hover {

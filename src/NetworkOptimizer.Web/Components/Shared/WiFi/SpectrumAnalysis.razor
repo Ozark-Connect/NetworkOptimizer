@@ -5,46 +5,44 @@
 @inject ILogger<SpectrumAnalysis> Logger
 
 <div class="spectrum-container wifi-sections">
-    <!-- Controls Row -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title">RF Environment</h2>
-            <div class="spectrum-controls">
-                <div class="filter-group">
-                    <label class="filter-label">Access Point:</label>
-                    <select class="ap-filter-select" @bind="selectedApMac" @bind:after="OnApFilterChanged">
-                        <option value="">All APs</option>
-                        @foreach (var ap in accessPoints)
-                        {
-                            <option value="@ap.Mac">@ap.Name (@ap.Model)</option>
-                        }
-                    </select>
-                </div>
-                <div class="filter-tabs band-tabs">
-                    <button class="tab band-tab band-2ghz @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
-                    <button class="tab band-tab band-5ghz @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
-                    <button class="tab band-tab band-6ghz @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
-                </div>
-                <div class="time-range-selector">
-                    @foreach (var range in _timeRanges)
+    <!-- Header Row (matching Client Stats pattern) -->
+    <div class="spectrum-header">
+        <h3>RF Environment</h3>
+        <div class="spectrum-controls">
+            <div class="filter-group">
+                <label class="filter-label">Access Point:</label>
+                <select class="ap-filter-select" @bind="selectedApMac" @bind:after="OnApFilterChanged">
+                    <option value="">All APs</option>
+                    @foreach (var ap in accessPoints)
                     {
-                        <button class="time-btn @(range.Key == selectedTimeRange ? "active" : "")"
-                                @onclick="() => SetTimeRange(range.Key)">
-                            @range.Key
-                        </button>
+                        <option value="@ap.Mac">@ap.Name (@ap.Model)</option>
                     }
-                </div>
-                <button class="btn btn-secondary" @onclick="RefreshData" disabled="@isLoading">
-                    @if (isLoading)
-                    {
-                        <span class="spinner"></span>
-                    }
-                    else
-                    {
-                        <span>Refresh</span>
-                    }
-                </button>
+                </select>
             </div>
+            <div class="filter-tabs band-tabs">
+                <button class="tab band-tab band-2ghz @(selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
+                <button class="tab band-tab band-5ghz @(selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
+                <button class="tab band-tab band-6ghz @(selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
+            </div>
+            <div class="time-range-selector">
+                @foreach (var range in _timeRanges)
+                {
+                    <button class="time-btn @(range.Key == selectedTimeRange ? "active" : "")"
+                            @onclick="() => SetTimeRange(range.Key)">
+                        @range.Key
+                    </button>
+                }
+            </div>
+            <button class="btn btn-secondary" @onclick="RefreshData" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
         </div>
     </div>
 
@@ -345,6 +343,20 @@
         display: flex;
         flex-direction: column;
         gap: 1rem;
+    }
+
+    .spectrum-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .spectrum-header h3 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 600;
     }
 
     .spectrum-controls {
@@ -835,7 +847,13 @@
 
     /* Responsive */
     @@media (max-width: 768px) {
+        .spectrum-header {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
         .spectrum-controls {
+            width: 100%;
             flex-direction: column;
             align-items: stretch;
         }
