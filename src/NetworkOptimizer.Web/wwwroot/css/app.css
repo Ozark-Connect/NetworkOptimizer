@@ -6335,33 +6335,39 @@ select.form-control {
     gap: 1rem;
 }
 
+/* Pill selector - used for toggle buttons (time ranges, status filters, etc.) */
+.pill-selector,
 .time-range-selector {
     display: flex;
+    gap: 0.25rem;
     background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
     border-radius: 6px;
-    overflow: hidden;
+    padding: 0.25rem;
 }
 
+.pill-btn,
 .time-btn {
-    padding: 0.375rem 0.75rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
     background: transparent;
     border: none;
+    border-radius: 4px;
     color: var(--text-secondary);
-    font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.15s ease;
 }
 
+.pill-btn:hover,
 .time-btn:hover {
-    background: var(--bg-primary);
     color: var(--text-primary);
+    background: var(--bg-tertiary);
 }
 
+.pill-btn.active,
 .time-btn.active {
     background: var(--primary-color);
     color: white;
-    border-radius: 4px;
 }
 
 .metrics-filters {

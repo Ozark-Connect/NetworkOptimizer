@@ -14,12 +14,12 @@
             <!-- Status Filter (only show when no client selected) -->
             @if (string.IsNullOrEmpty(_selectedClientMac))
             {
-                <div class="time-range-selector">
-                    <button class="time-btn @(_statusFilter == "all" ? "active" : "")"
+                <div class="pill-selector">
+                    <button class="pill-btn @(_statusFilter == "all" ? "active" : "")"
                             @onclick='() => SetStatusFilter("all")'>All</button>
-                    <button class="time-btn @(_statusFilter == "online" ? "active" : "")"
+                    <button class="pill-btn @(_statusFilter == "online" ? "active" : "")"
                             @onclick='() => SetStatusFilter("online")'>Online</button>
-                    <button class="time-btn @(_statusFilter == "offline" ? "active" : "")"
+                    <button class="pill-btn @(_statusFilter == "offline" ? "active" : "")"
                             @onclick='() => SetStatusFilter("offline")'>Offline</button>
                 </div>
             }
@@ -736,7 +736,8 @@
     private void SelectClient(string mac)
     {
         _selectedClientMac = mac;
-        _clientSearchText = "";
+        var client = _clients.FirstOrDefault(c => c.Mac == mac);
+        _clientSearchText = client?.Name ?? mac;
         _ = OnClientSelected();
     }
 
