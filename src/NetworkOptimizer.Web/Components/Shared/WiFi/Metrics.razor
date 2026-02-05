@@ -98,7 +98,7 @@
     else
     {
         <!-- 2.4 GHz Chart -->
-        @if (_show24)
+        @if (Show24)
         {
             <div class="band-chart-container">
                 <div class="band-chart-header">
@@ -106,7 +106,7 @@
                 </div>
                 <ApexChart @ref="_chart24" TItem="ChartDataPoint"
                            Options="_chartOptions24"
-                           Height="150">
+                           Height="ChartHeight">
 
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showAirtime ? _data24Airtime : _emptyData)"
@@ -134,7 +134,7 @@
         }
 
         <!-- 5 GHz Chart -->
-        @if (_show5)
+        @if (Show5)
         {
             <div class="band-chart-container">
                 <div class="band-chart-header">
@@ -142,7 +142,7 @@
                 </div>
                 <ApexChart @ref="_chart5" TItem="ChartDataPoint"
                            Options="_chartOptions5"
-                           Height="150">
+                           Height="ChartHeight">
 
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showAirtime ? _data5Airtime : _emptyData)"
@@ -170,7 +170,7 @@
         }
 
         <!-- 6 GHz Chart -->
-        @if (_show6)
+        @if (Show6)
         {
             <div class="band-chart-container">
                 <div class="band-chart-header">
@@ -178,7 +178,7 @@
                 </div>
                 <ApexChart @ref="_chart6" TItem="ChartDataPoint"
                            Options="_chartOptions6"
-                           Height="150">
+                           Height="ChartHeight">
 
                     <ApexPointSeries TItem="ChartDataPoint"
                                      Items="@(_showAirtime ? _data6Airtime : _emptyData)"
@@ -214,9 +214,17 @@
     private bool _showAirtime = true;
     private bool _showInterference = true;
     private bool _showTxRetries = true;
-    private bool _show24 = true;
-    private bool _show5 = true;
-    private bool _show6 = true;
+    private bool _show24 = false;
+    private bool _show5 = false;
+    private bool _show6 = false;
+
+    // When all bands are deselected, show all
+    private bool ShowAll => !_show24 && !_show5 && !_show6;
+    private bool Show24 => ShowAll || _show24;
+    private bool Show5 => ShowAll || _show5;
+    private bool Show6 => ShowAll || _show6;
+    private int VisibleBandCount => (Show24 ? 1 : 0) + (Show5 ? 1 : 0) + (Show6 ? 1 : 0);
+    private int ChartHeight => VisibleBandCount switch { 1 => 450, 2 => 225, _ => 150 };
 
     private List<SiteWiFiMetrics> _metrics = new();
     private List<AccessPointSnapshot> _accessPoints = new();
