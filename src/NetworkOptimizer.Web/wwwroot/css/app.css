@@ -2424,6 +2424,11 @@ select.form-control {
         font-size: 0.8rem;
     }
 
+    .issue-entity,
+    .issue-recommendation {
+        grid-column: 1 / -1;
+    }
+
     .issue-context {
         grid-column: 1 / -1;
         grid-row: 4;
