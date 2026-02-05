@@ -5719,6 +5719,245 @@ public class FirewallRuleAnalyzerTests
 
     #endregion
 
+    #region AppliesToSourceNetwork Zone Tests
+
+    [Fact]
+    public void AppliesToSourceNetwork_MatchingZones_NetworkSource_ReturnsTrue()
+    {
+        var networkId = "security-net-001";
+        var zoneId = "custom-zone-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security, id: networkId,
+            vlanId: 42, firewallZoneId: zoneId);
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block Security Internet",
+            SourceMatchingTarget = "NETWORK",
+            SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = zoneId
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_MismatchedZones_NetworkSource_ReturnsFalse()
+    {
+        var networkId = "security-net-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security, id: networkId,
+            vlanId: 42, firewallZoneId: "internal-zone");
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block Custom Zone Internet",
+            SourceMatchingTarget = "NETWORK",
+            SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = "custom-zone-001"
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_MatchingZones_AnySource_ReturnsTrue()
+    {
+        var zoneId = "custom-zone-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security,
+            vlanId: 42, firewallZoneId: zoneId);
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block All in Zone",
+            SourceMatchingTarget = "ANY",
+            SourceZoneId = zoneId
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_MismatchedZones_AnySource_ReturnsFalse()
+    {
+        // Rule scoped to custom zone with Source=ANY should NOT match networks in other zones
+        var network = CreateNetwork("Security", NetworkPurpose.Security,
+            vlanId: 42, firewallZoneId: "internal-zone");
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block All in Custom Zone",
+            SourceMatchingTarget = "ANY",
+            SourceZoneId = "custom-zone-001"
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_MatchingZones_IpCidrSource_ReturnsTrue()
+    {
+        var zoneId = "custom-zone-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security,
+            vlanId: 42, firewallZoneId: zoneId);
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block CIDR in Zone",
+            SourceMatchingTarget = "IP",
+            SourceIps = new List<string> { "192.168.42.0/24" },
+            SourceZoneId = zoneId
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_MismatchedZones_IpCidrSource_ReturnsFalse()
+    {
+        // Even though CIDR covers the subnet, zone mismatch means rule doesn't apply
+        var network = CreateNetwork("Security", NetworkPurpose.Security,
+            vlanId: 42, firewallZoneId: "internal-zone");
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block CIDR in Custom Zone",
+            SourceMatchingTarget = "IP",
+            SourceIps = new List<string> { "192.168.42.0/24" },
+            SourceZoneId = "custom-zone-001"
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_RuleHasNoZone_StillMatchesBySource()
+    {
+        // Rules without a zone (legacy or zone-less) should still match by source
+        var networkId = "security-net-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security, id: networkId,
+            vlanId: 42, firewallZoneId: "internal-zone");
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block Without Zone",
+            SourceMatchingTarget = "NETWORK",
+            SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = null
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppliesToSourceNetwork_NetworkHasNoZone_StillMatchesBySource()
+    {
+        // Networks without a zone ID (missing data) should still match by source
+        var networkId = "security-net-001";
+        var network = CreateNetwork("Security", NetworkPurpose.Security, id: networkId,
+            vlanId: 42, firewallZoneId: null);
+        var rule = new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block in Custom Zone",
+            SourceMatchingTarget = "NETWORK",
+            SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = "custom-zone-001"
+        };
+
+        var result = FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network);
+
+        result.Should().BeTrue();
+    }
+
+    #endregion
+
+    #region CheckInterVlanIsolation Zone Tests
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleZonesMatchNetworks_NoIssue()
+    {
+        // Block rule with matching source/dest zones should satisfy isolation
+        var zoneId = "internal-zone-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+                networkIsolationEnabled: false, firewallZoneId: zoneId),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+                firewallZoneId: zoneId)
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block IoT to Corp",
+                Enabled = true,
+                Action = "DROP",
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceZoneId = zoneId,
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net" },
+                DestinationZoneId = zoneId
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CheckInterVlanIsolation_BlockRuleSourceZoneMismatch_ReturnsIssue()
+    {
+        // Block rule with wrong source zone should NOT satisfy isolation
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT", NetworkPurpose.IoT, id: "iot-net",
+                networkIsolationEnabled: false, firewallZoneId: "internal-zone"),
+            CreateNetwork("Corporate", NetworkPurpose.Corporate, id: "corp-net",
+                firewallZoneId: "internal-zone")
+        };
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block IoT to Corp (wrong zone)",
+                Enabled = true,
+                Action = "DROP",
+                Protocol = "all",
+                SourceMatchingTarget = "NETWORK",
+                SourceNetworkIds = new List<string> { "iot-net" },
+                SourceZoneId = "custom-zone-other",
+                DestinationMatchingTarget = "NETWORK",
+                DestinationNetworkIds = new List<string> { "corp-net" },
+                DestinationZoneId = "internal-zone"
+            }
+        };
+
+        var issues = _analyzer.CheckInterVlanIsolation(rules, networks);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be("MISSING_ISOLATION");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static NetworkInfo CreateNetwork(
@@ -5727,7 +5966,8 @@ public class FirewallRuleAnalyzerTests
         string? id = null,
         int vlanId = 99,
         bool networkIsolationEnabled = false,
-        bool internetAccessEnabled = true)
+        bool internetAccessEnabled = true,
+        string? firewallZoneId = null)
     {
         return new NetworkInfo
         {
@@ -5739,7 +5979,8 @@ public class FirewallRuleAnalyzerTests
             Gateway = $"192.168.{vlanId}.1",
             DhcpEnabled = false,
             NetworkIsolationEnabled = networkIsolationEnabled,
-            InternetAccessEnabled = internetAccessEnabled
+            InternetAccessEnabled = internetAccessEnabled,
+            FirewallZoneId = firewallZoneId
         };
     }
 

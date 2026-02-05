@@ -1953,6 +1953,88 @@ public class VlanAnalyzerTests
         issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
     }
 
+    [Fact]
+    public void AnalyzeInternetAccess_CustomZoneRuleBlocksNetworkInSameZone_ReturnsNoIssues()
+    {
+        // Arrange - Rule on a custom zone blocks internet for a network in that same zone
+        var customZoneId = "custom-security-zone";
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: customZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Custom Zone Internet",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = customZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - No issues because rule's zone matches the network's zone
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_CustomZoneRuleDoesNotApplyToNetworkInDifferentZone_ReturnsIssue()
+    {
+        // Arrange - Rule on a custom zone should NOT block internet for a network in Internal zone
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Custom Zone Internet",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "custom-other-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+
+        // Assert - Issue returned because rule's zone doesn't match the network's zone
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
     #endregion
 
     #region ExtractNetworks Tests
