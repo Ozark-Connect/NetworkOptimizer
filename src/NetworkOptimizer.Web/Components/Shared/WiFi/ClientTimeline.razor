@@ -783,7 +783,7 @@
         _selectedClient = null;
         _clientMetrics.Clear();
         _connectionEvents.Clear();
-        _currentPage = 1;
+        // Keep _currentPage so user returns to same page in list
     }
 
     private void SelectClient(string mac)
