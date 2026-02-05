@@ -462,11 +462,14 @@
 
         // Pull Signal Quality and Roaming Performance issues from health score (single source of truth)
         // Power & Coverage relates to both signal quality and roaming behavior
+        // Exclude overlap issues since they're shown in the overlap section above
         if (_healthScore != null)
         {
             _signalQualityIssues = _healthScore.Issues
-                .Where(i => i.Dimensions.Contains(HealthDimension.SignalQuality) ||
-                           i.Dimensions.Contains(HealthDimension.RoamingPerformance))
+                .Where(i => (i.Dimensions.Contains(HealthDimension.SignalQuality) ||
+                            i.Dimensions.Contains(HealthDimension.RoamingPerformance)) &&
+                           !i.Title.Contains("High Power Overlap") &&
+                           !i.Title.Contains("Co-Channel"))
                 .ToList();
         }
     }

@@ -41,10 +41,10 @@ public class LoadImbalanceRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.CapacityHeadroom, HealthDimension.ClientSatisfaction },
+            Dimensions = { HealthDimension.CapacityHeadroom },
             Title = "Significant Load Imbalance",
             Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. " +
-                "This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
+                $"This imbalance ({imbalance:F0}%) can cause performance issues on overloaded APs.",
             AffectedEntity = $"{maxAp.Name} ({maxAp.TotalClients}), {minAp.Name} ({minAp.TotalClients})",
             Recommendation = "Consider enabling band steering or adjusting TX power to balance load across APs.",
             ScoreImpact = -8

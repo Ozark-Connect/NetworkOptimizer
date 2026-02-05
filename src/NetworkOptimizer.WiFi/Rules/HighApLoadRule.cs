@@ -41,7 +41,7 @@ public class HighApLoadRule : IWiFiOptimizerRule
             return new HealthIssue
             {
                 Severity = HealthIssueSeverity.Warning,
-                Dimensions = { HealthDimension.CapacityHeadroom, HealthDimension.ClientSatisfaction },
+                Dimensions = { HealthDimension.CapacityHeadroom },
                 Title = $"High Load on {ap.Name}",
                 Description = $"This AP has {ap.TotalClients} clients, which is more than 2x the average ({avgClientsPerAp:F0}). " +
                     "Clients may experience degraded performance.",
@@ -54,7 +54,7 @@ public class HighApLoadRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.CapacityHeadroom, HealthDimension.ClientSatisfaction },
+            Dimensions = { HealthDimension.CapacityHeadroom },
             Title = $"{overloadedAps.Count} APs with High Client Load",
             Description = $"{overloadedAps.Count} access points have more than 2x the average client count ({avgClientsPerAp:F0}). " +
                 "This may indicate coverage or load balancing issues.",
