@@ -128,10 +128,13 @@
                             <div class="stat-label">DFS Available</div>
                         </div>
                     }
-                    <div class="spectrum-stat-card highlight">
-                        <div class="stat-value">@GetCleanestChannel()</div>
-                        <div class="stat-label">Cleanest Channel</div>
-                    </div>
+                    @if (!string.IsNullOrEmpty(selectedApMac))
+                    {
+                        <div class="spectrum-stat-card highlight">
+                            <div class="stat-value">@GetCleanestChannel()</div>
+                            <div class="stat-label">Cleanest Channel</div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
