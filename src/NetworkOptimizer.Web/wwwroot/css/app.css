@@ -5984,7 +5984,7 @@ select.form-control {
 
 .band-bar {
     width: 100%;
-    border-radius: 8px 8px 0 0;
+    border-radius: 6px 6px 0 0;
     transition: height 0.3s ease;
     min-height: 4px;
 }
