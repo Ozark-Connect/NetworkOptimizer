@@ -446,55 +446,13 @@
     {
         _overlapIssues.Clear();
 
-        // Group radios by channel and band
-        var radiosByChannel = _accessPoints
-            .SelectMany(ap => ap.Radios
-                .Where(r => r.Channel.HasValue)
-                .Select(r => new { Ap = ap, Radio = r }))
-            .GroupBy(x => new { x.Radio.Band, x.Radio.Channel })
-            .Where(g => g.Count() > 1);
-
-        foreach (var group in radiosByChannel)
+        // Pull overlap-related issues from the health score engine
+        // HighPowerOverlapRule and CoChannelInterferenceRule handle this now
+        if (_healthScore != null)
         {
-            var apsOnChannel = group.Select(x => x.Ap).ToList();
-            var channel = group.Key.Channel!.Value;
-            var band = group.Key.Band;
-
-            // Filter out mesh pairs - they MUST be on the same channel to communicate
-            var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, channel);
-            if (nonMeshAps.Count < 2)
-                continue;
-
-            // Check if any of these non-mesh APs have high power
-            var highPowerAps = nonMeshAps
-                .Where(ap => ap.Radios.Any(r =>
-                    r.Band == band &&
-                    r.Channel == channel &&
-                    (r.TxPowerMode?.ToLower() == "high" || (r.TxPower.HasValue && r.TxPower >= 23))))
+            _overlapIssues = _healthScore.Issues
+                .Where(i => i.Title.Contains("High Power Overlap") || i.Title.Contains("Co-Channel"))
                 .ToList();
-
-            if (highPowerAps.Count > 1)
-            {
-                _overlapIssues.Add(new HealthIssue
-                {
-                    Severity = HealthIssueSeverity.Warning,
-                    Title = $"High Power Overlap on {band.ToDisplayString()} Channel {channel}",
-                    Description = $"{string.Join(", ", highPowerAps.Select(x => x.Name))} are all using high TX power on the same channel, which may cause co-channel interference.",
-                    Recommendation = "Consider reducing TX power on some APs or changing channels to reduce overlap.",
-                    Dimensions = new HashSet<HealthDimension> { HealthDimension.SignalQuality }
-                });
-            }
-            else if (nonMeshAps.Count > 2 && band == RadioBand.Band2_4GHz)
-            {
-                _overlapIssues.Add(new HealthIssue
-                {
-                    Severity = HealthIssueSeverity.Warning,
-                    Title = $"Co-Channel on 2.4 GHz Channel {channel}",
-                    Description = $"{nonMeshAps.Count} APs ({string.Join(", ", nonMeshAps.Select(x => x.Name))}) share the same channel.",
-                    Recommendation = "Consider using channels 1, 6, or 11 with proper separation.",
-                    Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
-                });
-            }
         }
     }
 
