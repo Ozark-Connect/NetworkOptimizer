@@ -426,7 +426,7 @@
                         <span>Loading...</span>
                     </div>
                 }
-                else if (_healthScore?.Issues.Count == 0)
+                else if (_healthScore?.Issues.Any(i => i.ShowOnOverview) != true)
                 {
                     <div class="empty-state success-state">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
@@ -437,7 +437,7 @@
                 }
                 else
                 {
-                    <IssuesList Issues="_healthScore?.Issues ?? new List<HealthIssue>()" ShowDetails="true" />
+                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" />
                 }
             </div>
         </div>
