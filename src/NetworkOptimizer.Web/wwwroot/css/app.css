@@ -6536,6 +6536,7 @@ select.form-control {
     flex: 1;
     min-height: 0;
     position: relative;
+    padding-bottom: 1.5rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
