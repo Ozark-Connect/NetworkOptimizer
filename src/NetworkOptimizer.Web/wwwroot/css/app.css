@@ -6491,7 +6491,7 @@ select.form-control {
 }
 
 .filter-checkbox .checkbox-label.airtime { color: #10b981; }
-.filter-checkbox .checkbox-label.interference { color: #f59e0b; }
+.filter-checkbox .checkbox-label.interference { color: #eda90d; }
 .filter-checkbox .checkbox-label.retries { color: #ef5858; }
 
 .metrics-loading,
