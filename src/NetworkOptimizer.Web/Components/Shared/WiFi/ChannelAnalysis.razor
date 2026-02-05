@@ -279,6 +279,7 @@
 @code {
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
+    private SiteHealthScore? _healthScore;
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
 
@@ -309,6 +310,7 @@
         try
         {
             _accessPoints = await WiFiService.GetAccessPointsAsync();
+            _healthScore = await WiFiService.GetSiteHealthScoreAsync();
             AnalyzeChannels();
         }
         finally
@@ -326,6 +328,7 @@
         try
         {
             _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            _healthScore = await WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             AnalyzeChannels();
         }
         finally
@@ -359,7 +362,7 @@
         // Calculate width groups for visual display
         CalculateWidthGroups(allRadios);
 
-        // Find co-channel issues per band
+        // Count co-channel issues per band (for summary stats)
         foreach (var band in _bands)
         {
             var radiosInBand = allRadios.Where(r => r.Band == band && r.Channel.HasValue).ToList();
@@ -372,71 +375,22 @@
                     .ToList();
 
                 // Filter out mesh pairs - they MUST be on the same channel
-                // A mesh pair is: child AP with MeshParentMac pointing to the parent AP,
-                // using the same band for the mesh uplink
                 var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
 
-                // Only report co-channel if there are 2+ APs that aren't mesh pairs
+                // Only count co-channel if there are 2+ APs that aren't mesh pairs
                 if (nonMeshAps.Count > 1)
                 {
                     _coChannelIssues++;
-                    var apNames = nonMeshAps.Select(ap => ap.Name).ToList();
-
-                    _channelIssues.Add(new HealthIssue
-                    {
-                        Severity = HealthIssueSeverity.Warning,
-                        Title = $"Co-Channel Interference on {band.ToDisplayString()} Channel {group.Key}",
-                        Description = $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
-                        Recommendation = "Consider changing one or more APs to a different channel to reduce interference.",
-                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
-                    });
                 }
             }
+        }
 
-            // Check for 2.4 GHz non-standard channels
-            if (band == RadioBand.Band2_4GHz)
-            {
-                var nonStandardChannels = radiosInBand
-                    .Where(r => r.Channel.HasValue && r.Channel.Value != 1 && r.Channel.Value != 6 && r.Channel.Value != 11)
-                    .GroupBy(r => r.Channel!.Value)
-                    .ToList();
-
-                foreach (var group in nonStandardChannels)
-                {
-                    var apNames = _accessPoints
-                        .Where(ap => ap.Radios.Any(r => r.Band == band && r.Channel == group.Key))
-                        .Select(ap => ap.Name)
-                        .ToList();
-
-                    _channelIssues.Add(new HealthIssue
-                    {
-                        Severity = HealthIssueSeverity.Info,
-                        Title = $"Non-Standard 2.4 GHz Channel {group.Key}",
-                        Description = $"APs ({string.Join(", ", apNames)}) are using channel {group.Key}, which overlaps with adjacent channels.",
-                        Recommendation = "For best performance, use only channels 1, 6, or 11 on 2.4 GHz to avoid overlap.",
-                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
-                    });
-                }
-            }
-
-            // Check for high utilization
-            var highUtilRadios = radiosInBand.Where(r => r.ChannelUtilization.HasValue && r.ChannelUtilization.Value > 70).ToList();
-            foreach (var radio in highUtilRadios)
-            {
-                var ap = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio));
-                if (ap != null)
-                {
-                    _channelIssues.Add(new HealthIssue
-                    {
-                        Severity = HealthIssueSeverity.Warning,
-                        Title = $"High Channel Utilization on {ap.Name}",
-                        Description = $"{band.ToDisplayString()} radio on channel {radio.Channel} has {radio.ChannelUtilization}% utilization.",
-                        Recommendation = "Consider switching to a less congested channel or enabling DFS channels (5 GHz).",
-                        AffectedEntity = ap.Name,
-                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
-                    });
-                }
-            }
+        // Pull channel-related issues from the health score engine
+        if (_healthScore != null)
+        {
+            _channelIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
+                .ToList();
         }
     }
 

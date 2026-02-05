@@ -33,7 +33,7 @@ public class HighRadioUtilizationRule : IWiFiOptimizerRule
         return new HealthIssue
         {
             Severity = HealthIssueSeverity.Warning,
-            Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.CapacityHeadroom },
+            Dimensions = { HealthDimension.AirtimeEfficiency, HealthDimension.CapacityHeadroom, HealthDimension.ChannelHealth },
             Title = "High Radio Utilization Detected",
             Description = $"{highUtilRadios.Count} radio(s) have utilization above {UtilizationThreshold}%. " +
                 "Clients may experience slow speeds and higher latency during busy periods.",

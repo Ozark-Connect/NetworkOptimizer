@@ -27,13 +27,14 @@ public class WiFiOptimizerEngine
         {
             try
             {
-                var issue = rule.Evaluate(context);
-                if (issue != null)
+                var ruleIssues = rule.EvaluateAll(context).ToList();
+                foreach (var issue in ruleIssues)
                 {
                     score.Issues.Add(issue);
                     _logger.LogDebug("Rule {RuleId} produced issue: {Title}", rule.RuleId, issue.Title);
                 }
-                else
+
+                if (ruleIssues.Count == 0)
                 {
                     _logger.LogDebug("Rule {RuleId} satisfied (no issue)", rule.RuleId);
                 }
@@ -56,13 +57,14 @@ public class WiFiOptimizerEngine
         {
             try
             {
-                var issue = rule.Evaluate(context);
-                if (issue != null)
+                var ruleIssues = rule.EvaluateAll(context).ToList();
+                foreach (var issue in ruleIssues)
                 {
                     issues.Add(issue);
                     _logger.LogDebug("Rule {RuleId} produced issue: {Title}", rule.RuleId, issue.Title);
                 }
-                else
+
+                if (ruleIssues.Count == 0)
                 {
                     _logger.LogDebug("Rule {RuleId} satisfied (no issue)", rule.RuleId);
                 }

@@ -17,4 +17,15 @@ public interface IWiFiOptimizerRule
     /// Returns a HealthIssue if there's an actionable recommendation.
     /// </summary>
     HealthIssue? Evaluate(WiFiOptimizerContext context);
+
+    /// <summary>
+    /// Evaluate the rule and return multiple issues (for rules that can generate multiple issues).
+    /// Default implementation calls Evaluate and returns single-item or empty enumerable.
+    /// </summary>
+    IEnumerable<HealthIssue> EvaluateAll(WiFiOptimizerContext context)
+    {
+        var issue = Evaluate(context);
+        if (issue != null)
+            yield return issue;
+    }
 }
