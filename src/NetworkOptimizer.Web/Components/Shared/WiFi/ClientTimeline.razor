@@ -53,6 +53,7 @@
                     }
                     @if (_dropdownOpen)
                     {
+                        <div class="filterable-select-overlay" @onclick="CloseDropdown"></div>
                         <div class="filterable-select-dropdown">
                             @foreach (var client in GetDropdownClients().Take(50))
                             {
@@ -712,6 +713,8 @@
         _clientSearchText = "";
         _dropdownOpen = true;
     }
+
+    private void CloseDropdown() => _dropdownOpen = false;
 
     private async Task CloseDropdownDelayed()
     {
