@@ -44,7 +44,7 @@
         <div class="filter-group">
             <label class="filter-label">Access Point:</label>
             <select class="ap-filter-select" @bind="_selectedApMac" @bind:after="OnApFilterChanged">
-                <option value="">All APs (Site)</option>
+                <option value="">All APs</option>
                 @foreach (var ap in _accessPoints)
                 {
                     <option value="@ap.Mac">@ap.Name</option>
@@ -53,18 +53,11 @@
         </div>
         <div class="filter-group">
             <label class="filter-label">Band:</label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_show24" />
-                <span class="checkbox-label band-2ghz">2.4 GHz</span>
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_show5" />
-                <span class="checkbox-label band-5ghz">5 GHz</span>
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" @bind="_show6" />
-                <span class="checkbox-label band-6ghz">6 GHz</span>
-            </label>
+            <div class="filter-tabs band-tabs">
+                <button class="tab band-tab band-2ghz @(_show24 ? "active" : "")" @onclick="() => _show24 = !_show24">2.4 GHz</button>
+                <button class="tab band-tab band-5ghz @(_show5 ? "active" : "")" @onclick="() => _show5 = !_show5">5 GHz</button>
+                <button class="tab band-tab band-6ghz @(_show6 ? "active" : "")" @onclick="() => _show6 = !_show6">6 GHz</button>
+            </div>
         </div>
         <div class="filter-group metrics-filter-right">
             <label class="filter-label">Metrics:</label>
