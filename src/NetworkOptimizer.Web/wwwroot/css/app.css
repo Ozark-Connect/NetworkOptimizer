@@ -5936,13 +5936,12 @@ select.form-control {
 .dimension-bar-container {
     height: 8px;
     background: var(--bg-secondary);
-    border-radius: 4px;
     overflow: hidden;
 }
 
 .dimension-bar {
     height: 100%;
-    border-radius: 4px;
+    border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
 
