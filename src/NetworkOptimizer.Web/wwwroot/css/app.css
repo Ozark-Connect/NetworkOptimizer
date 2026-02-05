@@ -5841,7 +5841,7 @@ select.form-control {
 .stat-value.score-good,
 .stat-value.score-fair,
 .stat-value.score-poor {
-    font-size: 1.2rem;
+    font-size: 1.6rem;
 }
 .stat-value.score-excellent { color: var(--success-color); }
 .stat-value.score-good { color: var(--primary-color); }
