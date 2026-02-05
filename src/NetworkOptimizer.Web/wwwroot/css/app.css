@@ -8588,6 +8588,19 @@ select.form-control {
 .power-stat-card.signal-poor .power-stat-value,
 .signal-poor { color: #ef4444; }
 
+/* WiFi Page Sections - Alternating Colors */
+[class$="-section"]:nth-child(even) {
+    background: var(--bg-tertiary);
+}
+
+[class$="-section"]:nth-child(even) .pagination-controls {
+    border-top-color: var(--bg-secondary);
+}
+
+[class$="-section"]:nth-child(even) .data-table thead {
+    background: var(--bg-secondary);
+}
+
 /* Power Sections */
 .power-section {
     background: var(--bg-secondary);
@@ -8595,6 +8608,7 @@ select.form-control {
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
+
 
 .power-section .section-header {
     display: flex;
@@ -9127,6 +9141,7 @@ select.form-control {
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
+
 
 .steering-section .section-header {
     display: flex;
