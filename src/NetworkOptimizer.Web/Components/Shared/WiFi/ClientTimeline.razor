@@ -11,6 +11,16 @@
         <h3>Client Stats</h3>
 
         <div class="timeline-controls">
+            <!-- Status Filter -->
+            <div class="status-filter">
+                <button class="status-filter-btn @(_statusFilter == "all" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("all")'>All</button>
+                <button class="status-filter-btn @(_statusFilter == "online" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("online")'>Online</button>
+                <button class="status-filter-btn @(_statusFilter == "offline" ? "active" : "")"
+                        @onclick='() => SetStatusFilter("offline")'>Offline</button>
+            </div>
+
             <!-- View All / Client Selector -->
             <div class="client-selector-combo">
                 @if (!string.IsNullOrEmpty(_selectedClientMac))
@@ -50,6 +60,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
+                            <th class="sortable @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
                             <th class="sortable @GetSortClass("Name")" @onclick='() => SetSort("Name")'>Name</th>
                             <th class="sortable @GetSortClass("Ip")" @onclick='() => SetSort("Ip")'>IP</th>
                             <th class="sortable @GetSortClass("Mac")" @onclick='() => SetSort("Mac")'>MAC</th>
@@ -61,13 +72,14 @@
                     <tbody>
                         @foreach (var client in GetPagedClients())
                         {
-                            <tr @onclick="() => SelectClient(client.Mac)">
+                            <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
+                                <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
                                 <td>@client.Name</td>
                                 <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
-                                <td><span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span></td>
-                                <td class="@GetSignalClass(client.Signal)">@(client.Signal?.ToString() ?? "-") dBm</td>
+                                <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
+                                <td class="@GetSignalClass(client.Signal)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
                             </tr>
                         }
                     </tbody>
@@ -250,6 +262,7 @@
 
     // Search/Filter
     private string _clientSearchText = "";
+    private string _statusFilter = "all"; // "all", "online", "offline"
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -535,6 +548,20 @@
         _ => "signal-poor"
     };
 
+    private string GetOfflineTooltip(WirelessClientSnapshot client)
+    {
+        if (client.LastSeen.HasValue)
+        {
+            var ago = DateTimeOffset.UtcNow - client.LastSeen.Value;
+            if (ago.TotalMinutes < 60)
+                return $"Offline - last seen {(int)ago.TotalMinutes}m ago";
+            if (ago.TotalHours < 24)
+                return $"Offline - last seen {(int)ago.TotalHours}h ago";
+            return $"Offline - last seen {(int)ago.TotalDays}d ago";
+        }
+        return "Offline";
+    }
+
     private string FormatRate(long? rateKbps)
     {
         if (!rateKbps.HasValue) return "-";
@@ -562,6 +589,16 @@
     private IEnumerable<WirelessClientSnapshot> GetFilteredClients()
     {
         var filtered = _clients.AsEnumerable();
+
+        // Apply status filter
+        filtered = _statusFilter switch
+        {
+            "online" => filtered.Where(c => c.IsOnline),
+            "offline" => filtered.Where(c => !c.IsOnline),
+            _ => filtered
+        };
+
+        // Apply search text filter
         if (!string.IsNullOrWhiteSpace(_clientSearchText))
         {
             var filter = _clientSearchText.Trim();
@@ -573,11 +610,20 @@
         return filtered.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
     }
 
+    private void SetStatusFilter(string filter)
+    {
+        _statusFilter = filter;
+        _currentPage = 1;
+    }
+
     private IEnumerable<WirelessClientSnapshot> GetSortedClients()
     {
         var clients = GetFilteredClients();
         return _sortColumn switch
         {
+            "Status" => _sortDescending
+                ? clients.OrderByDescending(c => c.IsOnline).ThenBy(c => c.Name ?? "")
+                : clients.OrderBy(c => c.IsOnline).ThenBy(c => c.Name ?? ""),
             "Name" => _sortDescending ? clients.OrderByDescending(c => c.Name ?? "") : clients.OrderBy(c => c.Name ?? ""),
             "Ip" => _sortDescending
                 ? WiFiAnalysisHelpers.SortByIp(clients).AsEnumerable().Reverse()

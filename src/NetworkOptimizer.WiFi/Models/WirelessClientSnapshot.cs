@@ -77,6 +77,12 @@ public class WirelessClientSnapshot
     /// <summary>Whether client is a guest</summary>
     public bool IsGuest { get; set; }
 
+    /// <summary>Whether client is currently online (connected)</summary>
+    public bool IsOnline { get; set; } = true;
+
+    /// <summary>Last seen timestamp (for offline clients)</summary>
+    public DateTimeOffset? LastSeen { get; set; }
+
     /// <summary>Device manufacturer from OUI lookup</summary>
     public string? Manufacturer { get; set; }
 
