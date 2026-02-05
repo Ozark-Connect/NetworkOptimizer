@@ -8961,7 +8961,7 @@ select.form-control {
 
 .signal-bar {
     width: 100%;
-    border-radius: 4px 4px 0 0;
+    border-radius: 0 0 4px 4px;
     display: flex;
     align-items: flex-end;
     justify-content: center;
