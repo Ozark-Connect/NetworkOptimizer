@@ -6347,7 +6347,10 @@ select.form-control {
 
 /* Use secondary background when inside nested cards */
 .card .card .pill-selector,
-.card .card .time-range-selector {
+.card .card .time-range-selector,
+.card .card .band-tab,
+.card .card .btn-secondary,
+.card .card .btn-ghost {
     background: var(--bg-secondary);
 }
 
