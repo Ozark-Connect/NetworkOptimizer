@@ -2385,7 +2385,8 @@ select.form-control {
         padding-top: 0.05rem;
     }
 
-    .issue-body {
+    .issue-body,
+    .issue-content {
         display: contents;
     }
 
