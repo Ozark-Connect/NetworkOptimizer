@@ -5926,6 +5926,7 @@ select.form-control {
     grid-column: 2;
     grid-row: 1;
     margin-top: 0;
+    align-self: end;
 }
 
 .health-score-main .health-score-timestamp {
@@ -5934,6 +5935,7 @@ select.form-control {
     font-size: 0.75rem;
     color: var(--text-muted);
     margin-top: 0;
+    align-self: start;
 }
 
 .health-score-main .score-value.score-perfect {
