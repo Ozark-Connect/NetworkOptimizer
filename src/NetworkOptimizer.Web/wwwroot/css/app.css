@@ -6417,7 +6417,7 @@ select.form-control {
     color: var(--text-primary);
     padding: 0.25rem 0.5rem;
     font-size: 0.8rem;
-    min-width: 150px;
+    min-width: 225px;
 }
 
 .ap-filter-select:focus {
