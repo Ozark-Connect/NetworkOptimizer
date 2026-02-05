@@ -43,7 +43,8 @@ public class MinRssiRule : IWiFiOptimizerRule
                 "Use cautiously as it can cause issues with some clients.",
             Recommendation = "In UniFi Network: Devices > (AP) > Settings > Radios > Minimum RSSI (per band). " +
                 "Use a conservative threshold like -75 to -80 dBm. Consider setting lower (e.g., -80 dBm) for perimeter APs.",
-            ScoreImpact = -3
+            ScoreImpact = -3,
+            ShowOnOverview = false  // Informational, only relevant to Roaming tab
         };
     }
 }

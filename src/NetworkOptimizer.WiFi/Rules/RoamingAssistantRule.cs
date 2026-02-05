@@ -38,7 +38,8 @@ public class RoamingAssistantRule : IWiFiOptimizerRule
             Recommendation = "Per AP: Devices > (AP) > Settings > Radios > 5 GHz > Roaming Assistant. " +
                 "Or globally: Settings > WiFi > 5 GHz Roaming Assistant with 'Override All APs'. " +
                 "Recommended threshold: -70 to -75 dBm.",
-            ScoreImpact = -3
+            ScoreImpact = -3,
+            ShowOnOverview = false  // Informational, only relevant to Roaming tab
         };
     }
 }

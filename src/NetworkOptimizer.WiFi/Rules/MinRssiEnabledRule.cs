@@ -30,7 +30,8 @@ public class MinRssiEnabledRule : IWiFiOptimizerRule
             AffectedEntity = string.Join(", ", apsWithMinRssi.Select(ap => ap.Name)),
             Recommendation = "If clients are dropping unexpectedly, consider disabling or lowering " +
                 "the threshold to -80 dBm. Monitor for complaints about disconnects.",
-            ScoreImpact = -2
+            ScoreImpact = -2,
+            ShowOnOverview = false  // Informational, only relevant to Roaming tab
         };
     }
 }

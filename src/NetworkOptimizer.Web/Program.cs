@@ -270,6 +270,10 @@ builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, Ne
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.WeakSignalPopulationRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.RoamingAssistantRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.TxPowerVariationRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighRadioUtilizationRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.LegacyClientAirtimeRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.HighTxRetryRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.MinimumDataRatesRule>();
 builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
 

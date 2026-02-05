@@ -35,7 +35,8 @@ public class TxPowerVariationRule : IWiFiOptimizerRule
                 "power levels often improves roaming behavior and reduces co-channel interference.",
             Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - " +
                 "try 'Auto' to let the controller optimize power levels.",
-            ScoreImpact = -3
+            ScoreImpact = -3,
+            ShowOnOverview = false  // Informational, only relevant to Channel/Roaming tabs
         };
     }
 }
