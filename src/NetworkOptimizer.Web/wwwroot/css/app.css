@@ -6445,7 +6445,7 @@ select.form-control {
 .filter-group {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.6rem;
 }
 
 .filter-group.metrics-filter-right {
