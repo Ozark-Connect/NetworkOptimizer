@@ -1774,9 +1774,9 @@ select.form-control {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
-    padding-top: 2px;
-    width: 20px;
-    min-height: 20px;
+    margin-top: 22px;
+    width: 24px;
+    min-height: 24px;
 }
 
 .issue-item.issue-critical .issue-icon {
