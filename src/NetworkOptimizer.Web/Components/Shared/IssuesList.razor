@@ -3,7 +3,7 @@
 @if (Issues.Count > 0)
 {
     <div class="issues-list">
-        @foreach (var issue in Issues)
+        @foreach (var issue in Issues.OrderByDescending(i => i.Severity).ThenBy(i => i.Dimensions.FirstOrDefault()))
         {
             <div class="issue-item @GetSeverityClass(issue.Severity)">
                 <div class="issue-icon">
