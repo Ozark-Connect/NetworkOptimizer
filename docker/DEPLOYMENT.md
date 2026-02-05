@@ -205,9 +205,12 @@ For commercial NAS devices with container support.
 
 1. Install Community Applications plugin
 2. Search for "Network Optimizer"
-3. Deploy both network-optimizer and network-optimizer-speedtest container
+3. Deploy both network-optimizer and network-optimizer-speedtest containers
+
+Community templates maintained by [@stefan-matic](https://github.com/stefan-matic/unraid-templates).
+
 ---
-Or use manual Docker Compose deployment (note: cannot be managed by UNRAID GUI if deployed via compose)
+Or use manual Docker Compose deployment (note: cannot be managed by Unraid GUI if deployed via compose)
 
 ### 4. Native Deployment (No Docker)
 
