@@ -75,17 +75,32 @@
                 </div>
             </div>
 
-            <!-- Time Range -->
-            <div class="time-range-selector">
-                @foreach (var range in _timeRanges)
-                {
-                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
-                            @onclick="() => SelectTimeRange(range.Key)"
-                            disabled="@(string.IsNullOrEmpty(_selectedClientMac) && _statusFilter == "online")">
-                        @range.Key
-                    </button>
-                }
-            </div>
+            <!-- Time Range (different state for list vs client view) -->
+            @if (string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
+                                @onclick="() => SelectListTimeRange(range.Key)"
+                                disabled="@(_statusFilter == "online")">
+                            @range.Key
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="time-range-selector">
+                    @foreach (var range in _timeRanges)
+                    {
+                        <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                                @onclick="() => SelectTimeRange(range.Key)">
+                            @range.Key
+                        </button>
+                    }
+                </div>
+            }
         </div>
     </div>
 
@@ -284,7 +299,8 @@
 @code {
     private bool _loading = false;
     private string _selectedClientMac = "";
-    private string _selectedRange = "1D";
+    private string _selectedRange = "1D";  // For client detail view
+    private string _listTimeRange = "1W";  // For client list view (offline cutoff)
     private bool _showSignal = true;
     private bool _showTxRetries = true;
     private string _chartKey = "signal_retries"; // Key to force chart recreation
@@ -387,15 +403,13 @@
     private async Task SelectTimeRange(string range)
     {
         _selectedRange = range;
-        if (!string.IsNullOrEmpty(_selectedClientMac))
-        {
-            await LoadClientDataAsync();
-        }
-        else
-        {
-            // Reset to first page when filtering list view
-            _currentPage = 1;
-        }
+        await LoadClientDataAsync();
+    }
+
+    private void SelectListTimeRange(string range)
+    {
+        _listTimeRange = range;
+        _currentPage = 1;
     }
 
     private async Task LoadClientDataAsync()
@@ -645,7 +659,7 @@
         // Apply time range filter to offline clients (based on LastSeen)
         if (_statusFilter != "online")
         {
-            var cutoff = DateTimeOffset.UtcNow - _timeRanges[_selectedRange];
+            var cutoff = DateTimeOffset.UtcNow - _timeRanges[_listTimeRange];
             filtered = filtered.Where(c => c.IsOnline || (c.LastSeen.HasValue && c.LastSeen.Value >= cutoff));
         }
 
