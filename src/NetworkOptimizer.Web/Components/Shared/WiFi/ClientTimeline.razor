@@ -101,6 +101,17 @@
                     }
                 </div>
             }
+
+            <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
+                @if (_refreshing)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
         </div>
     </div>
 
@@ -317,6 +328,7 @@
     private string _clientSearchText = "";
     private string _statusFilter = "all"; // "all", "online", "offline"
     private bool _dropdownOpen = false;
+    private bool _refreshing = false;
     private ElementReference _filterInput;
 
     private List<WirelessClientSnapshot> _clients = new();
@@ -385,6 +397,25 @@
     private async Task LoadClientsAsync()
     {
         _clients = await WiFiService.GetWirelessClientsAsync();
+    }
+
+    private async Task RefreshClients()
+    {
+        _refreshing = true;
+        StateHasChanged();
+        try
+        {
+            await LoadClientsAsync();
+            if (!string.IsNullOrEmpty(_selectedClientMac))
+            {
+                await LoadClientDataAsync();
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+            StateHasChanged();
+        }
     }
 
     private async Task OnClientSelected()

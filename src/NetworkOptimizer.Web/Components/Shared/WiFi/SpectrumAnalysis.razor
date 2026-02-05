@@ -33,10 +33,10 @@
                     </button>
                 }
             </div>
-            <button class="btn btn-secondary" @onclick="RefreshData" disabled="@isLoading">
+            <button class="btn btn-secondary btn-sm" @onclick="RefreshData" disabled="@isLoading">
                 @if (isLoading)
                 {
-                    <span class="spinner"></span>
+                    <span class="spinner-sm"></span>
                 }
                 else
                 {
