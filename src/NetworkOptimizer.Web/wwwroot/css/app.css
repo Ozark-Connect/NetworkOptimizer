@@ -6659,7 +6659,8 @@ select.form-control {
 /* Filterable select dropdown */
 .filterable-select {
     position: relative;
-    min-width: 360px;
+    min-width: 200px;
+    width: fit-content;
 }
 
 .filterable-select-input {
