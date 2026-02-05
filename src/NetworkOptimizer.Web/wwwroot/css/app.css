@@ -8005,81 +8005,11 @@ select.form-control {
 .ap-interf-col.interf-medium { color: var(--warning-color); }
 .ap-interf-col.interf-high { color: var(--danger-color); }
 
-/* Channel Issues Section */
+/* Channel Issues Section - wrapper only, issue styling from IssuesList component */
 .channel-issues-section {
     background: var(--bg-secondary);
     border-radius: 8px;
     padding: 1rem;
-}
-
-.channel-issues-section .issues-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.channel-issues-section .issue-item {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    border-left: 3px solid var(--border-color);
-}
-
-.channel-issues-section .issue-item.warning {
-    border-left-color: var(--warning-color);
-}
-
-.channel-issues-section .issue-item.info {
-    border-left-color: var(--info-color);
-}
-
-.channel-issues-section .issue-icon {
-    width: 24px;
-    height: 24px;
-    background: var(--bg-secondary);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-}
-
-.channel-issues-section .issue-item.warning .issue-icon {
-    background: var(--warning-color);
-    color: white;
-}
-
-.channel-issues-section .issue-item.info .issue-icon {
-    background: var(--info-color);
-    color: white;
-}
-
-.channel-issues-section .issue-content {
-    flex: 1;
-}
-
-.channel-issues-section .issue-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.channel-issues-section .issue-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-}
-
-.channel-issues-section .issue-recommendation {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    padding: 0.5rem;
-    background: var(--bg-secondary);
-    border-radius: 4px;
 }
 
 /* Responsive Channel Analysis */
