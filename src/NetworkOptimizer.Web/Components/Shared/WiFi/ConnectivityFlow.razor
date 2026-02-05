@@ -260,26 +260,7 @@
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="issues-list">
-                    @foreach (var issue in _connectivityIssues)
-                    {
-                        <div class="issue-item issue-@GetSeverityCssClass(issue.Severity)">
-                            <div class="issue-icon">
-                                @(issue.Severity == HealthIssueSeverity.Warning ? "!" : "i")
-                            </div>
-                            <div class="issue-body">
-                                <div class="issue-header">
-                                    <span class="issue-title">@issue.Title</span>
-                                </div>
-                                <div class="issue-item-description">@issue.Description</div>
-                                @if (!string.IsNullOrEmpty(issue.Recommendation))
-                                {
-                                    <div class="issue-recommendation">@issue.Recommendation</div>
-                                }
-                            </div>
-                        </div>
-                    }
-                </div>
+                <IssuesList Issues="_connectivityIssues" />
             </div>
         }
     }
@@ -508,13 +489,6 @@
                 .ToList();
         }
     }
-
-    private string GetSeverityCssClass(HealthIssueSeverity severity) => severity switch
-    {
-        HealthIssueSeverity.Critical => "critical",
-        HealthIssueSeverity.Warning => "warning",
-        _ => "info"
-    };
 
     private int GetPercentage(int value, int total)
     {

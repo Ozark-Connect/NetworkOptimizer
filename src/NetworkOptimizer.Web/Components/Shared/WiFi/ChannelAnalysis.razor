@@ -270,22 +270,7 @@
                     <h4>Channel Issues</h4>
                 </div>
 
-                <div class="issues-list">
-                    @foreach (var issue in _channelIssues)
-                    {
-                        <div class="issue-item @issue.Severity">
-                            <div class="issue-icon">@(issue.Severity == "warning" ? "!" : "i")</div>
-                            <div class="issue-content">
-                                <div class="issue-title">@issue.Title</div>
-                                <div class="issue-description">@issue.Description</div>
-                                @if (!string.IsNullOrEmpty(issue.Recommendation))
-                                {
-                                    <div class="issue-recommendation">@issue.Recommendation</div>
-                                }
-                            </div>
-                        </div>
-                    }
-                </div>
+                <IssuesList Issues="_channelIssues" />
             </div>
         }
     }
@@ -302,7 +287,7 @@
     private int _avgUtilization;
     private int _avgInterference;
     private HashSet<int> _channelsInUse = new();
-    private List<ChannelIssue> _channelIssues = new();
+    private List<HealthIssue> _channelIssues = new();
 
     // Width groups: maps (band, channel) -> group info for visual grouping (first group)
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
@@ -397,12 +382,13 @@
                     _coChannelIssues++;
                     var apNames = nonMeshAps.Select(ap => ap.Name).ToList();
 
-                    _channelIssues.Add(new ChannelIssue
+                    _channelIssues.Add(new HealthIssue
                     {
-                        Severity = "warning",
+                        Severity = HealthIssueSeverity.Warning,
                         Title = $"Co-Channel Interference on {band.ToDisplayString()} Channel {group.Key}",
                         Description = $"{nonMeshAps.Count} APs ({string.Join(", ", apNames)}) are using the same channel.",
-                        Recommendation = "Consider changing one or more APs to a different channel to reduce interference."
+                        Recommendation = "Consider changing one or more APs to a different channel to reduce interference.",
+                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
                     });
                 }
             }
@@ -422,12 +408,13 @@
                         .Select(ap => ap.Name)
                         .ToList();
 
-                    _channelIssues.Add(new ChannelIssue
+                    _channelIssues.Add(new HealthIssue
                     {
-                        Severity = "info",
+                        Severity = HealthIssueSeverity.Info,
                         Title = $"Non-Standard 2.4 GHz Channel {group.Key}",
                         Description = $"APs ({string.Join(", ", apNames)}) are using channel {group.Key}, which overlaps with adjacent channels.",
-                        Recommendation = "For best performance, use only channels 1, 6, or 11 on 2.4 GHz to avoid overlap."
+                        Recommendation = "For best performance, use only channels 1, 6, or 11 on 2.4 GHz to avoid overlap.",
+                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
                     });
                 }
             }
@@ -439,12 +426,14 @@
                 var ap = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio));
                 if (ap != null)
                 {
-                    _channelIssues.Add(new ChannelIssue
+                    _channelIssues.Add(new HealthIssue
                     {
-                        Severity = "warning",
+                        Severity = HealthIssueSeverity.Warning,
                         Title = $"High Channel Utilization on {ap.Name}",
                         Description = $"{band.ToDisplayString()} radio on channel {radio.Channel} has {radio.ChannelUtilization}% utilization.",
-                        Recommendation = "Consider switching to a less congested channel or enabling DFS channels (5 GHz)."
+                        Recommendation = "Consider switching to a less congested channel or enabling DFS channels (5 GHz).",
+                        AffectedEntity = ap.Name,
+                        Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
                     });
                 }
             }
@@ -604,14 +593,6 @@
         RadioBand.Band6GHz => "band-6ghz",
         _ => ""
     };
-
-    private class ChannelIssue
-    {
-        public string Severity { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string? Recommendation { get; set; }
-    }
 
     private class WidthGroupInfo
     {

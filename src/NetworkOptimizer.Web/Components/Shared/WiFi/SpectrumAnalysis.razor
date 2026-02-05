@@ -298,34 +298,14 @@
         }
 
         <!-- Recommendations -->
-        @if (GetRecommendations().Any())
+        @if (GetRecommendations() is var recommendations && recommendations.Any())
         {
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title">Recommendations</h2>
                 </div>
                 <div class="card-body">
-                    <div class="recommendations-list">
-                        @foreach (var rec in GetRecommendations())
-                        {
-                            <div class="recommendation-item @rec.Type">
-                                <div class="recommendation-icon">
-                                    @if (rec.Type == "warning")
-                                    {
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>
-                                    }
-                                    else
-                                    {
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>
-                                    }
-                                </div>
-                                <div class="recommendation-content">
-                                    <div class="recommendation-title">@rec.Title</div>
-                                    <div class="recommendation-description">@rec.Description</div>
-                                </div>
-                            </div>
-                        }
-                    </div>
+                    <IssuesList Issues="recommendations" />
                 </div>
             </div>
         }
@@ -1291,9 +1271,9 @@
         });
     }
 
-    private IEnumerable<Recommendation> GetRecommendations()
+    private List<HealthIssue> GetRecommendations()
     {
-        var recommendations = new List<Recommendation>();
+        var recommendations = new List<HealthIssue>();
 
         // Check for congested channels
         var yourChannels = accessPoints
@@ -1311,11 +1291,12 @@
             if (neighborCount > 5)
             {
                 var cleanest = GetCleanestChannel();
-                recommendations.Add(new Recommendation
+                recommendations.Add(new HealthIssue
                 {
-                    Type = "warning",
+                    Severity = HealthIssueSeverity.Warning,
                     Title = $"Channel {ch.Channel} is congested",
-                    Description = $"There are {neighborCount} other networks on channel {ch.Channel}. Consider switching to channel {cleanest} for better performance."
+                    Description = $"There are {neighborCount} other networks on channel {ch.Channel}. Consider switching to channel {cleanest} for better performance.",
+                    Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
                 });
             }
         }
@@ -1324,11 +1305,12 @@
         var availableDfs = GetAvailableDfsChannels();
         if (availableDfs > 10 && !yourChannels.Any(c => c.Band == RadioBand.Band5GHz && IsDfsChannel(c.Channel, c.Band)))
         {
-            recommendations.Add(new Recommendation
+            recommendations.Add(new HealthIssue
             {
-                Type = "info",
+                Severity = HealthIssueSeverity.Info,
                 Title = "DFS channels available",
-                Description = $"{availableDfs} DFS channels are available with no detected networks. Consider enabling DFS on your 5 GHz radios for less interference."
+                Description = $"{availableDfs} DFS channels are available with no detected networks. Consider enabling DFS on your 5 GHz radios for less interference.",
+                Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
             });
         }
 
@@ -1339,11 +1321,12 @@
 
         if (wideChannelNetworks > 3)
         {
-            recommendations.Add(new Recommendation
+            recommendations.Add(new HealthIssue
             {
-                Type = "info",
+                Severity = HealthIssueSeverity.Info,
                 Title = "Wide channel usage detected",
-                Description = $"{wideChannelNetworks} networks are using 80 MHz or wider channels. In dense environments, narrower channels (40 MHz) often perform better."
+                Description = $"{wideChannelNetworks} networks are using 80 MHz or wider channels. In dense environments, narrower channels (40 MHz) often perform better.",
+                Dimensions = new HashSet<HealthDimension> { HealthDimension.ChannelHealth }
             });
         }
 
@@ -1405,10 +1388,4 @@
         public bool IsYourChannel { get; set; }
     }
 
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-    }
 }

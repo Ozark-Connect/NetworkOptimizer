@@ -1756,17 +1756,27 @@ select.form-control {
     border-left-color: var(--warning-color);
 }
 
-.issue-item.issue-info {
+.issue-item.issue-info,
+.issue-item.info {
     border-left-color: var(--info-color);
+}
+
+/* Simplified severity classes (without issue- prefix) */
+.issue-item.critical {
+    border-left-color: var(--danger-color);
+}
+
+.issue-item.warning {
+    border-left-color: var(--warning-color);
 }
 
 .issue-icon {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
-    margin-top: 22px;
-    width: 24px;
-    min-height: 24px;
+    padding-top: 2px;
+    width: 20px;
+    min-height: 20px;
 }
 
 .issue-item.issue-critical .issue-icon {
@@ -1778,11 +1788,22 @@ select.form-control {
     color: var(--warning-color);
 }
 
-.issue-item.issue-info .issue-icon {
+.issue-item.issue-info .issue-icon,
+.issue-item.info .issue-icon {
     color: var(--info-color);
 }
 
-.issue-body {
+/* Simplified severity classes for icons */
+.issue-item.critical .issue-icon {
+    color: var(--danger-color);
+}
+
+.issue-item.warning .issue-icon {
+    color: var(--warning-color);
+}
+
+.issue-body,
+.issue-content {
     flex: 1;
     min-width: 0;
 }
