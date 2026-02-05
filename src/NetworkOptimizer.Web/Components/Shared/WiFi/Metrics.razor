@@ -42,7 +42,7 @@
 
     <div class="metrics-filters">
         <div class="filter-group">
-            <label class="filter-label">AP:</label>
+            <label class="filter-label">Access Point:</label>
             <select class="ap-filter-select" @bind="_selectedApMac" @bind:after="OnApFilterChanged">
                 <option value="">All APs (Site)</option>
                 @foreach (var ap in _accessPoints)
@@ -52,6 +52,21 @@
             </select>
         </div>
         <div class="filter-group">
+            <label class="filter-label">Band:</label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_show24" />
+                <span class="checkbox-label band-2ghz">2.4 GHz</span>
+            </label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_show5" />
+                <span class="checkbox-label band-5ghz">5 GHz</span>
+            </label>
+            <label class="filter-checkbox">
+                <input type="checkbox" @bind="_show6" />
+                <span class="checkbox-label band-6ghz">6 GHz</span>
+            </label>
+        </div>
+        <div class="filter-group metrics-filter-right">
             <label class="filter-label">Metrics:</label>
             <label class="filter-checkbox">
                 <input type="checkbox" @bind="_showAirtime" @bind:after="UpdateChartVisibility" />
@@ -90,103 +105,112 @@
     else
     {
         <!-- 2.4 GHz Chart -->
-        <div class="band-chart-container">
-            <div class="band-chart-header">
-                <span class="band-label band-2ghz">2.4 GHz</span>
-            </div>
-            <ApexChart @ref="_chart24" TItem="ChartDataPoint"
-                       Options="_chartOptions24"
-                       Height="150">
+        @if (_show24)
+        {
+            <div class="band-chart-container">
+                <div class="band-chart-header">
+                    <span class="band-label band-2ghz">2.4 GHz</span>
+                </div>
+                <ApexChart @ref="_chart24" TItem="ChartDataPoint"
+                           Options="_chartOptions24"
+                           Height="150">
 
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showAirtime ? _data24Airtime : _emptyData)"
-                                 Name="Airtime"
-                                 SeriesType="SeriesType.Area"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showInterference ? _data24Interference : _emptyData)"
-                                 Name="Interference"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showTxRetries ? _data24TxRetries : _emptyData)"
-                                 Name="TX Retries"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-            </ApexChart>
-        </div>
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showAirtime ? _data24Airtime : _emptyData)"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showInterference ? _data24Interference : _emptyData)"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showTxRetries ? _data24TxRetries : _emptyData)"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                </ApexChart>
+            </div>
+        }
 
         <!-- 5 GHz Chart -->
-        <div class="band-chart-container">
-            <div class="band-chart-header">
-                <span class="band-label band-5ghz">5 GHz</span>
-            </div>
-            <ApexChart @ref="_chart5" TItem="ChartDataPoint"
-                       Options="_chartOptions5"
-                       Height="150">
+        @if (_show5)
+        {
+            <div class="band-chart-container">
+                <div class="band-chart-header">
+                    <span class="band-label band-5ghz">5 GHz</span>
+                </div>
+                <ApexChart @ref="_chart5" TItem="ChartDataPoint"
+                           Options="_chartOptions5"
+                           Height="150">
 
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showAirtime ? _data5Airtime : _emptyData)"
-                                 Name="Airtime"
-                                 SeriesType="SeriesType.Area"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showInterference ? _data5Interference : _emptyData)"
-                                 Name="Interference"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showTxRetries ? _data5TxRetries : _emptyData)"
-                                 Name="TX Retries"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-            </ApexChart>
-        </div>
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showAirtime ? _data5Airtime : _emptyData)"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showInterference ? _data5Interference : _emptyData)"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showTxRetries ? _data5TxRetries : _emptyData)"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                </ApexChart>
+            </div>
+        }
 
         <!-- 6 GHz Chart -->
-        <div class="band-chart-container">
-            <div class="band-chart-header">
-                <span class="band-label band-6ghz">6 GHz</span>
-            </div>
-            <ApexChart @ref="_chart6" TItem="ChartDataPoint"
-                       Options="_chartOptions6"
-                       Height="150">
+        @if (_show6)
+        {
+            <div class="band-chart-container">
+                <div class="band-chart-header">
+                    <span class="band-label band-6ghz">6 GHz</span>
+                </div>
+                <ApexChart @ref="_chart6" TItem="ChartDataPoint"
+                           Options="_chartOptions6"
+                           Height="150">
 
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showAirtime ? _data6Airtime : _emptyData)"
-                                 Name="Airtime"
-                                 SeriesType="SeriesType.Area"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showInterference ? _data6Interference : _emptyData)"
-                                 Name="Interference"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-                <ApexPointSeries TItem="ChartDataPoint"
-                                 Items="@(_showTxRetries ? _data6TxRetries : _emptyData)"
-                                 Name="TX Retries"
-                                 SeriesType="SeriesType.Line"
-                                 XValue="e => e.Timestamp"
-                                 YValue="e => e.Value"
-                                 OrderBy="e => e.X" />
-            </ApexChart>
-        </div>
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showAirtime ? _data6Airtime : _emptyData)"
+                                     Name="Airtime"
+                                     SeriesType="SeriesType.Area"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showInterference ? _data6Interference : _emptyData)"
+                                     Name="Interference"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                    <ApexPointSeries TItem="ChartDataPoint"
+                                     Items="@(_showTxRetries ? _data6TxRetries : _emptyData)"
+                                     Name="TX Retries"
+                                     SeriesType="SeriesType.Line"
+                                     XValue="e => e.Timestamp"
+                                     YValue="e => e.Value"
+                                     OrderBy="e => e.X" />
+                </ApexChart>
+            </div>
+        }
     }
 </div>
 
@@ -197,6 +221,9 @@
     private bool _showAirtime = true;
     private bool _showInterference = true;
     private bool _showTxRetries = true;
+    private bool _show24 = true;
+    private bool _show5 = true;
+    private bool _show6 = true;
 
     private List<SiteWiFiMetrics> _metrics = new();
     private List<AccessPointSnapshot> _accessPoints = new();
@@ -323,7 +350,7 @@
                     OpacityTo = 0.1
                 }
             },
-            Colors = new List<string> { "#2ba89a", "#e8818f", "#ef5858" }, // Airtime, Interference, TX Retries
+            Colors = new List<string> { "#2ba89a", "#a78bfa", "#ef5858" }, // Airtime, Interference, TX Retries
             Legend = new Legend { Show = false },
             Tooltip = new Tooltip
             {

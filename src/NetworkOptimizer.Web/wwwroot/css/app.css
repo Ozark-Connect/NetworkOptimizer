@@ -6448,6 +6448,15 @@ select.form-control {
     gap: 1rem;
 }
 
+.filter-group.metrics-filter-right {
+    margin-left: auto;
+}
+
+/* Band filter label colors */
+.filter-checkbox .checkbox-label.band-2ghz { color: #fbbf24; }
+.filter-checkbox .checkbox-label.band-5ghz { color: #3b82f6; }
+.filter-checkbox .checkbox-label.band-6ghz { color: #a855f7; }
+
 .filter-label {
     font-size: 0.8rem;
     color: var(--text-muted);
@@ -6491,7 +6500,7 @@ select.form-control {
 }
 
 .filter-checkbox .checkbox-label.airtime { color: #2ba89a; }
-.filter-checkbox .checkbox-label.interference { color: #e8818f; }
+.filter-checkbox .checkbox-label.interference { color: #a78bfa; }
 .filter-checkbox .checkbox-label.retries { color: #ef5858; }
 
 .metrics-loading,
