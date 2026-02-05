@@ -6490,8 +6490,8 @@ select.form-control {
     font-weight: 500;
 }
 
-.filter-checkbox .checkbox-label.airtime { color: #10b981; }
-.filter-checkbox .checkbox-label.interference { color: #eda90d; }
+.filter-checkbox .checkbox-label.airtime { color: #2ba89a; }
+.filter-checkbox .checkbox-label.interference { color: #e8818f; }
 .filter-checkbox .checkbox-label.retries { color: #ef5858; }
 
 .metrics-loading,
