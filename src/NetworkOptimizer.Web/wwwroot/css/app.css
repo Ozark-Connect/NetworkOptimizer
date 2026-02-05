@@ -9649,7 +9649,7 @@ select.form-control {
     display: flex;
     gap: 0.75rem;
     padding: 1rem;
-    background: var(--bg-tertiary);
+    background: var(--bg-secondary);
     border-radius: 8px;
     margin-bottom: 1.5rem;
     border-left: 3px solid var(--info-color);
