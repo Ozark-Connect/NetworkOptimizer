@@ -8820,7 +8820,7 @@ select.form-control {
 .power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
 .power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
 .power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
-.power-bar-tx.power-auto { background: linear-gradient(90deg, #6366f1, #4f46e5); }
+.power-bar-tx.power-auto { background: linear-gradient(90deg, #3b82f6, #2563eb); }
 
 .power-bar-gain {
     height: 100%;
@@ -8838,7 +8838,7 @@ select.form-control {
     background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
 }
 .power-bar-gain.power-auto {
-    background: repeating-linear-gradient(90deg, #6366f1 0px, #6366f1 3px, #4f46e5 3px, #4f46e5 6px);
+    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
 }
 
 .power-values {
