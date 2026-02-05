@@ -9826,6 +9826,12 @@ select.form-control {
     color: var(--text-primary);
 }
 
+.header-actions {
+    min-height: 34.5px;
+    display: flex;
+    align-items: center;
+}
+
 .airtime-loading,
 .airtime-empty {
     display: flex;
