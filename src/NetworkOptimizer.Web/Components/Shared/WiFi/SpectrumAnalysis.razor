@@ -213,7 +213,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var item in GetSortedNetworks())
+                            @foreach (var item in GetPagedNetworks())
                             {
                                 <tr>
                                     <td>
@@ -257,6 +257,31 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Pagination -->
+                @if (filteredNeighbors.Count > _pageSize)
+                {
+                    <div class="pagination-controls">
+                        <div class="pagination-info">
+                            Showing @((_currentPage - 1) * _pageSize + 1)-@Math.Min(_currentPage * _pageSize, filteredNeighbors.Count) of @filteredNeighbors.Count
+                        </div>
+                        <div class="pagination-buttons">
+                            <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
+                                <span>««</span>
+                            </button>
+                            <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
+                                <span>‹</span>
+                            </button>
+                            <span class="page-indicator">Page @_currentPage of @TotalPages</span>
+                            <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
+                                <span>›</span>
+                            </button>
+                            <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
+                                <span>»»</span>
+                            </button>
+                        </div>
+                    </div>
+                }
             </div>
         </div>
 
@@ -784,6 +809,54 @@
         color: var(--text-secondary);
     }
 
+    /* Pagination */
+    .pagination-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 0 0;
+        border-top: 1px solid var(--border-color);
+        margin-top: 1rem;
+    }
+
+    .pagination-info {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+
+    .pagination-buttons {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .page-btn {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-primary);
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .page-btn:hover:not(:disabled) {
+        background: var(--bg-tertiary);
+        border-color: var(--primary-color);
+    }
+
+    .page-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .page-indicator {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        padding: 0 0.5rem;
+    }
+
     /* Responsive */
     @@media (max-width: 768px) {
         .spectrum-controls {
@@ -810,6 +883,8 @@
     private string selectedTimeRange = "1D";
     private string sortColumn = "signal";
     private bool sortDescending = true;
+    private int _currentPage = 1;
+    private const int _pageSize = 25;
 
     // Time range options (matching UniFi UI)
     private readonly Dictionary<string, TimeSpan> _timeRanges = new()
@@ -967,11 +1042,12 @@
     private void SetBandFilter(RadioBand band)
     {
         selectedBand = band;
+        _currentPage = 1;
     }
 
     private void OnApFilterChanged()
     {
-        // State already updated via binding
+        _currentPage = 1;
     }
 
     private string GetSelectedApLabel()
@@ -1199,6 +1275,20 @@
         return networks;
     }
 
+    private IEnumerable<NeighborWithAp> GetPagedNetworks()
+    {
+        return GetSortedNetworks()
+            .Skip((_currentPage - 1) * _pageSize)
+            .Take(_pageSize);
+    }
+
+    private int TotalPages => (int)Math.Ceiling(filteredNeighbors.Count / (double)_pageSize);
+
+    private void GoToFirstPage() => _currentPage = 1;
+    private void GoToPreviousPage() { if (_currentPage > 1) _currentPage--; }
+    private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
+    private void GoToLastPage() => _currentPage = TotalPages;
+
     private void SetSort(string column)
     {
         if (sortColumn == column)
@@ -1210,6 +1300,7 @@
             sortColumn = column;
             sortDescending = column == "signal" || column == "lastSeen"; // Default descending for these
         }
+        _currentPage = 1;
     }
 
     private string GetSortClass(string column)
