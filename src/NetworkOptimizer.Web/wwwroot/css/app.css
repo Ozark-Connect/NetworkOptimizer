@@ -7015,7 +7015,7 @@ select.form-control {
     color: var(--text-muted);
 }
 
-.filter-checkbox .checkbox-label.signal { color: #6b8deb; }
+.filter-checkbox .checkbox-label.signal { color: #3b82f6; }
 
 .events-section {
     background: var(--bg-secondary);
