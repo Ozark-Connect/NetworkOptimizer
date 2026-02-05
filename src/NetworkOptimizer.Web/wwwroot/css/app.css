@@ -5816,6 +5816,14 @@ select.form-control {
     }
 }
 
+@media (max-width: 768px) {
+    .wifi-content-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+}
+
 /* Stat icon SVG */
 .stat-icon-svg {
     width: 3rem;
