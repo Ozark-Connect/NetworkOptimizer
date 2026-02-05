@@ -84,4 +84,11 @@ public class UniFiWlanConfig
     /// </summary>
     [JsonPropertyName("ap_group_ids")]
     public List<string>? ApGroupIds { get; set; }
+
+    /// <summary>
+    /// Network configuration ID that this WLAN is bound to.
+    /// Links the WLAN to its associated network/VLAN.
+    /// </summary>
+    [JsonPropertyName("networkconf_id")]
+    public string? NetworkConfId { get; set; }
 }

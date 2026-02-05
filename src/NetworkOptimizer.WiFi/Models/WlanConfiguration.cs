@@ -66,6 +66,12 @@ public class WlanConfiguration
 
     /// <summary>Peak client count (today)</summary>
     public int? PeakClientCount { get; set; }
+
+    /// <summary>
+    /// Network ID that this WLAN is bound to.
+    /// Links the WLAN to its associated network/VLAN.
+    /// </summary>
+    public string? NetworkId { get; set; }
 }
 
 /// <summary>

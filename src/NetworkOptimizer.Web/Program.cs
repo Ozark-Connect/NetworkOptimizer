@@ -258,6 +258,12 @@ builder.Services.AddScoped<DiagnosticsService>(); // Scoped - network diagnostic
 builder.Services.AddScoped<SqmService>();
 builder.Services.AddScoped<SqmDeploymentService>();
 builder.Services.AddScoped<AgentService>();
+
+// Register WiFi Optimizer rules and engine
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.IoTSsidSeparationRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.BandSteeringRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.IWiFiOptimizerRule, NetworkOptimizer.WiFi.Rules.High2GHzConcentrationRule>();
+builder.Services.AddSingleton<NetworkOptimizer.WiFi.Rules.WiFiOptimizerEngine>();
 builder.Services.AddScoped<WiFiOptimizerService>();
 
 // Add ApexCharts for Wi-Fi Optimizer visualizations

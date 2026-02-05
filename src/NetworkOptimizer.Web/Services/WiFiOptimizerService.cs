@@ -1,9 +1,12 @@
 using Microsoft.Extensions.Logging;
+using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
 using NetworkOptimizer.WiFi;
 using NetworkOptimizer.WiFi.Analyzers;
 using NetworkOptimizer.WiFi.Models;
 using NetworkOptimizer.WiFi.Providers;
+using NetworkOptimizer.WiFi.Rules;
+using AuditNetworkInfo = NetworkOptimizer.Audit.Models.NetworkInfo;
 
 namespace NetworkOptimizer.Web.Services;
 
@@ -17,11 +20,14 @@ public class WiFiOptimizerService
     private readonly ILogger<WiFiOptimizerService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly SiteHealthScorer _healthScorer;
+    private readonly WiFiOptimizerEngine _optimizerEngine;
+    private readonly VlanAnalyzer _vlanAnalyzer;
 
     // Cached data (refreshed on demand)
     private List<AccessPointSnapshot>? _cachedAps;
     private List<WirelessClientSnapshot>? _cachedClients;
     private List<WlanConfiguration>? _cachedWlanConfigs;
+    private List<AuditNetworkInfo>? _cachedNetworks;
     private RoamingTopology? _cachedRoamingData;
     private SiteHealthScore? _cachedHealthScore;
     private DateTimeOffset _lastRefresh = DateTimeOffset.MinValue;
@@ -29,10 +35,14 @@ public class WiFiOptimizerService
 
     public WiFiOptimizerService(
         UniFiConnectionService connectionService,
+        WiFiOptimizerEngine optimizerEngine,
+        VlanAnalyzer vlanAnalyzer,
         ILogger<WiFiOptimizerService> logger,
         ILoggerFactory loggerFactory)
     {
         _connectionService = connectionService;
+        _optimizerEngine = optimizerEngine;
+        _vlanAnalyzer = vlanAnalyzer;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _healthScorer = new SiteHealthScorer();
@@ -107,6 +117,13 @@ public class WiFiOptimizerService
                     Description = $"You have {aps6GHzCount} access point{(aps6GHzCount > 1 ? "s" : "")} with 6 GHz radios, but no SSIDs are broadcasting on 6 GHz. Enabling 6 GHz can offload Wi-Fi 6E/7 capable devices from congested 2.4 GHz and 5 GHz bands.",
                     Recommendation = "Enable 6 GHz on your SSIDs in UniFi Network: Settings > WiFi > (SSID) > Radio Band."
                 });
+            }
+
+            // Run WiFi Optimizer rules for IoT SSID separation, band steering recommendations, etc.
+            if (_cachedWlanConfigs != null && _cachedNetworks != null)
+            {
+                var context = BuildOptimizerContext(_cachedAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
+                _optimizerEngine.EvaluateRules(_cachedHealthScore, context);
             }
 
             return _cachedHealthScore;
@@ -265,14 +282,36 @@ public class WiFiOptimizerService
             var clientsTask = provider.GetWirelessClientsAsync();
             var roamingTask = provider.GetRoamingTopologyAsync();
             var wlanTask = provider.GetWlanConfigurationsAsync();
+            var networkTask = _connectionService.Client.GetNetworkConfigsAsync();
 
-            await Task.WhenAll(apsTask, clientsTask, roamingTask, wlanTask);
+            await Task.WhenAll(apsTask, clientsTask, roamingTask, wlanTask, networkTask);
 
             // Sort APs by IP address for consistent display across all components
             _cachedAps = WiFiAnalysisHelpers.SortByIp(await apsTask);
             _cachedClients = await clientsTask;
             _cachedRoamingData = await roamingTask;
             _cachedWlanConfigs = await wlanTask;
+
+            // Convert UniFi network configs to classified NetworkInfo using VlanAnalyzer
+            var networkConfigs = await networkTask;
+            _cachedNetworks = networkConfigs
+                .Where(n => !n.Purpose.Equals("wan", StringComparison.OrdinalIgnoreCase)) // Exclude WAN networks
+                .Select(n => new AuditNetworkInfo
+                {
+                    Id = n.Id,
+                    Name = n.Name,
+                    VlanId = n.Vlan ?? 1,
+                    Purpose = _vlanAnalyzer.ClassifyNetwork(n.Name, n.Purpose, n.Vlan ?? 1,
+                        n.DhcpdEnabled, null, n.InternetAccessEnabled, n.FirewallZoneId, null),
+                    Subnet = n.IpSubnet,
+                    DhcpEnabled = n.DhcpdEnabled,
+                    InternetAccessEnabled = n.InternetAccessEnabled,
+                    Enabled = n.Enabled,
+                    FirewallZoneId = n.FirewallZoneId,
+                    NetworkGroup = n.Networkgroup
+                })
+                .ToList();
+
             _lastRefresh = DateTimeOffset.UtcNow;
 
             // Enrich roaming topology with proper model names from AP data
@@ -306,10 +345,59 @@ public class WiFiOptimizerService
         _cachedAps = null;
         _cachedClients = null;
         _cachedWlanConfigs = null;
+        _cachedNetworks = null;
         _cachedRoamingData = null;
         _cachedHealthScore = null;
         _cachedScanResults = null;
         _lastRefresh = DateTimeOffset.MinValue;
+    }
+
+    /// <summary>
+    /// Build the context for WiFi Optimizer rules evaluation.
+    /// </summary>
+    private WiFiOptimizerContext BuildOptimizerContext(
+        List<AccessPointSnapshot> aps,
+        List<WirelessClientSnapshot> clients,
+        List<WlanConfiguration> wlans,
+        List<AuditNetworkInfo> networks)
+    {
+        // Determine which APs have which bands available
+        var has5gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
+        var has6gAps = aps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz && r.Channel.HasValue));
+
+        // Classify clients
+        var legacyClients = new List<WirelessClientSnapshot>();
+        var steerableClients = new List<WirelessClientSnapshot>();
+
+        foreach (var client in clients)
+        {
+            var supports5g = client.Capabilities.Supports5GHz;
+            var supports6g = client.Capabilities.Supports6GHz;
+
+            if (client.Band == RadioBand.Band2_4GHz)
+            {
+                if (supports6g && has6gAps)
+                    steerableClients.Add(client);
+                else if (supports5g && has5gAps)
+                    steerableClients.Add(client);
+                else
+                    legacyClients.Add(client); // 2.4 GHz only
+            }
+            else if (client.Band == RadioBand.Band5GHz && supports6g && has6gAps)
+            {
+                steerableClients.Add(client);
+            }
+        }
+
+        return new WiFiOptimizerContext
+        {
+            Wlans = wlans,
+            Networks = networks,
+            AccessPoints = aps,
+            Clients = clients,
+            LegacyClients = legacyClients,
+            SteerableClients = steerableClients
+        };
     }
 
     // Cached channel scan results (keyed by time range)
