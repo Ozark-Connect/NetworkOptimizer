@@ -11,21 +11,21 @@
         <h3>Client Stats</h3>
 
         <div class="timeline-controls">
-            <!-- Filterable Client Selector -->
-            <div class="client-selector-filterable">
-                <input type="text" class="filter-input" placeholder="Filter clients..."
-                       @bind="_clientFilter" @bind:event="oninput" @bind:after="OnFilterChanged" />
-                @if (!string.IsNullOrEmpty(_clientFilter))
+            <!-- View All / Client Selector -->
+            <div class="client-selector-combo">
+                @if (!string.IsNullOrEmpty(_selectedClientMac))
                 {
-                    <button class="clear-filter-btn" @onclick="ClearFilter" title="Clear filter">×</button>
+                    <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
                 }
-                <select class="form-select" @bind="_selectedClientMac" @bind:after="OnClientSelected">
-                    <option value="">Select a client...</option>
+                <input type="text" class="client-search-input" list="client-list"
+                       placeholder="Search clients..."
+                       @bind="_clientSearchText" @bind:event="oninput" @bind:after="OnClientSearchChanged" />
+                <datalist id="client-list">
                     @foreach (var client in GetFilteredClients())
                     {
-                        <option value="@client.Mac">@client.Name (@client.Mac)</option>
+                        <option value="@client.Name (@client.Mac)"></option>
                     }
-                </select>
+                </datalist>
             </div>
 
             <!-- Time Range -->
@@ -248,8 +248,8 @@
     private int _currentPage = 1;
     private const int _pageSize = 15;
 
-    // Filter
-    private string _clientFilter = "";
+    // Search/Filter
+    private string _clientSearchText = "";
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -562,9 +562,9 @@
     private IEnumerable<WirelessClientSnapshot> GetFilteredClients()
     {
         var filtered = _clients.AsEnumerable();
-        if (!string.IsNullOrWhiteSpace(_clientFilter))
+        if (!string.IsNullOrWhiteSpace(_clientSearchText))
         {
-            var filter = _clientFilter.Trim();
+            var filter = _clientSearchText.Trim();
             filtered = filtered.Where(c =>
                 (c.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (c.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
@@ -610,20 +610,38 @@
     private string GetSortClass(string column)
         => _sortColumn != column ? "" : (_sortDescending ? "sort-desc" : "sort-asc");
 
-    private void OnFilterChanged()
+    private void OnClientSearchChanged()
     {
         _currentPage = 1;
+
+        // Check if the search text matches a client exactly (user selected from datalist)
+        // Format is "Name (MAC)"
+        var match = System.Text.RegularExpressions.Regex.Match(_clientSearchText, @"\(([0-9a-fA-F:]+)\)$");
+        if (match.Success)
+        {
+            var mac = match.Groups[1].Value;
+            var client = _clients.FirstOrDefault(c => c.Mac.Equals(mac, StringComparison.OrdinalIgnoreCase));
+            if (client != null)
+            {
+                SelectClient(client.Mac);
+            }
+        }
     }
 
-    private void ClearFilter()
+    private void ViewAllClients()
     {
-        _clientFilter = "";
+        _selectedClientMac = "";
+        _clientSearchText = "";
+        _selectedClient = null;
+        _clientMetrics.Clear();
+        _connectionEvents.Clear();
         _currentPage = 1;
     }
 
     private void SelectClient(string mac)
     {
         _selectedClientMac = mac;
+        _clientSearchText = "";
         _ = OnClientSelected();
     }
 
