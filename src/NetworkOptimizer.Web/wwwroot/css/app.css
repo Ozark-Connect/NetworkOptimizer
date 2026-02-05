@@ -9526,6 +9526,10 @@ select.form-control {
     color: var(--text-secondary);
 }
 
+[class*="-warning"] .rec-action {
+    border-left-color: var(--warning-color);
+}
+
 /* Band Steering Recommendations */
 .steering-section .rec-action {
     margin-top: 0.5rem;
