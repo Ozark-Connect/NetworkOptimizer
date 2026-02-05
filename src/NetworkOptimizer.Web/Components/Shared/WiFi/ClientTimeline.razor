@@ -14,12 +14,12 @@
             <!-- Status Filter (only show when no client selected) -->
             @if (string.IsNullOrEmpty(_selectedClientMac))
             {
-                <div class="status-filter">
-                    <button class="status-filter-btn @(_statusFilter == "all" ? "active" : "")"
+                <div class="time-range-selector">
+                    <button class="time-btn @(_statusFilter == "all" ? "active" : "")"
                             @onclick='() => SetStatusFilter("all")'>All</button>
-                    <button class="status-filter-btn @(_statusFilter == "online" ? "active" : "")"
+                    <button class="time-btn @(_statusFilter == "online" ? "active" : "")"
                             @onclick='() => SetStatusFilter("online")'>Online</button>
-                    <button class="status-filter-btn @(_statusFilter == "offline" ? "active" : "")"
+                    <button class="time-btn @(_statusFilter == "offline" ? "active" : "")"
                             @onclick='() => SetStatusFilter("offline")'>Offline</button>
                 </div>
             }
