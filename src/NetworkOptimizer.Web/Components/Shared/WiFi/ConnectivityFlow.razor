@@ -4,7 +4,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 
-<div class="connectivity-flow-container">
+<div class="connectivity-flow-container wifi-sections">
     <div class="flow-header">
         <h3>Connectivity Flow</h3>
         <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
@@ -252,32 +252,15 @@
             </div>
         </div>
 
-        <!-- Recommendations -->
-        @if (_recommendations.Count > 0)
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_connectivityIssues.Count > 0)
         {
             <div class="flow-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
-                    {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
-                            </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                                @if (!string.IsNullOrEmpty(rec.Action))
-                                {
-                                    <div class="rec-action">@rec.Action</div>
-                                }
-                            </div>
-                        </div>
-                    }
-                </div>
+                <IssuesList Issues="_connectivityIssues" />
             </div>
         }
     }
@@ -310,7 +293,8 @@
 
     // Issues and recommendations
     private List<ConnectionIssue> _connectionIssues = new();
-    private List<Recommendation> _recommendations = new();
+    private List<HealthIssue> _connectivityIssues = new();
+    private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -326,11 +310,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
+            var healthTask = WiFiService.GetSiteHealthScoreAsync();
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             AnalyzeConnectivity();
             IdentifyIssues();
@@ -353,11 +339,13 @@
         {
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask);
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
+            _healthScore = await healthTask;
 
             AnalyzeConnectivity();
             IdentifyIssues();
@@ -491,58 +479,14 @@
 
     private void GenerateRecommendations()
     {
-        _recommendations.Clear();
+        _connectivityIssues.Clear();
 
-        // DHCP issues
-        if (_dhcpFailures > 0)
+        // Pull Client Satisfaction issues from health score (single source of truth)
+        if (_healthScore != null)
         {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "DHCP Issues Detected",
-                Description = $"{_dhcpFailures} client(s) failed to get an IP address. This often indicates DHCP pool exhaustion or server issues.",
-                Action = "Check your DHCP server settings. Ensure the IP pool is large enough and the lease time isn't too long. In UniFi: Settings > Networks > (Network) > DHCP Range."
-            });
-        }
-
-        // Low success rate
-        if (_successRate < 90 && _associatedClients >= 5)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "Low Connection Success Rate",
-                Description = $"Only {_successRate}% of clients achieve full connectivity. Review the issues above to identify common problems.",
-                Action = "Check for authentication failures, DHCP issues, and signal strength problems."
-            });
-        }
-
-        // Weak signal affecting connectivity
-        var weakWithIssues = _clients.Count(c =>
-            c.Signal.HasValue && c.Signal < -75 &&
-            (string.IsNullOrEmpty(c.Ip) || !c.IsAuthorized));
-        if (weakWithIssues > 0)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "info",
-                Title = "Weak Signal Affecting Connectivity",
-                Description = $"{weakWithIssues} client(s) with weak signal also have connectivity issues. Improving signal strength may resolve their problems.",
-                Action = "Consider adjusting AP placement, increasing TX power, or adding additional access points."
-            });
-        }
-
-        // AP with low success rate
-        var problematicAps = _apConnectionStats.Where(a => a.SuccessRate < 80 && a.TotalClients >= 3).ToList();
-        foreach (var ap in problematicAps)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = $"Connectivity Issues on {ap.ApName}",
-                Description = $"This AP has only {ap.SuccessRate}% success rate with {ap.TotalClients} clients. There may be coverage or configuration issues specific to this AP.",
-                Action = "Check this AP's configuration, signal strength in its coverage area, and whether clients can reach the DHCP server."
-            });
+            _connectivityIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.ClientSatisfaction))
+                .ToList();
         }
     }
 
@@ -589,13 +533,5 @@
         public string Description { get; set; } = "";
         public int Count { get; set; }
         public List<string> AffectedClients { get; set; } = new();
-    }
-
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string Action { get; set; } = "";
     }
 }

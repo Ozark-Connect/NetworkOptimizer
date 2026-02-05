@@ -4,7 +4,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 
-<div class="load-balance-container">
+<div class="load-balance-container wifi-sections">
     <div class="load-header">
         <h3>AP Load Balance</h3>
         <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
@@ -178,28 +178,15 @@
             </div>
         </div>
 
-        <!-- Recommendations -->
-        @if (_recommendations.Count > 0)
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_loadBalanceIssues.Count > 0)
         {
             <div class="load-recommendations-section">
                 <div class="section-header">
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
-                    {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
-                            </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                            </div>
-                        </div>
-                    }
-                </div>
+                <IssuesList Issues="_loadBalanceIssues" />
             </div>
         }
     }
@@ -215,7 +202,8 @@
     private int _totalClients;
     private double _avgClientsPerAp;
     private double _loadImbalance;
-    private List<Recommendation> _recommendations = new();
+    private List<HealthIssue> _loadBalanceIssues = new();
+    private SiteHealthScore? _healthScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -232,12 +220,14 @@
             var apsTask = WiFiService.GetAccessPointsAsync();
             var clientsTask = WiFiService.GetWirelessClientsAsync();
             var wlanTask = WiFiService.GetWlanConfigurationsAsync();
+            var healthTask = WiFiService.GetSiteHealthScoreAsync();
 
-            await Task.WhenAll(apsTask, clientsTask, wlanTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
 
             CalculateStats();
             GenerateRecommendations();
@@ -259,12 +249,14 @@
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var clientsTask = WiFiService.GetWirelessClientsAsync(forceRefresh: true);
             var wlanTask = WiFiService.GetWlanConfigurationsAsync(forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
 
-            await Task.WhenAll(apsTask, clientsTask, wlanTask);
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
             _accessPoints = await apsTask;
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
 
             CalculateStats();
             GenerateRecommendations();
@@ -296,84 +288,15 @@
 
     private void GenerateRecommendations()
     {
-        _recommendations.Clear();
+        _loadBalanceIssues.Clear();
 
-        // Check for significant imbalance
-        if (_loadImbalance > 50 && _accessPoints.Count > 1)
+        // Pull Capacity Headroom issues from health score (single source of truth)
+        if (_healthScore != null)
         {
-            var maxAp = _accessPoints.OrderByDescending(a => a.TotalClients).First();
-            var minAp = _accessPoints.OrderBy(a => a.TotalClients).First();
-
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = "Significant Load Imbalance",
-                Description = $"{maxAp.Name} has {maxAp.TotalClients} clients while {minAp.Name} has only {minAp.TotalClients}. Consider enabling band steering or adjusting TX power to balance load."
-            });
+            _loadBalanceIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.CapacityHeadroom))
+                .ToList();
         }
-
-        // Check for overloaded APs
-        var overloadedAps = _accessPoints.Where(IsOverloaded).ToList();
-        foreach (var ap in overloadedAps)
-        {
-            _recommendations.Add(new Recommendation
-            {
-                Type = "warning",
-                Title = $"High Load on {ap.Name}",
-                Description = $"This AP has {ap.TotalClients} clients, which is significantly above average ({_avgClientsPerAp:F0}). Clients may experience degraded performance."
-            });
-        }
-
-        // Check for 2.4 GHz heavy network and recommend band steering on specific SSID
-        var ssidsWithoutBandSteering = _wlanConfigs
-            .Where(w => w.Enabled && !w.BandSteeringEnabled)
-            .ToList();
-
-        if (ssidsWithoutBandSteering.Any())
-        {
-            // Count 2.4 GHz clients per SSID (for SSIDs without band steering)
-            var clients2gPerSsid = _clients
-                .Where(c => c.Band == RadioBand.Band2_4GHz && !string.IsNullOrEmpty(c.Essid))
-                .GroupBy(c => c.Essid)
-                .ToDictionary(g => g.Key, g => g.Count());
-
-            // Find the SSID without band steering that has the most 2.4 GHz clients
-            var targetSsid = ssidsWithoutBandSteering
-                .Select(ssid => new
-                {
-                    Ssid = ssid,
-                    Count2g = clients2gPerSsid.GetValueOrDefault(ssid.Name, 0)
-                })
-                .Where(x => x.Count2g > 0)
-                .OrderByDescending(x => x.Count2g)
-                .FirstOrDefault();
-
-            if (targetSsid != null && targetSsid.Count2g >= 3)
-            {
-                var total2gClients = _clients.Count(c => c.Band == RadioBand.Band2_4GHz);
-                var totalClients = _clients.Count;
-                var pct2g = totalClients > 0 ? (total2gClients * 100 / totalClients) : 0;
-
-                _recommendations.Add(new Recommendation
-                {
-                    Type = "info",
-                    Title = "Enable Band Steering",
-                    Description = $"{pct2g}% of clients are on 2.4 GHz. Enable band steering on \"{targetSsid.Ssid.Name}\" ({targetSsid.Count2g} clients on 2.4 GHz) to push capable devices to 5 GHz."
-                });
-            }
-        }
-    }
-
-    /// <summary>
-    /// Checks if band steering is enabled on all active (enabled) SSIDs.
-    /// </summary>
-    private bool IsBandSteeringEnabledOnAllSsids()
-    {
-        var enabledSsids = _wlanConfigs.Where(w => w.Enabled).ToList();
-        if (!enabledSsids.Any())
-            return false;
-
-        return enabledSsids.All(w => w.BandSteeringEnabled);
     }
 
     private bool IsOverloaded(AccessPointSnapshot ap)
@@ -431,11 +354,4 @@
         >= 40 => "sat-fair",
         _ => "sat-poor"
     };
-
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-    }
 }

@@ -1756,17 +1756,27 @@ select.form-control {
     border-left-color: var(--warning-color);
 }
 
-.issue-item.issue-info {
+.issue-item.issue-info,
+.issue-item.info {
     border-left-color: var(--info-color);
+}
+
+/* Simplified severity classes (without issue- prefix) */
+.issue-item.critical {
+    border-left-color: var(--danger-color);
+}
+
+.issue-item.warning {
+    border-left-color: var(--warning-color);
 }
 
 .issue-icon {
     flex-shrink: 0;
     display: flex;
     align-items: flex-start;
-    margin-top: 22px;
-    width: 24px;
-    min-height: 24px;
+    padding-top: 2px;
+    width: 20px;
+    min-height: 20px;
 }
 
 .issue-item.issue-critical .issue-icon {
@@ -1778,11 +1788,22 @@ select.form-control {
     color: var(--warning-color);
 }
 
-.issue-item.issue-info .issue-icon {
+.issue-item.issue-info .issue-icon,
+.issue-item.info .issue-icon {
     color: var(--info-color);
 }
 
-.issue-body {
+/* Simplified severity classes for icons */
+.issue-item.critical .issue-icon {
+    color: var(--danger-color);
+}
+
+.issue-item.warning .issue-icon {
+    color: var(--warning-color);
+}
+
+.issue-body,
+.issue-content {
     flex: 1;
     min-width: 0;
 }
@@ -5836,7 +5857,13 @@ select.form-control {
     color: var(--danger-color);
 }
 
-/* Score label colors for stat card */
+/* Score label colors and font for stat card */
+.stat-value.score-excellent,
+.stat-value.score-good,
+.stat-value.score-fair,
+.stat-value.score-poor {
+    font-size: 1.6rem;
+}
 .stat-value.score-excellent { color: var(--success-color); }
 .stat-value.score-good { color: var(--primary-color); }
 .stat-value.score-fair { color: var(--warning-color); }
@@ -7379,16 +7406,6 @@ select.form-control {
     border-color: #a855f7;
 }
 
-.band-tab.has-issues::after {
-    content: '';
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 10px;
-    height: 10px;
-    background: var(--warning-color);
-    border-radius: 50%;
-}
 
 .band-tab .issue-indicator {
     display: inline-flex;
@@ -7978,81 +7995,11 @@ select.form-control {
 .ap-interf-col.interf-medium { color: var(--warning-color); }
 .ap-interf-col.interf-high { color: var(--danger-color); }
 
-/* Channel Issues Section */
+/* Channel Issues Section - wrapper only, issue styling from IssuesList component */
 .channel-issues-section {
     background: var(--bg-secondary);
     border-radius: 8px;
     padding: 1rem;
-}
-
-.channel-issues-section .issues-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.channel-issues-section .issue-item {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    border-left: 3px solid var(--border-color);
-}
-
-.channel-issues-section .issue-item.warning {
-    border-left-color: var(--warning-color);
-}
-
-.channel-issues-section .issue-item.info {
-    border-left-color: var(--info-color);
-}
-
-.channel-issues-section .issue-icon {
-    width: 24px;
-    height: 24px;
-    background: var(--bg-secondary);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-}
-
-.channel-issues-section .issue-item.warning .issue-icon {
-    background: var(--warning-color);
-    color: white;
-}
-
-.channel-issues-section .issue-item.info .issue-icon {
-    background: var(--info-color);
-    color: white;
-}
-
-.channel-issues-section .issue-content {
-    flex: 1;
-}
-
-.channel-issues-section .issue-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.channel-issues-section .issue-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-}
-
-.channel-issues-section .issue-recommendation {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    padding: 0.5rem;
-    background: var(--bg-secondary);
-    border-radius: 4px;
 }
 
 /* Responsive Channel Analysis */
@@ -8631,6 +8578,35 @@ select.form-control {
 .power-stat-card.signal-poor .power-stat-value,
 .signal-poor { color: #ef4444; }
 
+/* WiFi Page Sections - Nested Card Colors */
+.wifi-sections .card {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .data-table tbody tr {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card .data-table tbody tr {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .card .card {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .card .card .data-table tbody tr {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card .card .card {
+    background: var(--bg-secondary);
+}
+
 /* Power Sections */
 .power-section {
     background: var(--bg-secondary);
@@ -8638,6 +8614,7 @@ select.form-control {
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
+
 
 .power-section .section-header {
     display: flex;
@@ -8843,7 +8820,7 @@ select.form-control {
 .power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
 .power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
 .power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
-.power-bar-tx.power-auto { background: linear-gradient(90deg, #6366f1, #4f46e5); }
+.power-bar-tx.power-auto { background: linear-gradient(90deg, #3b82f6, #2563eb); }
 
 .power-bar-gain {
     height: 100%;
@@ -8861,7 +8838,7 @@ select.form-control {
     background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
 }
 .power-bar-gain.power-auto {
-    background: repeating-linear-gradient(90deg, #6366f1 0px, #6366f1 3px, #4f46e5 3px, #4f46e5 6px);
+    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
 }
 
 .power-values {
@@ -9170,6 +9147,7 @@ select.form-control {
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
+
 
 .steering-section .section-header {
     display: flex;
@@ -9486,46 +9464,6 @@ select.form-control {
     color: var(--text-secondary);
 }
 
-/* Legacy Warning */
-.legacy-warning {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    border-left: 3px solid var(--warning-color);
-    margin-top: 1rem;
-}
-
-.legacy-warning .warning-icon {
-    width: 24px;
-    height: 24px;
-    background: var(--warning-color);
-    color: white;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-}
-
-.legacy-warning .warning-content {
-    flex: 1;
-}
-
-.legacy-warning .warning-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.25rem;
-}
-
-.legacy-warning .warning-description {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-}
-
 /* Band Steering Recommendations */
 .steering-section .rec-action {
     margin-top: 0.5rem;
@@ -9649,7 +9587,7 @@ select.form-control {
     display: flex;
     gap: 0.75rem;
     padding: 1rem;
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     border-radius: 8px;
     margin-bottom: 1.5rem;
     border-left: 3px solid var(--info-color);

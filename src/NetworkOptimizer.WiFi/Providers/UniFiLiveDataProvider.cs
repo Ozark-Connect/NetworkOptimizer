@@ -240,7 +240,13 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     Enabled5GHz = w.MinrateNaEnabled,
                     MinRate5GHz = w.MinrateNaEnabled ? w.MinrateNaDataRateKbps : null,
                     AdvertiseLowerRates = w.MinrateNgAdvertisingRates || w.MinrateNaAdvertisingRates
-                }
+                },
+                NetworkId = w.NetworkConfId,
+                PrivatePresharedKeysEnabled = w.PrivatePresharedKeysEnabled,
+                PpskNetworkIds = w.PrivatePresharedKeys?
+                    .Where(p => !string.IsNullOrEmpty(p.NetworkConfId))
+                    .Select(p => p.NetworkConfId!)
+                    .ToList() ?? new List<string>()
             }).ToList();
         }
         catch (Exception ex)

@@ -111,6 +111,13 @@ public class HealthIssue
 
     /// <summary>Score impact (negative number)</summary>
     public int ScoreImpact { get; set; }
+
+    /// <summary>
+    /// Whether this issue should be shown on the main overview.
+    /// Set to false for informational issues that are only relevant on specific tabs.
+    /// Defaults to true.
+    /// </summary>
+    public bool ShowOnOverview { get; set; } = true;
 }
 
 /// <summary>
@@ -123,7 +130,8 @@ public enum HealthDimension
     RoamingPerformance,
     AirtimeEfficiency,
     ClientSatisfaction,
-    CapacityHeadroom
+    CapacityHeadroom,
+    BandSteering
 }
 
 public enum HealthIssueSeverity

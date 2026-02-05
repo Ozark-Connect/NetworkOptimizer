@@ -426,7 +426,7 @@
                         <span>Loading...</span>
                     </div>
                 }
-                else if (_healthScore?.Issues.Count == 0)
+                else if (_healthScore?.Issues.Any(i => i.ShowOnOverview) != true)
                 {
                     <div class="empty-state success-state">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
@@ -437,29 +437,7 @@
                 }
                 else
                 {
-                    <div class="wifi-issues-list">
-                        @foreach (var issue in _healthScore?.Issues ?? new List<HealthIssue>())
-                        {
-                            <div class="wifi-issue-item @GetIssueSeverityClass(issue.Severity)">
-                                <div class="wifi-issue-meta">
-                                    <span class="wifi-issue-badge">@issue.Severity</span>
-                                    <span class="wifi-issue-dimension">@FormatDimensions(issue.Dimensions)</span>
-                                    <span class="wifi-issue-title">@issue.Title</span>
-                                </div>
-                                <div class="wifi-issue-content">
-                                    <div class="wifi-issue-description">@issue.Description</div>
-                                    @if (!string.IsNullOrEmpty(issue.AffectedEntity))
-                                    {
-                                        <div class="wifi-issue-entity">Affected: @issue.AffectedEntity</div>
-                                    }
-                                </div>
-                                @if (!string.IsNullOrEmpty(issue.Recommendation))
-                                {
-                                    <div class="wifi-issue-action">@issue.Recommendation</div>
-                                }
-                            </div>
-                        }
-                    </div>
+                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" />
                 }
             </div>
         </div>
@@ -653,28 +631,6 @@
         >= 40 => "bar-fair",
         _ => "bar-poor"
     };
-
-    private string GetIssueSeverityClass(HealthIssueSeverity severity) => severity switch
-    {
-        HealthIssueSeverity.Critical => "issue-critical",
-        HealthIssueSeverity.Warning => "issue-warning",
-        _ => "issue-info"
-    };
-
-    private string FormatDimensions(HashSet<HealthDimension> dimensions)
-    {
-        if (dimensions.Count == 0) return "";
-        return string.Join(", ", dimensions.Select(d => d switch
-        {
-            HealthDimension.SignalQuality => "Signal",
-            HealthDimension.ChannelHealth => "Channel",
-            HealthDimension.RoamingPerformance => "Roaming",
-            HealthDimension.AirtimeEfficiency => "Airtime",
-            HealthDimension.ClientSatisfaction => "Satisfaction",
-            HealthDimension.CapacityHeadroom => "Capacity",
-            _ => d.ToString()
-        }));
-    }
 
     private string GetSatisfactionClass(int satisfaction) => satisfaction switch
     {

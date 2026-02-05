@@ -4,7 +4,7 @@
 @inject WiFiOptimizerService WiFiService
 @inject UniFiConnectionService ConnectionService
 
-<div class="env-correlation-container">
+<div class="env-correlation-container wifi-sections">
     <div class="env-header">
         <h3>Environmental Correlation</h3>
         <div class="env-controls">
@@ -207,24 +207,7 @@
                     <h4>Recommendations</h4>
                 </div>
 
-                <div class="recommendations-list">
-                    @foreach (var rec in _recommendations)
-                    {
-                        <div class="recommendation-item @rec.Type">
-                            <div class="rec-icon">
-                                @(rec.Type == "warning" ? "!" : "i")
-                            </div>
-                            <div class="rec-content">
-                                <div class="rec-title">@rec.Title</div>
-                                <div class="rec-description">@rec.Description</div>
-                                @if (!string.IsNullOrEmpty(rec.Action))
-                                {
-                                    <div class="rec-action">@rec.Action</div>
-                                }
-                            </div>
-                        </div>
-                    }
-                </div>
+                <IssuesList Issues="_recommendations" />
             </div>
         }
     }
@@ -240,7 +223,7 @@
     private List<HeatmapDay> _heatmapData = new();
     private List<DetectedPattern> _patterns = new();
     private List<BandEnvironmentStats> _bandStats = new();
-    private List<Recommendation> _recommendations = new();
+    private List<HealthIssue> _recommendations = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -484,48 +467,47 @@
         var evening = _timeOfDayStats.FirstOrDefault(p => p.Name == "Evening");
         if (evening != null && evening.AvgInterference > 40)
         {
-            _recommendations.Add(new Recommendation
+            _recommendations.Add(new HealthIssue
             {
-                Type = "warning",
+                Severity = HealthIssueSeverity.Warning,
                 Title = "Schedule Channel Changes During Off-Peak",
                 Description = "Evening interference is high. Schedule auto-channel optimization for early morning hours (2-4 AM) when interference is lowest.",
-                Action = "In UniFi Network: Settings > WiFi > Global AP Settings > Auto-Optimize Network"
+                Recommendation = "In UniFi Network: Settings > WiFi > Global AP Settings > Auto-Optimize Network"
             });
         }
 
         // 2.4 GHz congestion
         if (_bandStats.Any() && _bandStats[0].AvgInterference > 50)
         {
-            _recommendations.Add(new Recommendation
+            _recommendations.Add(new HealthIssue
             {
-                Type = "warning",
+                Severity = HealthIssueSeverity.Warning,
                 Title = "Consider 2.4 GHz Channel Width",
                 Description = "2.4 GHz shows high interference. Using 20 MHz channel width instead of 40 MHz can reduce overlap with neighbors.",
-                Action = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > 2.4 GHz Channel Width - set to 20 MHz"
+                Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > 2.4 GHz Channel Width - set to 20 MHz"
             });
         }
 
         // Pattern-based suggestions
         if (_patterns.Any(p => p.Title.Contains("Evening")))
         {
-            _recommendations.Add(new Recommendation
+            _recommendations.Add(new HealthIssue
             {
-                Type = "info",
+                Severity = HealthIssueSeverity.Info,
                 Title = "Avoid Bandwidth-Intensive Tasks in Evening",
-                Description = "Evening interference patterns suggest this is not the ideal time for speed tests or large backups. Early morning or midday may provide better performance.",
-                Action = ""
+                Description = "Evening interference patterns suggest this is not the ideal time for speed tests or large backups. Early morning or midday may provide better performance."
             });
         }
 
         // Suggest 6 GHz if available
         if (_bandStats.Any() && _bandStats[2].AvgInterference < 20 && _bandStats[0].AvgInterference > 30)
         {
-            _recommendations.Add(new Recommendation
+            _recommendations.Add(new HealthIssue
             {
-                Type = "info",
+                Severity = HealthIssueSeverity.Info,
                 Title = "6 GHz Band Has Less Interference",
                 Description = "The 6 GHz band shows significantly lower interference. Ensure Wi-Fi 6E and Wi-Fi 7 clients are connecting to 6 GHz for best performance.",
-                Action = "Enable band steering to prefer 6 GHz, or create a 6 GHz-only SSID for high-performance devices."
+                Recommendation = "Enable band steering to prefer 6 GHz, or create a 6 GHz-only SSID for high-performance devices."
             });
         }
     }
@@ -651,11 +633,4 @@
         public string? PeakTime { get; set; }
     }
 
-    private class Recommendation
-    {
-        public string Type { get; set; } = "info";
-        public string Title { get; set; } = "";
-        public string Description { get; set; } = "";
-        public string Action { get; set; } = "";
-    }
 }
