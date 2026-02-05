@@ -63,7 +63,7 @@
                         {
                             <tr @onclick="() => SelectClient(client.Mac)">
                                 <td>@client.Name</td>
-                                <td><code>@(client.Ip ?? "-")</code></td>
+                                <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
                                 <td><code>@client.Mac</code></td>
                                 <td>@(client.ApName ?? "-")</td>
                                 <td><span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span></td>
