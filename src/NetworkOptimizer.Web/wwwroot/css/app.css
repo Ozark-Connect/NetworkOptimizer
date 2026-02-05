@@ -8588,25 +8588,21 @@ select.form-control {
 .power-stat-card.signal-poor .power-stat-value,
 .signal-poor { color: #ef4444; }
 
-/* WiFi Page Sections - Alternating Colors */
-.wifi-sections > *:nth-child(odd) .card {
+/* WiFi Page Sections - Nested Card Colors */
+.wifi-sections .card {
     background: var(--bg-tertiary);
 }
 
-.wifi-sections > *:nth-child(odd) .card .card {
+.wifi-sections .card .card {
     background: var(--bg-secondary);
 }
 
-.wifi-sections > *:nth-child(even) {
+.wifi-sections .card .card .card {
     background: var(--bg-tertiary);
 }
 
-.wifi-sections > *:nth-child(even) .card {
+.wifi-sections .card .card .card .card {
     background: var(--bg-secondary);
-}
-
-.wifi-sections > *:nth-child(even) .card .card {
-    background: var(--bg-tertiary);
 }
 
 /* Power Sections */
