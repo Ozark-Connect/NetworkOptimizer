@@ -1,5 +1,3 @@
-using NetworkOptimizer.Audit.Models;
-
 namespace NetworkOptimizer.WiFi.Rules;
 
 /// <summary>
