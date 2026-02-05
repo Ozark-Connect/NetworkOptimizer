@@ -6659,8 +6659,8 @@ select.form-control {
 /* Filterable select dropdown */
 .filterable-select {
     position: relative;
-    min-width: 200px;
-    width: fit-content;
+    min-width: 400px;
+    max-width: 400px;
 }
 
 .filterable-select-input {
@@ -6762,7 +6762,7 @@ select.form-control {
 
 .filterable-select-option .option-text {
     flex: 1;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -6770,7 +6770,7 @@ select.form-control {
 }
 
 .filterable-select-option .option-mac {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
     font-family: monospace;
 }
