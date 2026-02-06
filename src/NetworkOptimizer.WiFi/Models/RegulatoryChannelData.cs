@@ -20,9 +20,13 @@ public class RegulatoryChannelData
     /// <summary>6 GHz channels by width (20, 40, 80, 160, 320)</summary>
     public Dictionary<int, int[]> Channels6GHz { get; set; } = new();
 
+    /// <summary>6 GHz PSC (Preferred Scanning Channels) - the channels UniFi UI shows in dropdown</summary>
+    public int[] PscChannels6GHz { get; set; } = [];
+
     /// <summary>
     /// Get available channels for a band at a specific width.
     /// For 5 GHz, optionally excludes DFS channels.
+    /// For 6 GHz, filters to PSC channels intersected with width-valid channels.
     /// </summary>
     public int[] GetChannels(RadioBand band, int width, bool includeDfs = true)
     {
@@ -45,6 +49,13 @@ public class RegulatoryChannelData
         {
             var dfsSet = new HashSet<int>(DfsChannels);
             return channels.Where(ch => !dfsSet.Contains(ch)).ToArray();
+        }
+
+        // 6 GHz: filter to PSC channels (matches UniFi UI dropdown)
+        if (band == RadioBand.Band6GHz && PscChannels6GHz.Length > 0)
+        {
+            var pscSet = new HashSet<int>(PscChannels6GHz);
+            return channels.Where(ch => pscSet.Contains(ch)).ToArray();
         }
 
         return channels;
@@ -76,6 +87,7 @@ public class RegulatoryChannelData
         result.Channels6GHz[80] = ParseChannelArray(dataElement, "channels_6e_80");
         result.Channels6GHz[160] = ParseChannelArray(dataElement, "channels_6e_160");
         result.Channels6GHz[320] = ParseChannelArray(dataElement, "channels_6e_320");
+        result.PscChannels6GHz = ParseChannelArray(dataElement, "channels_6e_psc");
 
         return result;
     }

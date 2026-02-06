@@ -1140,7 +1140,7 @@
         {
             interferenceSources.Add((
                 Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
-                Weight: 1.0 // Own APs are co-located, maximum interference weight
+                Weight: 10.0 // Own APs: co-channel is worst case, heavily penalize
             ));
         }
 

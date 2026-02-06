@@ -148,7 +148,8 @@ public class RegulatoryChannelDataTests
                     [20] = [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
                     [160] = [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
                     [320] = [1, 5, 9, 13, 17, 21, 25, 29]
-                }
+                },
+                PscChannels6GHz = [5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229]
             };
         }
 
@@ -187,15 +188,25 @@ public class RegulatoryChannelDataTests
         }
 
         [Fact]
-        public void Returns6GHzChannelsAtWidth()
+        public void Returns6GHzPscChannelsOnly()
         {
             var data = CreateUsData();
 
+            // 6 GHz at 320 MHz: PSC channels intersected with width-valid channels
+            // Width list has [1,5,9,13,17,21,25,29], PSC is [5,21,37,53,...229]
+            // Intersection: [5, 21]
             var ch320 = data.GetChannels(RadioBand.Band6GHz, 320);
-            ch320.Should().HaveCount(8);
+            ch320.Should().Equal(5, 21);
 
+            // 6 GHz at 20 MHz: PSC channels intersected with all channels
+            // Width list has [1,5,9,...61], PSC starts at 5 with step 16
             var ch20 = data.GetChannels(RadioBand.Band6GHz, 20);
-            ch20.Should().HaveCount(16);
+            ch20.Should().Contain(5);
+            ch20.Should().Contain(21);
+            ch20.Should().Contain(37);
+            ch20.Should().Contain(53);
+            ch20.Should().NotContain(1); // Not PSC
+            ch20.Should().NotContain(9); // Not PSC
         }
 
         [Fact]
@@ -239,7 +250,25 @@ public class RegulatoryChannelDataTests
             var data = CreateUsData();
             var withDfs = data.GetChannels(RadioBand.Band6GHz, 20, includeDfs: true);
             var withoutDfs = data.GetChannels(RadioBand.Band6GHz, 20, includeDfs: false);
+            // Both should be PSC-filtered and identical (DFS doesn't apply to 6 GHz)
             withDfs.Should().Equal(withoutDfs);
+        }
+
+        [Fact]
+        public void Returns6GHzAllChannelsWhenNoPscData()
+        {
+            var data = new RegulatoryChannelData
+            {
+                Channels6GHz = new Dictionary<int, int[]>
+                {
+                    [20] = [1, 5, 9, 13, 17, 21]
+                },
+                PscChannels6GHz = [] // No PSC data
+            };
+
+            // Without PSC data, returns all width-valid channels
+            var channels = data.GetChannels(RadioBand.Band6GHz, 20);
+            channels.Should().Equal(1, 5, 9, 13, 17, 21);
         }
     }
 
@@ -266,7 +295,8 @@ public class RegulatoryChannelDataTests
                 "channels_6e_40": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221, 225, 229],
                 "channels_6e_80": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221],
                 "channels_6e_160": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221],
-                "channels_6e_320": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221]
+                "channels_6e_320": [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101, 105, 109, 113, 117, 121, 125, 129, 133, 137, 141, 145, 149, 153, 157, 161, 165, 169, 173, 177, 181, 185, 189, 193, 197, 201, 205, 209, 213, 217, 221],
+                "channels_6e_psc": [5, 21, 37, 53, 69, 85, 101, 117, 133, 149, 165, 181, 197, 213, 229]
             }
             """;
 
@@ -299,12 +329,23 @@ public class RegulatoryChannelDataTests
             var noDfs160 = result.GetChannels(RadioBand.Band5GHz, 160, includeDfs: false);
             noDfs160.Should().OnlyContain(ch => ch >= 36 && ch <= 48);
 
-            // 6 GHz at 320 MHz: fewer channels than 20 MHz
-            result.Channels6GHz[320].Should().HaveCountLessThan(result.Channels6GHz[20].Length);
+            // PSC channels parsed
+            result.PscChannels6GHz.Should().HaveCount(15);
+            result.PscChannels6GHz.Should().Contain(5);
+            result.PscChannels6GHz.Should().Contain(229);
+
+            // 6 GHz at 320 MHz: returns PSC channels that are valid at 320 MHz
+            // 320 MHz list goes up to 221, PSC has 229 - so 229 excluded
+            var sixGhz320 = result.GetChannels(RadioBand.Band6GHz, 320);
+            sixGhz320.Should().Contain(5);
+            sixGhz320.Should().Contain(213);
+            sixGhz320.Should().NotContain(229); // Not valid at 320 MHz
+            sixGhz320.Should().NotContain(1); // Not PSC
+            sixGhz320.Should().NotContain(9); // Not PSC
 
             // 6 GHz has no DFS filtering
-            var sixGhz = result.GetChannels(RadioBand.Band6GHz, 160, includeDfs: false);
-            sixGhz.Should().Equal(result.GetChannels(RadioBand.Band6GHz, 160, includeDfs: true));
+            var sixGhz160 = result.GetChannels(RadioBand.Band6GHz, 160, includeDfs: false);
+            sixGhz160.Should().Equal(result.GetChannels(RadioBand.Band6GHz, 160, includeDfs: true));
         }
     }
 }
