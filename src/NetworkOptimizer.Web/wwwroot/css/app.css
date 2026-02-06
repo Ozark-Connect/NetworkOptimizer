@@ -754,6 +754,7 @@ a.stat-card-link:active {
 }
 
 .status-dot {
+    display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
@@ -762,6 +763,10 @@ a.stat-card-link:active {
 
 .status-dot.online {
     background: var(--success-color);
+}
+
+.status-dot.offline {
+    background: var(--text-tertiary);
 }
 
 .device-body {
@@ -7002,25 +7007,8 @@ select.form-control {
     padding: 0 0.5rem;
 }
 
-/* Client status indicator */
-.status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--text-muted);
-}
-
 .client-list-section .data-table td:first-child {
     text-align: center;
-}
-
-.status-dot.online {
-    background: var(--success-color);
-}
-
-.status-dot.offline {
-    background: var(--text-tertiary);
 }
 
 .client-offline {
