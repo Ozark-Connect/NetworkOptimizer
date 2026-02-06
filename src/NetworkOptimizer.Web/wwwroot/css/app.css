@@ -9819,6 +9819,8 @@ select.form-control {
     background: var(--bg-tertiary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
 }
 
 .wifi-gen-bar {
@@ -9827,7 +9829,7 @@ select.form-control {
     transition: width 0.3s ease;
 }
 
-.wifi-gen-bar.gen-7 { background: #6366f1; }
+.wifi-gen-bar.gen-7 { background: #a855f7; }
 .wifi-gen-bar.gen-6, .gen-bar.gen-6 { background: #a855f7; }
 .wifi-gen-bar.gen-5, .gen-bar.gen-5 { background: #3b82f6; }
 .wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #fbbf24; }

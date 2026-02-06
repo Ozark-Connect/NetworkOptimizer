@@ -356,7 +356,9 @@
 
     private void AnalyzeAirtime()
     {
-        _totalClients = _clients.Count;
+        // Filter to online clients only for airtime analysis
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
 
         // Calculate average utilization across all radios
         var allRadios = _accessPoints.SelectMany(ap => ap.Radios)
@@ -365,12 +367,12 @@
         _avgUtilization = allRadios.Any() ? (int)allRadios.Average(r => r.ChannelUtilization!.Value) : 0;
 
         // Count legacy clients (Wi-Fi 4 or lower, or 2.4GHz only)
-        _legacyClients = _clients.Count(c =>
+        _legacyClients = onlineClients.Count(c =>
             (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
             (c.Band == RadioBand.Band2_4GHz && !c.Capabilities.Supports5GHz));
 
         // Build Wi-Fi generation stats with band breakdown
-        _wifiGenerationStats = _clients
+        _wifiGenerationStats = onlineClients
             .GroupBy(c => c.WifiGeneration ?? 4)
             .Select(g => new WifiGenStats
             {
@@ -384,7 +386,7 @@
 
         // Identify high airtime clients
         // Criteria: legacy protocol, weak signal, or on 2.4GHz with weak signal
-        _highAirtimeClientsList = _clients
+        _highAirtimeClientsList = onlineClients
             .Where(c =>
                 (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
                 (c.Signal.HasValue && c.Signal < -75) ||

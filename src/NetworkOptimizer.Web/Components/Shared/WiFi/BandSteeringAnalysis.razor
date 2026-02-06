@@ -169,13 +169,33 @@
                 @foreach (var gen in _wifiGenerations.OrderByDescending(g => g.Generation))
                 {
                     var widthPct = _totalClients > 0 ? (double)gen.Count / _totalClients * 100 : 0;
+                    var genLabel = gen.Generation == 6 && gen.Count6GHz > 0 ? "Wi-Fi 6/6E" : $"Wi-Fi {gen.Generation}";
                     <div class="wifi-gen-row">
                         <div class="wifi-gen-label">
-                            <span class="gen-badge @GetGenCssClass(gen.Generation)">Wi-Fi @gen.Generation</span>
+                            <span class="gen-badge @GetGenBadgeCssClass(gen)">@genLabel</span>
                             <span class="gen-standard">@gen.Standard</span>
                         </div>
                         <div class="wifi-gen-bar-container">
-                            <div class="wifi-gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                            @if (gen.Generation >= 6 && gen.Count > 0)
+                            {
+                                var barTotal = gen.Count;
+                                @if (gen.Generation == 6 && gen.Count2_4GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-2ghz" style="width: @(widthPct * gen.Count2_4GHz / barTotal)%" data-tooltip="2.4 GHz: @gen.Count2_4GHz"></div>
+                                }
+                                @if (gen.Count5GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-5ghz" style="width: @(widthPct * gen.Count5GHz / barTotal)%" data-tooltip="5 GHz: @gen.Count5GHz"></div>
+                                }
+                                @if (gen.Count6GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-6ghz" style="width: @(widthPct * gen.Count6GHz / barTotal)%" data-tooltip="6 GHz: @gen.Count6GHz"></div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="wifi-gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                            }
                         </div>
                         <div class="wifi-gen-count">@gen.Count</div>
                     </div>
@@ -328,10 +348,12 @@
 
     private void AnalyzeBandSteering()
     {
-        _totalClients = _clients.Count;
-        _clientsOn2g = _clients.Count(c => c.Band == RadioBand.Band2_4GHz);
-        _clientsOn5g = _clients.Count(c => c.Band == RadioBand.Band5GHz);
-        _clientsOn6g = _clients.Count(c => c.Band == RadioBand.Band6GHz);
+        // Filter to online clients only
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
+        _clientsOn2g = onlineClients.Count(c => c.Band == RadioBand.Band2_4GHz);
+        _clientsOn5g = onlineClients.Count(c => c.Band == RadioBand.Band5GHz);
+        _clientsOn6g = onlineClients.Count(c => c.Band == RadioBand.Band6GHz);
 
         // Determine which APs have which bands available
         var has5gAps = _accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.Channel.HasValue));
@@ -345,7 +367,7 @@
         _suboptimalBandClients = 0;
         _legacyOnlyClients = 0;
 
-        foreach (var client in _clients)
+        foreach (var client in onlineClients)
         {
             var supports5g = client.Capabilities.Supports5GHz;
             var supports6g = client.Capabilities.Supports6GHz;
@@ -393,14 +415,17 @@
             }
         }
 
-        // Build Wi-Fi generation breakdown
-        _wifiGenerations = _clients
+        // Build Wi-Fi generation breakdown with band counts
+        _wifiGenerations = onlineClients
             .GroupBy(c => c.WifiGeneration ?? 4)
             .Select(g => new WiFiGeneration
             {
                 Generation = g.Key,
                 Standard = GetWiFiStandard(g.Key),
-                Count = g.Count()
+                Count = g.Count(),
+                Count2_4GHz = g.Count(c => c.Band == RadioBand.Band2_4GHz),
+                Count5GHz = g.Count(c => c.Band == RadioBand.Band5GHz),
+                Count6GHz = g.Count(c => c.Band == RadioBand.Band6GHz)
             })
             .OrderByDescending(g => g.Generation)
             .ToList();
@@ -463,10 +488,19 @@
         };
     }
 
+    private string GetGenBadgeCssClass(WiFiGeneration gen)
+    {
+        if (gen.Generation == 6 && gen.Count6GHz > 0) return "gen-6e";
+        return GetGenCssClass(gen.Generation);
+    }
+
     private class WiFiGeneration
     {
         public int Generation { get; set; }
         public string Standard { get; set; } = "";
         public int Count { get; set; }
+        public int Count2_4GHz { get; set; }
+        public int Count5GHz { get; set; }
+        public int Count6GHz { get; set; }
     }
 }
