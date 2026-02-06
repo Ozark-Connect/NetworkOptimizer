@@ -2071,6 +2071,11 @@ public class FirewallRuleAnalyzer
         if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
             return false;
 
+        // Must have no port restriction - a rule with specific ports (e.g., 80,443)
+        // only affects those ports, not all internet traffic
+        if (!string.IsNullOrEmpty(rule.DestinationPort) || !string.IsNullOrEmpty(rule.SourcePort))
+            return false;
+
         return true;
     }
 
