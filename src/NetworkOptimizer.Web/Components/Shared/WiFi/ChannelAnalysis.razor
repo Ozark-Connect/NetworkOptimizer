@@ -667,17 +667,14 @@
     {
         var channels = new List<int>();
 
-        if (width <= 20)
-        {
-            channels.Add(primaryChannel);
-            return channels;
-        }
-
         if (band == RadioBand.Band2_4GHz)
         {
-            // 2.4 GHz: channels overlap, each ~22 MHz wide, 5 MHz spacing
-            // 20 MHz affects roughly +/- 2 channels, 40 MHz affects roughly +/- 4
-            int halfSpan = width == 40 ? 4 : 2;
+            // 2.4 GHz: 5 MHz channel spacing with ~22 MHz signal width means every
+            // channel overlaps its neighbors. Even 20 MHz spans ±2 channels.
+            // 40 MHz bonds primary + secondary (4 apart) with ±2 spectral overlap on each edge.
+            // 20 MHz: halfSpan=2 (e.g. ch6 → 4-8)
+            // 40 MHz: halfSpan=6 (e.g. ch1 HT40+ bonds ch5, overlap → 1-7)
+            int halfSpan = width >= 40 ? 6 : 2;
             var validChannels = GetChannelsForBand(band);
             int minCh = validChannels.First();
             int maxCh = validChannels.Last();
@@ -686,6 +683,13 @@
                 if (validChannels.Contains(ch))
                     channels.Add(ch);
             }
+            return channels;
+        }
+
+        if (width <= 20)
+        {
+            channels.Add(primaryChannel);
+            return channels;
         }
         else
         {
