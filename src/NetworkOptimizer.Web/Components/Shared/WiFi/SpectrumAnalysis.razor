@@ -1188,12 +1188,15 @@
 
     private int[] GetAvailableChannels()
     {
+        // 2.4 GHz: always use non-overlapping channels (regulatory returns 1-11 but only 1/6/11 are valid choices)
+        if (selectedBand == RadioBand.Band2_4GHz)
+            return [1, 6, 11];
+
         var width = GetSelectedApChannelWidth();
 
-        // Use regulatory data if available (matches UniFi UI channel dropdown)
+        // Use regulatory data if available (matches UniFi UI channel dropdown per width)
         if (regulatoryChannels != null)
         {
-            // For 5 GHz, check if DFS is enabled on the selected AP
             bool includeDfs = true;
             if (selectedBand == RadioBand.Band5GHz)
             {
@@ -1215,7 +1218,6 @@
         // Fallback to hardcoded lists if regulatory data unavailable
         return selectedBand switch
         {
-            RadioBand.Band2_4GHz => [1, 6, 11],
             RadioBand.Band5GHz => [36, 40, 44, 48, 149, 153, 157, 161, 165],
             RadioBand.Band6GHz => [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
             _ => [1, 6, 11]
