@@ -10504,6 +10504,10 @@ select.form-control {
     flex-wrap: wrap;
 }
 
+.env-controls .btn {
+    margin-top: 1px;
+}
+
 .time-range-select {
     padding: 0.375rem 0.75rem;
     border-radius: 4px;

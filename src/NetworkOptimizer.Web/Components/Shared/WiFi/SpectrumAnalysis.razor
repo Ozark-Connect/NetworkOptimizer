@@ -894,6 +894,7 @@
 
     // Flattened view of all neighbors with their source AP info
     private List<NeighborWithAp> allNeighbors = new();
+    private double _maxInterferenceScore;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1161,10 +1162,11 @@
                 var maxSignal = signals.Any() ? signals.Max() : -100;
                 var count = g.Count();
 
-                // Calculate interference score: combines count and signal strength
-                // Signal weight: -50 dBm = 1.0, -70 dBm = 0.5, -90 dBm = 0.1
-                var signalWeight = Math.Max(0.1, Math.Min(1.0, (maxSignal + 90) / 40.0));
-                var interferenceScore = count * signalWeight;
+                // Calculate interference score: sum of per-neighbor signal weights
+                // Each neighbor contributes based on its own signal strength:
+                // -50 dBm = 1.0, -70 dBm = 0.5, -90 dBm = 0.1
+                var interferenceScore = signals.Sum(s =>
+                    Math.Max(0.1, Math.Min(1.0, (s + 90) / 40.0)));
 
                 return new ChannelDensity
                 {
@@ -1182,6 +1184,10 @@
                 };
             })
             .ToList();
+
+        // Cache max score for bar width scaling
+        _maxInterferenceScore = neighborDensity.Any()
+            ? neighborDensity.Max(d => d.InterferenceScore) : 0;
 
         // Add your channels that have no neighbors (still show them with 0 count)
         var channelsWithNeighbors = neighborDensity.Select(d => d.Channel).ToHashSet();
@@ -1209,14 +1215,14 @@
 
     private string GetDensityClass(double interferenceScore)
     {
-        // Interference score thresholds based on count * signal weight
-        // Low: score <= 2 (e.g., 2 weak networks or 1 strong network)
-        // Medium: score <= 5 (e.g., 5 weak or 2-3 strong networks)
-        // High: score > 5
+        // Interference score = sum of per-neighbor signal weights
+        // Low: score <= 1.5 (one strong neighbor or several very weak ones)
+        // Medium: score <= 3.5 (a few medium/strong neighbors)
+        // High: score > 3.5 (heavy congestion from multiple strong neighbors)
         return interferenceScore switch
         {
-            <= 2 => "density-low",
-            <= 5 => "density-medium",
+            <= 1.5 => "density-low",
+            <= 3.5 => "density-medium",
             _ => "density-high"
         };
     }
@@ -1225,25 +1231,10 @@
     {
         if (interferenceScore <= 0) return 0;
 
-        // Use absolute scale so bars reflect real congestion level.
-        // Reference max of 6 = "very congested" (e.g. 6 strong neighbors).
-        // A single network scores ~0.1-1.0, so the bar stays proportionate.
+        // Reference max of 5 = "very congested" (sum of per-neighbor weights).
+        // e.g. 5 strong neighbors at -50 dBm each = 5.0, or 10 medium at -70 dBm = 5.0
         // If actual congestion exceeds the reference, scale up to stay readable.
-        var referenceMax = 6.0;
-
-        var channelScores = filteredNeighbors
-            .GroupBy(n => n.Network.Channel)
-            .Select(g =>
-            {
-                var signals = g.Select(n => GetDisplaySignal(n)).ToList();
-                var maxSignal = signals.Any() ? signals.Max() : -100;
-                var signalWeight = Math.Max(0.1, Math.Min(1.0, (maxSignal + 90) / 40.0));
-                return g.Count() * signalWeight;
-            })
-            .ToList();
-
-        var actualMax = channelScores.Any() ? channelScores.Max() : 0;
-        var effectiveMax = Math.Max(referenceMax, actualMax);
+        var effectiveMax = Math.Max(5.0, _maxInterferenceScore);
 
         // Minimum 8% so even a single weak neighbor is visible
         return Math.Max(8, Math.Min(100, (int)(interferenceScore * 100.0 / effectiveMax)));
