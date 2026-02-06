@@ -281,6 +281,7 @@
 @code {
     private bool _loading = true;
     private List<AccessPointSnapshot> _accessPoints = new();
+    private RegulatoryChannelData? _regulatoryData;
     private SiteHealthScore? _healthScore;
     private RadioBand _selectedBand = RadioBand.Band5GHz;
     private int? _selectedChannel;
@@ -312,6 +313,7 @@
         try
         {
             _accessPoints = await WiFiService.GetAccessPointsAsync();
+            _regulatoryData = await WiFiService.GetRegulatoryChannelsAsync();
             _healthScore = await WiFiService.GetSiteHealthScoreAsync();
             AnalyzeChannels();
         }
@@ -330,6 +332,7 @@
         try
         {
             _accessPoints = await WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            _regulatoryData = await WiFiService.GetRegulatoryChannelsAsync();
             _healthScore = await WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             AnalyzeChannels();
         }
@@ -407,13 +410,28 @@
 
     private List<int> GetChannelsForBand(RadioBand band)
     {
+        // Use regulatory data when available to only show channels valid for this domain
+        if (_regulatoryData != null)
+        {
+            // Use raw 20 MHz channel lists (GetChannels() applies PSC filtering for 6 GHz
+            // which would hide most channels from the map)
+            var dict = band switch
+            {
+                RadioBand.Band2_4GHz => _regulatoryData.Channels2_4GHz,
+                RadioBand.Band5GHz => _regulatoryData.Channels5GHz,
+                RadioBand.Band6GHz => _regulatoryData.Channels6GHz,
+                _ => null
+            };
+
+            if (dict != null && dict.TryGetValue(20, out var regChannels) && regChannels.Length > 0)
+                return regChannels.OrderBy(c => c).ToList();
+        }
+
+        // Fallback: show all possible channels (use 13 for 2.4 GHz since 14 is Japan-only)
         return band switch
         {
-            // 2.4 GHz: Channels 1-14 (12-14 region-dependent)
-            RadioBand.Band2_4GHz => Enumerable.Range(1, 14).ToList(),
-            // 5 GHz: UNII-1 (36-48), UNII-2A (52-64), UNII-2C/DFS (100-144), UNII-3 (149-165)
+            RadioBand.Band2_4GHz => Enumerable.Range(1, 13).ToList(),
             RadioBand.Band5GHz => new List<int> { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 },
-            // 6 GHz: Channels 1-233 (every 4th channel starting at 1)
             RadioBand.Band6GHz => Enumerable.Range(0, 59).Select(i => 1 + i * 4).ToList(),
             _ => new List<int>()
         };
@@ -660,9 +678,13 @@
             // 2.4 GHz: channels overlap, each ~22 MHz wide, 5 MHz spacing
             // 20 MHz affects roughly +/- 2 channels, 40 MHz affects roughly +/- 4
             int halfSpan = width == 40 ? 4 : 2;
-            for (int ch = Math.Max(1, primaryChannel - halfSpan); ch <= Math.Min(14, primaryChannel + halfSpan); ch++)
+            var validChannels = GetChannelsForBand(band);
+            int minCh = validChannels.First();
+            int maxCh = validChannels.Last();
+            for (int ch = Math.Max(minCh, primaryChannel - halfSpan); ch <= Math.Min(maxCh, primaryChannel + halfSpan); ch++)
             {
-                channels.Add(ch);
+                if (validChannels.Contains(ch))
+                    channels.Add(ch);
             }
         }
         else
