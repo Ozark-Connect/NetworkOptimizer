@@ -314,6 +314,8 @@
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
     // Maps (band, primaryChannel) -> group IDs for that AP's width group
     private Dictionary<(RadioBand Band, int Channel), int> _primaryGroupIds = new();
+    // Full group data for accurate span rendering when filtering (avoids 2-slot-per-channel limit)
+    private Dictionary<(RadioBand Band, int GroupId), List<int>> _groupChannels = new();
     // Second group for overlapping channels (renders bottom/cup when first group renders top/hat)
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups2 = new();
 
@@ -603,6 +605,7 @@
         _widthGroups.Clear();
         _widthGroups2.Clear();
         _primaryGroupIds.Clear();
+        _groupChannels.Clear();
 
         // Step 1: Collect width groups, de-duplicating by primary channel
         // Same primary = same group (e.g., mesh APs both on channel 108)
@@ -679,8 +682,9 @@
                 // Third+ groups ignored for now
             }
 
-            // Map primary channel to its group ID
+            // Map primary channel to its group ID and store full channel list
             _primaryGroupIds[(group.Band, group.PrimaryChannel)] = groupId;
+            _groupChannels[(group.Band, groupId)] = channels;
 
             // Increment group ID for this band
             groupIdPerBand[group.Band] = groupId + 1;
@@ -888,17 +892,15 @@
             bool hasGroup2 = _widthGroups2.TryGetValue(key, out var info2);
             bool showGroup2 = hasGroup2 && (!_selectedChannel.HasValue || info2!.GroupId == selectedGroupId);
 
-            // Neither group matches the selection
+            // Neither group matches the selection - check if this channel was dropped as 3rd+ group
             if (!showGroup1 && !showGroup2)
-                return "";
+                return GetDroppedGroupClass(band, channel, selectedGroupId);
 
-            // If only group2 matches, promote it to primary (renders as ::before / top hat)
-            bool promoted = false;
+            // If only group2 matches, promote it to primary rendering (::before)
             if (!showGroup1 && showGroup2)
             {
                 info = info2!;
                 showGroup2 = false;
-                promoted = true;
             }
 
             var bandClass = info.Band switch
@@ -908,8 +910,8 @@
                 RadioBand.Band6GHz => "band-6ghz",
                 _ => ""
             };
-            // Normal: alternate top/bottom per group ID. Promoted group2: force top hat.
-            var oddEvenClass = promoted ? "group-odd" : (info.IsOddGroup ? "group-odd" : "group-even");
+            // Keep original top/bottom position for consistency
+            var oddEvenClass = info.IsOddGroup ? "group-odd" : "group-even";
 
             // Both groups visible - render as overlapping
             if (showGroup2)
@@ -929,6 +931,42 @@
 
             return $"width-group {bandClass} group-{info.Position} {oddEvenClass}";
         }
+
+        // Channel not in _widthGroups at all - check if it belongs to the selected group (dropped as 3rd+)
+        if (_selectedChannel.HasValue)
+        {
+            var primaryKey = (band, _selectedChannel.Value);
+            var selGid = _primaryGroupIds.TryGetValue(primaryKey, out var gid) ? gid : -1;
+            return GetDroppedGroupClass(band, channel, selGid);
+        }
         return "";
+    }
+
+    /// <summary>
+    /// Renders a channel that was dropped from _widthGroups (3rd+ overlapping group)
+    /// by reconstructing its position from the group's full channel list.
+    /// </summary>
+    private string GetDroppedGroupClass(RadioBand band, int channel, int? selectedGroupId)
+    {
+        if (!selectedGroupId.HasValue) return "";
+
+        var groupKey = (band, selectedGroupId.Value);
+        if (!_groupChannels.TryGetValue(groupKey, out var channels) || !channels.Contains(channel))
+            return "";
+
+        var bandClass = band switch
+        {
+            RadioBand.Band2_4GHz => "band-2ghz",
+            RadioBand.Band5GHz => "band-5ghz",
+            RadioBand.Band6GHz => "band-6ghz",
+            _ => ""
+        };
+        var oddEvenClass = selectedGroupId.Value % 2 == 0 ? "group-odd" : "group-even";
+        var position = channels.Count == 1 ? "single"
+            : channel == channels[0] ? "start"
+            : channel == channels[^1] ? "end"
+            : "middle";
+
+        return $"width-group {bandClass} group-{position} {oddEvenClass}";
     }
 }
