@@ -1108,7 +1108,9 @@
         var scoreByChannel = _channelDensityData
             .ToDictionary(d => d.Channel, d => d.InterferenceScore);
 
+        // Only include channels that aren't congested (score <= medium threshold)
         var ranked = availableChannels
+            .Where(ch => scoreByChannel.GetValueOrDefault(ch, 0) <= 3.5)
             .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
             .Take(5)
             .ToList();
