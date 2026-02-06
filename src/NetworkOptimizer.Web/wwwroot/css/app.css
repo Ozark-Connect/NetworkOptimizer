@@ -656,6 +656,10 @@ a.stat-card-link:active {
     font-weight: 600;
 }
 
+.stat-value.cleanest-channels {
+    font-size: 1.25rem;
+}
+
 .stat-label {
     font-size: 0.875rem;
     color: var(--text-secondary);

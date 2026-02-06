@@ -131,8 +131,8 @@
                     @if (!string.IsNullOrEmpty(selectedApMac))
                     {
                         <div class="spectrum-stat-card highlight">
-                            <div class="stat-value">@GetCleanestChannel()</div>
-                            <div class="stat-label">Cleanest Channel</div>
+                            <div class="stat-value cleanest-channels">@GetCleanestChannels()</div>
+                            <div class="stat-label">Cleanest Channels</div>
                         </div>
                     }
                 </div>
@@ -1100,35 +1100,57 @@
         return dfsChannels.Length - occupiedDfs.Count;
     }
 
-    private string GetCleanestChannel()
+    private string GetCleanestChannels()
     {
-        var channelCounts = filteredNeighbors
-                        .GroupBy(n => n.Network.Channel)
-            .ToDictionary(g => g.Key, g => g.Count());
+        var availableChannels = GetAvailableChannels();
 
-        // Get channels in use by your APs
-        var yourChannels = accessPoints
-            .SelectMany(ap => ap.Radios)
-            .Where(r => r.Channel.HasValue)
-            .Where(r => selectedBand == RadioBand.Unknown || r.Band == selectedBand)
-            .Select(r => r.Channel!.Value)
-            .Distinct()
+        // Rank by interference score from cached density data (0 = no neighbors = cleanest)
+        var scoreByChannel = _channelDensityData
+            .ToDictionary(d => d.Channel, d => d.InterferenceScore);
+
+        var ranked = availableChannels
+            .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
+            .Take(5)
             .ToList();
 
-        // Find common channels for the selected band
-        var commonChannels = selectedBand switch
+        if (!ranked.Any()) return "-";
+        return string.Join(", ", ranked);
+    }
+
+    private int[] GetAvailableChannels()
+    {
+        return selectedBand switch
         {
-            RadioBand.Band2_4GHz => new[] { 1, 6, 11 },
-            RadioBand.Band5GHz => new[] { 36, 40, 44, 48, 149, 153, 157, 161, 165 },
-            RadioBand.Band6GHz => new[] { 1, 5, 9, 13, 17, 21, 25, 29, 33, 37 },
-            _ => yourChannels.Any() ? yourChannels.ToArray() : new[] { 1, 6, 11, 36, 149 }
+            RadioBand.Band2_4GHz => [1, 6, 11],
+            RadioBand.Band5GHz => GetAvailable5GHzChannels(),
+            RadioBand.Band6GHz => [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
+            _ => [1, 6, 11]
         };
+    }
 
-        var cleanest = commonChannels
-            .OrderBy(ch => channelCounts.GetValueOrDefault(ch, 0))
-            .FirstOrDefault();
+    private int[] GetAvailable5GHzChannels()
+    {
+        var channels = new List<int> { 36, 40, 44, 48, 149, 153, 157, 161, 165 };
 
-        return cleanest > 0 ? cleanest.ToString() : "-";
+        // Include DFS channels if the selected AP (or any AP) has DFS enabled
+        bool hasDfs;
+        if (!string.IsNullOrEmpty(selectedApMac))
+        {
+            var selectedAp = accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac);
+            hasDfs = selectedAp?.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs) ?? false;
+        }
+        else
+        {
+            hasDfs = accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs));
+        }
+
+        if (hasDfs)
+        {
+            channels.AddRange([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
+        }
+
+        channels.Sort();
+        return channels.ToArray();
     }
 
     private void UpdateChannelDensity()
@@ -1382,7 +1404,7 @@
 
             if (neighborCount > 5)
             {
-                var cleanest = GetCleanestChannel();
+                var cleanest = GetCleanestChannels();
                 recommendations.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Warning,
