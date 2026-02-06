@@ -6478,7 +6478,8 @@ select.form-control {
     margin-left: auto;
 }
 
-.metrics-filters .band-tabs {
+.metrics-filters .band-tabs,
+.env-controls .band-tabs {
     margin-bottom: 0;
 }
 
@@ -10498,7 +10499,7 @@ select.form-control {
 
 .env-controls {
     display: flex;
-    gap: 0.5rem;
+    gap: 1rem;
     align-items: center;
     flex-wrap: wrap;
 }
