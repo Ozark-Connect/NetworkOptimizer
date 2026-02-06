@@ -1108,14 +1108,22 @@
         var scoreByChannel = _channelDensityData
             .ToDictionary(d => d.Channel, d => d.InterferenceScore);
 
-        // Only include channels that aren't congested (score <= medium threshold)
+        // Prefer channels that aren't congested (score <= low threshold)
         var ranked = availableChannels
-            .Where(ch => scoreByChannel.GetValueOrDefault(ch, 0) <= 3.5)
+            .Where(ch => scoreByChannel.GetValueOrDefault(ch, 0) <= 1.5)
             .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
             .Take(5)
             .ToList();
 
-        if (!ranked.Any()) return "-";
+        // Always show at least the single best channel
+        if (!ranked.Any())
+        {
+            var best = availableChannels
+                .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
+                .First();
+            return best.ToString();
+        }
+
         return string.Join(", ", ranked);
     }
 
