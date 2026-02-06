@@ -997,14 +997,35 @@ public class FirewallRuleAnalyzer
             // Find allow rules from this network that permit broad external access
             // Skip predefined/system rules (like "Allow Return Traffic")
             // Also filter out allow rules that are eclipsed by block rules with lower index
-            var broadAllowRules = rules.Where(rule =>
-                rule.Enabled &&
-                !rule.Predefined &&
-                rule.ActionType.IsAllowAction() &&
-                AppliesToSourceNetwork(rule, network) &&
-                IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds) &&
-                // Only report if the allow rule actually takes effect (not eclipsed by a block rule)
-                !IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId)).ToList();
+            var broadAllowRules = new List<FirewallRule>();
+            foreach (var rule in rules)
+            {
+                if (!rule.Enabled || rule.Predefined || !rule.ActionType.IsAllowAction())
+                    continue;
+
+                if (!AppliesToSourceNetwork(rule, network))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' does not apply to network '{Network}' (srcTarget={SrcTarget}, srcZone={SrcZone}, netZone={NetZone})",
+                        rule.Name, network.Name, rule.SourceMatchingTarget, rule.SourceZoneId, network.FirewallZoneId);
+                    continue;
+                }
+
+                if (!IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' is not broad external access (destTarget={DestTarget}, destZone={DestZone}, protocol={Protocol}, destPort={DestPort}, appIds={AppIds})",
+                        rule.Name, rule.DestinationMatchingTarget, rule.DestinationZoneId, rule.Protocol, rule.DestinationPort, rule.AppIds != null ? string.Join(",", rule.AppIds) : "none");
+                    continue;
+                }
+
+                if (IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' is eclipsed by a block rule", rule.Name);
+                    continue;
+                }
+
+                _logger.LogDebug("Internet bypass: rule '{Rule}' PASSES all filters for network '{Network}'", rule.Name, network.Name);
+                broadAllowRules.Add(rule);
+            }
 
             foreach (var rule in broadAllowRules)
             {
