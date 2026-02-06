@@ -713,11 +713,13 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
-.device-header {
+.device-header,
+.ap-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 0.75rem;
+    margin-left: -0.3rem;
 }
 
 .device-icon {
@@ -6241,14 +6243,6 @@ select.form-control {
 .ap-status-text {
     font-size: 0.7rem;
     color: var(--text-muted);
-}
-
-.ap-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-    margin-left: -0.3rem;
 }
 
 .ap-header-text {
