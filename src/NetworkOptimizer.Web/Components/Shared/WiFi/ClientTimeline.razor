@@ -11,35 +11,169 @@
         <h3>Client Stats</h3>
 
         <div class="timeline-controls">
-            <!-- Client Selector -->
-            <div class="client-selector">
-                <select class="form-select" @bind="_selectedClientMac" @bind:after="OnClientSelected">
-                    <option value="">Select a client...</option>
-                    @foreach (var client in _clients)
+            <!-- Status Filter (only show when no client selected) -->
+            @if (string.IsNullOrEmpty(_selectedClientMac))
+            {
+                <div class="pill-selector">
+                    <button class="pill-btn @(_statusFilter == "all" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("all")'>All</button>
+                    <button class="pill-btn @(_statusFilter == "online" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("online")'>Online</button>
+                    <button class="pill-btn @(_statusFilter == "offline" ? "active" : "")"
+                            @onclick='() => SetStatusFilter("offline")'>Offline</button>
+                </div>
+            }
+
+            <!-- View All / Client Selector -->
+            <div class="client-selector-combo">
+                @if (!string.IsNullOrEmpty(_selectedClientMac))
+                {
+                    <button class="view-all-btn" @onclick="ViewAllClients">View All Clients</button>
+                }
+                <div class="filterable-select @(_dropdownOpen ? "open" : "")">
+                    @if (_selectedClient != null && !_dropdownOpen)
                     {
-                        <option value="@client.Mac">@client.Name (@client.Mac)</option>
+                        <!-- Display mode: show selected client -->
+                        <div class="filterable-select-display" @onclick="OpenDropdownForEdit">
+                            <span class="status-dot @(_selectedClient.IsOnline ? "online" : "offline")"></span>
+                            <span class="option-text">@_selectedClient.Name</span>
+                            <span class="option-mac">@_selectedClient.Mac</span>
+                        </div>
                     }
-                </select>
+                    else
+                    {
+                        <!-- Edit mode: text input for filtering -->
+                        <input @ref="_filterInput"
+                               type="text" class="form-select filterable-select-input"
+                               placeholder="Select a client..."
+                               @bind="_clientSearchText"
+                               @bind:event="oninput"
+                               @onclick="OpenDropdown"
+                               @onfocus="OpenDropdown"
+                               @onblur="CloseDropdownDelayed" />
+                    }
+                    @if (_dropdownOpen)
+                    {
+                        <div class="filterable-select-overlay" @onclick="CloseDropdown"></div>
+                        <div class="filterable-select-dropdown">
+                            @foreach (var client in GetDropdownClients().Take(50))
+                            {
+                                <div class="filterable-select-option @(client.IsOnline ? "" : "offline")"
+                                     @onmousedown="() => SelectClientFromDropdown(client)"
+                                     @onmousedown:preventDefault>
+                                    <span class="status-dot @(client.IsOnline ? "online" : "offline")"></span>
+                                    <span class="option-text">@client.Name</span>
+                                    <span class="option-mac">@client.Mac</span>
+                                </div>
+                            }
+                            @if (!GetDropdownClients().Any())
+                            {
+                                <div class="filterable-select-empty">No clients found</div>
+                            }
+                        </div>
+                    }
+                </div>
             </div>
 
-            <!-- Time Range -->
-            <div class="time-range-selector">
-                @foreach (var range in _timeRanges)
+            <!-- Time Range (different state for list vs client view) -->
+            <div class="time-refresh-group">
+                @if (string.IsNullOrEmpty(_selectedClientMac))
                 {
-                    <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
-                            @onclick="() => SelectTimeRange(range.Key)"
-                            disabled="@string.IsNullOrEmpty(_selectedClientMac)">
-                        @range.Key
-                    </button>
+                    <div class="time-range-selector">
+                        @foreach (var range in _timeRanges)
+                        {
+                            <button class="time-btn @(range.Key == _listTimeRange ? "active" : "")"
+                                    @onclick="() => SelectListTimeRange(range.Key)"
+                                    disabled="@(_statusFilter == "online")">
+                                @range.Key
+                            </button>
+                        }
+                    </div>
                 }
+                else
+                {
+                    <div class="time-range-selector">
+                        @foreach (var range in _timeRanges)
+                        {
+                            <button class="time-btn @(range.Key == _selectedRange ? "active" : "")"
+                                    @onclick="() => SelectTimeRange(range.Key)">
+                                @range.Key
+                            </button>
+                        }
+                    </div>
+                }
+
+                <button class="btn btn-secondary btn-sm" @onclick="RefreshClients" disabled="@_refreshing">
+                    @if (_refreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
         </div>
     </div>
 
     @if (string.IsNullOrEmpty(_selectedClientMac))
     {
-        <div class="timeline-empty">
-            <p>Select a client to view their connection timeline</p>
+        <!-- Client List Table (default view) -->
+        <div class="client-list-section">
+            <div class="table-responsive">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th class="sortable @GetSortClass("Status")" @onclick='() => SetSort("Status")'>Status</th>
+                            <th class="sortable @GetSortClass("Name")" @onclick='() => SetSort("Name")'>Name</th>
+                            <th class="sortable @GetSortClass("Ip")" @onclick='() => SetSort("Ip")'>IP</th>
+                            <th class="sortable @GetSortClass("Mac")" @onclick='() => SetSort("Mac")'>MAC</th>
+                            <th class="sortable @GetSortClass("ApName")" @onclick='() => SetSort("ApName")'>AP</th>
+                            <th class="sortable @GetSortClass("Band")" @onclick='() => SetSort("Band")'>Band</th>
+                            <th class="sortable @GetSortClass("Signal")" @onclick='() => SetSort("Signal")'>Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var client in GetPagedClients())
+                        {
+                            <tr @onclick="() => SelectClient(client.Mac)" class="@(client.IsOnline ? "" : "client-offline")">
+                                <td><span class="status-dot @(client.IsOnline ? "online" : "offline")" data-tooltip="@(client.IsOnline ? "Online" : GetOfflineTooltip(client))"></span></td>
+                                <td>@client.Name</td>
+                                <td>@if (!string.IsNullOrEmpty(client.Ip)) { <code>@client.Ip</code> } else { <text>-</text> }</td>
+                                <td><code>@client.Mac</code></td>
+                                <td>@(client.ApName ?? "-")</td>
+                                <td>@if (client.IsOnline && client.Band != RadioBand.Unknown) { <span class="band-badge @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span> } else { <text>-</text> }</td>
+                                <td class="@GetSignalClass(client.Signal)">@(client.IsOnline && client.Signal.HasValue ? $"{client.Signal} dBm" : "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (TotalPages > 1)
+            {
+                <div class="pagination-controls">
+                    <div class="pagination-info">
+                        Showing @((_currentPage - 1) * _pageSize + 1)-@Math.Min(_currentPage * _pageSize, GetFilteredClients().Count()) of @GetFilteredClients().Count()
+                    </div>
+                    <div class="pagination-buttons">
+                        <button class="page-btn" @onclick="GoToFirstPage" disabled="@(_currentPage == 1)">
+                            <span>««</span>
+                        </button>
+                        <button class="page-btn" @onclick="GoToPreviousPage" disabled="@(_currentPage == 1)">
+                            <span>‹</span>
+                        </button>
+                        <span class="page-indicator">Page @_currentPage of @TotalPages</span>
+                        <button class="page-btn" @onclick="GoToNextPage" disabled="@(_currentPage >= TotalPages)">
+                            <span>›</span>
+                        </button>
+                        <button class="page-btn" @onclick="GoToLastPage" disabled="@(_currentPage >= TotalPages)">
+                            <span>»»</span>
+                        </button>
+                    </div>
+                </div>
+            }
         </div>
     }
     else if (_loading)
@@ -178,10 +312,26 @@
 @code {
     private bool _loading = false;
     private string _selectedClientMac = "";
-    private string _selectedRange = "1D";
+    private string _selectedRange = "1D";  // For client detail view
+    private string _listTimeRange = "1W";  // For client list view (offline cutoff)
     private bool _showSignal = true;
     private bool _showTxRetries = true;
     private string _chartKey = "signal_retries"; // Key to force chart recreation
+
+    // Sorting (matches SpectrumAnalysis pattern)
+    private string _sortColumn = "Ip";
+    private bool _sortDescending = false; // IP defaults to ascending
+
+    // Pagination
+    private int _currentPage = 1;
+    private const int _pageSize = 15;
+
+    // Search/Filter
+    private string _clientSearchText = "";
+    private string _statusFilter = "all"; // "all", "online", "offline"
+    private bool _dropdownOpen = false;
+    private bool _refreshing = false;
+    private ElementReference _filterInput;
 
     private List<WirelessClientSnapshot> _clients = new();
     private WirelessClientSnapshot? _selectedClient;
@@ -251,6 +401,25 @@
         _clients = await WiFiService.GetWirelessClientsAsync();
     }
 
+    private async Task RefreshClients()
+    {
+        _refreshing = true;
+        StateHasChanged();
+        try
+        {
+            await LoadClientsAsync();
+            if (!string.IsNullOrEmpty(_selectedClientMac))
+            {
+                await LoadClientDataAsync();
+            }
+        }
+        finally
+        {
+            _refreshing = false;
+            StateHasChanged();
+        }
+    }
+
     private async Task OnClientSelected()
     {
         if (string.IsNullOrEmpty(_selectedClientMac))
@@ -267,10 +436,13 @@
     private async Task SelectTimeRange(string range)
     {
         _selectedRange = range;
-        if (!string.IsNullOrEmpty(_selectedClientMac))
-        {
-            await LoadClientDataAsync();
-        }
+        await LoadClientDataAsync();
+    }
+
+    private void SelectListTimeRange(string range)
+    {
+        _listTimeRange = range;
+        _currentPage = 1;
     }
 
     private async Task LoadClientDataAsync()
@@ -395,11 +567,11 @@
                 Max = 100,
                 Labels = new YAxisLabels
                 {
-                    Style = new AxisLabelStyle { Colors = "#ef4444" },
+                    Style = new AxisLabelStyle { Colors = "#ef5858" },
                     Formatter = "function(val) { return val.toFixed(1) + '%'; }"
                 }
             });
-            colors.Add("#ef4444");
+            colors.Add("#ef5858");
             fillTypes.Add(FillType.Solid);
         }
 
@@ -467,6 +639,20 @@
         _ => "signal-poor"
     };
 
+    private string GetOfflineTooltip(WirelessClientSnapshot client)
+    {
+        if (client.LastSeen.HasValue)
+        {
+            var ago = DateTimeOffset.UtcNow - client.LastSeen.Value;
+            if (ago.TotalMinutes < 60)
+                return $"Offline - last seen {(int)ago.TotalMinutes}m ago";
+            if (ago.TotalHours < 24)
+                return $"Offline - last seen {(int)ago.TotalHours}h ago";
+            return $"Offline - last seen {(int)ago.TotalDays}d ago";
+        }
+        return "Offline";
+    }
+
     private string FormatRate(long? rateKbps)
     {
         if (!rateKbps.HasValue) return "-";
@@ -489,6 +675,162 @@
         ClientConnectionEventType.Roamed => "→",
         _ => "•"
     };
+
+    // Sorting/Filtering/Pagination methods (matching SpectrumAnalysis pattern)
+    private IEnumerable<WirelessClientSnapshot> GetFilteredClients()
+    {
+        var filtered = _clients.AsEnumerable();
+
+        // Apply status filter
+        filtered = _statusFilter switch
+        {
+            "online" => filtered.Where(c => c.IsOnline),
+            "offline" => filtered.Where(c => !c.IsOnline),
+            _ => filtered
+        };
+
+        // Apply time range filter to offline clients (based on LastSeen)
+        if (_statusFilter != "online")
+        {
+            var cutoff = DateTimeOffset.UtcNow - _timeRanges[_listTimeRange];
+            filtered = filtered.Where(c => c.IsOnline || (c.LastSeen.HasValue && c.LastSeen.Value >= cutoff));
+        }
+
+        // Apply search text filter
+        if (!string.IsNullOrWhiteSpace(_clientSearchText))
+        {
+            var filter = _clientSearchText.Trim();
+            filtered = filtered.Where(c =>
+                (c.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+        return filtered.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void SetStatusFilter(string filter)
+    {
+        _statusFilter = filter;
+        _currentPage = 1;
+    }
+
+    private IEnumerable<WirelessClientSnapshot> GetSortedClients()
+    {
+        var clients = GetFilteredClients();
+        return _sortColumn switch
+        {
+            "Status" => _sortDescending
+                ? clients.OrderByDescending(c => c.IsOnline).ThenBy(c => c.Name ?? "")
+                : clients.OrderBy(c => c.IsOnline).ThenBy(c => c.Name ?? ""),
+            "Name" => _sortDescending ? clients.OrderByDescending(c => c.Name ?? "") : clients.OrderBy(c => c.Name ?? ""),
+            "Ip" => _sortDescending
+                ? WiFiAnalysisHelpers.SortByIp(clients).AsEnumerable().Reverse()
+                : WiFiAnalysisHelpers.SortByIp(clients),
+            "Mac" => _sortDescending ? clients.OrderByDescending(c => c.Mac) : clients.OrderBy(c => c.Mac),
+            "ApName" => _sortDescending ? clients.OrderByDescending(c => c.ApName ?? "") : clients.OrderBy(c => c.ApName ?? ""),
+            "Band" => _sortDescending ? clients.OrderByDescending(c => c.Band) : clients.OrderBy(c => c.Band),
+            "Signal" => _sortDescending ? clients.OrderByDescending(c => c.Signal ?? int.MinValue) : clients.OrderBy(c => c.Signal ?? int.MinValue),
+            _ => clients
+        };
+    }
+
+    private IEnumerable<WirelessClientSnapshot> GetPagedClients()
+        => GetSortedClients().Skip((_currentPage - 1) * _pageSize).Take(_pageSize);
+
+    private int TotalPages => (int)Math.Ceiling(GetFilteredClients().Count() / (double)_pageSize);
+
+    private void SetSort(string column)
+    {
+        if (_sortColumn == column)
+            _sortDescending = !_sortDescending;
+        else
+        {
+            _sortColumn = column;
+            _sortDescending = false; // Default ascending for new column
+        }
+        _currentPage = 1;
+    }
+
+    private string GetSortClass(string column)
+        => _sortColumn != column ? "" : (_sortDescending ? "sort-desc" : "sort-asc");
+
+    // Dropdown methods
+    private void OpenDropdown() => _dropdownOpen = true;
+
+    private async Task OpenDropdownForEdit()
+    {
+        _clientSearchText = "";
+        _dropdownOpen = true;
+        StateHasChanged();
+        await Task.Delay(1); // Allow render to complete
+        await _filterInput.FocusAsync();
+    }
+
+    private void CloseDropdown() => _dropdownOpen = false;
+
+    private async Task CloseDropdownDelayed()
+    {
+        // Small delay to allow click on option to register before closing
+        await Task.Delay(150);
+        _dropdownOpen = false;
+        StateHasChanged();
+    }
+
+    private IEnumerable<WirelessClientSnapshot> GetDropdownClients()
+    {
+        var clients = _clients.AsEnumerable();
+
+        // Apply status filter
+        clients = _statusFilter switch
+        {
+            "online" => clients.Where(c => c.IsOnline),
+            "offline" => clients.Where(c => !c.IsOnline),
+            _ => clients
+        };
+
+        // Apply search text filter
+        if (!string.IsNullOrWhiteSpace(_clientSearchText))
+        {
+            var filter = _clientSearchText.Trim();
+            clients = clients.Where(c =>
+                (c.Name?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Mac?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (c.Ip?.Contains(filter, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        // Sort: online first, then by name
+        return clients.OrderByDescending(c => c.IsOnline).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void SelectClientFromDropdown(WirelessClientSnapshot client)
+    {
+        _dropdownOpen = false;
+        SelectClient(client.Mac);
+    }
+
+    private void ViewAllClients()
+    {
+        _selectedClientMac = "";
+        _clientSearchText = "";
+        _dropdownOpen = false;
+        _selectedClient = null;
+        _clientMetrics.Clear();
+        _connectionEvents.Clear();
+        // Keep _currentPage so user returns to same page in list
+    }
+
+    private void SelectClient(string mac)
+    {
+        _selectedClientMac = mac;
+        var client = _clients.FirstOrDefault(c => c.Mac == mac);
+        _clientSearchText = client?.Name ?? mac;
+        _ = OnClientSelected();
+    }
+
+    private void GoToFirstPage() => _currentPage = 1;
+    private void GoToPreviousPage() { if (_currentPage > 1) _currentPage--; }
+    private void GoToNextPage() { if (_currentPage < TotalPages) _currentPage++; }
+    private void GoToLastPage() => _currentPage = TotalPages;
 
     public class ClientChartPoint
     {

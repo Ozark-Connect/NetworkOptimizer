@@ -230,28 +230,29 @@ public class WiFiOptimizerService
             var healthScore = await GetSiteHealthScoreAsync();
 
             summary.TotalAps = aps.Count;
-            summary.TotalClients = clients.Count;
-            summary.ClientsOn2_4GHz = clients.Count(c => c.Band == RadioBand.Band2_4GHz);
-            summary.ClientsOn5GHz = clients.Count(c => c.Band == RadioBand.Band5GHz);
-            summary.ClientsOn6GHz = clients.Count(c => c.Band == RadioBand.Band6GHz);
+            var onlineClients = clients.Where(c => c.IsOnline).ToList();
+            summary.TotalClients = onlineClients.Count;
+            summary.ClientsOn2_4GHz = onlineClients.Count(c => c.Band == RadioBand.Band2_4GHz);
+            summary.ClientsOn5GHz = onlineClients.Count(c => c.Band == RadioBand.Band5GHz);
+            summary.ClientsOn6GHz = onlineClients.Count(c => c.Band == RadioBand.Band6GHz);
             summary.HealthScore = healthScore?.OverallScore;
             summary.HealthGrade = healthScore?.Grade;
 
-            if (clients.Any(c => c.Satisfaction.HasValue))
+            if (onlineClients.Any(c => c.Satisfaction.HasValue))
             {
-                summary.AvgSatisfaction = (int)clients
+                summary.AvgSatisfaction = (int)onlineClients
                     .Where(c => c.Satisfaction.HasValue)
                     .Average(c => c.Satisfaction!.Value);
             }
 
-            if (clients.Any(c => c.Signal.HasValue))
+            if (onlineClients.Any(c => c.Signal.HasValue))
             {
-                summary.AvgSignal = (int)clients
+                summary.AvgSignal = (int)onlineClients
                     .Where(c => c.Signal.HasValue)
                     .Average(c => c.Signal!.Value);
             }
 
-            summary.WeakSignalClients = clients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+            summary.WeakSignalClients = onlineClients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
 
             // Check if MLO is enabled on any enabled WLAN
             var wlanConfigs = await GetWlanConfigurationsAsync();

@@ -29,6 +29,26 @@ public static class WiFiAnalysisHelpers
     }
 
     /// <summary>
+    /// Sort wireless clients by IP address (ascending, proper numeric sorting).
+    /// Clients without valid IPs are placed at the end.
+    /// </summary>
+    public static List<WirelessClientSnapshot> SortByIp(IEnumerable<WirelessClientSnapshot> clients)
+    {
+        return clients
+            .OrderBy(c =>
+            {
+                if (!string.IsNullOrEmpty(c.Ip) && IPAddress.TryParse(c.Ip, out var ip))
+                {
+                    var bytes = ip.GetAddressBytes();
+                    if (bytes.Length == 4)
+                        return ((uint)bytes[0] << 24) | ((uint)bytes[1] << 16) | ((uint)bytes[2] << 8) | bytes[3];
+                }
+                return uint.MaxValue;
+            })
+            .ToList();
+    }
+
+    /// <summary>
     /// Filters out APs that are mesh parent/child pairs on the same channel.
     /// Mesh pairs must be on the same channel to communicate, so it's expected.
     /// Returns APs that would cause actual co-channel interference.

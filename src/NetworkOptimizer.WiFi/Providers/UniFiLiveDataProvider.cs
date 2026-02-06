@@ -41,15 +41,41 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
 
     public async Task<List<WirelessClientSnapshot>> GetWirelessClientsAsync(CancellationToken cancellationToken = default)
     {
-        var clients = await _client.GetClientsAsync(cancellationToken);
-        var wirelessClients = clients.Where(c => c.IsWired == false).ToList();
         var timestamp = DateTimeOffset.UtcNow;
 
         // Get AP names for lookup using centralized classification
         var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
         var apNames = aps.ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
 
-        return wirelessClients.Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp)).ToList();
+        // Get active (online) wireless clients
+        var activeClients = await _client.GetClientsAsync(cancellationToken);
+        var activeWireless = activeClients.Where(c => c.IsWired == false).ToList();
+        var onlineMacs = new HashSet<string>(activeWireless.Select(c => c.Mac.ToLowerInvariant()));
+
+        var result = activeWireless
+            .Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp, isOnline: true))
+            .ToList();
+
+        // Get historical clients (includes offline) - last 30 days
+        try
+        {
+            var history = await _client.GetClientHistoryAsync(withinHours: 720, cancellationToken);
+            var offlineWireless = history
+                .Where(c => !c.IsWired && c.Type == "WIRELESS")
+                .Where(c => !onlineMacs.Contains(c.Mac.ToLowerInvariant())) // Skip already-online clients
+                .ToList();
+
+            _logger.LogDebug("Found {Online} online and {Offline} offline wireless clients",
+                result.Count, offlineWireless.Count);
+
+            result.AddRange(offlineWireless.Select(c => MapHistoricalToWirelessClientSnapshot(c, apNames, timestamp)));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch client history for offline clients, showing online only");
+        }
+
+        return result;
     }
 
     public async Task<List<SiteWiFiMetrics>> GetSiteMetricsAsync(
@@ -722,7 +748,8 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
-        DateTimeOffset timestamp)
+        DateTimeOffset timestamp,
+        bool isOnline = true)
     {
         var apMac = client.ApMac?.ToLowerInvariant() ?? "";
         apNames.TryGetValue(apMac, out var apName);
@@ -748,6 +775,33 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             TxBytes = client.TxBytes,
             RxBytes = client.RxBytes,
             Uptime = client.Uptime,
+            IsAuthorized = !client.Blocked,
+            IsGuest = client.IsGuest,
+            IsOnline = isOnline,
+            Manufacturer = client.Oui,
+            Timestamp = timestamp
+        };
+    }
+
+    private WirelessClientSnapshot MapHistoricalToWirelessClientSnapshot(
+        UniFiClientDetailResponse client,
+        Dictionary<string, string> apNames,
+        DateTimeOffset timestamp)
+    {
+        var apMac = client.LastUplinkMac?.ToLowerInvariant() ?? "";
+        apNames.TryGetValue(apMac, out var apName);
+
+        return new WirelessClientSnapshot
+        {
+            Mac = client.Mac,
+            Name = client.Name ?? client.DisplayName ?? client.Hostname ?? client.Mac,
+            Ip = client.BestIp,
+            ApMac = client.LastUplinkMac ?? "",
+            ApName = apName ?? client.LastUplinkName,
+            IsOnline = false,
+            LastSeen = client.LastSeen > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(client.LastSeen)
+                : null,
             IsAuthorized = !client.Blocked,
             IsGuest = client.IsGuest,
             Manufacturer = client.Oui,

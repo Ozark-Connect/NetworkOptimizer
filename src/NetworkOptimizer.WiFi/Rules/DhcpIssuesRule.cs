@@ -27,12 +27,12 @@ public class DhcpIssuesRule : IWiFiOptimizerRule
             Dimensions = { HealthDimension.ClientSatisfaction },
             Title = "DHCP Issues Detected",
             Description = $"{clientsWithoutIp.Count} client(s) connected but failed to get an IP address. " +
-                "This often indicates DHCP pool exhaustion or server issues.",
+                "This typically indicates connectivity issues such as weak signal or interference.",
             AffectedEntity = clientsWithoutIp.Count <= 5
                 ? string.Join(", ", clientsWithoutIp.Select(c => c.Name))
                 : $"{string.Join(", ", clientsWithoutIp.Take(5).Select(c => c.Name))} +{clientsWithoutIp.Count - 5} more",
-            Recommendation = "Check your DHCP server settings. Ensure the IP pool is large enough and the lease time isn't too long. " +
-                "In UniFi: Settings > Networks > (Network) > DHCP Range.",
+            Recommendation = "Check for connectivity issues first - is the client in a weak signal area or experiencing interference? " +
+                "If connectivity is good, verify your DHCP pool isn't exhausted in UniFi: Settings > Networks > (Network) > DHCP Range.",
             ScoreImpact = -10,
             ShowOnOverview = false
         };

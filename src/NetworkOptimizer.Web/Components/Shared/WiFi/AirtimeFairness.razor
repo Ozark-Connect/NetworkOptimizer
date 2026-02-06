@@ -7,16 +7,18 @@
 <div class="airtime-container wifi-sections">
     <div class="airtime-header">
         <h3>Airtime Fairness</h3>
-        <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
-            @if (_loading)
-            {
-                <span class="spinner-sm"></span>
-            }
-            else
-            {
-                <span>Refresh</span>
-            }
-        </button>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
     </div>
 
     @if (_loading)
