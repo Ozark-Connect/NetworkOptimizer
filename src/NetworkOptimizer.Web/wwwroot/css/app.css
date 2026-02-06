@@ -719,7 +719,14 @@ a.stat-card-link:active {
     align-items: center;
     gap: 0.6rem;
     margin-bottom: 0.75rem;
+}
+
+.device-header {
     margin-left: -0.2rem;
+}
+
+.ap-header {
+    margin-left: -0.3rem;
 }
 
 .device-icon {
