@@ -1879,6 +1879,11 @@ public class FirewallRuleAnalyzer
         }
 
         // For non-WEB allow rules:
+        // WEB-targeting block rules only affect domain-name-based traffic,
+        // they don't eclipse port-based allow rules
+        if (string.Equals(blockRule.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         // Block rule with destination=ANY blocks everything
         if (string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
             return true;
