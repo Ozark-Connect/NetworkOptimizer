@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Analyzers;
@@ -2579,6 +2581,154 @@ public class FirewallRuleAnalyzerTests
         var issues = _analyzer.DetectPermissiveRules(rules);
 
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnyAnyAllWithSourcePort_NotFlaggedAsPermissive()
+    {
+        // A rule with source=ANY, dest=ANY, protocol=all but with specific source port
+        // should NOT be flagged as PERMISSIVE_RULE (source port narrows the rule)
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "rule-source-port",
+                Name = "Allow from Ephemeral Ports",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "ANY",
+                SourcePort = "1024-65535"
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceInCustomZone_NotFlaggedAsBroad()
+    {
+        // A rule with ANY source scoped to a custom zone (default_zone=false) should NOT be
+        // flagged as broad, since custom zones are user-created and intentionally scoped
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "custom-zone-rule", Name = "Custom Zone Allow", Action = "ACCEPT",
+                Enabled = true, Index = 1,
+                SourceMatchingTarget = "ANY", SourceZoneId = "custom-zone-1",
+                DestinationMatchingTarget = "NETWORK"
+            }
+        };
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Net1", NetworkPurpose.Corporate, id: "net1", firewallZoneId: "custom-zone-1"),
+            CreateNetwork("Net2", NetworkPurpose.Corporate, id: "net2", firewallZoneId: "custom-zone-1"),
+            CreateNetwork("Net3", NetworkPurpose.Corporate, id: "net3", firewallZoneId: "custom-zone-1"),
+            CreateNetwork("Net4", NetworkPurpose.Corporate, id: "net4", firewallZoneId: "custom-zone-1"),
+            CreateNetwork("Net5", NetworkPurpose.Corporate, id: "net5", firewallZoneId: "custom-zone-1"),
+            CreateNetwork("Net6", NetworkPurpose.Corporate, id: "net6", firewallZoneId: "custom-zone-1")
+        };
+        var zoneLookup = new FirewallZoneLookup(new[]
+        {
+            new UniFiFirewallZone { Id = "custom-zone-1", Name = "Test", ZoneKey = "", IsDefaultZone = false }
+        });
+
+        var issues = _analyzer.DetectPermissiveRules(rules, networks, zoneLookup);
+
+        // Even with 6 networks, custom zone suppresses BROAD_RULE
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceInDefaultZoneWithFewNetworks_NotFlaggedAsBroad()
+    {
+        // A rule with ANY source scoped to a default zone with < 5 networks should NOT be
+        // flagged as broad, since the zone already restricts scope sufficiently
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "small-zone-rule", Name = "Small Zone Allow", Action = "ACCEPT",
+                Enabled = true, Index = 1,
+                SourceMatchingTarget = "ANY", SourceZoneId = "internal-zone-1",
+                DestinationMatchingTarget = "NETWORK"
+            }
+        };
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Net1", NetworkPurpose.Corporate, id: "net1", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net2", NetworkPurpose.Corporate, id: "net2", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net3", NetworkPurpose.Corporate, id: "net3", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net4", NetworkPurpose.Corporate, id: "net4", firewallZoneId: "internal-zone-1")
+        };
+        var zoneLookup = new FirewallZoneLookup(new[]
+        {
+            new UniFiFirewallZone { Id = "internal-zone-1", Name = "Internal", ZoneKey = "internal", IsDefaultZone = true }
+        });
+
+        var issues = _analyzer.DetectPermissiveRules(rules, networks, zoneLookup);
+
+        // 4 networks < 5 threshold, so suppressed
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceInDefaultZoneWithManyNetworks_FlaggedAsBroad()
+    {
+        // A rule with ANY source scoped to a default zone with >= 5 networks SHOULD be flagged
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "large-zone-rule", Name = "Large Zone Allow", Action = "ACCEPT",
+                Enabled = true, Index = 1,
+                SourceMatchingTarget = "ANY", SourceZoneId = "internal-zone-1",
+                DestinationMatchingTarget = "NETWORK"
+            }
+        };
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Net1", NetworkPurpose.Corporate, id: "net1", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net2", NetworkPurpose.Corporate, id: "net2", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net3", NetworkPurpose.Corporate, id: "net3", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net4", NetworkPurpose.Corporate, id: "net4", firewallZoneId: "internal-zone-1"),
+            CreateNetwork("Net5", NetworkPurpose.Corporate, id: "net5", firewallZoneId: "internal-zone-1")
+        };
+        var zoneLookup = new FirewallZoneLookup(new[]
+        {
+            new UniFiFirewallZone { Id = "internal-zone-1", Name = "Internal", ZoneKey = "internal", IsDefaultZone = true }
+        });
+
+        var issues = _analyzer.DetectPermissiveRules(rules, networks, zoneLookup);
+
+        // 5 networks >= 5 threshold, so flagged
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be(IssueTypes.BroadRule);
+    }
+
+    [Fact]
+    public void DetectPermissiveRules_AnySourceNoZone_StillFlaggedAsBroad()
+    {
+        // A rule with ANY source and no zone scoping should still be flagged
+        var rules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = "no-zone-rule", Name = "No Zone Allow", Action = "ACCEPT",
+                Enabled = true, Index = 1,
+                SourceMatchingTarget = "ANY",
+                DestinationMatchingTarget = "NETWORK"
+            }
+        };
+
+        var issues = _analyzer.DetectPermissiveRules(rules);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be(IssueTypes.BroadRule);
     }
 
     [Fact]

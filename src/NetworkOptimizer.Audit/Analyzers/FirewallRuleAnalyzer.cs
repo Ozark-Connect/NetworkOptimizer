@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -213,7 +214,7 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Detect overly permissive rules (any/any)
     /// </summary>
-    public List<AuditIssue> DetectPermissiveRules(List<FirewallRule> rules)
+    public List<AuditIssue> DetectPermissiveRules(List<FirewallRule> rules, List<NetworkInfo>? networks = null, FirewallZoneLookup? zoneLookup = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -273,6 +274,24 @@ public class FirewallRuleAnalyzer
                 // If ANY source but has specific destination ports or web domains, it's not truly "broad"
                 if (isAnySource && (hasSpecificPorts || hasWebDomains))
                     continue;
+
+                // If ANY source is scoped to a custom zone or a zone with fewer than 5 networks,
+                // it's effectively narrow - the zone already restricts the source sufficiently.
+                // Custom zones (default_zone=false) are user-created and intentionally scoped.
+                if (isAnySource && !string.IsNullOrEmpty(rule.SourceZoneId))
+                {
+                    var sourceZone = zoneLookup?.GetZoneById(rule.SourceZoneId);
+                    if (sourceZone != null && !sourceZone.IsDefaultZone)
+                        continue;
+
+                    if (networks != null)
+                    {
+                        var networksInZone = networks.Count(n =>
+                            string.Equals(n.FirewallZoneId, rule.SourceZoneId, StringComparison.OrdinalIgnoreCase));
+                        if (networksInZone < 5)
+                            continue;
+                    }
+                }
 
                 var directionDesc = isAnySource ? "from any source" : "to any destination";
                 issues.Add(new AuditIssue
@@ -1153,14 +1172,14 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Run all firewall analyses
     /// </summary>
-    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
+    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null, FirewallZoneLookup? zoneLookup = null)
     {
         var issues = new List<AuditIssue>();
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
         issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId, networks));
-        issues.AddRange(DetectPermissiveRules(rules));
+        issues.AddRange(DetectPermissiveRules(rules, networks, zoneLookup));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
@@ -1898,7 +1917,7 @@ public class FirewallRuleAnalyzer
             return false;
 
         // 3. Block must have no port restriction - specific ports may not fully cover
-        if (!string.IsNullOrEmpty(blockRule.DestinationPort))
+        if (!string.IsNullOrEmpty(blockRule.DestinationPort) || !string.IsNullOrEmpty(blockRule.SourcePort))
             return false;
 
         return true;
