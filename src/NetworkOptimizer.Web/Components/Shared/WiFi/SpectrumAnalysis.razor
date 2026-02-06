@@ -1138,8 +1138,8 @@
 
         foreach (var radio in ownApRadios)
         {
-            // Assume own APs are heard at ~-50 dBm (strong nearby neighbor)
-            const int assumedSignal = -50;
+            // Assume own APs are heard at ~-65 dBm (typical AP spacing)
+            const int assumedSignal = -65;
             var weight = Math.Max(0.1, Math.Min(1.0, (assumedSignal + 90) / 40.0)); // = 1.0
             interferenceSources.Add((
                 Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
