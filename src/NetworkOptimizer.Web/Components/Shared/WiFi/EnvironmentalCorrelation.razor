@@ -8,6 +8,11 @@
     <div class="env-header">
         <h3>Environmental Correlation</h3>
         <div class="env-controls">
+            <div class="filter-tabs band-tabs">
+                <button class="tab band-tab band-2ghz @(_selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
+                <button class="tab band-tab band-5ghz @(_selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
+                <button class="tab band-tab band-6ghz @(_selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
+            </div>
             <select class="time-range-select" @bind="_selectedTimeRange" @bind:after="OnTimeRangeChanged">
                 <option value="1d">Last 24 Hours</option>
                 <option value="7d">Last 7 Days</option>
@@ -215,6 +220,7 @@
 @code {
     private bool _loading = true;
     private string _selectedTimeRange = "1d";
+    private RadioBand _selectedBand = RadioBand.Band5GHz;
     private List<SiteWiFiMetrics> _metrics = new();
 
     // Analysis results
@@ -262,6 +268,16 @@
         await LoadDataAsync();
     }
 
+    private void SetBandFilter(RadioBand band)
+    {
+        _selectedBand = band;
+        AnalyzeTimeOfDay();
+        BuildHeatmap();
+        DetectPatterns();
+        AnalyzeBands();
+        GenerateRecommendations();
+    }
+
     private (DateTimeOffset start, DateTimeOffset end, MetricGranularity granularity) GetTimeRange()
     {
         var end = DateTimeOffset.UtcNow;
@@ -296,9 +312,9 @@
 
             if (periodMetrics.Any())
             {
-                period.AvgInterference = (int)periodMetrics.Average(m => GetAvgInterference(m));
-                period.AvgUtilization = (int)periodMetrics.Average(m => GetAvgUtilization(m));
-                period.AvgRetries = periodMetrics.Average(m => GetAvgRetries(m));
+                period.AvgInterference = (int)periodMetrics.Average(m => GetInterference(m));
+                period.AvgUtilization = (int)periodMetrics.Average(m => GetUtilization(m));
+                period.AvgRetries = periodMetrics.Average(m => GetRetries(m));
             }
         }
 
@@ -332,7 +348,7 @@
                 if (cell != null)
                 {
                     cell.Count++;
-                    cell.Total += GetAvgInterference(metric);
+                    cell.Total += GetInterference(metric);
                 }
             }
         }
@@ -387,7 +403,7 @@
         }
 
         // Consistent high interference
-        var avgInterference = _metrics.Any() ? _metrics.Average(m => GetAvgInterference(m)) : 0;
+        var avgInterference = _metrics.Any() ? _metrics.Average(m => GetInterference(m)) : 0;
         if (avgInterference > 40)
         {
             _patterns.Add(new DetectedPattern
@@ -417,44 +433,47 @@
 
     private void AnalyzeBands()
     {
-        _bandStats = new List<BandEnvironmentStats>
+        var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+        _bandStats = new List<BandEnvironmentStats>();
+
+        foreach (var band in bands)
         {
-            new() { Band = RadioBand.Band2_4GHz },
-            new() { Band = RadioBand.Band5GHz },
-            new() { Band = RadioBand.Band6GHz }
-        };
+            var stat = new BandEnvironmentStats { Band = band };
+            var metricsWithBand = _metrics.Where(m => m.ByBand.ContainsKey(band)).ToList();
 
-        // For now, use overall metrics (band-specific would require per-band API data)
-        if (_metrics.Any())
-        {
-            var avg = (int)_metrics.Average(m => GetAvgInterference(m));
-            var peak = (int)_metrics.Max(m => GetAvgInterference(m));
-            var peakMetric = _metrics.OrderByDescending(m => GetAvgInterference(m)).FirstOrDefault();
-            var peakTime = peakMetric?.Timestamp.ToLocalTime().ToString("ddd h tt");
+            if (metricsWithBand.Any())
+            {
+                var interferences = metricsWithBand
+                    .Select(m => m.ByBand[band].Interference)
+                    .Where(v => v.HasValue)
+                    .Select(v => v!.Value)
+                    .ToList();
 
-            var avgUtil = (int)_metrics.Average(m => GetAvgUtilization(m));
-            var peakUtil = (int)_metrics.Max(m => GetAvgUtilization(m));
+                if (interferences.Any())
+                {
+                    stat.AvgInterference = (int)interferences.Average();
+                    stat.PeakInterference = (int)interferences.Max();
+                }
 
-            // 2.4 GHz typically has higher interference
-            _bandStats[0].AvgInterference = Math.Min(100, avg + 15);
-            _bandStats[0].PeakInterference = Math.Min(100, peak + 15);
-            _bandStats[0].AvgUtilization = Math.Min(100, avgUtil + 10);
-            _bandStats[0].PeakUtilization = Math.Min(100, peakUtil + 10);
-            _bandStats[0].PeakTime = peakTime;
+                var utilizations = metricsWithBand
+                    .Select(m => m.ByBand[band].ChannelUtilization)
+                    .Where(v => v.HasValue)
+                    .Select(v => v!.Value)
+                    .ToList();
 
-            // 5 GHz typically has moderate interference
-            _bandStats[1].AvgInterference = avg;
-            _bandStats[1].PeakInterference = peak;
-            _bandStats[1].AvgUtilization = avgUtil;
-            _bandStats[1].PeakUtilization = peakUtil;
-            _bandStats[1].PeakTime = peakTime;
+                if (utilizations.Any())
+                {
+                    stat.AvgUtilization = (int)utilizations.Average();
+                    stat.PeakUtilization = (int)utilizations.Max();
+                }
 
-            // 6 GHz typically has lowest interference
-            _bandStats[2].AvgInterference = Math.Max(0, avg - 20);
-            _bandStats[2].PeakInterference = Math.Max(0, peak - 20);
-            _bandStats[2].AvgUtilization = Math.Max(0, avgUtil - 15);
-            _bandStats[2].PeakUtilization = Math.Max(0, peakUtil - 15);
-            _bandStats[2].PeakTime = peakTime;
+                var peakMetric = metricsWithBand
+                    .OrderByDescending(m => m.ByBand[band].Interference ?? 0)
+                    .FirstOrDefault();
+                stat.PeakTime = peakMetric?.Timestamp.ToLocalTime().ToString("ddd h tt");
+            }
+
+            _bandStats.Add(stat);
         }
     }
 
@@ -476,7 +495,8 @@
         }
 
         // 2.4 GHz congestion
-        if (_bandStats.Any() && _bandStats[0].AvgInterference > 50)
+        var band24 = _bandStats.FirstOrDefault(b => b.Band == RadioBand.Band2_4GHz);
+        if (band24 != null && band24.AvgInterference > 50)
         {
             _recommendations.Add(new HealthIssue
             {
@@ -499,7 +519,8 @@
         }
 
         // Suggest 6 GHz if available
-        if (_bandStats.Any() && _bandStats[2].AvgInterference < 20 && _bandStats[0].AvgInterference > 30)
+        var band6 = _bandStats.FirstOrDefault(b => b.Band == RadioBand.Band6GHz);
+        if (band24 != null && band6 != null && band6.AvgInterference < 20 && band24.AvgInterference > 30)
         {
             _recommendations.Add(new HealthIssue
             {
@@ -519,26 +540,26 @@
         return $"{hour - 12}p";
     }
 
-    // Helper methods to aggregate metrics from ByBand dictionary
-    private double GetAvgInterference(SiteWiFiMetrics m)
+    // Helper methods to get metrics for the selected band
+    private double GetInterference(SiteWiFiMetrics m)
     {
-        if (!m.ByBand.Any()) return 0;
-        var values = m.ByBand.Values.Where(b => b.Interference.HasValue).ToList();
-        return values.Any() ? values.Average(b => b.Interference!.Value) : 0;
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.Interference.HasValue)
+            return band.Interference.Value;
+        return 0;
     }
 
-    private double GetAvgUtilization(SiteWiFiMetrics m)
+    private double GetUtilization(SiteWiFiMetrics m)
     {
-        if (!m.ByBand.Any()) return 0;
-        var values = m.ByBand.Values.Where(b => b.ChannelUtilization.HasValue).ToList();
-        return values.Any() ? values.Average(b => b.ChannelUtilization!.Value) : 0;
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.ChannelUtilization.HasValue)
+            return band.ChannelUtilization.Value;
+        return 0;
     }
 
-    private double GetAvgRetries(SiteWiFiMetrics m)
+    private double GetRetries(SiteWiFiMetrics m)
     {
-        if (!m.ByBand.Any()) return 0;
-        var values = m.ByBand.Values.Where(b => b.TxRetryPct.HasValue).ToList();
-        return values.Any() ? values.Average(b => b.TxRetryPct!.Value) : 0;
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.TxRetryPct.HasValue)
+            return band.TxRetryPct.Value;
+        return 0;
     }
 
     private string GetPeriodQualityClass(TimeOfDayStats period)
