@@ -275,7 +275,6 @@
         AnalyzeTimeOfDay();
         BuildHeatmap();
         DetectPatterns();
-        AnalyzeBands();
         GenerateRecommendations();
     }
 
@@ -286,8 +285,8 @@
         {
             "1d" => (end.AddDays(-1), end, MetricGranularity.FiveMinutes),
             "7d" => (end.AddDays(-7), end, MetricGranularity.Hourly),
-            "30d" => (end.AddDays(-30), end, MetricGranularity.Daily),
-            _ => (end.AddDays(-1), end, MetricGranularity.FiveMinutes)
+            // "30d" => (end.AddDays(-30), end, MetricGranularity.Daily),
+            _ => (end.AddDays(-7), end, MetricGranularity.Hourly)
         };
     }
 
@@ -384,12 +383,18 @@
             });
         }
 
-        // High weekend usage
-        var weekendDays = _heatmapData.Where(d => d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday);
-        var weekdayDays = _heatmapData.Where(d => d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday);
+        // High weekend usage (only consider cells with data to avoid skewing from empty days)
+        var weekendCells = _heatmapData
+            .Where(d => d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday)
+            .SelectMany(d => d.Hours).Where(h => h.Count > 0).ToList();
+        var weekdayCells = _heatmapData
+            .Where(d => d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday)
+            .SelectMany(d => d.Hours).Where(h => h.Count > 0).ToList();
 
-        var weekendAvg = weekendDays.SelectMany(d => d.Hours).Average(h => h.Value);
-        var weekdayAvg = weekdayDays.SelectMany(d => d.Hours).Average(h => h.Value);
+        if (weekendCells.Count == 0 || weekdayCells.Count == 0) return;
+
+        var weekendAvg = weekendCells.Average(h => h.Value);
+        var weekdayAvg = weekdayCells.Average(h => h.Value);
 
         if (weekendAvg > weekdayAvg + 10)
         {
@@ -619,12 +624,12 @@
     }
 
     private static (int r, int g, int b) LerpColor(
-        (int r, int g, int b) a, (int r, int g, int b) b2, double t)
+        (int r, int g, int b) from, (int r, int g, int b) to, double t)
     {
         t = Math.Clamp(t, 0, 1);
-        return ((int)(a.r + (b2.r - a.r) * t),
-                (int)(a.g + (b2.g - a.g) * t),
-                (int)(a.b + (b2.b - a.b) * t));
+        return ((int)(from.r + (to.r - from.r) * t),
+                (int)(from.g + (to.g - from.g) * t),
+                (int)(from.b + (to.b - from.b) * t));
     }
 
     private string GetBandCssClass(RadioBand band) => band switch

@@ -154,7 +154,7 @@
             </div>
             <div class="card-body">
                 <div class="channel-heatmap">
-                    @foreach (var channelGroup in GetChannelDensity())
+                    @foreach (var channelGroup in _channelDensityData)
                     {
                         <div class="channel-bar-container">
                             <div class="channel-label @(channelGroup.IsSelectedApChannel ? "selected-ap-channel" : channelGroup.IsYourChannel ? "your-channel" : "") @(channelGroup.IsDfs ? "dfs-channel" : "")">
@@ -894,6 +894,7 @@
 
     // Flattened view of all neighbors with their source AP info
     private List<NeighborWithAp> allNeighbors = new();
+    private List<ChannelDensity> _channelDensityData = new();
     private double _maxInterferenceScore;
 
     protected override async Task OnInitializedAsync()
@@ -964,6 +965,7 @@
                 .ToList();
 
             Logger.LogInformation("Spectrum: Found {NeighborCount} unique neighboring networks (deduplicated by BSSID)", allNeighbors.Count);
+            UpdateChannelDensity();
         }
         catch (Exception ex)
         {
@@ -1018,6 +1020,7 @@
                     return strongest;
                 })
                 .ToList();
+            UpdateChannelDensity();
         }
         catch (Exception ex)
         {
@@ -1040,11 +1043,13 @@
     {
         selectedBand = band;
         _currentPage = 1;
+        UpdateChannelDensity();
     }
 
     private void OnApFilterChanged()
     {
         _currentPage = 1;
+        UpdateChannelDensity();
     }
 
     private string GetSelectedApLabel()
@@ -1126,7 +1131,7 @@
         return cleanest > 0 ? cleanest.ToString() : "-";
     }
 
-    private IEnumerable<ChannelDensity> GetChannelDensity()
+    private void UpdateChannelDensity()
     {
         // Get your APs and their channels for the selected band
         var yourApsByChannel = accessPoints
@@ -1208,9 +1213,10 @@
             });
         }
 
-        return neighborDensity
+        _channelDensityData = neighborDensity
             .OrderBy(d => d.Band)
-            .ThenBy(d => d.Channel);
+            .ThenBy(d => d.Channel)
+            .ToList();
     }
 
     private string GetDensityClass(double interferenceScore)
