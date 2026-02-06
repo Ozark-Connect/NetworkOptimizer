@@ -699,6 +699,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     Band = RadioBandExtensions.FromUniFiCode(radioStats.Radio),
                     Channel = radioStats.Channel,
                     ChannelWidth = radioConfig?.ChannelWidth,
+                    ExtChannel = radioStats.ExtChannel,
                     TxPower = radioStats.TxPower,
                     TxPowerMode = radioConfig?.TxPowerMode,
                     AntennaGain = radioConfig?.AntennaGain,

@@ -68,6 +68,9 @@ public class RadioSnapshot
     /// <summary>Channel width in MHz (20, 40, 80, 160)</summary>
     public int? ChannelWidth { get; set; }
 
+    /// <summary>Extension channel number for 40 MHz+ bonding (from radio_table_stats)</summary>
+    public int? ExtChannel { get; set; }
+
     /// <summary>Current TX power in dBm</summary>
     public int? TxPower { get; set; }
 

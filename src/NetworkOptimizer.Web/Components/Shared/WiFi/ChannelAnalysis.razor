@@ -595,7 +595,7 @@
             var width = radio.ChannelWidth!.Value;
             var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
 
-            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width);
+            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel);
             var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
 
             // De-duplicate by primary channel - same primary = same group
@@ -663,7 +663,7 @@
         }
     }
 
-    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width)
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null)
     {
         var channels = new List<int>();
 
@@ -671,14 +671,39 @@
         {
             // 2.4 GHz: 5 MHz channel spacing with ~22 MHz signal width means every
             // channel overlaps its neighbors. Even 20 MHz spans ±2 channels.
-            // 40 MHz bonds primary + secondary (4 apart) with ±2 spectral overlap on each edge.
-            // 20 MHz: halfSpan=2 (e.g. ch6 → 4-8)
-            // 40 MHz: halfSpan=6 (e.g. ch1 HT40+ bonds ch5, overlap → 1-7)
-            int halfSpan = width >= 40 ? 6 : 2;
+            // For 40 MHz, use the extension channel to determine exact bonded range,
+            // then add ±2 spectral overlap on each edge.
             var validChannels = GetChannelsForBand(band);
             int minCh = validChannels.First();
             int maxCh = validChannels.Last();
-            for (int ch = Math.Max(minCh, primaryChannel - halfSpan); ch <= Math.Min(maxCh, primaryChannel + halfSpan); ch++)
+
+            int spanLow, spanHigh;
+            if (width >= 40 && extChannel.HasValue)
+            {
+                // Exact span: bonded pair (primary + extension) with ±2 spectral overlap
+                int lo = Math.Min(primaryChannel, extChannel.Value);
+                int hi = Math.Max(primaryChannel, extChannel.Value);
+                spanLow = lo - 2;
+                spanHigh = hi + 2;
+            }
+            else if (width >= 40)
+            {
+                // No extension channel info - assume standard HT40 direction
+                // Lower channels (1-7): HT40+ (extension above), higher: HT40- (extension below)
+                int ext = primaryChannel <= 7 ? primaryChannel + 4 : primaryChannel - 4;
+                int lo = Math.Min(primaryChannel, ext);
+                int hi = Math.Max(primaryChannel, ext);
+                spanLow = lo - 2;
+                spanHigh = hi + 2;
+            }
+            else
+            {
+                // 20 MHz: ±2 spectral overlap (e.g. ch6 → 4-8)
+                spanLow = primaryChannel - 2;
+                spanHigh = primaryChannel + 2;
+            }
+
+            for (int ch = Math.Max(minCh, spanLow); ch <= Math.Min(maxCh, spanHigh); ch++)
             {
                 if (validChannels.Contains(ch))
                     channels.Add(ch);
