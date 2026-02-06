@@ -355,9 +355,11 @@
 
     private void CalculateStats()
     {
-        _totalClients = _clients.Count;
+        // Filter to online clients only
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
 
-        var clientsWithSignal = _clients.Where(c => c.Signal.HasValue).ToList();
+        var clientsWithSignal = onlineClients.Where(c => c.Signal.HasValue).ToList();
         if (clientsWithSignal.Any())
         {
             _avgSignal = (int)clientsWithSignal.Average(c => c.Signal!.Value);
@@ -367,7 +369,7 @@
             _avgSignal = null;
         }
 
-        _weakSignalClients = _clients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+        _weakSignalClients = onlineClients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
 
         // Calculate coverage score (0-100) based on signal distribution
         if (clientsWithSignal.Any())
@@ -417,10 +419,11 @@
     private void AnalyzeCoverage()
     {
         _apCoverageStats.Clear();
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
 
         foreach (var ap in _accessPoints)
         {
-            var apClients = _clients.Where(c => c.ApMac == ap.Mac).ToList();
+            var apClients = onlineClients.Where(c => c.ApMac == ap.Mac).ToList();
             var clientsWithSignal = apClients.Where(c => c.Signal.HasValue).ToList();
 
             var stats = new ApCoverageStats

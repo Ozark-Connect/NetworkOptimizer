@@ -9792,10 +9792,20 @@ select.form-control {
     font-weight: 600;
 }
 
-.gen-badge.gen-7 { background: rgba(99, 102, 241, 0.15); color: #6366f1; }
+.gen-badge.gen-7 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
 .gen-badge.gen-6 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.gen-badge.gen-6e {
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(168, 85, 247, 0.15),
+        rgba(168, 85, 247, 0.15) 3px,
+        rgba(59, 130, 246, 0.15) 3px,
+        rgba(59, 130, 246, 0.15) 6px
+    );
+    color: #a855f7;
+}
 .gen-badge.gen-5 { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
-.gen-badge.gen-4 { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.gen-badge.gen-4 { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
 .gen-badge.gen-legacy { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
 
 .gen-standard {
@@ -9809,6 +9819,8 @@ select.form-control {
     background: var(--bg-tertiary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
 }
 
 .wifi-gen-bar {
@@ -9817,12 +9829,9 @@ select.form-control {
     transition: width 0.3s ease;
 }
 
-.wifi-gen-bar.gen-7 { background: #6366f1; }
-.wifi-gen-bar.gen-6, .gen-bar.gen-6 { background: #a855f7; }
 .wifi-gen-bar.gen-5, .gen-bar.gen-5 { background: #3b82f6; }
-.wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #22c55e; }
+.wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #fbbf24; }
 .wifi-gen-bar.gen-legacy, .gen-bar.gen-legacy { background: #6b7280; }
-.gen-bar.gen-7 { background: #a855f7; }
 
 .wifi-gen-count {
     width: 40px;
@@ -10202,6 +10211,8 @@ select.form-control {
     background: var(--bg-tertiary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
 }
 
 .gen-bar {
@@ -10209,6 +10220,35 @@ select.form-control {
     border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
 }
+
+/* Band-segmented bars for Wi-Fi 6/7 */
+.gen-bar-segment {
+    height: 100%;
+    display: inline-block;
+    vertical-align: top;
+    transition: width 0.3s ease;
+}
+
+.gen-bar-segment:first-child {
+    border-radius: 0;
+}
+
+.gen-bar-segment:last-child {
+    border-radius: 0 4px 4px 0;
+}
+
+.gen-bar-segment.band-2ghz {
+    background: #fbbf24;
+}
+
+.gen-bar-segment.band-5ghz {
+    background: #3b82f6;
+}
+
+.gen-bar-segment.band-6ghz {
+    background: #a855f7;
+}
+
 
 .gen-airtime-row .gen-stats {
     width: 100px;

@@ -127,13 +127,34 @@
                 {
                     var widthPct = _totalClients > 0 ? (double)gen.ClientCount / _totalClients * 100 : 0;
                     var airtimeFactor = GetAirtimeFactor(gen.Generation);
+                    var genLabel = gen.Generation == 6 && gen.Count6GHz > 0 ? "Wi-Fi 6/6E" : $"Wi-Fi {gen.Generation}";
                     <div class="gen-airtime-row">
                         <div class="gen-label">
-                            <span class="gen-badge @GetGenCssClass(gen.Generation)">Wi-Fi @gen.Generation</span>
+                            <span class="gen-badge @GetGenBadgeCssClass(gen)">@genLabel</span>
                             <span class="gen-factor">@airtimeFactor relative airtime</span>
                         </div>
                         <div class="gen-bar-container">
-                            <div class="gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                            @if (gen.Generation >= 6 && gen.ClientCount > 0)
+                            {
+                                @* Band-segmented bar for Wi-Fi 6+ *@
+                                var barTotal = gen.ClientCount;
+                                @if (gen.Generation == 6 && gen.Count2_4GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-2ghz" style="width: @(widthPct * gen.Count2_4GHz / barTotal)%" data-tooltip="2.4 GHz: @gen.Count2_4GHz"></div>
+                                }
+                                @if (gen.Count5GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-5ghz" style="width: @(widthPct * gen.Count5GHz / barTotal)%" data-tooltip="5 GHz: @gen.Count5GHz"></div>
+                                }
+                                @if (gen.Count6GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-6ghz" style="width: @(widthPct * gen.Count6GHz / barTotal)%" data-tooltip="6 GHz: @gen.Count6GHz"></div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                            }
                         </div>
                         <div class="gen-stats">
                             <span class="gen-count">@gen.ClientCount</span>
@@ -334,7 +355,9 @@
 
     private void AnalyzeAirtime()
     {
-        _totalClients = _clients.Count;
+        // Filter to online clients only for airtime analysis
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
 
         // Calculate average utilization across all radios
         var allRadios = _accessPoints.SelectMany(ap => ap.Radios)
@@ -343,23 +366,26 @@
         _avgUtilization = allRadios.Any() ? (int)allRadios.Average(r => r.ChannelUtilization!.Value) : 0;
 
         // Count legacy clients (Wi-Fi 4 or lower, or 2.4GHz only)
-        _legacyClients = _clients.Count(c =>
+        _legacyClients = onlineClients.Count(c =>
             (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
             (c.Band == RadioBand.Band2_4GHz && !c.Capabilities.Supports5GHz));
 
-        // Build Wi-Fi generation stats
-        _wifiGenerationStats = _clients
+        // Build Wi-Fi generation stats with band breakdown
+        _wifiGenerationStats = onlineClients
             .GroupBy(c => c.WifiGeneration ?? 4)
             .Select(g => new WifiGenStats
             {
                 Generation = g.Key,
-                ClientCount = g.Count()
+                ClientCount = g.Count(),
+                Count2_4GHz = g.Count(c => c.Band == RadioBand.Band2_4GHz),
+                Count5GHz = g.Count(c => c.Band == RadioBand.Band5GHz),
+                Count6GHz = g.Count(c => c.Band == RadioBand.Band6GHz)
             })
             .ToList();
 
         // Identify high airtime clients
         // Criteria: legacy protocol, weak signal, or on 2.4GHz with weak signal
-        _highAirtimeClientsList = _clients
+        _highAirtimeClientsList = onlineClients
             .Where(c =>
                 (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
                 (c.Signal.HasValue && c.Signal < -75) ||
@@ -472,6 +498,12 @@
         _ => "gen-legacy"
     };
 
+    private string GetGenBadgeCssClass(WifiGenStats gen)
+    {
+        if (gen.Generation == 6 && gen.Count6GHz > 0) return "gen-6e";
+        return GetGenCssClass(gen.Generation);
+    }
+
     private string GetSignalClass(int? signal)
     {
         if (!signal.HasValue) return "";
@@ -488,5 +520,8 @@
     {
         public int Generation { get; set; }
         public int ClientCount { get; set; }
+        public int Count2_4GHz { get; set; }
+        public int Count5GHz { get; set; }
+        public int Count6GHz { get; set; }
     }
 }

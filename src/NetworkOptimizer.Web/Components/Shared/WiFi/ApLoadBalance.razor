@@ -272,7 +272,9 @@
 
     private void CalculateStats()
     {
-        _totalClients = _clients.Count;
+        // Filter to online clients only
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
         _avgClientsPerAp = _accessPoints.Count > 0 ? (double)_totalClients / _accessPoints.Count : 0;
 
         // Calculate load imbalance (coefficient of variation, capped at 100%)
