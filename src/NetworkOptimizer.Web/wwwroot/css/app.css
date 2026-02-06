@@ -10202,12 +10202,52 @@ select.form-control {
     background: var(--bg-tertiary);
     border-radius: 0 4px 4px 0;
     overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
 }
 
 .gen-bar {
     height: 100%;
     border-radius: 0 4px 4px 0;
     transition: width 0.3s ease;
+}
+
+/* Band-segmented bars for Wi-Fi 6/7 */
+.gen-bar-segment {
+    height: 100%;
+    display: inline-block;
+    vertical-align: top;
+    transition: width 0.3s ease;
+}
+
+.gen-bar-segment:first-child {
+    border-radius: 0;
+}
+
+.gen-bar-segment:last-child {
+    border-radius: 0 4px 4px 0;
+}
+
+.gen-bar-segment.band-2ghz {
+    background: #fbbf24;
+}
+
+.gen-bar-segment.band-5ghz {
+    background: #3b82f6;
+}
+
+.gen-bar-segment.band-6ghz {
+    background: #a855f7;
+}
+
+.gen-bar-segment.band-6ghz-wifi6 {
+    background: repeating-linear-gradient(
+        -45deg,
+        #a855f7,
+        #a855f7 3px,
+        #3b82f6 3px,
+        #3b82f6 6px
+    );
 }
 
 .gen-airtime-row .gen-stats {
