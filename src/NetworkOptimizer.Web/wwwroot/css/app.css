@@ -10662,37 +10662,26 @@ select.form-control {
 }
 
 .heatmap-cell.heat-none { background: var(--bg-tertiary); }
-.heatmap-cell.heat-low { background: #22c55e; }
-.heatmap-cell.heat-medium { background: #eab308; }
-.heatmap-cell.heat-high { background: #f97316; }
-.heatmap-cell.heat-critical { background: #ef4444; }
 
 .heatmap-legend {
     display: flex;
-    gap: 1rem;
+    gap: 0.5rem;
+    align-items: center;
     justify-content: center;
     margin-top: 1rem;
-    flex-wrap: wrap;
 }
 
-.heatmap-legend .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+.heatmap-legend .legend-label {
     font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
-.heat-color {
-    width: 16px;
-    height: 16px;
+.legend-gradient {
+    width: 120px;
+    height: 10px;
     border-radius: 3px;
+    background: linear-gradient(to right, #22c55e, #eab308 33%, #f97316 66%, #ef4444);
 }
-
-.heat-color.heat-low { background: #22c55e; }
-.heat-color.heat-medium { background: #eab308; }
-.heat-color.heat-high { background: #f97316; }
-.heat-color.heat-critical { background: #ef4444; }
 
 /* Detected Patterns */
 .patterns-list {

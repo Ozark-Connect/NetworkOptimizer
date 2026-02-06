@@ -107,7 +107,8 @@
                         <div class="heatmap-label">@day.DayName</div>
                         @foreach (var cell in day.Hours)
                         {
-                            <div class="heatmap-cell @GetHeatmapCellClass(cell)"
+                            <div class="heatmap-cell @(cell.Count == 0 ? "heat-none" : "")"
+                                 style="@GetHeatmapCellStyle(cell)"
                                  data-tooltip="@(cell.Count > 0 ? $"{day.DayName} {FormatHour(cell.Hour)}: {cell.Value}% interference" : $"{day.DayName} {FormatHour(cell.Hour)}: No data")"></div>
                         }
                     </div>
@@ -115,10 +116,9 @@
             </div>
 
             <div class="heatmap-legend">
-                <span class="legend-item"><span class="heat-color heat-low"></span>Low (&lt;20%)</span>
-                <span class="legend-item"><span class="heat-color heat-medium"></span>Medium (20-40%)</span>
-                <span class="legend-item"><span class="heat-color heat-high"></span>High (40-60%)</span>
-                <span class="legend-item"><span class="heat-color heat-critical"></span>Critical (&gt;60%)</span>
+                <span class="legend-label">Low</span>
+                <div class="legend-gradient"></div>
+                <span class="legend-label">Critical</span>
             </div>
         </div>
 
@@ -590,15 +590,41 @@
         _ => "retry-low"
     };
 
-    private string GetHeatmapCellClass(HeatmapCell cell) => cell.Count == 0
-        ? "heat-none"
-        : cell.Value switch
+    private string GetHeatmapCellStyle(HeatmapCell cell)
+    {
+        if (cell.Count == 0) return "";
+        var v = Math.Clamp(cell.Value, 0, 100);
+        // Interpolate through legend colors at their breakpoints:
+        // 0% = #22c55e (green), 20% = #eab308 (yellow),
+        // 40% = #f97316 (orange), 60%+ = #ef4444 (red)
+        (int r, int g, int b) color;
+        if (v <= 20)
         {
-            > 60 => "heat-critical",
-            > 40 => "heat-high",
-            > 20 => "heat-medium",
-            _ => "heat-low"
-        };
+            color = LerpColor((0x22, 0xc5, 0x5e), (0xea, 0xb3, 0x08), v / 20.0);
+        }
+        else if (v <= 40)
+        {
+            color = LerpColor((0xea, 0xb3, 0x08), (0xf9, 0x73, 0x16), (v - 20) / 20.0);
+        }
+        else if (v <= 60)
+        {
+            color = LerpColor((0xf9, 0x73, 0x16), (0xef, 0x44, 0x44), (v - 40) / 20.0);
+        }
+        else
+        {
+            color = (0xef, 0x44, 0x44);
+        }
+        return $"background: #{color.r:x2}{color.g:x2}{color.b:x2};";
+    }
+
+    private static (int r, int g, int b) LerpColor(
+        (int r, int g, int b) a, (int r, int g, int b) b2, double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        return ((int)(a.r + (b2.r - a.r) * t),
+                (int)(a.g + (b2.g - a.g) * t),
+                (int)(a.b + (b2.b - a.b) * t));
+    }
 
     private string GetBandCssClass(RadioBand band) => band switch
     {
