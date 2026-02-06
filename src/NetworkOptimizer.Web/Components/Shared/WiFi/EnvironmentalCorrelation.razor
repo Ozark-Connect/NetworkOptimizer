@@ -391,21 +391,22 @@
             .Where(d => d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday)
             .SelectMany(d => d.Hours).Where(h => h.Count > 0).ToList();
 
-        if (weekendCells.Count == 0 || weekdayCells.Count == 0) return;
-
-        var weekendAvg = weekendCells.Average(h => h.Value);
-        var weekdayAvg = weekdayCells.Average(h => h.Value);
-
-        if (weekendAvg > weekdayAvg + 10)
+        if (weekendCells.Count > 0 && weekdayCells.Count > 0)
         {
-            _patterns.Add(new DetectedPattern
+            var weekendAvg = weekendCells.Average(h => h.Value);
+            var weekdayAvg = weekdayCells.Average(h => h.Value);
+
+            if (weekendAvg > weekdayAvg + 10)
             {
-                Icon = "W",
-                Type = "info",
-                Title = "Weekend Congestion",
-                Description = "Wi-Fi interference is higher on weekends, likely due to increased neighbor activity or household streaming.",
-                Timing = "Saturday - Sunday"
-            });
+                _patterns.Add(new DetectedPattern
+                {
+                    Icon = "W",
+                    Type = "info",
+                    Title = "Weekend Congestion",
+                    Description = "Wi-Fi interference is higher on weekends, likely due to increased neighbor activity or household streaming.",
+                    Timing = "Saturday - Sunday"
+                });
+            }
         }
 
         // Consistent high interference

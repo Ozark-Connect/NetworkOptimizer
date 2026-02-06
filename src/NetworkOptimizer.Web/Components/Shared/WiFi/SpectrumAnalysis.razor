@@ -132,7 +132,7 @@
                     {
                         <div class="spectrum-stat-card highlight">
                             <div class="stat-value cleanest-channels">@GetCleanestChannels()</div>
-                            <div class="stat-label">Cleanest Channels</div>
+                            <div class="stat-label">Cleanest @(_cleanestChannelList.Count == 1 ? "Channel" : "Channels")</div>
                         </div>
                     }
                 </div>
@@ -1100,31 +1100,33 @@
         return dfsChannels.Length - occupiedDfs.Count;
     }
 
+    private List<int> _cleanestChannelList = new();
+
     private string GetCleanestChannels()
     {
         var availableChannels = GetAvailableChannels();
+        if (availableChannels.Length == 0) { _cleanestChannelList = new(); return "-"; }
 
         // Rank by interference score from cached density data (0 = no neighbors = cleanest)
         var scoreByChannel = _channelDensityData
             .ToDictionary(d => d.Channel, d => d.InterferenceScore);
 
         // Prefer channels that aren't congested (score <= low threshold)
-        var ranked = availableChannels
+        _cleanestChannelList = availableChannels
             .Where(ch => scoreByChannel.GetValueOrDefault(ch, 0) <= 1.5)
             .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
             .Take(5)
             .ToList();
 
         // Always show at least the single best channel
-        if (!ranked.Any())
+        if (_cleanestChannelList.Count == 0)
         {
-            var best = availableChannels
+            _cleanestChannelList.Add(availableChannels
                 .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
-                .First();
-            return best.ToString();
+                .First());
         }
 
-        return string.Join(", ", ranked);
+        return string.Join(", ", _cleanestChannelList);
     }
 
     private int[] GetAvailableChannels()
