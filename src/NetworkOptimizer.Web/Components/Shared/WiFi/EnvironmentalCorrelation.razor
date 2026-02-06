@@ -487,18 +487,18 @@
     {
         _recommendations.Clear();
 
-        // Evening interference recommendation
-        var evening = _timeOfDayStats.FirstOrDefault(p => p.Name == "Evening");
-        if (evening != null && evening.AvgInterference > 40)
-        {
-            _recommendations.Add(new HealthIssue
-            {
-                Severity = HealthIssueSeverity.Warning,
-                Title = "Schedule Channel Changes During Off-Peak",
-                Description = "Evening interference is high. Schedule auto-channel optimization for early morning hours (2-4 AM) when interference is lowest.",
-                Recommendation = "In UniFi Network: Settings > WiFi > Global AP Settings > Auto-Optimize Network"
-            });
-        }
+        // Evening interference recommendation (Auto-Optimize Network removed from UniFi)
+        // var evening = _timeOfDayStats.FirstOrDefault(p => p.Name == "Evening");
+        // if (evening != null && evening.AvgInterference > 40)
+        // {
+        //     _recommendations.Add(new HealthIssue
+        //     {
+        //         Severity = HealthIssueSeverity.Warning,
+        //         Title = "Schedule Channel Changes During Off-Peak",
+        //         Description = "Evening interference is high. Schedule auto-channel optimization for early morning hours (2-4 AM) when interference is lowest.",
+        //         Recommendation = "In UniFi Network: Settings > WiFi > Global AP Settings > Auto-Optimize Network"
+        //     });
+        // }
 
         // 2.4 GHz congestion
         var band24 = _bandStats.FirstOrDefault(b => b.Band == RadioBand.Band2_4GHz);
