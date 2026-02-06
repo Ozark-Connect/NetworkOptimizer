@@ -4826,6 +4826,58 @@ public class FirewallRuleAnalyzerTests
         issues.Should().BeEmpty();
     }
 
+    [Fact]
+    public void CheckInternetDisabledBroadAllow_InternetBlockedViaFirewall_BroadAllowRule_ReturnsIssue()
+    {
+        // Network has internetAccessEnabled=true but internet is blocked via firewall rule.
+        // A narrow allow rule (port 80) bypasses the firewall-based internet block.
+        var externalZoneId = "external-zone";
+        var networkZoneId = "internal-zone";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("IoT Devices", NetworkPurpose.IoT, id: "iot-net",
+                internetAccessEnabled: true, firewallZoneId: networkZoneId)
+        };
+        var rules = new List<FirewallRule>
+        {
+            // Block rule: blocks all internet access for this network's zone
+            new FirewallRule
+            {
+                Id = "block-internet",
+                Name = "Block IoT Internet",
+                Action = "DROP",
+                Enabled = true,
+                Protocol = "all",
+                Index = 1000,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = networkZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId
+            },
+            // Allow rule: allows HTTP (port 80) through, bypassing the block
+            new FirewallRule
+            {
+                Id = "allow-http",
+                Name = "Allow IoT HTTP",
+                Action = "ALLOW",
+                Enabled = true,
+                Protocol = "tcp_udp",
+                Index = 999,
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = networkZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = externalZoneId,
+                DestinationPort = "80"
+            }
+        };
+
+        var issues = _analyzer.CheckInternetDisabledBroadAllow(rules, networks, externalZoneId);
+
+        issues.Should().ContainSingle();
+        issues.First().Type.Should().Be(IssueTypes.InternetBlockBypassed);
+        issues.First().Metadata!["network_name"].Should().Be("IoT Devices");
+    }
+
     #endregion
 
     #region AnalyzeFirewallRules Tests

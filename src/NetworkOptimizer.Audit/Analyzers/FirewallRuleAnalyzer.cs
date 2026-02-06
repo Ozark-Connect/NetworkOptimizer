@@ -982,7 +982,7 @@ public class FirewallRuleAnalyzer
                 rule.Enabled &&
                 !rule.Predefined &&
                 rule.ActionType.IsAllowAction() &&
-                RuleAppliesToNetwork(rule, network) &&
+                AppliesToSourceNetwork(rule, network) &&
                 IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds) &&
                 // Only report if the allow rule actually takes effect (not eclipsed by a block rule)
                 !IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId)).ToList();
@@ -1012,40 +1012,6 @@ public class FirewallRuleAnalyzer
         return issues;
     }
 
-    /// <summary>
-    /// Determines if a rule applies to a specific network (as source).
-    /// Handles SourceMatchOppositeNetworks which inverts the matching.
-    /// Also checks if IP-based sources cover the network's subnet.
-    /// </summary>
-    private static bool RuleAppliesToNetwork(FirewallRule rule, NetworkInfo network)
-    {
-        var sourceTarget = rule.SourceMatchingTarget?.ToUpperInvariant();
-
-        // ANY source applies to all networks
-        if (sourceTarget == "ANY" || string.IsNullOrEmpty(sourceTarget))
-            return true;
-
-        // NETWORK source - check if network is in the list
-        if (sourceTarget == "NETWORK")
-        {
-            var isInList = rule.SourceNetworkIds?.Contains(network.Id) == true;
-
-            // If SourceMatchOppositeNetworks is true, the rule applies to networks NOT in the list
-            if (rule.SourceMatchOppositeNetworks)
-                return !isInList;
-
-            // Normal case: rule applies to networks IN the list
-            return isInList;
-        }
-
-        // IP source - check if CIDRs cover the network's subnet
-        if (sourceTarget == "IP" && !string.IsNullOrEmpty(network.Subnet))
-        {
-            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
-        }
-
-        return false;
-    }
 
     /// <summary>
     /// Determines if an allow rule permits broad external/internet access (HTTP/HTTPS/QUIC).
