@@ -1159,9 +1159,9 @@
             })
             .ToList();
 
-        // Prefer channels that aren't congested (score <= low threshold)
+        // Exclude high-density channels (score > 3.5 = high interference)
         _cleanestChannelList = candidateScores
-            .Where(c => c.Score <= 1.5)
+            .Where(c => c.Score <= 3.5)
             .OrderBy(c => c.Score)
             .Take(3)
             .Select(c => c.Channel)
