@@ -680,9 +680,10 @@
             int spanLow, spanHigh;
             if (width >= 40 && extChannel.HasValue)
             {
-                // Exact span: bonded pair (primary + extension) with ±2 spectral overlap
-                int lo = Math.Min(primaryChannel, extChannel.Value);
-                int hi = Math.Max(primaryChannel, extChannel.Value);
+                // ExtChannel is a direction flag: 1 = above (HT40+), -1 = below (HT40-)
+                int secondary = extChannel.Value > 0 ? primaryChannel + 4 : primaryChannel - 4;
+                int lo = Math.Min(primaryChannel, secondary);
+                int hi = Math.Max(primaryChannel, secondary);
                 spanLow = lo - 2;
                 spanHigh = hi + 2;
             }
