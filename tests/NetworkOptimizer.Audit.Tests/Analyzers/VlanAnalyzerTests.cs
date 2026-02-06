@@ -10,12 +10,16 @@ namespace NetworkOptimizer.Audit.Tests.Analyzers;
 public class VlanAnalyzerTests
 {
     private readonly VlanAnalyzer _analyzer;
+    private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly Mock<ILogger<VlanAnalyzer>> _loggerMock;
 
     public VlanAnalyzerTests()
     {
         _loggerMock = new Mock<ILogger<VlanAnalyzer>>();
         _analyzer = new VlanAnalyzer(_loggerMock.Object);
+        _firewallAnalyzer = new FirewallRuleAnalyzer(
+            Mock.Of<ILogger<FirewallRuleAnalyzer>>(),
+            new FirewallRuleParser(Mock.Of<ILogger<FirewallRuleParser>>()));
     }
 
     #region AnalyzeNetworkIsolation Tests
@@ -1364,7 +1368,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1394,7 +1398,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1423,7 +1427,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because disabled rule doesn't block
         issues.Should().HaveCount(1);
@@ -1453,7 +1457,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because ALLOW rule doesn't block internet
         issues.Should().HaveCount(1);
@@ -1483,7 +1487,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because only TCP is blocked, not all traffic
         issues.Should().HaveCount(1);
@@ -1532,7 +1536,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because both networks have internet blocked via firewall
         issues.Should().BeEmpty();
@@ -1568,7 +1572,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Only one issue for the unblocked network
         issues.Should().HaveCount(1);
@@ -1646,7 +1650,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues, internet blocked via both methods
         issues.Should().BeEmpty();
@@ -1677,7 +1681,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because rule doesn't target WAN zone
         issues.Should().HaveCount(1);
@@ -1708,7 +1712,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because DROP also blocks internet
         issues.Should().BeEmpty();
@@ -1738,7 +1742,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because CIDR exactly covers the network subnet
         issues.Should().BeEmpty();
@@ -1768,7 +1772,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because /16 supernet covers the /24 subnet
         issues.Should().BeEmpty();
@@ -1799,7 +1803,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because one of the CIDRs covers the subnet
         issues.Should().BeEmpty();
@@ -1835,7 +1839,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because /16 covers both 192.168.42.0/24 and 192.168.99.0/24
         issues.Should().BeEmpty();
@@ -1877,7 +1881,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because /16 covers all three network subnets
         issues.Should().BeEmpty();
@@ -1914,7 +1918,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - One issue for the uncovered network
         issues.Should().HaveCount(1);
@@ -1946,7 +1950,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because CIDR doesn't cover the network subnet
         issues.Should().HaveCount(1);
@@ -1988,7 +1992,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because rule's zone matches the network's zone
         issues.Should().BeEmpty();
@@ -2028,11 +2032,53 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because rule's zone doesn't match the network's zone
         issues.Should().HaveCount(1);
         issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_InvalidStateOnlyBlockRule_DoesNotCountAsInternetBlock()
+    {
+        // Arrange - "Block Invalid Traffic" rule blocks only INVALID state connections,
+        // not NEW connections, so it should NOT count as blocking internet access
+        var networkId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-invalid",
+                Name = "Block Invalid Traffic",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                Index = 30000,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = LanZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - Issue returned because INVALID-only rule doesn't block new connections
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("MGMT_NETWORK_HAS_INTERNET");
     }
 
     #endregion

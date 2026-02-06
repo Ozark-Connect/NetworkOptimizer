@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.Core.Helpers;
 using NetworkOptimizer.UniFi.Models;
 
@@ -213,7 +214,7 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Detect overly permissive rules (any/any)
     /// </summary>
-    public List<AuditIssue> DetectPermissiveRules(List<FirewallRule> rules)
+    public List<AuditIssue> DetectPermissiveRules(List<FirewallRule> rules, List<NetworkInfo>? networks = null, FirewallZoneLookup? zoneLookup = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -235,7 +236,10 @@ public class FirewallRuleAnalyzer
             var isAnyProtocol = rule.Protocol?.Equals("all", StringComparison.OrdinalIgnoreCase) == true
                 || string.IsNullOrEmpty(rule.Protocol);
 
-            if (isAnySource && isAnyDest && isAnyProtocol && rule.ActionType.IsAllowAction())
+            var hasSpecificPorts = !string.IsNullOrEmpty(rule.DestinationPort)
+                || !string.IsNullOrEmpty(rule.SourcePort);
+
+            if (isAnySource && isAnyDest && isAnyProtocol && !hasSpecificPorts && rule.ActionType.IsAllowAction())
             {
                 issues.Add(new AuditIssue
                 {
@@ -260,7 +264,6 @@ public class FirewallRuleAnalyzer
             // - Web domains limit destination to specific sites
             else if ((isAnySource || isAnyDest) && rule.ActionType.IsAllowAction())
             {
-                var hasSpecificPorts = !string.IsNullOrEmpty(rule.DestinationPort);
                 var hasSpecificSourceIps = rule.SourceIps?.Any() == true;
                 var hasWebDomains = rule.WebDomains?.Any() == true;
 
@@ -271,6 +274,24 @@ public class FirewallRuleAnalyzer
                 // If ANY source but has specific destination ports or web domains, it's not truly "broad"
                 if (isAnySource && (hasSpecificPorts || hasWebDomains))
                     continue;
+
+                // If ANY source is scoped to a custom zone or a zone with fewer than 5 networks,
+                // it's effectively narrow - the zone already restricts the source sufficiently.
+                // Custom zones (default_zone=false) are user-created and intentionally scoped.
+                if (isAnySource && !string.IsNullOrEmpty(rule.SourceZoneId))
+                {
+                    var sourceZone = zoneLookup?.GetZoneById(rule.SourceZoneId);
+                    if (sourceZone != null && !sourceZone.IsDefaultZone)
+                        continue;
+
+                    if (networks != null)
+                    {
+                        var networksInZone = networks.Count(n =>
+                            string.Equals(n.FirewallZoneId, rule.SourceZoneId, StringComparison.OrdinalIgnoreCase));
+                        if (networksInZone < 5)
+                            continue;
+                    }
+                }
 
                 var directionDesc = isAnySource ? "from any source" : "to any destination";
                 issues.Add(new AuditIssue
@@ -976,14 +997,35 @@ public class FirewallRuleAnalyzer
             // Find allow rules from this network that permit broad external access
             // Skip predefined/system rules (like "Allow Return Traffic")
             // Also filter out allow rules that are eclipsed by block rules with lower index
-            var broadAllowRules = rules.Where(rule =>
-                rule.Enabled &&
-                !rule.Predefined &&
-                rule.ActionType.IsAllowAction() &&
-                RuleAppliesToNetwork(rule, network) &&
-                IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds) &&
-                // Only report if the allow rule actually takes effect (not eclipsed by a block rule)
-                !IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId)).ToList();
+            var broadAllowRules = new List<FirewallRule>();
+            foreach (var rule in rules)
+            {
+                if (!rule.Enabled || rule.Predefined || !rule.ActionType.IsAllowAction())
+                    continue;
+
+                if (!AppliesToSourceNetwork(rule, network))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' does not apply to network '{Network}' (srcTarget={SrcTarget}, srcZone={SrcZone}, netZone={NetZone})",
+                        rule.Name, network.Name, rule.SourceMatchingTarget, rule.SourceZoneId, network.FirewallZoneId);
+                    continue;
+                }
+
+                if (!IsBroadExternalAccess(rule, externalZoneId, broadInternetAppIds))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' is not broad external access (destTarget={DestTarget}, destZone={DestZone}, protocol={Protocol}, destPort={DestPort}, appIds={AppIds})",
+                        rule.Name, rule.DestinationMatchingTarget, rule.DestinationZoneId, rule.Protocol, rule.DestinationPort, rule.AppIds != null ? string.Join(",", rule.AppIds) : "none");
+                    continue;
+                }
+
+                if (IsAllowRuleEclipsedByBlockRule(rules, rule, network.Id, externalZoneId))
+                {
+                    _logger.LogDebug("Internet bypass: rule '{Rule}' is eclipsed by a block rule", rule.Name);
+                    continue;
+                }
+
+                _logger.LogDebug("Internet bypass: rule '{Rule}' PASSES all filters for network '{Network}'", rule.Name, network.Name);
+                broadAllowRules.Add(rule);
+            }
 
             foreach (var rule in broadAllowRules)
             {
@@ -1010,40 +1052,6 @@ public class FirewallRuleAnalyzer
         return issues;
     }
 
-    /// <summary>
-    /// Determines if a rule applies to a specific network (as source).
-    /// Handles SourceMatchOppositeNetworks which inverts the matching.
-    /// Also checks if IP-based sources cover the network's subnet.
-    /// </summary>
-    private static bool RuleAppliesToNetwork(FirewallRule rule, NetworkInfo network)
-    {
-        var sourceTarget = rule.SourceMatchingTarget?.ToUpperInvariant();
-
-        // ANY source applies to all networks
-        if (sourceTarget == "ANY" || string.IsNullOrEmpty(sourceTarget))
-            return true;
-
-        // NETWORK source - check if network is in the list
-        if (sourceTarget == "NETWORK")
-        {
-            var isInList = rule.SourceNetworkIds?.Contains(network.Id) == true;
-
-            // If SourceMatchOppositeNetworks is true, the rule applies to networks NOT in the list
-            if (rule.SourceMatchOppositeNetworks)
-                return !isInList;
-
-            // Normal case: rule applies to networks IN the list
-            return isInList;
-        }
-
-        // IP source - check if CIDRs cover the network's subnet
-        if (sourceTarget == "IP" && !string.IsNullOrEmpty(network.Subnet))
-        {
-            return SourceCidrsCoversNetworkSubnet(rule, network.Subnet);
-        }
-
-        return false;
-    }
 
     /// <summary>
     /// Determines if an allow rule permits broad external/internet access (HTTP/HTTPS/QUIC).
@@ -1185,14 +1193,14 @@ public class FirewallRuleAnalyzer
     /// <summary>
     /// Run all firewall analyses
     /// </summary>
-    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null)
+    public List<AuditIssue> AnalyzeFirewallRules(List<FirewallRule> rules, List<NetworkInfo> networks, List<UniFiNetworkConfig>? networkConfigs = null, string? externalZoneId = null, FirewallZoneLookup? zoneLookup = null)
     {
         var issues = new List<AuditIssue>();
 
         _logger.LogInformation("Analyzing {RuleCount} firewall rules", rules.Count);
 
         issues.AddRange(DetectShadowedRules(rules, networkConfigs, externalZoneId, networks));
-        issues.AddRange(DetectPermissiveRules(rules));
+        issues.AddRange(DetectPermissiveRules(rules, networks, zoneLookup));
         issues.AddRange(DetectOrphanedRules(rules, networks));
         issues.AddRange(CheckInterVlanIsolation(rules, networks, externalZoneId));
         issues.AddRange(CheckInternetDisabledBroadAllow(rules, networks, externalZoneId));
@@ -1910,16 +1918,51 @@ public class FirewallRuleAnalyzer
             return TargetsExternalZone(blockRule, externalZoneId);
         }
 
-        // For non-WEB allow rules:
-        // Block rule with destination=ANY blocks everything
-        if (string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
-            return true;
+        // For non-WEB allow rules, a block rule eclipses only if it covers ALL
+        // traffic the allow rule permits across three dimensions:
+        //   1. Destination: must be at least as broad (destTarget=ANY + external/no zone)
+        //   2. Protocol: must cover the allow rule's protocol
+        //   3. Ports: must have no port restriction (specific ports may not fully cover)
 
-        // Check if block rule targets the same destination zone
-        if (TargetsExternalZone(blockRule, externalZoneId))
-            return true;
+        // 1. Destination must be broad (ANY) - specific IPs/networks/domains don't eclipse
+        if (!string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
+            return false;
 
-        return false;
+        // Destination zone must match external zone (or have no zone = applies everywhere)
+        if (!string.IsNullOrEmpty(blockRule.DestinationZoneId) &&
+            !TargetsExternalZone(blockRule, externalZoneId))
+            return false;
+
+        // 2. Protocol must cover all protocols the allow rule permits
+        if (!BlockRuleCoversAllowProtocols(blockRule, allowRule))
+            return false;
+
+        // 3. Block must have no port restriction - specific ports may not fully cover
+        if (!string.IsNullOrEmpty(blockRule.DestinationPort) || !string.IsNullOrEmpty(blockRule.SourcePort))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a block rule's protocol covers all protocols an allow rule permits.
+    /// Uses FirewallGroupHelper.BlocksProtocol to account for match_opposite_protocol.
+    /// </summary>
+    private static bool BlockRuleCoversAllowProtocols(FirewallRule blockRule, FirewallRule allowRule)
+    {
+        var allowProtocol = allowRule.Protocol?.ToLowerInvariant() ?? "all";
+
+        // Determine which protocols the allow rule permits
+        var protocolsToCheck = allowProtocol switch
+        {
+            "all" => new[] { "tcp", "udp" },
+            "tcp_udp" => new[] { "tcp", "udp" },
+            _ => new[] { allowProtocol }
+        };
+
+        // Block rule must block ALL of them
+        return protocolsToCheck.All(p =>
+            FirewallGroupHelper.BlocksProtocol(blockRule.Protocol, blockRule.MatchOppositeProtocol, p));
     }
 
     /// <summary>
@@ -1976,7 +2019,7 @@ public class FirewallRuleAnalyzer
     /// Uses FirewallRuleEvaluator to account for rule ordering - an allow rule with
     /// lower index could eclipse a block rule, meaning internet is not actually blocked.
     /// </summary>
-    private bool IsInternetBlockedViaFirewall(
+    internal bool IsInternetBlockedViaFirewall(
         NetworkInfo network,
         List<FirewallRule> firewallRules,
         string externalZoneId)
@@ -2026,6 +2069,11 @@ public class FirewallRuleAnalyzer
 
         // Protocol must be "all" to affect ALL traffic (not just specific ports/protocols)
         if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Must have no port restriction - a rule with specific ports (e.g., 80,443)
+        // only affects those ports, not all internet traffic
+        if (!string.IsNullOrEmpty(rule.DestinationPort) || !string.IsNullOrEmpty(rule.SourcePort))
             return false;
 
         return true;

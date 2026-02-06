@@ -254,6 +254,40 @@ public class FirewallAnyAnyRuleTests
         issue.RecommendedAction.Should().Contain("Restrict");
     }
 
+    [Fact]
+    public void IsAnyAnyRule_WithDestinationPort_ReturnsFalse()
+    {
+        // A rule with any->any but specific destination ports (e.g., from a port group)
+        // is NOT truly any->any - the ports restrict what can be accessed
+        var rule = CreateFirewallRule(
+            enabled: true,
+            sourceType: "any",
+            destType: "any",
+            protocol: "all",
+            action: "accept",
+            destinationPort: "80,443");
+
+        var result = FirewallAnyAnyRule.IsAnyAnyRule(rule);
+
+        result.Should().BeFalse();
+    }
+
+    [Fact]
+    public void IsAnyAnyRule_WithSourcePort_ReturnsFalse()
+    {
+        var rule = CreateFirewallRule(
+            enabled: true,
+            sourceType: "any",
+            destType: "any",
+            protocol: "all",
+            action: "accept",
+            sourcePort: "1024-65535");
+
+        var result = FirewallAnyAnyRule.IsAnyAnyRule(rule);
+
+        result.Should().BeFalse();
+    }
+
     #endregion
 
     #region Helper Methods
@@ -269,7 +303,9 @@ public class FirewallAnyAnyRuleTests
         string? name = "Test Rule",
         string id = "rule-1",
         int index = 1,
-        string? ruleset = "LAN_IN")
+        string? ruleset = "LAN_IN",
+        string? destinationPort = null,
+        string? sourcePort = null)
     {
         return new FirewallRule
         {
@@ -283,7 +319,9 @@ public class FirewallAnyAnyRuleTests
             Source = source,
             DestinationType = destType,
             Destination = destination,
-            Ruleset = ruleset
+            Ruleset = ruleset,
+            DestinationPort = destinationPort,
+            SourcePort = sourcePort
         };
     }
 
