@@ -1732,6 +1732,7 @@ public class AuditService
         Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
         Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic",
         Audit.IssueTypes.BroadRule => "Restrict the source or destination to specific networks or devices",
+        Audit.IssueTypes.InternetBlockBypassed => "Remove the allow rule or disable internet access restriction if internet is intended for this network",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
