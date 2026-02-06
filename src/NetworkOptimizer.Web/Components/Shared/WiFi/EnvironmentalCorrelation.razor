@@ -16,7 +16,7 @@
             <select class="time-range-select" @bind="_selectedTimeRange" @bind:after="OnTimeRangeChanged">
                 <option value="1d">Last 24 Hours</option>
                 <option value="7d">Last 7 Days</option>
-                <option value="30d">Last 30 Days</option>
+                @* <option value="30d">Last 30 Days</option> *@
             </select>
             <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
                 @if (_loading)
@@ -101,7 +101,7 @@
                     }
                 </div>
 
-                @foreach (var day in _heatmapData)
+                @foreach (var day in _heatmapData.Where(d => d.Hours.Any(h => h.Count > 0)))
                 {
                     <div class="heatmap-row">
                         <div class="heatmap-label">@day.DayName</div>
