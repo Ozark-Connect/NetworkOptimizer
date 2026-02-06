@@ -10661,6 +10661,7 @@ select.form-control {
     cursor: default;
 }
 
+.heatmap-cell.heat-none { background: var(--bg-tertiary); }
 .heatmap-cell.heat-low { background: #22c55e; }
 .heatmap-cell.heat-medium { background: #eab308; }
 .heatmap-cell.heat-high { background: #f97316; }

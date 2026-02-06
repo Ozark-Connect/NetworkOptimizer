@@ -107,8 +107,8 @@
                         <div class="heatmap-label">@day.DayName</div>
                         @foreach (var cell in day.Hours)
                         {
-                            <div class="heatmap-cell @GetHeatmapCellClass(cell.Value)"
-                                 data-tooltip="@day.DayName @FormatHour(cell.Hour): @cell.Value% interference"></div>
+                            <div class="heatmap-cell @GetHeatmapCellClass(cell)"
+                                 data-tooltip="@(cell.Count > 0 ? $"{day.DayName} {FormatHour(cell.Hour)}: {cell.Value}% interference" : $"{day.DayName} {FormatHour(cell.Hour)}: No data")"></div>
                         }
                     </div>
                 }
@@ -590,13 +590,15 @@
         _ => "retry-low"
     };
 
-    private string GetHeatmapCellClass(int value) => value switch
-    {
-        > 60 => "heat-critical",
-        > 40 => "heat-high",
-        > 20 => "heat-medium",
-        _ => "heat-low"
-    };
+    private string GetHeatmapCellClass(HeatmapCell cell) => cell.Count == 0
+        ? "heat-none"
+        : cell.Value switch
+        {
+            > 60 => "heat-critical",
+            > 40 => "heat-high",
+            > 20 => "heat-medium",
+            _ => "heat-low"
+        };
 
     private string GetBandCssClass(RadioBand band) => band switch
     {
