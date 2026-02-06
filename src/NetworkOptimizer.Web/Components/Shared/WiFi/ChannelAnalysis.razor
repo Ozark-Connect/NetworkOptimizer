@@ -412,7 +412,8 @@
         var apsOnChannel = GetApsOnChannel(band, channel);
         if (apsOnChannel.Any())
         {
-            _selectedChannel = _selectedChannel == channel ? null : channel;
+            // Switch to clicked channel (click Close button to dismiss)
+            _selectedChannel = channel;
         }
     }
 
