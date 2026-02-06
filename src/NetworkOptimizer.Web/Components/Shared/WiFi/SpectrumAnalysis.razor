@@ -1107,26 +1107,58 @@
         var availableChannels = GetAvailableChannels();
         if (availableChannels.Length == 0) { _cleanestChannelList = new(); return "-"; }
 
-        // Rank by interference score from cached density data (0 = no neighbors = cleanest)
-        var scoreByChannel = _channelDensityData
-            .ToDictionary(d => d.Channel, d => d.InterferenceScore);
+        // Get the AP's configured channel width for overlap-aware scoring
+        var apWidth = GetSelectedApChannelWidth();
+
+        // Pre-compute each neighbor's span and signal weight
+        var neighborSpans = filteredNeighbors
+            .Select(n => new
+            {
+                Span = GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
+                Weight = Math.Max(0.1, Math.Min(1.0, (GetDisplaySignal(n) + 90) / 40.0))
+            })
+            .ToList();
+
+        // Score each candidate by summing interference from overlapping neighbors
+        var candidateScores = availableChannels
+            .Select(ch =>
+            {
+                var candidateSpan = GetChannelSpan(ch, apWidth);
+                var score = neighborSpans
+                    .Where(n => SpansOverlap(candidateSpan, n.Span))
+                    .Sum(n => n.Weight);
+                return (Channel: ch, Score: score);
+            })
+            .ToList();
 
         // Prefer channels that aren't congested (score <= low threshold)
-        _cleanestChannelList = availableChannels
-            .Where(ch => scoreByChannel.GetValueOrDefault(ch, 0) <= 1.5)
-            .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
+        _cleanestChannelList = candidateScores
+            .Where(c => c.Score <= 1.5)
+            .OrderBy(c => c.Score)
             .Take(5)
+            .Select(c => c.Channel)
             .ToList();
 
         // Always show at least the single best channel
         if (_cleanestChannelList.Count == 0)
         {
-            _cleanestChannelList.Add(availableChannels
-                .OrderBy(ch => scoreByChannel.GetValueOrDefault(ch, 0))
-                .First());
+            _cleanestChannelList.Add(candidateScores
+                .OrderBy(c => c.Score)
+                .First().Channel);
         }
 
         return string.Join(", ", _cleanestChannelList);
+    }
+
+    private int GetSelectedApChannelWidth()
+    {
+        if (!string.IsNullOrEmpty(selectedApMac))
+        {
+            var ap = accessPoints.FirstOrDefault(a => a.Mac == selectedApMac);
+            var radio = ap?.Radios.FirstOrDefault(r => r.Band == selectedBand);
+            return radio?.ChannelWidth ?? 20;
+        }
+        return 20;
     }
 
     private int[] GetAvailableChannels()
@@ -1163,6 +1195,86 @@
 
         channels.Sort();
         return channels.ToArray();
+    }
+
+    /// <summary>
+    /// Returns the (low, high) channel range for a given primary channel and width,
+    /// accounting for bonding groups. Used for overlap-aware interference scoring.
+    /// </summary>
+    private (int Low, int High) GetChannelSpan(int primaryChannel, int width)
+    {
+        if (selectedBand == RadioBand.Band2_4GHz)
+        {
+            // 2.4 GHz: 5 MHz channel spacing, ~22 MHz signal width
+            int halfSpan = width == 40 ? 4 : 2;
+            return (Math.Max(1, primaryChannel - halfSpan), Math.Min(14, primaryChannel + halfSpan));
+        }
+
+        // 5 GHz and 6 GHz: 20 MHz spacing (4 channel numbers apart)
+        if (width <= 20) return (primaryChannel, primaryChannel);
+
+        int channelCount = width / 20;
+        int groupStart = selectedBand == RadioBand.Band5GHz
+            ? GetBondingGroupStart5GHz(primaryChannel, width)
+            : GetBondingGroupStart6GHz(primaryChannel, width);
+
+        return (groupStart, groupStart + (channelCount - 1) * 4);
+    }
+
+    private static bool SpansOverlap((int Low, int High) a, (int Low, int High) b) =>
+        a.Low <= b.High && b.Low <= a.High;
+
+    private static int GetBondingGroupStart5GHz(int primaryChannel, int width)
+    {
+        var groups = width switch
+        {
+            160 => new (int s, int e)[] { (36, 64), (100, 128) },
+            80 => new (int s, int e)[] { (36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161) },
+            _ => new (int s, int e)[]
+            {
+                (36, 40), (44, 48), (52, 56), (60, 64),
+                (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
+                (149, 153), (157, 161)
+            }
+        };
+
+        foreach (var (start, end) in groups)
+        {
+            if (primaryChannel >= start && primaryChannel <= end)
+                return start;
+        }
+        return primaryChannel;
+    }
+
+    private static int GetBondingGroupStart6GHz(int primaryChannel, int width)
+    {
+        if (width == 320)
+        {
+            var groups = new (int s, int e)[] { (1, 61), (97, 157), (161, 221) };
+            foreach (var (start, end) in groups)
+                if (primaryChannel >= start && primaryChannel <= end) return start;
+        }
+        else if (width == 160)
+        {
+            var groups = new (int s, int e)[]
+            {
+                (1, 29), (33, 61), (65, 93), (97, 125),
+                (129, 157), (161, 189), (193, 221), (225, 253)
+            };
+            foreach (var (start, end) in groups)
+                if (primaryChannel >= start && primaryChannel <= end) return start;
+        }
+        else if (width == 80)
+        {
+            int offset = primaryChannel - 1;
+            return 1 + (offset / 16 * 16);
+        }
+        else // 40 MHz
+        {
+            int offset = primaryChannel - 1;
+            return 1 + (offset / 8 * 8);
+        }
+        return primaryChannel;
     }
 
     private void UpdateChannelDensity()
