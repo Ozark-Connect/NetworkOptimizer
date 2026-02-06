@@ -130,7 +130,7 @@
                     var genLabel = gen.Generation == 6 && gen.Count6GHz > 0 ? "Wi-Fi 6/6E" : $"Wi-Fi {gen.Generation}";
                     <div class="gen-airtime-row">
                         <div class="gen-label">
-                            <span class="gen-badge @GetGenCssClass(gen.Generation)">@genLabel</span>
+                            <span class="gen-badge @GetGenBadgeCssClass(gen)">@genLabel</span>
                             <span class="gen-factor">@airtimeFactor relative airtime</span>
                         </div>
                         <div class="gen-bar-container">
@@ -496,6 +496,12 @@
         4 => "gen-4",
         _ => "gen-legacy"
     };
+
+    private string GetGenBadgeCssClass(WifiGenStats gen)
+    {
+        if (gen.Generation == 6 && gen.Count6GHz > 0) return "gen-6e";
+        return GetGenCssClass(gen.Generation);
+    }
 
     private string GetSignalClass(int? signal)
     {
