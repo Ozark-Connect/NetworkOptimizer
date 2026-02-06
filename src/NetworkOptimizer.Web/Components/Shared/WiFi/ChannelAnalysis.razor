@@ -879,10 +879,12 @@
                 return "";
 
             // If only group2 matches, promote it to primary (renders as ::before / top hat)
+            bool promoted = false;
             if (!showGroup1 && showGroup2)
             {
                 info = info2!;
                 showGroup2 = false;
+                promoted = true;
             }
 
             var bandClass = info.Band switch
@@ -892,7 +894,8 @@
                 RadioBand.Band6GHz => "band-6ghz",
                 _ => ""
             };
-            var oddEvenClass = "group-odd"; // Always render sole/primary group as top hat
+            // Normal: alternate top/bottom per group ID. Promoted group2: force top hat.
+            var oddEvenClass = promoted ? "group-odd" : (info.IsOddGroup ? "group-odd" : "group-even");
 
             // Both groups visible - render as overlapping
             if (showGroup2)
