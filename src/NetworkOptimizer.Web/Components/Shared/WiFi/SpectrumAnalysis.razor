@@ -873,6 +873,7 @@
 @code {
     private List<ChannelScanResult> scanResults = new();
     private List<AccessPointSnapshot> accessPoints = new();
+    private RegulatoryChannelData? regulatoryChannels;
     private bool isLoading = true;
     private string selectedApMac = "";
     private RadioBand selectedBand = RadioBand.Band2_4GHz;
@@ -928,11 +929,13 @@
             var (start, end) = GetTimeRange();
             var apTask = WiFiService.GetAccessPointsAsync();
             var scanTask = WiFiService.GetChannelScanResultsAsync(startTime: start, endTime: end);
+            var regulatoryTask = WiFiService.GetRegulatoryChannelsAsync();
 
-            await Task.WhenAll(apTask, scanTask);
+            await Task.WhenAll(apTask, scanTask, regulatoryTask);
 
             accessPoints = apTask.Result;
             scanResults = scanTask.Result;
+            regulatoryChannels = regulatoryTask.Result;
 
             Logger.LogInformation("Spectrum: Loaded {ApCount} APs, {ScanCount} scan results",
                 accessPoints.Count, scanResults.Count);
@@ -991,11 +994,13 @@
             var (start, end) = GetTimeRange();
             var apTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
             var scanTask = WiFiService.GetChannelScanResultsAsync(forceRefresh: true, startTime: start, endTime: end);
+            var regulatoryTask = WiFiService.GetRegulatoryChannelsAsync();
 
-            await Task.WhenAll(apTask, scanTask);
+            await Task.WhenAll(apTask, scanTask, regulatoryTask);
 
             accessPoints = apTask.Result;
             scanResults = scanTask.Result;
+            regulatoryChannels = regulatoryTask.Result;
 
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             // but track all APs that detected each network (both names and MACs for filtering)
@@ -1183,38 +1188,38 @@
 
     private int[] GetAvailableChannels()
     {
+        var width = GetSelectedApChannelWidth();
+
+        // Use regulatory data if available (matches UniFi UI channel dropdown)
+        if (regulatoryChannels != null)
+        {
+            // For 5 GHz, check if DFS is enabled on the selected AP
+            bool includeDfs = true;
+            if (selectedBand == RadioBand.Band5GHz)
+            {
+                if (!string.IsNullOrEmpty(selectedApMac))
+                {
+                    var selectedAp = accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac);
+                    includeDfs = selectedAp?.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs) ?? false;
+                }
+                else
+                {
+                    includeDfs = accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs));
+                }
+            }
+
+            var channels = regulatoryChannels.GetChannels(selectedBand, width, includeDfs);
+            if (channels.Length > 0) return channels;
+        }
+
+        // Fallback to hardcoded lists if regulatory data unavailable
         return selectedBand switch
         {
             RadioBand.Band2_4GHz => [1, 6, 11],
-            RadioBand.Band5GHz => GetAvailable5GHzChannels(),
+            RadioBand.Band5GHz => [36, 40, 44, 48, 149, 153, 157, 161, 165],
             RadioBand.Band6GHz => [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
             _ => [1, 6, 11]
         };
-    }
-
-    private int[] GetAvailable5GHzChannels()
-    {
-        var channels = new List<int> { 36, 40, 44, 48, 149, 153, 157, 161, 165 };
-
-        // Include DFS channels if the selected AP (or any AP) has DFS enabled
-        bool hasDfs;
-        if (!string.IsNullOrEmpty(selectedApMac))
-        {
-            var selectedAp = accessPoints.FirstOrDefault(ap => ap.Mac == selectedApMac);
-            hasDfs = selectedAp?.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs) ?? false;
-        }
-        else
-        {
-            hasDfs = accessPoints.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band5GHz && r.HasDfs));
-        }
-
-        if (hasDfs)
-        {
-            channels.AddRange([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
-        }
-
-        channels.Sort();
-        return channels.ToArray();
     }
 
     /// <summary>

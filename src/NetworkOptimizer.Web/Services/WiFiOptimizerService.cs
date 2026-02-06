@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using NetworkOptimizer.Audit.Analyzers;
 using NetworkOptimizer.UniFi;
@@ -401,6 +402,11 @@ public class WiFiOptimizerService
         };
     }
 
+    // Cached regulatory channel data (rarely changes - per country/regulatory domain)
+    private RegulatoryChannelData? _cachedRegulatoryChannels;
+    private DateTimeOffset _regulatoryChannelsFetchTime = DateTimeOffset.MinValue;
+    private static readonly TimeSpan RegulatoryChannelsCacheExpiry = TimeSpan.FromMinutes(30);
+
     // Cached channel scan results (keyed by time range)
     private List<ChannelScanResult>? _cachedScanResults;
     private string? _cachedScanResultsTimeKey;
@@ -449,6 +455,47 @@ public class WiFiOptimizerService
         {
             _logger.LogError(ex, "Failed to get channel scan results");
             return new List<ChannelScanResult>();
+        }
+    }
+
+    /// <summary>
+    /// Get regulatory channel availability data for the site's country.
+    /// Cached for 30 minutes since regulatory data rarely changes.
+    /// </summary>
+    public async Task<RegulatoryChannelData?> GetRegulatoryChannelsAsync()
+    {
+        if (!_connectionService.IsConnected || _connectionService.Client == null)
+        {
+            _logger.LogDebug("Cannot get regulatory channels - not connected to UniFi");
+            return null;
+        }
+
+        if (_cachedRegulatoryChannels != null &&
+            DateTimeOffset.UtcNow - _regulatoryChannelsFetchTime < RegulatoryChannelsCacheExpiry)
+        {
+            return _cachedRegulatoryChannels;
+        }
+
+        try
+        {
+            using var doc = await _connectionService.Client.GetCurrentChannelDataAsync();
+            if (doc == null) return _cachedRegulatoryChannels; // Return stale cache if available
+
+            if (doc.RootElement.TryGetProperty("data", out var data) &&
+                data.ValueKind == JsonValueKind.Array &&
+                data.GetArrayLength() > 0)
+            {
+                _cachedRegulatoryChannels = RegulatoryChannelData.Parse(data[0]);
+                _regulatoryChannelsFetchTime = DateTimeOffset.UtcNow;
+                _logger.LogInformation("Loaded regulatory channel data");
+            }
+
+            return _cachedRegulatoryChannels;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get regulatory channel data");
+            return _cachedRegulatoryChannels; // Return stale cache on error
         }
     }
 

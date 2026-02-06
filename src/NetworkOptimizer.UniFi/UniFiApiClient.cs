@@ -1373,6 +1373,35 @@ public class UniFiApiClient : IDisposable
     }
 
     /// <summary>
+    /// GET stat/current-channel - Get regulatory channel availability data.
+    /// Returns per-band, per-width channel lists for the site's regulatory domain.
+    /// </summary>
+    public async Task<JsonDocument?> GetCurrentChannelDataAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogDebug("Fetching current channel data from site {Site}", _site);
+
+        if (!await EnsureAuthenticatedAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var response = await _httpClient!.GetAsync(BuildApiPath("stat/current-channel"), cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogDebug("Retrieved current channel data ({Length} bytes)", json.Length);
+                return JsonDocument.Parse(json);
+            }
+
+            _logger.LogWarning("Failed to retrieve current channel data: {StatusCode}", response.StatusCode);
+            return null;
+        });
+    }
+
+    /// <summary>
     /// Check if UPnP is enabled in the USG settings
     /// </summary>
     public async Task<bool> GetUpnpEnabledAsync(CancellationToken cancellationToken = default)
