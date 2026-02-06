@@ -23,22 +23,25 @@ public class SiteHealthScorer
         List<WirelessClientSnapshot> clients,
         RoamingTopology? roamingData = null)
     {
+        // Exclude offline APs from health scoring and issue generation
+        var onlineAps = aps.Where(a => a.IsOnline).ToList();
+
         var score = new SiteHealthScore
         {
             Timestamp = DateTimeOffset.UtcNow,
-            Stats = CalculateStats(aps, clients, roamingData)
+            Stats = CalculateStats(onlineAps, clients, roamingData)
         };
 
-        // Calculate each dimension
+        // Calculate each dimension (using only online APs)
         score.SignalQuality = CalculateSignalQuality(clients);
-        score.ChannelHealth = CalculateChannelHealth(aps);
+        score.ChannelHealth = CalculateChannelHealth(onlineAps);
         score.RoamingPerformance = CalculateRoamingPerformance(roamingData);
-        score.AirtimeEfficiency = CalculateAirtimeEfficiency(aps, clients);
-        score.ClientSatisfaction = CalculateClientSatisfaction(aps, clients);
-        score.CapacityHeadroom = CalculateCapacityHeadroom(aps);
+        score.AirtimeEfficiency = CalculateAirtimeEfficiency(onlineAps, clients);
+        score.ClientSatisfaction = CalculateClientSatisfaction(onlineAps, clients);
+        score.CapacityHeadroom = CalculateCapacityHeadroom(onlineAps);
 
-        // Collect issues from all dimensions
-        CollectIssues(score, aps, clients, roamingData);
+        // Collect issues from all dimensions (using only online APs)
+        CollectIssues(score, onlineAps, clients, roamingData);
 
         // Calculate weighted overall score
         score.OverallScore = (int)Math.Round(

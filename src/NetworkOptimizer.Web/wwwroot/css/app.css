@@ -6222,6 +6222,22 @@ select.form-control {
     padding: 1rem;
 }
 
+.ap-card.ap-offline {
+    opacity: 0.5;
+}
+
+.ap-status {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.ap-status-text {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
 .ap-header {
     display: flex;
     align-items: center;

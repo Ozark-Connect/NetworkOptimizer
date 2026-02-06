@@ -667,6 +667,7 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
             FirmwareVersion = ap.Firmware,
             Ip = ap.IpAddress,
             Satisfaction = ap.Satisfaction,
+            IsOnline = ap.State == 1,
             Timestamp = timestamp,
             Radios = new List<RadioSnapshot>(),
             Vaps = new List<VapSnapshot>(),

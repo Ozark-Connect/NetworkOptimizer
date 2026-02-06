@@ -89,8 +89,11 @@ public class WiFiOptimizerService
 
             _cachedHealthScore = _healthScorer.Calculate(_cachedAps, _cachedClients, _cachedRoamingData);
 
+            // Only consider online APs for additional issue checks
+            var onlineAps = _cachedAps.Where(ap => ap.IsOnline).ToList();
+
             // Add MLO issue if enabled on Wi-Fi 7 capable APs (affects airtime efficiency)
-            var hasWifi7Aps = _cachedAps.Any(ap => ap.Radios.Any(r => r.Is11Be));
+            var hasWifi7Aps = onlineAps.Any(ap => ap.Radios.Any(r => r.Is11Be));
             var hasMloEnabledWlan = _cachedWlanConfigs?.Any(w => w.Enabled && w.MloEnabled) == true;
             if (hasWifi7Aps && hasMloEnabledWlan)
             {
@@ -105,11 +108,11 @@ public class WiFiOptimizerService
             }
 
             // Check for 6 GHz capable APs with 6 GHz disabled
-            var hasAps6GHz = _cachedAps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
+            var hasAps6GHz = onlineAps.Any(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
             var hasWlan6GHz = _cachedWlanConfigs?.Any(w => w.Enabled && w.EnabledBands.Contains(RadioBand.Band6GHz)) == true;
             if (hasAps6GHz && !hasWlan6GHz)
             {
-                var aps6GHzCount = _cachedAps.Count(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
+                var aps6GHzCount = onlineAps.Count(ap => ap.Radios.Any(r => r.Band == RadioBand.Band6GHz));
                 _cachedHealthScore.Issues.Add(new HealthIssue
                 {
                     Severity = HealthIssueSeverity.Info,
@@ -123,7 +126,7 @@ public class WiFiOptimizerService
             // Run WiFi Optimizer rules for IoT SSID separation, band steering recommendations, etc.
             if (_cachedWlanConfigs != null && _cachedNetworks != null)
             {
-                var context = BuildOptimizerContext(_cachedAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
+                var context = BuildOptimizerContext(onlineAps, _cachedClients, _cachedWlanConfigs, _cachedNetworks);
                 _optimizerEngine.EvaluateRules(_cachedHealthScore, context);
             }
 

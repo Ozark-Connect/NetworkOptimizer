@@ -35,6 +35,9 @@ public class AccessPointSnapshot
     /// <summary>When this snapshot was taken</summary>
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>Whether this AP is currently online (State == 1 from UniFi API)</summary>
+    public bool IsOnline { get; set; } = true;
+
     /// <summary>Whether this AP is a mesh child (has wireless uplink to another AP)</summary>
     public bool IsMeshChild { get; set; }
 

@@ -466,12 +466,16 @@
                     <div class="ap-list">
                         @foreach (var ap in _accessPoints)
                         {
-                            <div class="ap-card">
+                            <div class="ap-card @(ap.IsOnline ? "" : "ap-offline")">
                                 <div class="ap-header">
                                     <DeviceIcon Model="@ap.Model" Size="xl" />
                                     <div class="ap-header-text">
                                         <span class="ap-name">@ap.Name</span>
                                         <span class="ap-model">@ap.Model</span>
+                                    </div>
+                                    <div class="ap-status">
+                                        <span class="status-dot @(ap.IsOnline ? "online" : "offline")"></span>
+                                        <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
                                     </div>
                                 </div>
                                 <div class="ap-stats">
