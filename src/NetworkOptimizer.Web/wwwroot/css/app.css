@@ -757,11 +757,11 @@ a.stat-card-link:active {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--success-color);
+    background: var(--text-muted);
 }
 
-.device-card.device-offline .status-dot {
-    background: var(--danger-color);
+.status-dot.online {
+    background: var(--success-color);
 }
 
 .device-body {

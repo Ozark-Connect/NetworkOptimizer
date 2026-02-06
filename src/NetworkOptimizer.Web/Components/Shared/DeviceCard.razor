@@ -20,7 +20,7 @@
                 <div class="device-meta">
                     <span class="device-type">@Device.TypeDisplayName</span>
                     <div class="device-status">
-                        <span class="status-dot"></span>
+                        <span class="status-dot @(Device.Status == "Online" ? "online" : "")"></span>
                         <span class="status-text">@Device.Status</span>
                     </div>
                 </div>
