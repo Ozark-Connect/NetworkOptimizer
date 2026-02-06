@@ -101,7 +101,7 @@
                             <div class="channel-aps">
                                 @foreach (var ap in apsOnChannel.Take(3))
                                 {
-                                    <div class="channel-ap-dot @GetBandClass(_selectedBand)" data-tooltip="@ap.Name"></div>
+                                    <div class="channel-ap-dot @GetBandClass(_selectedBand) @(apsOnChannel.Count == 1 ? "dot-single" : "")" data-tooltip="@ap.Name"></div>
                                 }
                                 @if (apsOnChannel.Count > 3)
                                 {
@@ -851,6 +851,16 @@
         var key = (band, channel);
         if (_widthGroups.TryGetValue(key, out var info))
         {
+            // When a channel is selected, only show that channel's width group
+            if (_selectedChannel.HasValue)
+            {
+                var selectedKey = (band, _selectedChannel.Value);
+                var selectedGroupId = _widthGroups.TryGetValue(selectedKey, out var selInfo) ? selInfo.GroupId : -1;
+                var selectedGroupId2 = _widthGroups2.TryGetValue(selectedKey, out var selInfo2) ? selInfo2.GroupId : -1;
+                if (info.GroupId != selectedGroupId && info.GroupId != selectedGroupId2)
+                    return "";
+            }
+
             var bandClass = info.Band switch
             {
                 RadioBand.Band2_4GHz => "band-2ghz",

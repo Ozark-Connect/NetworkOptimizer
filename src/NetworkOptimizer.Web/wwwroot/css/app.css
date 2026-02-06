@@ -8151,10 +8151,15 @@ select.form-control {
 }
 
 .channel-ap-dot {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     background: var(--primary-color);
     border-radius: 50%;
+}
+
+.channel-ap-dot.dot-single {
+    width: 14px;
+    height: 14px;
 }
 
 /* Band-specific colors for AP dots */
