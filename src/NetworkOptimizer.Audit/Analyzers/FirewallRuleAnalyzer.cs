@@ -1878,21 +1878,51 @@ public class FirewallRuleAnalyzer
             return TargetsExternalZone(blockRule, externalZoneId);
         }
 
-        // For non-WEB allow rules:
-        // WEB-targeting block rules only affect domain-name-based traffic,
-        // they don't eclipse port-based allow rules
-        if (string.Equals(blockRule.DestinationMatchingTarget, "WEB", StringComparison.OrdinalIgnoreCase))
+        // For non-WEB allow rules, a block rule eclipses only if it covers ALL
+        // traffic the allow rule permits across three dimensions:
+        //   1. Destination: must be at least as broad (destTarget=ANY + external/no zone)
+        //   2. Protocol: must cover the allow rule's protocol
+        //   3. Ports: must have no port restriction (specific ports may not fully cover)
+
+        // 1. Destination must be broad (ANY) - specific IPs/networks/domains don't eclipse
+        if (!string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        // Block rule with destination=ANY blocks everything
-        if (string.Equals(blockRule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
-            return true;
+        // Destination zone must match external zone (or have no zone = applies everywhere)
+        if (!string.IsNullOrEmpty(blockRule.DestinationZoneId) &&
+            !TargetsExternalZone(blockRule, externalZoneId))
+            return false;
 
-        // Check if block rule targets the same destination zone
-        if (TargetsExternalZone(blockRule, externalZoneId))
-            return true;
+        // 2. Protocol must cover all protocols the allow rule permits
+        if (!BlockRuleCoversAllowProtocols(blockRule, allowRule))
+            return false;
 
-        return false;
+        // 3. Block must have no port restriction - specific ports may not fully cover
+        if (!string.IsNullOrEmpty(blockRule.DestinationPort))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a block rule's protocol covers all protocols an allow rule permits.
+    /// Uses FirewallGroupHelper.BlocksProtocol to account for match_opposite_protocol.
+    /// </summary>
+    private static bool BlockRuleCoversAllowProtocols(FirewallRule blockRule, FirewallRule allowRule)
+    {
+        var allowProtocol = allowRule.Protocol?.ToLowerInvariant() ?? "all";
+
+        // Determine which protocols the allow rule permits
+        var protocolsToCheck = allowProtocol switch
+        {
+            "all" => new[] { "tcp", "udp" },
+            "tcp_udp" => new[] { "tcp", "udp" },
+            _ => new[] { allowProtocol }
+        };
+
+        // Block rule must block ALL of them
+        return protocolsToCheck.All(p =>
+            FirewallGroupHelper.BlocksProtocol(blockRule.Protocol, blockRule.MatchOppositeProtocol, p));
     }
 
     /// <summary>
