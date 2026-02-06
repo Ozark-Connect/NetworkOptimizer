@@ -10665,23 +10665,30 @@ select.form-control {
 
 .heatmap-legend {
     display: flex;
-    gap: 0.5rem;
-    align-items: center;
+    gap: 1rem;
     justify-content: center;
     margin-top: 1rem;
+    flex-wrap: wrap;
 }
 
-.heatmap-legend .legend-label {
+.heatmap-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 0.75rem;
     color: var(--text-secondary);
 }
 
-.legend-gradient {
-    width: 120px;
-    height: 10px;
+.heat-color {
+    width: 16px;
+    height: 16px;
     border-radius: 3px;
-    background: linear-gradient(to right, #22c55e, #eab308 33%, #f97316 66%, #ef4444);
 }
+
+.heat-color.heat-low { background: #22c55e; }
+.heat-color.heat-medium { background: #eab308; }
+.heat-color.heat-high { background: #f97316; }
+.heat-color.heat-critical { background: #ef4444; }
 
 /* Detected Patterns */
 .patterns-list {
