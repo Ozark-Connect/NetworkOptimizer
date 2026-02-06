@@ -169,12 +169,21 @@
                                         <span class="detail-label">Width:</span>
                                         <span class="detail-value">@(radio.ChannelWidth ?? 20) MHz</span>
                                     </div>
-                                    @if (radio.ExtChannel.HasValue && radio.ChannelWidth >= 40)
+                                    @if (radio.ChannelWidth >= 40)
                                     {
-                                        var secondary = radio.ExtChannel.Value > 0 ? radio.Channel!.Value + 4 : radio.Channel!.Value - 4;
+                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel);
+                                        var spanOrdered = span.OrderBy(c => c).ToList();
                                         <div class="detail-item">
                                             <span class="detail-label">Bonded:</span>
-                                            <span class="detail-value">Ch @(Math.Min(radio.Channel!.Value, secondary)) + @(Math.Max(radio.Channel!.Value, secondary))</span>
+                                            @if (radio.Band == RadioBand.Band2_4GHz && radio.ExtChannel.HasValue)
+                                            {
+                                                var secondary = radio.ExtChannel.Value > 0 ? radio.Channel!.Value + 4 : radio.Channel!.Value - 4;
+                                                <span class="detail-value">Ch @(Math.Min(radio.Channel!.Value, secondary)) + @(Math.Max(radio.Channel!.Value, secondary))</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="detail-value">Ch @spanOrdered.First() - @spanOrdered.Last()</span>
+                                            }
                                         </div>
                                     }
                                     <div class="detail-item">
@@ -303,6 +312,8 @@
 
     // Width groups: maps (band, channel) -> group info for visual grouping (first group)
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
+    // Maps (band, primaryChannel) -> group IDs for that AP's width group
+    private Dictionary<(RadioBand Band, int Channel), int> _primaryGroupIds = new();
     // Second group for overlapping channels (renders bottom/cup when first group renders top/hat)
     private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups2 = new();
 
@@ -591,6 +602,7 @@
     {
         _widthGroups.Clear();
         _widthGroups2.Clear();
+        _primaryGroupIds.Clear();
 
         // Step 1: Collect width groups, de-duplicating by primary channel
         // Same primary = same group (e.g., mesh APs both on channel 108)
@@ -666,6 +678,9 @@
                 }
                 // Third+ groups ignored for now
             }
+
+            // Map primary channel to its group ID
+            _primaryGroupIds[(group.Band, group.PrimaryChannel)] = groupId;
 
             // Increment group ID for this band
             groupIdPerBand[group.Band] = groupId + 1;
@@ -861,18 +876,17 @@
         if (_widthGroups.TryGetValue(key, out var info))
         {
             // Determine which groups to show when a channel is selected
+            // Use primary channel lookup to find the correct group for the clicked AP
             int? selectedGroupId = null;
-            int? selectedGroupId2 = null;
             if (_selectedChannel.HasValue)
             {
-                var selectedKey = (band, _selectedChannel.Value);
-                selectedGroupId = _widthGroups.TryGetValue(selectedKey, out var selInfo) ? selInfo.GroupId : -1;
-                selectedGroupId2 = _widthGroups2.TryGetValue(selectedKey, out var selInfo2) ? selInfo2.GroupId : -1;
+                var primaryKey = (band, _selectedChannel.Value);
+                selectedGroupId = _primaryGroupIds.TryGetValue(primaryKey, out var gid) ? gid : -1;
             }
 
-            bool showGroup1 = !_selectedChannel.HasValue || info.GroupId == selectedGroupId || info.GroupId == selectedGroupId2;
+            bool showGroup1 = !_selectedChannel.HasValue || info.GroupId == selectedGroupId;
             bool hasGroup2 = _widthGroups2.TryGetValue(key, out var info2);
-            bool showGroup2 = hasGroup2 && (!_selectedChannel.HasValue || info2!.GroupId == selectedGroupId || info2!.GroupId == selectedGroupId2);
+            bool showGroup2 = hasGroup2 && (!_selectedChannel.HasValue || info2!.GroupId == selectedGroupId);
 
             // Neither group matches the selection
             if (!showGroup1 && !showGroup2)
