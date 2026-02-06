@@ -1223,7 +1223,14 @@
 
     private int GetBarWidth(double interferenceScore)
     {
-        // Calculate max interference score across all channels
+        if (interferenceScore <= 0) return 0;
+
+        // Use absolute scale so bars reflect real congestion level.
+        // Reference max of 6 = "very congested" (e.g. 6 strong neighbors).
+        // A single network scores ~0.1-1.0, so the bar stays proportionate.
+        // If actual congestion exceeds the reference, scale up to stay readable.
+        var referenceMax = 6.0;
+
         var channelScores = filteredNeighbors
             .GroupBy(n => n.Network.Channel)
             .Select(g =>
@@ -1235,10 +1242,11 @@
             })
             .ToList();
 
-        if (!channelScores.Any()) return 0;
-        var maxScore = channelScores.Max();
-        if (maxScore == 0) return 0;
-        return Math.Min(100, (int)(interferenceScore * 100.0 / maxScore));
+        var actualMax = channelScores.Any() ? channelScores.Max() : 0;
+        var effectiveMax = Math.Max(referenceMax, actualMax);
+
+        // Minimum 8% so even a single weak neighbor is visible
+        return Math.Max(8, Math.Min(100, (int)(interferenceScore * 100.0 / effectiveMax)));
     }
 
     /// <summary>
