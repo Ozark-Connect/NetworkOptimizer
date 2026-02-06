@@ -309,7 +309,7 @@
 
             await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
-            _accessPoints = await apsTask;
+            _accessPoints = (await apsTask).Where(ap => ap.IsOnline).ToList();
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
             _healthScore = await healthTask;
@@ -338,7 +338,7 @@
 
             await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
 
-            _accessPoints = await apsTask;
+            _accessPoints = (await apsTask).Where(ap => ap.IsOnline).ToList();
             _clients = await clientsTask;
             _wlanConfigs = await wlanTask;
             _healthScore = await healthTask;
