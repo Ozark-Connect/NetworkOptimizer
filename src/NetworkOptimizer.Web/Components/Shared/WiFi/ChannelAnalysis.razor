@@ -169,6 +169,14 @@
                                         <span class="detail-label">Width:</span>
                                         <span class="detail-value">@(radio.ChannelWidth ?? 20) MHz</span>
                                     </div>
+                                    @if (radio.ExtChannel.HasValue && radio.ChannelWidth >= 40)
+                                    {
+                                        var secondary = radio.ExtChannel.Value > 0 ? radio.Channel!.Value + 4 : radio.Channel!.Value - 4;
+                                        <div class="detail-item">
+                                            <span class="detail-label">Bonded:</span>
+                                            <span class="detail-value">Ch @(Math.Min(radio.Channel!.Value, secondary)) + @(Math.Max(radio.Channel!.Value, secondary))</span>
+                                        </div>
+                                    }
                                     <div class="detail-item">
                                         <span class="detail-label">TX Power:</span>
                                         <span class="detail-value">@(radio.TxPower?.ToString() ?? "-") dBm</span>
