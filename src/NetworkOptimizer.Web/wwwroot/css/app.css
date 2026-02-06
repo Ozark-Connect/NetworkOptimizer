@@ -9829,12 +9829,9 @@ select.form-control {
     transition: width 0.3s ease;
 }
 
-.wifi-gen-bar.gen-7 { background: #a855f7; }
-.wifi-gen-bar.gen-6, .gen-bar.gen-6 { background: #a855f7; }
 .wifi-gen-bar.gen-5, .gen-bar.gen-5 { background: #3b82f6; }
 .wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #fbbf24; }
 .wifi-gen-bar.gen-legacy, .gen-bar.gen-legacy { background: #6b7280; }
-.gen-bar.gen-7 { background: #a855f7; }
 
 .wifi-gen-count {
     width: 40px;
@@ -10252,9 +10249,6 @@ select.form-control {
     background: #a855f7;
 }
 
-.gen-bar-segment.band-6ghz-wifi6 {
-    background: #a855f7;
-}
 
 .gen-airtime-row .gen-stats {
     width: 100px;

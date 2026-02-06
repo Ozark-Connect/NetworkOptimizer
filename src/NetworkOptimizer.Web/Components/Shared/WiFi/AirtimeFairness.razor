@@ -148,8 +148,7 @@
                                 }
                                 @if (gen.Count6GHz > 0)
                                 {
-                                    var segmentClass = gen.Generation == 6 ? "band-6ghz-wifi6" : "band-6ghz";
-                                    <div class="gen-bar-segment @segmentClass" style="width: @(widthPct * gen.Count6GHz / barTotal)%" data-tooltip="6 GHz: @gen.Count6GHz"></div>
+                                    <div class="gen-bar-segment band-6ghz" style="width: @(widthPct * gen.Count6GHz / barTotal)%" data-tooltip="6 GHz: @gen.Count6GHz"></div>
                                 }
                             }
                             else
