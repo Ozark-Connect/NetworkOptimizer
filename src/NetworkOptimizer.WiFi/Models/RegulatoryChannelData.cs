@@ -65,7 +65,7 @@ public class RegulatoryChannelData
     /// Parse from the UniFi stat/current-channel API response.
     /// Expects the first element of the "data" array.
     /// </summary>
-    public static RegulatoryChannelData? Parse(JsonElement dataElement)
+    public static RegulatoryChannelData Parse(JsonElement dataElement)
     {
         var result = new RegulatoryChannelData();
 

@@ -1140,7 +1140,7 @@
         {
             // Assume own APs are heard at ~-65 dBm (typical AP spacing)
             const int assumedSignal = -65;
-            var weight = Math.Max(0.1, Math.Min(1.0, (assumedSignal + 90) / 40.0)); // = 1.0
+            var weight = Math.Max(0.1, Math.Min(1.0, (assumedSignal + 90) / 40.0)); // = 0.625
             interferenceSources.Add((
                 Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
                 Weight: weight
@@ -1168,7 +1168,7 @@
             .ToList();
 
         // Always show at least the single best channel
-        if (_cleanestChannelList.Count == 0)
+        if (_cleanestChannelList.Count == 0 && candidateScores.Count > 0)
         {
             _cleanestChannelList.Add(candidateScores
                 .OrderBy(c => c.Score)
@@ -1218,10 +1218,10 @@
             if (channels.Length > 0) return channels;
         }
 
-        // Fallback to hardcoded lists if regulatory data unavailable
+        // Fallback to hardcoded lists if regulatory data unavailable (US defaults, 20 MHz)
         return selectedBand switch
         {
-            RadioBand.Band5GHz => [36, 40, 44, 48, 149, 153, 157, 161, 165],
+            RadioBand.Band5GHz => [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165],
             RadioBand.Band6GHz => [1, 5, 9, 13, 17, 21, 25, 29, 33, 37, 41, 45, 49, 53, 57, 61],
             _ => [1, 6, 11]
         };
@@ -1264,7 +1264,7 @@
             {
                 (36, 40), (44, 48), (52, 56), (60, 64),
                 (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
-                (149, 153), (157, 161)
+                (149, 153), (157, 161), (165, 165)
             }
         };
 
