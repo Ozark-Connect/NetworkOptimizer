@@ -940,14 +940,17 @@
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             // but track all APs that detected each network (both names and MACs for filtering)
             // Also store per-AP signal levels for accurate display when filtering by AP
+            // Filter out invalid channels (e.g., 65535 = 0xFFFF from controller)
             allNeighbors = scanResults
-                .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
-                {
-                    Network = n,
-                    ApMac = sr.ApMac,
-                    ApName = sr.ApName ?? "Unknown AP",
-                    Band = sr.Band
-                }))
+                .SelectMany(sr => sr.Neighbors
+                    .Where(n => n.Channel > 0 && n.Channel <= 233)
+                    .Select(n => new NeighborWithAp
+                    {
+                        Network = n,
+                        ApMac = sr.ApMac,
+                        ApName = sr.ApName ?? "Unknown AP",
+                        Band = sr.Band
+                    }))
                 .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
                 .Select(g =>
                 {
@@ -997,14 +1000,17 @@
             // Flatten neighbors from all scan results, deduplicate by BSSID keeping strongest signal
             // but track all APs that detected each network (both names and MACs for filtering)
             // Also store per-AP signal levels for accurate display when filtering by AP
+            // Filter out invalid channels (e.g., 65535 = 0xFFFF from controller)
             allNeighbors = scanResults
-                .SelectMany(sr => sr.Neighbors.Select(n => new NeighborWithAp
-                {
-                    Network = n,
-                    ApMac = sr.ApMac,
-                    ApName = sr.ApName ?? "Unknown AP",
-                    Band = sr.Band
-                }))
+                .SelectMany(sr => sr.Neighbors
+                    .Where(n => n.Channel > 0 && n.Channel <= 233)
+                    .Select(n => new NeighborWithAp
+                    {
+                        Network = n,
+                        ApMac = sr.ApMac,
+                        ApName = sr.ApName ?? "Unknown AP",
+                        Band = sr.Band
+                    }))
                 .GroupBy(n => n.Network.Bssid.ToLowerInvariant())
                 .Select(g =>
                 {
@@ -1110,23 +1116,37 @@
         // Get the AP's configured channel width for overlap-aware scoring
         var apWidth = GetSelectedApChannelWidth();
 
-        // Pre-compute each neighbor's span and signal weight
-        var neighborSpans = filteredNeighbors
-            .Select(n => new
-            {
-                Span = GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
-                Weight = Math.Max(0.1, Math.Min(1.0, (GetDisplaySignal(n) + 90) / 40.0))
-            })
+        // Build interference sources from external neighbors
+        var interferenceSources = filteredNeighbors
+            .Select(n => (
+                Span: GetChannelSpan(n.Network.Channel, n.Network.Width ?? 20),
+                Weight: Math.Max(0.1, Math.Min(1.0, (GetDisplaySignal(n) + 90) / 40.0))
+            ))
             .ToList();
 
-        // Score each candidate by summing interference from overlapping neighbors
+        // Add own APs as interference sources (co-located = strong interference)
+        // Exclude the selected AP since we're recommending a channel for it
+        var ownApRadios = accessPoints
+            .Where(ap => string.IsNullOrEmpty(selectedApMac) || ap.Mac != selectedApMac)
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Band == selectedBand && r.Channel.HasValue);
+
+        foreach (var radio in ownApRadios)
+        {
+            interferenceSources.Add((
+                Span: GetChannelSpan(radio.Channel!.Value, radio.ChannelWidth ?? 20),
+                Weight: 1.0 // Own APs are co-located, maximum interference weight
+            ));
+        }
+
+        // Score each candidate by summing interference from overlapping sources
         var candidateScores = availableChannels
             .Select(ch =>
             {
                 var candidateSpan = GetChannelSpan(ch, apWidth);
-                var score = neighborSpans
-                    .Where(n => SpansOverlap(candidateSpan, n.Span))
-                    .Sum(n => n.Weight);
+                var score = interferenceSources
+                    .Where(s => SpansOverlap(candidateSpan, s.Span))
+                    .Sum(s => s.Weight);
                 return (Channel: ch, Score: score);
             })
             .ToList();
@@ -1135,7 +1155,7 @@
         _cleanestChannelList = candidateScores
             .Where(c => c.Score <= 1.5)
             .OrderBy(c => c.Score)
-            .Take(5)
+            .Take(3)
             .Select(c => c.Channel)
             .ToList();
 
