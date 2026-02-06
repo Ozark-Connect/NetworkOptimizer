@@ -693,6 +693,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
                     interference = Math.Max(0, radioStats.CuTotal.Value - selfRx - selfTx);
                 }
 
+                _logger.LogDebug("Radio {ApName} {Band}: ch={Channel} width={ConfigWidth} ext={ExtChannel}",
+                    snapshot.Name, radioStats.Radio, radioStats.Channel,
+                    radioConfig?.ChannelWidth, radioStats.ExtChannel);
+
                 snapshot.Radios.Add(new RadioSnapshot
                 {
                     Name = radioStats.Name,
