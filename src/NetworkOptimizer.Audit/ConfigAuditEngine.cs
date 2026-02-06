@@ -848,7 +848,7 @@ public class ConfigAuditEngine
         // 1. internet_access_enabled=false in network config
         // 2. Firewall rule blocking network -> external zone
         var gatewayName = ctx.Switches.FirstOrDefault(s => s.IsGateway)?.Name ?? "Gateway";
-        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules, ctx.ExternalZoneId);
+        var internetAccessIssues = _vlanAnalyzer.AnalyzeInternetAccess(ctx.Networks, gatewayName, firewallRules, ctx.ExternalZoneId, _firewallAnalyzer);
 
         // Analyze network isolation with firewall rules to detect both methods of isolation:
         // 1. network_isolation_enabled=true in network config

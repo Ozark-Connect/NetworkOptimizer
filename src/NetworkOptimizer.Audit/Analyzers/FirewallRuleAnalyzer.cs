@@ -2019,7 +2019,7 @@ public class FirewallRuleAnalyzer
     /// Uses FirewallRuleEvaluator to account for rule ordering - an allow rule with
     /// lower index could eclipse a block rule, meaning internet is not actually blocked.
     /// </summary>
-    private bool IsInternetBlockedViaFirewall(
+    internal bool IsInternetBlockedViaFirewall(
         NetworkInfo network,
         List<FirewallRule> firewallRules,
         string externalZoneId)
