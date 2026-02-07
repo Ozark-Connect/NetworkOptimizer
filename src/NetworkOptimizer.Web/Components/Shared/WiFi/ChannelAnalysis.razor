@@ -923,7 +923,6 @@
                     RadioBand.Band6GHz => "band-6ghz",
                     _ => ""
                 };
-                oddEvenClass = info.IsOddGroup ? "group-odd" : "group-even";
                 var oddEvenClass2 = info2.IsOddGroup ? "group-odd" : "group-even";
                 return $"width-group {bandClass} group-{info.Position} {oddEvenClass} " +
                        $"has-group2 group2-{bandClass2} group2-{info2.Position} group2-{oddEvenClass2} width-overlap-hatched";
