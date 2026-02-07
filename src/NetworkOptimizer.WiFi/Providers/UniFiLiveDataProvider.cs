@@ -47,13 +47,23 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         var aps = await _discovery.DiscoverAccessPointsAsync(cancellationToken);
         var apNames = aps.ToDictionary(d => d.Mac.ToLowerInvariant(), d => d.Name);
 
-        // Get active (online) wireless clients
-        var activeClients = await _client.GetClientsAsync(cancellationToken);
+        // Get active clients from both v1 (wireless stats) and v2 (display names) in parallel
+        var v1ClientsTask = _client.GetClientsAsync(cancellationToken);
+        var v2ClientsTask = _client.GetActiveClientsAsync(cancellationToken);
+        await Task.WhenAll(v1ClientsTask, v2ClientsTask);
+
+        var activeClients = await v1ClientsTask;
         var activeWireless = activeClients.Where(c => c.IsWired == false).ToList();
         var onlineMacs = new HashSet<string>(activeWireless.Select(c => c.Mac.ToLowerInvariant()));
 
+        // Build display name lookup from v2 API (has system-selected friendly names)
+        var v2Clients = await v2ClientsTask;
+        var displayNames = v2Clients
+            .Where(c => !string.IsNullOrEmpty(c.DisplayName))
+            .ToDictionary(c => c.Mac.ToLowerInvariant(), c => c.DisplayName!);
+
         var result = activeWireless
-            .Select(c => MapToWirelessClientSnapshot(c, apNames, timestamp, isOnline: true))
+            .Select(c => MapToWirelessClientSnapshot(c, apNames, displayNames, timestamp, isOnline: true))
             .ToList();
 
         // Get historical clients (includes offline) - last 30 days
@@ -750,16 +760,23 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
     private WirelessClientSnapshot MapToWirelessClientSnapshot(
         UniFiClientResponse client,
         Dictionary<string, string> apNames,
+        Dictionary<string, string> displayNames,
         DateTimeOffset timestamp,
         bool isOnline = true)
     {
         var apMac = client.ApMac?.ToLowerInvariant() ?? "";
         apNames.TryGetValue(apMac, out var apName);
 
+        // Use v2 display name (system-selected friendly name) first, then fall back to v1 fields
+        displayNames.TryGetValue(client.Mac.ToLowerInvariant(), out var displayName);
+
         return new WirelessClientSnapshot
         {
             Mac = client.Mac,
-            Name = client.Name ?? client.Hostname ?? client.Mac,
+            Name = !string.IsNullOrEmpty(displayName) ? displayName
+                 : !string.IsNullOrEmpty(client.Name) ? client.Name
+                 : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
+                 : client.Mac,
             Ip = client.Ip,
             ApMac = client.ApMac ?? "",
             ApName = apName,
@@ -796,7 +813,10 @@ public class UniFiLiveDataProvider : IWiFiDataProvider
         return new WirelessClientSnapshot
         {
             Mac = client.Mac,
-            Name = client.Name ?? client.DisplayName ?? client.Hostname ?? client.Mac,
+            Name = !string.IsNullOrEmpty(client.DisplayName) ? client.DisplayName
+                 : !string.IsNullOrEmpty(client.Name) ? client.Name
+                 : !string.IsNullOrEmpty(client.Hostname) ? client.Hostname
+                 : client.Mac,
             Ip = client.BestIp,
             ApMac = client.LastUplinkMac ?? "",
             ApName = apName ?? client.LastUplinkName,

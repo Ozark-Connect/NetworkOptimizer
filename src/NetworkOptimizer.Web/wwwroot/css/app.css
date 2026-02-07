@@ -9284,13 +9284,11 @@ select.form-control {
 }
 
 .power-eirp {
-    color: #a5b4fc;
     font-style: italic;
 }
 
 .power-unit {
     margin-left: 2px;
-    color: #a5b4fc;
 }
 
 .power-mode {
