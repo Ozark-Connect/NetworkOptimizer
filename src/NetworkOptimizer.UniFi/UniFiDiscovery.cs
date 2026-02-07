@@ -119,13 +119,17 @@ public class UniFiDiscovery
     }
 
     /// <summary>
-    /// Discovers only access points (including UDM/UX devices acting as mesh APs).
-    /// Convenience method for WiFi Optimizer.
+    /// Discovers all devices with wireless radios for WiFi Optimizer.
+    /// Includes traditional APs (type=uap), UDM/UX mesh APs, and gateway-class devices
+    /// (UDR, UX, UDM) that have integrated wireless radios broadcasting Wi-Fi.
+    /// SmartPower devices (USP-Strip, USP-Plug) are excluded via DeviceType classification.
     /// </summary>
     public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default)
     {
         var devices = await DiscoverDevicesAsync(cancellationToken);
-        return devices.Where(d => d.Type == DeviceType.AccessPoint).ToList();
+        return devices.Where(d =>
+            d.Type == DeviceType.AccessPoint ||
+            (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 })).ToList();
     }
 
     /// <summary>
