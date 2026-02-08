@@ -662,6 +662,15 @@ public class PortSecurityAnalyzer
 
         foreach (var switchInfo in switches)
         {
+            // Skip port-level audit issues for devices whose ports aren't manageable
+            // in UniFi Port Manager (e.g., UX/UX7 in AP mode)
+            if (switchInfo.HasUnmanageablePorts)
+            {
+                _logger.LogDebug("Skipping audit for {SwitchName} ({ModelName}) - ports not manageable in AP mode",
+                    switchInfo.Name, switchInfo.ModelName);
+                continue;
+            }
+
             _logger.LogDebug("Analyzing {PortCount} ports on {SwitchName}",
                 switchInfo.Ports.Count, switchInfo.Name);
 
