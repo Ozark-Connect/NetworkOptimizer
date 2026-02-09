@@ -41,7 +41,9 @@ public class HighPowerRule : IWiFiOptimizerRule
                 : $"{highPowerAps.Count} access points have all radios set to high TX power. This can cause excessive coverage overlap and co-channel interference.",
             AffectedEntity = string.Join(", ", highPowerAps.Select(ap => ap.Name)),
             Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - " +
-                "consider 'Medium' or 'Auto' for balanced coverage.",
+                (WiFiAnalysisHelpers.SupportsAutoPowerLeveling
+                    ? "consider 'Medium' or 'Auto' for balanced coverage."
+                    : "consider 'Medium' for balanced coverage."),
             ScoreImpact = -5 * highPowerAps.Count
         };
     }

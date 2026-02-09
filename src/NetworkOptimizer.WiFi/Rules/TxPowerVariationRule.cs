@@ -31,10 +31,12 @@ public class TxPowerVariationRule : IWiFiOptimizerRule
             Severity = HealthIssueSeverity.Info,
             Dimensions = { HealthDimension.ChannelHealth, HealthDimension.RoamingPerformance },
             Title = "Consider Varied TX Power Levels",
-            Description = "All APs are set to high power. In multi-AP deployments, using 'Auto' or varied " +
-                "power levels often improves roaming behavior and reduces co-channel interference.",
-            Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - " +
-                "try 'Auto' to let the controller optimize power levels.",
+            Description = WiFiAnalysisHelpers.SupportsAutoPowerLeveling
+                ? "All APs are set to high power. In multi-AP deployments, using 'Auto' or varied power levels often improves roaming behavior and reduces co-channel interference."
+                : "All APs are set to high power. In multi-AP deployments, varying power levels (e.g. 'Medium' on some APs) often improves roaming behavior and reduces co-channel interference.",
+            Recommendation = WiFiAnalysisHelpers.SupportsAutoPowerLeveling
+                ? "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - try 'Auto' to let the controller optimize power levels."
+                : "In UniFi Network: Settings > WiFi > (SSID) > Advanced > TX Power - try 'Medium' on some APs for better coverage balance.",
             ScoreImpact = -3,
             ShowOnOverview = false  // Informational, only relevant to Channel/Roaming tabs
         };

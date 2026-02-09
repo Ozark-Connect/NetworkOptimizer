@@ -9,6 +9,13 @@ namespace NetworkOptimizer.WiFi;
 public static class WiFiAnalysisHelpers
 {
     /// <summary>
+    /// Whether UniFi's "Auto" TX power mode does real auto-power-leveling.
+    /// Currently false because Auto is effectively just "High" in UniFi Network.
+    /// Set to true once UniFi implements actual automatic power adjustment.
+    /// </summary>
+    public static bool SupportsAutoPowerLeveling => false;
+
+    /// <summary>
     /// Sort access points by IP address (ascending, proper numeric sorting).
     /// APs without valid IPs are placed at the end.
     /// </summary>
