@@ -715,6 +715,7 @@
                             if (clickedOnPopup) return;
 
                             // Fade out spider when clicking outside
+                            var cluster = mapData.currentSpider;
                             markers.forEach(m => {{
                                 if (m._path) {{
                                     m._path.style.transition = 'opacity 0.2s ease-out';
@@ -726,9 +727,27 @@
                                 }}
                             }});
 
-                            // After fade completes, collapse the spider properly
+                            // After fade, clean up spider state manually
+                            // (can't use unspiderfy() - it re-shows markers before collapsing)
                             setTimeout(() => {{
-                                mapData.clusterGroup.unspiderfy();
+                                // Remove spider SVG elements
+                                markers.forEach(m => {{
+                                    if (m._path) m._path.style.opacity = '';
+                                    if (m._spiderLeg && m._spiderLeg._path) m._spiderLeg._path.style.opacity = '';
+                                }});
+                                // Re-enable cluster icon clicks
+                                if (cluster && cluster._icon) {{
+                                    cluster._icon.style.pointerEvents = '';
+                                }}
+                                markers.forEach(m => {{
+                                    if (m._spiderLeg && m._spiderLeg._path) {{
+                                        m._spiderLeg._path.style.pointerEvents = '';
+                                    }}
+                                }});
+                                mapData.currentSpider = null;
+                                map.getPane('overlayPane').style.zIndex = 500;
+                                // Close any open popup from the spider
+                                map.closePopup();
                             }}, 220);
 
                             // Also clear AP filter when dismissing spider by clicking outside
