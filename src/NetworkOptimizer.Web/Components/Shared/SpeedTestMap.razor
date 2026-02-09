@@ -591,7 +591,7 @@
                     // Scale AP icons with zoom level (up to 25% larger at high zoom)
                     function updateApScale() {{
                         const zoom = map.getZoom();
-                        const scale = Math.min(1.25, Math.max(1.0, 1.0 + (zoom - 16) * 0.05));
+                        const scale = Math.min(1.25, Math.max(1.0, 1.0 + (zoom - 20) * 0.125));
                         container.style.setProperty('--ap-scale', scale.toFixed(3));
                     }}
                     map.on('zoomend', updateApScale);
@@ -1015,9 +1015,11 @@
                                     mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
                                 }}
                             }});
-                            // Clear filter when popup is closed
+                            // Clear filter when popup is closed (but not when another popup replaces it)
                             marker.on('popupclose', function() {{
                                 mapData._popupCloseTimer = setTimeout(() => {{
+                                    // If another popup is now open (speed test dot or different AP), don't clear
+                                    if (map.getContainer().querySelector('.leaflet-popup')) return;
                                     if (mapData.dotNetRef) {{
                                         mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
                                     }}
