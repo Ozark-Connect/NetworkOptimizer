@@ -717,6 +717,14 @@
                         }}
                     }}, true);
 
+                    // Cancel AP filter clear when any popup opens (switching APs or clicking a speed test dot)
+                    map.on('popupopen', function() {{
+                        if (window._speedTestMaps['{mapId}'] && window._speedTestMaps['{mapId}']._popupCloseTimer) {{
+                            clearTimeout(window._speedTestMaps['{mapId}']._popupCloseTimer);
+                            window._speedTestMaps['{mapId}']._popupCloseTimer = null;
+                        }}
+                    }});
+
                     // AP layers use custom panes for z-ordering
                     const apGlowGroup = L.layerGroup({{ pane: 'apGlowPane' }}).addTo(map);
                     const apLayerGroup = L.layerGroup({{ pane: 'apIconPane' }}).addTo(map);
@@ -1015,21 +1023,14 @@
                                     mapData.dotNetRef.invokeMethodAsync('OnApMarkerClick', ap.mac);
                                 }}
                             }});
-                            // Clear filter when popup is closed (but not when another popup replaces it)
+                            // Clear filter when popup is closed (debounced so switching
+                            // APs or clicking a speed test dot cancels the clear)
                             marker.on('popupclose', function() {{
                                 mapData._popupCloseTimer = setTimeout(() => {{
-                                    // If another popup is now open (speed test dot or different AP), don't clear
-                                    if (map.getContainer().querySelector('.leaflet-popup')) return;
                                     if (mapData.dotNetRef) {{
                                         mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
                                     }}
-                                }}, 50);
-                            }});
-                            marker.on('popupopen', function() {{
-                                if (mapData._popupCloseTimer) {{
-                                    clearTimeout(mapData._popupCloseTimer);
-                                    mapData._popupCloseTimer = null;
-                                }}
+                                }}, 100);
                             }});
                         }}
 
