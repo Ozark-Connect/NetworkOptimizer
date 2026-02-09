@@ -476,6 +476,7 @@ public class SiteHealthScorer
                 Title = "Weak signal",
                 Description = $"Client has weak signal ({client.Signal} dBm){apInfo}",
                 AffectedEntity = client.Name,
+                AffectedClientMac = client.Mac,
                 Recommendation = "Move closer to AP or add additional coverage.",
                 ScoreImpact = -5
             });

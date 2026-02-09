@@ -21,7 +21,16 @@
                     <div class="issue-description">@issue.Description</div>
                     @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
                     {
-                        <div class="issue-entity">Affected: @issue.AffectedEntity</div>
+                        <div class="issue-entity">Affected:
+                            @if (!string.IsNullOrEmpty(issue.AffectedClientMac))
+                            {
+                                <a href="/wifi-optimizer?client=@issue.AffectedClientMac" class="issue-client-link">@issue.AffectedEntity</a>
+                            }
+                            else
+                            {
+                                @issue.AffectedEntity
+                            }
+                        </div>
                     }
                     @if (!string.IsNullOrEmpty(issue.Recommendation))
                     {
@@ -126,5 +135,15 @@
         font-size: 0.8rem;
         color: var(--text-muted);
         margin-top: 0.25rem;
+    }
+
+    .issue-client-link {
+        color: #60a5fa;
+        text-decoration: none;
+    }
+
+    .issue-client-link:hover {
+        color: #93c5fd;
+        text-decoration: underline;
     }
 </style>

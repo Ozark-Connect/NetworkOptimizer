@@ -216,16 +216,27 @@
                                 }
 
                                 @* Render the hop *@
-                                @if (!string.IsNullOrEmpty(deviceTooltip))
+                                var hopClasses = $"path-hop {(hop.IsBottleneck ? "bottleneck" : "")} {GetHopTypeClass(hop.Type)}";
+                                var isClickableClient = hop.Type == HopType.WirelessClient && !string.IsNullOrEmpty(Result?.ClientMac ?? hop.DeviceMac);
+                                var clientLinkMac = Result?.ClientMac ?? hop.DeviceMac;
+
+                                @if (isClickableClient)
                                 {
-                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)" data-tooltip="@deviceTooltip">
+                                    <a href="/wifi-optimizer?client=@clientLinkMac" class="@hopClasses hop-clickable" data-tooltip="@deviceTooltip">
+                                        <span class="hop-icon">@GetHopIconMarkup(hop)</span>
+                                        <span class="hop-name">@hop.DeviceName</span>
+                                    </a>
+                                }
+                                else if (!string.IsNullOrEmpty(deviceTooltip))
+                                {
+                                    <div class="@hopClasses" data-tooltip="@deviceTooltip">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </div>
                                 }
                                 else
                                 {
-                                    <div class="path-hop @(hop.IsBottleneck ? "bottleneck" : "") @GetHopTypeClass(hop.Type)">
+                                    <div class="@hopClasses">
                                         <span class="hop-icon">@GetHopIconMarkup(hop)</span>
                                         <span class="hop-name">@hop.DeviceName</span>
                                     </div>
@@ -512,10 +523,17 @@
     };
 
     /// <summary>
-    /// Get device tooltip showing type, model, and firmware for UniFi devices
+    /// Get device tooltip showing type, model, and firmware for UniFi devices.
+    /// For wireless client hops, shows WiFi stats from the Result.
     /// </summary>
     private string? GetDeviceTooltip(NetworkHop hop)
     {
+        // Wireless client hop: show WiFi stats from the Result
+        if (hop.Type == HopType.WirelessClient && Result != null)
+        {
+            return GetWirelessClientTooltip(hop);
+        }
+
         // Only show tooltip for UniFi devices (those with a model)
         if (string.IsNullOrEmpty(hop.DeviceModel))
             return null;
@@ -539,6 +557,57 @@
         }
 
         return string.Join("", lines);
+    }
+
+    /// <summary>
+    /// Build tooltip for wireless client hop showing WiFi stats from the Result.
+    /// </summary>
+    private string? GetWirelessClientTooltip(NetworkHop hop)
+    {
+        if (Result == null) return null;
+
+        var lines = new List<string>();
+
+        // Signal strength
+        if (Result.WifiSignalDbm.HasValue)
+        {
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Signal:</span> {Result.WifiSignalDbm} dBm</div>");
+        }
+
+        // Band badge + channel
+        if (!string.IsNullOrEmpty(Result.WifiRadio))
+        {
+            var radio = Result.WifiRadio.ToLowerInvariant();
+            var bandHtml = $"<span class='wifi-band-badge wifi-band-{radio}'>{RadioFormatHelper.FormatBand(radio)}</span>";
+            var channelPart = Result.WifiChannel.HasValue ? $" Ch {Result.WifiChannel}" : "";
+            lines.Add($"<div class='device-tooltip-row'>{bandHtml}{channelPart}</div>");
+        }
+
+        // TX/RX rates
+        if (Result.WifiTxRateKbps.HasValue || Result.WifiRxRateKbps.HasValue)
+        {
+            var parts = new List<string>();
+            if (Result.WifiTxRateKbps.HasValue)
+                parts.Add($"TX {Result.WifiTxRateKbps.Value / 1000} Mbps");
+            if (Result.WifiRxRateKbps.HasValue)
+                parts.Add($"RX {Result.WifiRxRateKbps.Value / 1000} Mbps");
+            lines.Add($"<div class='device-tooltip-row'>{string.Join(" / ", parts)}</div>");
+        }
+
+        // Protocol
+        if (!string.IsNullOrEmpty(Result.WifiRadioProto))
+        {
+            lines.Add($"<div class='device-tooltip-row'><span class='device-tooltip-label'>Protocol:</span> {Result.WifiRadioProto}</div>");
+        }
+
+        // Link to Wi-Fi Optimizer
+        var clientMac = Result.ClientMac ?? hop.DeviceMac;
+        if (!string.IsNullOrEmpty(clientMac))
+        {
+            lines.Add($"<div class='device-tooltip-row device-tooltip-link'>View in Wi-Fi Optimizer</div>");
+        }
+
+        return lines.Count > 0 ? string.Join("", lines) : null;
     }
 
     private string GetDeviceTypeName(HopType type) => type switch

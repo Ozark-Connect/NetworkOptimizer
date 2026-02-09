@@ -106,6 +106,9 @@ public class HealthIssue
     /// <summary>Affected entity (AP name, client name, etc.)</summary>
     public string? AffectedEntity { get; set; }
 
+    /// <summary>MAC address of affected client, for linking to client details</summary>
+    public string? AffectedClientMac { get; set; }
+
     /// <summary>Recommended action</summary>
     public string? Recommendation { get; set; }
 

@@ -3899,6 +3899,24 @@ select.form-control {
     font-weight: 500;
 }
 
+.device-tooltip-link {
+    color: #60a5fa;
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+/* Clickable hop (wireless client linking to Wi-Fi Optimizer) */
+a.path-hop.hop-clickable {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+a.path-hop.hop-clickable:hover {
+    border-color: #60a5fa;
+    background: rgba(59, 130, 246, 0.15);
+}
+
 /* VPN hop icons (Teleport, Tailscale, generic VPN) */
 .vpn-icon {
     color: currentColor;

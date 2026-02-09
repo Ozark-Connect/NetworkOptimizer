@@ -147,6 +147,12 @@
     [Parameter]
     public EventCallback<(string Mac, double Lat, double Lng)> OnApLocationChanged { get; set; }
 
+    [Parameter]
+    public bool ClientDetailMode { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnClientClick { get; set; }
+
     // Search filter state (internal to map only)
     private string searchFilter = "";
 
@@ -719,6 +725,11 @@
                                     m._spiderLeg._path.style.opacity = '0';
                                 }}
                             }});
+
+                            // Also clear AP filter when dismissing spider by clicking outside
+                            if (mapData.dotNetRef) {{
+                                mapData.dotNetRef.invokeMethodAsync('OnApPopupClosed');
+                            }}
                         }}
                     }}, true);
 
@@ -779,6 +790,9 @@
                             dotNetRef.invokeMethodAsync('OnApMarkerClick', mac);
                             linkEl.textContent = 'Show all tests';
                         }}
+                    }};
+                    window._speedTestClientClick = function(mac) {{
+                        dotNetRef.invokeMethodAsync('OnMapClientClick', mac);
                     }};
 
                     // Store .NET ref on map data for AP drag callbacks
@@ -1430,11 +1444,21 @@
             html += "</div>";
         }
 
-        // Time and view link
+        // Time and view/client link
         html += "<div class='wifi-tooltip-divider'></div>";
         html += $"<div class='map-popup-footer'>";
         html += $"<span class='map-popup-time'>{time}</span>";
-        html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+        var clientMac = result.ClientMac ?? result.PathAnalysis?.Path?.Hops?
+            .FirstOrDefault(h => h.Type == HopType.WirelessClient)?.DeviceMac;
+        if (ClientDetailMode && !string.IsNullOrEmpty(clientMac))
+        {
+            var escapedMac = clientMac.Replace("'", "\\'").Replace("\"", "&quot;");
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestClientClick(\"{escapedMac}\")' class='map-popup-link'>Client details →</a>";
+        }
+        else if (OnResultClick.HasDelegate)
+        {
+            html += $"<a href='javascript:void(0)' onclick='window._speedTestMapClick({result.Id})' class='map-popup-link'>View →</a>";
+        }
         html += "</div>";
 
         html += "</div>";
@@ -1447,6 +1471,15 @@
         if (OnResultClick.HasDelegate)
         {
             await OnResultClick.InvokeAsync(resultId);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnMapClientClick(string mac)
+    {
+        if (OnClientClick.HasDelegate)
+        {
+            await OnClientClick.InvokeAsync(mac);
         }
     }
 

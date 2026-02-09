@@ -1,10 +1,15 @@
 @page "/wifi-optimizer"
 @using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.Web.Models
 @using NetworkOptimizer.WiFi
 @using NetworkOptimizer.WiFi.Models
+@using NetworkOptimizer.Storage.Models
+@using Microsoft.EntityFrameworkCore
 @inject WiFiOptimizerService WiFiService
+@inject ClientSpeedTestService SpeedTestService
 @inject UniFiConnectionService ConnectionService
 @inject NavigationManager NavigationManager
+@inject IDbContextFactory<NetworkOptimizerDbContext> DbFactory
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -194,7 +199,7 @@
         <!-- Client Stats Timeline -->
         <div class="card card-full-width">
             <div class="card-body">
-                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline />
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline InitialClientMac="@_initialClientMac" />
             </div>
         </div>
     }
@@ -512,24 +517,48 @@
             </div>
         </div>
     </div>
+
+        @if (_speedTestResults.Any(r => r.Latitude.HasValue && r.Longitude.HasValue) || _apMapMarkers.Any())
+        {
+            <SpeedTestMap Results="_speedTestResults"
+                          ApMarkers="_apMapMarkers"
+                          OnApLocationChanged="HandleApLocationChanged"
+                          OnClientClick="HandleMapClientClick"
+                          ClientDetailMode="true" />
+        }
     } @* End of overview tab *@
 }
 
 @code {
+    [SupplyParameterFromQuery(Name = "client")]
+    public string? ClientQueryParam { get; set; }
+
     private bool _loading = true;
     private bool _refreshing = false;
     private string _activeTab = "overview";
+    private string? _initialClientMac;
 
     private void SetActiveTab(string tab)
     {
         _activeTab = tab;
+        // Clear client filter when manually switching tabs
+        _initialClientMac = null;
     }
     private SiteHealthScore? _healthScore;
     private WiFiSummary? _summary;
     private List<AccessPointSnapshot> _accessPoints = new();
+    private List<Iperf3Result> _speedTestResults = new();
+    private List<ApMapMarker> _apMapMarkers = new();
 
     protected override void OnInitialized()
     {
+        // Deep link: auto-open Client Stats tab with specific client
+        if (!string.IsNullOrEmpty(ClientQueryParam))
+        {
+            _activeTab = "client";
+            _initialClientMac = ClientQueryParam;
+        }
+
         ConnectionService.OnConnectionChanged += OnConnectionChanged;
         _ = LoadDataAsync();
     }
@@ -554,12 +583,17 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync();
             var apsTask = WiFiService.GetAccessPointsAsync();
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
+            _speedTestResults = await speedTestTask;
+
+            // Build AP map markers (join AP snapshots with saved locations)
+            await LoadApMarkers();
         }
         finally
         {
@@ -580,18 +614,113 @@
             var summaryTask = WiFiService.GetSummaryAsync();
             var healthTask = WiFiService.GetSiteHealthScoreAsync(forceRefresh: true);
             var apsTask = WiFiService.GetAccessPointsAsync(forceRefresh: true);
+            var speedTestTask = SpeedTestService.GetResultsAsync(count: 0);
 
-            await Task.WhenAll(summaryTask, healthTask, apsTask);
+            await Task.WhenAll(summaryTask, healthTask, apsTask, speedTestTask);
 
             _summary = await summaryTask;
             _healthScore = await healthTask;
             _accessPoints = await apsTask;
+            _speedTestResults = await speedTestTask;
+
+            await LoadApMarkers();
         }
         finally
         {
             _refreshing = false;
             StateHasChanged();
         }
+    }
+
+    private async Task LoadApMarkers()
+    {
+        try
+        {
+            using var db = await DbFactory.CreateDbContextAsync();
+            var savedLocations = await db.ApLocations.ToListAsync();
+            var locationsByMac = savedLocations.ToDictionary(l => l.ApMac.ToLowerInvariant(), l => l);
+
+            _apMapMarkers = _accessPoints.Select(ap =>
+            {
+                var mac = ap.Mac.ToLowerInvariant();
+                locationsByMac.TryGetValue(mac, out var savedLocation);
+
+                return new ApMapMarker
+                {
+                    Mac = ap.Mac,
+                    Name = ap.Name,
+                    Model = ap.Model,
+                    Latitude = savedLocation?.Latitude,
+                    Longitude = savedLocation?.Longitude,
+                    Floor = savedLocation?.Floor,
+                    IsOnline = ap.IsOnline,
+                    TotalClients = ap.TotalClients,
+                    Radios = ap.Radios.Select(r => new ApRadioSummary
+                    {
+                        Band = r.Band.ToDisplayString(),
+                        RadioCode = r.Band.ToUniFiCode(),
+                        Channel = r.Channel,
+                        ChannelWidth = r.ChannelWidth,
+                        TxPowerDbm = r.TxPower,
+                        Eirp = r.Eirp,
+                        Clients = r.ClientCount,
+                        Utilization = r.ChannelUtilization
+                    }).ToList()
+                };
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LoadApMarkers error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleApLocationChanged((string Mac, double Lat, double Lng) args)
+    {
+        try
+        {
+            var normalizedMac = args.Mac.ToLowerInvariant();
+
+            using var db = await DbFactory.CreateDbContextAsync();
+            var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+            if (existing != null)
+            {
+                existing.Latitude = args.Lat;
+                existing.Longitude = args.Lng;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                db.ApLocations.Add(new ApLocation
+                {
+                    ApMac = normalizedMac,
+                    Latitude = args.Lat,
+                    Longitude = args.Lng,
+                    Floor = 1,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+            await db.SaveChangesAsync();
+
+            // Update local state
+            var marker = _apMapMarkers.FirstOrDefault(m => m.Mac.Equals(args.Mac, StringComparison.OrdinalIgnoreCase));
+            if (marker != null)
+            {
+                marker.Latitude = args.Lat;
+                marker.Longitude = args.Lng;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error saving AP location: {ex.Message}");
+        }
+    }
+
+    private void HandleMapClientClick(string mac)
+    {
+        _activeTab = "client";
+        _initialClientMac = mac;
+        StateHasChanged();
     }
 
     public void Dispose()
