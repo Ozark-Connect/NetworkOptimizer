@@ -423,9 +423,10 @@ public class DnsSecurityAnalyzer
             if (rule.HasUnresolvedDestinationPortGroup)
                 continue;
 
-            // Port-based detection handles network/transport-layer rules.
-            // Application-layer rules (WEB/APP targets) have their own sections below.
-            if (matchingTarget != "WEB" && matchingTarget != "APP")
+            // Port-based detection: rule must target ALL destinations in the zone.
+            // Rules with specific destination IPs/networks/domains/apps don't block all DNS.
+            // WEB and APP rules are evaluated in their own sections below.
+            if (rule.IsAnyDestination())
             {
                 // Check for DNS port 53 blocking (UDP) - must target External zone
                 if (targetsExternalZone && FirewallGroupHelper.RuleBlocksPortAndProtocol(rule, "53", "udp"))
@@ -438,7 +439,7 @@ public class DnsSecurityAnalyzer
                     // Track network coverage for this rule
                     if (networks != null)
                     {
-                        AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                        AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, rule.SourceZoneId, result.Dns53CoveredNetworkIds);
                     }
                 }
 
@@ -525,7 +526,7 @@ public class DnsSecurityAnalyzer
                         // Track network coverage
                         if (networks != null)
                         {
-                            AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, result.Dns53CoveredNetworkIds);
+                            AddCoveredNetworks(networks, sourceMatchingTarget, sourceNetworkIds, sourceMatchOppositeNetworks, rule.SourceZoneId, result.Dns53CoveredNetworkIds);
                         }
                     }
                 }
@@ -580,20 +581,29 @@ public class DnsSecurityAnalyzer
     /// <summary>
     /// Add covered networks to the set based on source matching rules.
     /// Handles Match Opposite logic: when true, rule applies to all networks EXCEPT those listed.
+    /// Source zone filtering ensures rules only cover networks in the matching zone.
     /// </summary>
     private static void AddCoveredNetworks(
         List<NetworkInfo> networks,
         string? sourceMatchingTarget,
         List<string>? sourceNetworkIds,
         bool matchOpposite,
+        string? sourceZoneId,
         HashSet<string> coveredNetworkIds)
     {
-        // If source matching target is ANY or not set with no network IDs, rule covers all networks
+        // If source matching target is ANY or not set, rule covers all networks in the source zone.
+        // "ANY" means all networks within the rule's source zone, not globally.
         if (string.IsNullOrEmpty(sourceMatchingTarget) ||
             sourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
         {
             foreach (var network in networks)
             {
+                // If we have a source zone, only cover networks in that zone
+                if (!string.IsNullOrEmpty(sourceZoneId) &&
+                    !string.IsNullOrEmpty(network.FirewallZoneId) &&
+                    !string.Equals(sourceZoneId, network.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 coveredNetworkIds.Add(network.Id);
             }
             return;

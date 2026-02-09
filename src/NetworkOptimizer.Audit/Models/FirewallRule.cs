@@ -242,6 +242,32 @@ public class FirewallRule
     }
 
     /// <summary>
+    /// Returns true if the source targets all addresses (ANY or unspecified).
+    /// Handles both v2 API format (SourceMatchingTarget) and legacy format (SourceType/Source).
+    /// </summary>
+    public bool IsAnySource()
+    {
+        if (!string.IsNullOrEmpty(SourceMatchingTarget))
+            return SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
+
+        return SourceType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
+            || string.IsNullOrEmpty(Source);
+    }
+
+    /// <summary>
+    /// Returns true if the destination targets all addresses (ANY or unspecified).
+    /// Handles both v2 API format (DestinationMatchingTarget) and legacy format (DestinationType/Destination).
+    /// </summary>
+    public bool IsAnyDestination()
+    {
+        if (!string.IsNullOrEmpty(DestinationMatchingTarget))
+            return DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
+
+        return DestinationType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
+            || string.IsNullOrEmpty(Destination);
+    }
+
+    /// <summary>
     /// Returns true if this rule allows NEW connections (not just ESTABLISHED/RELATED).
     /// Rules with RESPOND_ONLY only allow return traffic, not new connections.
     /// </summary>
