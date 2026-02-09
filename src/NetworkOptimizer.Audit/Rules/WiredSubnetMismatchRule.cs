@@ -87,7 +87,7 @@ public class WiredSubnetMismatchRule : AuditRuleBase
         }
         else
         {
-            recommendedAction = "Reconnect device to obtain new DHCP lease, or update fixed IP assignment";
+            recommendedAction = "Reconnect device to obtain new DHCP lease, or update fixed IP assignment.";
         }
 
         // Build device name

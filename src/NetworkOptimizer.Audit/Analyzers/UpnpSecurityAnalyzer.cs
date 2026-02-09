@@ -146,7 +146,7 @@ public class UpnpSecurityAnalyzer
                     ? $"UPnP is enabled on Home network: {homeNetworkNames}"
                     : $"UPnP is enabled on {homeNetworksWithUpnp.Count} Home networks: {homeNetworkNames}";
                 var recommendation = isSingleHomeNetwork
-                    ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming"
+                    ? "UPnP on a dedicated Home/Gaming network is acceptable for gaming and screen streaming."
                     : "Consider enabling UPnP on only one dedicated Home/Gaming VLAN rather than multiple networks";
 
                 issues.Add(new AuditIssue
@@ -258,7 +258,7 @@ public class UpnpSecurityAnalyzer
             var scoreImpact = isUnrestricted ? 8 : 0;
             var recommendation = isUnrestricted
                 ? "Edit the Port Forwarding Policy and set 'From' to 'Limited' to restrict which source IPs can access these ports"
-                : "Ensure these privileged ports are intentionally exposed and properly secured";
+                : "Ensure these privileged ports are intentionally exposed and properly secured.";
 
             issues.Add(new AuditIssue
             {
