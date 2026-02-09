@@ -3913,6 +3913,17 @@ select.form-control {
     margin-top: 0.25rem;
 }
 
+/* Client name links to Wi-Fi Optimizer */
+a.client-link {
+    color: #60a5fa;
+    text-decoration: none;
+}
+
+a.client-link:hover {
+    color: #93c5fd;
+    text-decoration: underline;
+}
+
 /* Clickable hop (wireless client linking to Wi-Fi Optimizer) */
 a.path-hop.hop-clickable {
     text-decoration: none;
@@ -7661,6 +7672,7 @@ a.path-hop.hop-clickable:hover {
 }
 
 .top-client-item .client-name {
+    font-size: 0.8rem;
     font-weight: 500;
     flex: 1;
 }

@@ -259,7 +259,7 @@
                             {
                                 var clientInfo = _topology.Clients.FirstOrDefault(c => c.Mac == client.Mac);
                                 <div class="top-client-item">
-                                    <span class="client-name">@(clientInfo?.Name ?? client.Mac)</span>
+                                    <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@(clientInfo?.Name ?? client.Mac)</a>
                                     <span class="client-mac">@client.Mac</span>
                                     <span class="client-roams">@client.RoamAttempts roams</span>
                                     <span class="client-rate @GetSuccessRateClass(client.SuccessRate)">
@@ -286,7 +286,7 @@
                     var stats = GetClientStats(client.Mac);
                     <div class="client-card">
                         <div class="client-info">
-                            <span class="client-name">@(client.Name ?? "Unknown")</span>
+                            <a href="./wifi-optimizer?client=@client.Mac" class="client-name client-link">@(client.Name ?? "Unknown")</a>
                             <span class="client-mac">@client.Mac</span>
                         </div>
                         @if (stats != null)
