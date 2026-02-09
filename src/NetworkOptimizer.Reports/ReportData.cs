@@ -33,6 +33,7 @@ public class DnsSecuritySummary
     public List<string> DohConfigNames { get; set; } = new();
     public bool DnsLeakProtection { get; set; }
     public bool HasDns53BlockRule { get; set; }
+    public bool Dns53ProvidesFullCoverage { get; set; }
     public bool DnatProvidesFullCoverage { get; set; }
     public bool DotBlocked { get; set; }
     public bool DohBypassBlocked { get; set; }
@@ -72,10 +73,16 @@ public class DnsSecuritySummary
     public string GetDnsLeakProtectionDetail()
     {
         if (!DnsLeakProtection)
+        {
+            if (HasDns53BlockRule)
+                return "External DNS queries partially blocked";
             return "Devices can bypass network DNS";
+        }
 
-        if (DnatProvidesFullCoverage && HasDns53BlockRule)
+        if (DnatProvidesFullCoverage && HasDns53BlockRule && Dns53ProvidesFullCoverage)
             return "External DNS queries redirected and leakage blocked";
+        if (DnatProvidesFullCoverage && HasDns53BlockRule)
+            return "External DNS queries redirected and leakage partially blocked";
         if (DnatProvidesFullCoverage)
             return "External DNS queries redirected";
         return "External DNS queries blocked";

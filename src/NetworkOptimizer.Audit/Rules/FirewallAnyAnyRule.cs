@@ -20,8 +20,8 @@ public class FirewallAnyAnyRule
 
         // v2 API uses SourceMatchingTarget/DestinationMatchingTarget = "ANY"
         // Legacy API uses SourceType/DestinationType = "any" or empty Source/Destination
-        var isAnySource = IsAnySource(rule);
-        var isAnyDest = IsAnyDestination(rule);
+        var isAnySource = rule.IsAnySource();
+        var isAnyDest = rule.IsAnyDestination();
         var isAnyProtocol = rule.Protocol?.Equals("all", StringComparison.OrdinalIgnoreCase) == true
             || string.IsNullOrEmpty(rule.Protocol);
 
@@ -29,24 +29,6 @@ public class FirewallAnyAnyRule
             || !string.IsNullOrEmpty(rule.SourcePort);
 
         return isAnySource && isAnyDest && isAnyProtocol && !hasSpecificPorts && rule.ActionType.IsAllowAction();
-    }
-
-    private static bool IsAnySource(FirewallRule rule)
-    {
-        if (!string.IsNullOrEmpty(rule.SourceMatchingTarget))
-            return rule.SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
-
-        return rule.SourceType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
-            || string.IsNullOrEmpty(rule.Source);
-    }
-
-    private static bool IsAnyDestination(FirewallRule rule)
-    {
-        if (!string.IsNullOrEmpty(rule.DestinationMatchingTarget))
-            return rule.DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
-
-        return rule.DestinationType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
-            || string.IsNullOrEmpty(rule.Destination);
     }
 
     /// <summary>

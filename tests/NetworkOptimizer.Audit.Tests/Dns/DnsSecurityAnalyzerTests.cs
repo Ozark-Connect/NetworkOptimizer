@@ -195,7 +195,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare"", ""google""]
             }
         ]").RootElement;
@@ -225,6 +225,54 @@ public class DnsSecurityAnalyzerTests : IDisposable
 
         result.ConfiguredServers.Should().HaveCountGreaterThanOrEqualTo(1);
         result.DohConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Analyze_WithCustomStateAndStaleServerNames_IgnoresStaleEntries()
+    {
+        // When state is "custom", only custom_servers are active.
+        // server_names may contain stale built-in entries from a previous auto/manual config.
+        var sdnsStamp = "sdns://AgcAAAAAAAAAAAAOZG5zLm5leHRkbnMuaW8HL2FiY2RlZg";
+        var settings = JsonDocument.Parse($@"[
+            {{
+                ""key"": ""doh"",
+                ""state"": ""custom"",
+                ""custom_servers"": [
+                    {{ ""server_name"": ""NextDNS"", ""sdns_stamp"": ""{sdnsStamp}"", ""enabled"": true }}
+                ],
+                ""server_names"": [""cloudflare"", ""google""]
+            }}
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohConfigured.Should().BeTrue();
+        // Only the custom server should be enabled
+        var enabledServers = result.ConfiguredServers.Where(s => s.Enabled).ToList();
+        enabledServers.Should().HaveCount(1);
+        enabledServers[0].ServerName.Should().Be("NextDNS");
+        // Stale server_names are parsed but marked disabled
+        var disabledServers = result.ConfiguredServers.Where(s => !s.Enabled).ToList();
+        disabledServers.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Analyze_WithAutoStateAndServerNames_ServerNamesAreActive()
+    {
+        // When state is "auto" or "manual", server_names are the active providers
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""auto"",
+                ""server_names"": [""cloudflare"", ""google""]
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, null);
+
+        result.DohConfigured.Should().BeTrue();
+        result.ConfiguredServers.Should().HaveCount(2);
+        result.ConfiguredServers.Should().OnlyContain(s => s.Enabled);
     }
 
     [Fact]
@@ -592,6 +640,332 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DetectsDns53()
+    {
+        // A broad "block all" rule with port_matching_type=ANY blocks all ports including DNS 53
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("a block-all rule with port_matching_type=ANY blocks all ports including 53");
+        result.Dns53RuleName.Should().Be("Block All Traffic");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DetectsDoTAndDoQ()
+    {
+        // A broad "block all" rule should also be detected as blocking DoT (TCP 853) and DoQ (UDP 853)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDotBlockRule.Should().BeTrue("a block-all rule blocks all ports including 853/TCP");
+        result.HasDoqBlockRule.Should().BeTrue("a block-all rule blocks all ports including 853/UDP");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_PortMatchingTypeAny_DoesNotDetectDoH()
+    {
+        // A broad "block all" rule should NOT be detected as a DoH block rule
+        // because DoH detection requires matching_target=WEB and web_domains
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDohBlockRule.Should().BeFalse("DoH detection requires web domain matching, not just port blocking");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_UdpOnly_PortMatchingTypeAny_DetectsDns53()
+    {
+        // A "block all UDP" rule with port_matching_type=ANY blocks DNS (UDP 53)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All UDP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""udp"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("blocking all UDP blocks DNS port 53");
+        result.HasDotBlockRule.Should().BeFalse("DoT is TCP, not blocked by UDP-only rule");
+        result.HasDoqBlockRule.Should().BeTrue("DoQ is UDP 853, blocked by all-UDP rule");
+    }
+
+    [Fact]
+    public async Task Analyze_BroadBlockAllRule_TcpOnly_PortMatchingTypeAny_DoesNotDetectDns53()
+    {
+        // A "block all TCP" rule with port_matching_type=ANY does NOT block DNS (UDP 53)
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All TCP"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""protocol"": ""tcp"",
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("DNS uses UDP, not blocked by TCP-only rule");
+        result.HasDotBlockRule.Should().BeTrue("DoT is TCP 853, blocked by all-TCP rule");
+        result.HasDoqBlockRule.Should().BeFalse("DoQ is UDP, not blocked by TCP-only rule");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockInvalidTraffic_DoesNotDetectAsDnsBlock()
+    {
+        // "Block Invalid Traffic" only blocks INVALID connection states, not NEW connections.
+        // It should NOT be detected as a DNS block rule even though it has no port filter.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Invalid Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""INVALID""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DNS connections");
+        result.HasDotBlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DoT connections");
+        result.HasDoqBlockRule.Should().BeFalse("Block Invalid Traffic doesn't block NEW DoQ connections");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockInvalidAndEstablished_DoesNotDetectAsDnsBlock()
+    {
+        // Rules blocking INVALID+ESTABLISHED but not NEW don't prevent DNS queries
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Unauthorized Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""INVALID"", ""ESTABLISHED""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("rule without NEW state doesn't block DNS queries");
+        result.HasDotBlockRule.Should().BeFalse("rule without NEW state doesn't block DoT queries");
+        result.HasDoqBlockRule.Should().BeFalse("rule without NEW state doesn't block DoQ queries");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockAllWithNewState_DetectsAsDnsBlock()
+    {
+        // Rules that block NEW connections DO prevent DNS queries
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All New Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""connection_state_type"": ""CUSTOM"",
+                ""connection_states"": [""NEW"", ""INVALID""],
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("rule blocking NEW connections prevents DNS queries");
+    }
+
+    [Fact]
+    public async Task Analyze_NarrowRulesWithWebDomainsOrAppCategories_DoNotDetectAsDnsBlock()
+    {
+        // Rules with web domains or app categories operate at the application layer,
+        // not at the network port level. They should NOT be detected as DNS port-based block rules.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Scam Domains"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""matching_target"": ""WEB"",
+                    ""zone_id"": ""external-zone"",
+                    ""web_domains"": [""scam-site.com"", ""phishing.net""]
+                }
+            },
+            {
+                ""name"": ""Block Torrent Trackers"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""destination"": {
+                    ""matching_target"": ""APP"",
+                    ""zone_id"": ""external-zone"",
+                    ""app_category_ids"": [5, 18]
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeFalse("web domain rules aren't DNS port-based blocks");
+        result.HasDotBlockRule.Should().BeFalse("app category rules aren't DoT port-based blocks");
+        result.HasDoqBlockRule.Should().BeFalse("narrow rules aren't DoQ port-based blocks");
+    }
+
+    [Fact]
+    public async Task Analyze_PredefinedCatchAllRule_DetectsAsDnsBlock()
+    {
+        // Predefined catch-all rules that block NEW connections DO block DNS traffic.
+        // Users on default-block-all posture rely on these rules for DNS blocking.
+        // We evaluate by content, not by predefined status.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Unauthorized Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""predefined"": true,
+                ""destination"": {
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("predefined catch-all rules genuinely block DNS traffic");
+        result.HasDotBlockRule.Should().BeTrue("predefined catch-all rules block DoT traffic");
+        result.HasDoqBlockRule.Should().BeTrue("predefined catch-all rules block DoQ traffic");
+    }
+
+    [Fact]
+    public async Task Analyze_PredefinedRuleWithSpecificPort_DetectsAsDnsBlock()
+    {
+        // Predefined rules with specific port restrictions ARE detected - they intentionally target ports.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block External DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""predefined"": true,
+                ""destination"": {
+                    ""port"": ""53"",
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("predefined rule with port 53 IS a DNS block rule");
+    }
+
+    [Fact]
+    public async Task Analyze_BlockAllWithPortMatchingTypeAny_DetectsAsDnsBlock()
+    {
+        // A rule with source=ANY and no port restriction blocks all traffic including DNS.
+        // This IS a DNS block rule (general block-all to external).
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block All External Traffic"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""ANY""
+                },
+                ""destination"": {
+                    ""port_matching_type"": ""ANY"",
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("block-all to external with ANY source blocks DNS");
+        result.HasDotBlockRule.Should().BeTrue("block-all to external blocks DoT");
+        result.HasDoqBlockRule.Should().BeTrue("block-all to external blocks DoQ");
+    }
+
+    [Fact]
+    public async Task Analyze_SourceSpecificBlockAll_DetectsAsDnsBlock()
+    {
+        // Source-specific block-all rules DO block DNS for those networks.
+        // Coverage tracking handles per-network accounting.
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block Network Internet Access"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net-123""]
+                },
+                ""destination"": {
+                    ""matching_target"": ""ANY"",
+                    ""zone_id"": ""external-zone""
+                }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall));
+
+        result.HasDns53BlockRule.Should().BeTrue("source-specific block-all rules block DNS for those networks");
+    }
+
+    [Fact]
     public async Task Analyze_WithDns53BlockRuleUsingPortGroup_DetectsRule()
     {
         // Arrange - Firewall rule using port group reference instead of direct port
@@ -735,9 +1109,11 @@ public class DnsSecurityAnalyzerTests : IDisposable
     }
 
     [Fact]
-    public async Task Analyze_WithMissingPortGroupId_IgnoresRule()
+    public async Task Analyze_WithMissingPortGroupId_DoesNotDetectAsDnsBlock()
     {
-        // Arrange - Firewall rule references non-existent port group
+        // Arrange - Firewall rule references non-existent port group.
+        // The rule intended to block specific ports but the group couldn't be resolved.
+        // The parser marks this with HasUnresolvedDestinationPortGroup, so it's skipped.
         var firewall = JsonDocument.Parse(@"[
             {
                 ""name"": ""Block DNS (Broken)"",
@@ -764,7 +1140,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         // Act
         var result = await _analyzer.AnalyzeAsync(null, ParseFirewallRules(firewall, firewallGroups), null, null, null, null, null);
 
-        // Assert - Should not detect rule since group doesn't exist
+        // Assert - Unresolved port group = rule skipped for port-based detection
         result.HasDns53BlockRule.Should().BeFalse();
     }
 
@@ -1462,7 +1838,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -1945,7 +2321,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -1961,7 +2337,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -1975,6 +2351,59 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall));
 
         result.HardeningNotes.Should().Contain(n => n.Contains("fully configured"));
+    }
+
+    [Fact]
+    public async Task Analyze_FullProtectionWithNetworks_EachProtocolCoverageEvaluatedIndependently()
+    {
+        // Arrange - DNS53 covers all networks, DoT only covers some
+        // Hardening note should NOT say "fully configured" because DoT is partial
+        var networks = CreateDhcpNetworks(
+            ("net1", "LAN", "192.168.1.0/24"),
+            ("net2", "IoT", "192.168.2.0/24"));
+
+        var settings = JsonDocument.Parse(@"[
+            {
+                ""key"": ""doh"",
+                ""state"": ""auto"",
+                ""server_names"": [""cloudflare""]
+            }
+        ]").RootElement;
+
+        var firewall = JsonDocument.Parse(@"[
+            {
+                ""name"": ""Block DNS"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""ANY"" },
+                ""destination"": { ""port"": ""53"" }
+            },
+            {
+                ""name"": ""Block DoT (LAN only)"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": {
+                    ""matching_target"": ""NETWORK"",
+                    ""network_ids"": [""net1""]
+                },
+                ""destination"": { ""port"": ""853"", ""protocol"": ""tcp"" }
+            },
+            {
+                ""name"": ""Block DoH"",
+                ""enabled"": true,
+                ""action"": ""drop"",
+                ""source"": { ""matching_target"": ""ANY"" },
+                ""destination"": { ""port"": ""443"", ""matching_target"": ""WEB"", ""web_domains"": [""dns.google""] }
+            }
+        ]").RootElement;
+
+        var result = await _analyzer.AnalyzeAsync(settings, ParseFirewallRules(firewall), null, networks);
+
+        // DNS53 covers all networks, DoT only covers LAN (not IoT)
+        result.Dns53ProvidesFullCoverage.Should().BeTrue();
+        result.DotProvidesFullCoverage.Should().BeFalse();
+        // Not "fully configured" because DoT is partial
+        result.HardeningNotes.Should().NotContain(n => n.Contains("fully configured"));
     }
 
     #endregion
@@ -2018,7 +2447,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2034,7 +2463,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2051,7 +2480,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2509,7 +2938,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2544,7 +2973,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2579,7 +3008,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2599,7 +3028,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""google""]
             }
         ]").RootElement;
@@ -2633,7 +3062,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""quad9""]
             }
         ]").RootElement;
@@ -2666,7 +3095,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2706,7 +3135,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2739,7 +3168,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""opendns""]
             }
         ]").RootElement;
@@ -2772,7 +3201,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""adguard""]
             }
         ]").RootElement;
@@ -2805,7 +3234,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2845,7 +3274,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2879,7 +3308,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2917,7 +3346,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -2951,7 +3380,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3038,7 +3467,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare-family""]
             }
         ]").RootElement;
@@ -3058,7 +3487,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare"", ""google"", ""quad9""]
             }
         ]").RootElement;
@@ -3524,7 +3953,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""nextdns""]
             }
         ]").RootElement;
@@ -3544,7 +3973,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""cloudflare""]
             }
         ]").RootElement;
@@ -3665,7 +4094,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4329,7 +4758,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4359,7 +4788,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4389,7 +4818,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4445,7 +4874,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4493,7 +4922,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4549,7 +4978,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4657,7 +5086,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -4931,7 +5360,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -5257,7 +5686,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-test""]
             }
         ]").RootElement;
@@ -7587,7 +8016,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""my-unknown-dns-provider""]
             }
         ]").RootElement;
@@ -7665,7 +8094,7 @@ public class DnsSecurityAnalyzerTests : IDisposable
         var settings = JsonDocument.Parse(@"[
             {
                 ""key"": ""doh"",
-                ""state"": ""custom"",
+                ""state"": ""auto"",
                 ""server_names"": [""NextDNS-abc123""]
             }
         ]").RootElement;

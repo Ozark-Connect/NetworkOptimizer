@@ -464,7 +464,7 @@ public class ConfigAuditEngine
         // Build allNetworks from NetworkConfigs (includes disabled networks)
         // This is needed for rules like AccessPortVlanRule that count tagged VLANs
         // Disabled networks are dormant config that could become active if re-enabled
-        // Only include corporate and guest networks - these are the ones selectable as tagged VLANs
+        // Include corporate, guest, and vlan-only networks - these can be tagged on switch ports
         // (excludes WAN and VPN-client networks which can't be tagged on switch ports)
         List<NetworkInfo>? allNetworks = null;
         if (ctx.NetworkConfigs != null && ctx.NetworkConfigs.Count > 0)
@@ -472,7 +472,8 @@ public class ConfigAuditEngine
             allNetworks = ctx.NetworkConfigs
                 .Where(nc => !string.IsNullOrEmpty(nc.Id) &&
                     (string.Equals(nc.Purpose, "corporate", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(nc.Purpose, "guest", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(nc.Purpose, "vlan-only", StringComparison.OrdinalIgnoreCase)))
                 .Select(nc => new NetworkInfo
                 {
                     Id = nc.Id,
@@ -1023,8 +1024,9 @@ public class ConfigAuditEngine
             DohState = dnsSecurityResult.DohState,
             DohProviders = providerNames,
             DohConfigNames = configNames,
-            DnsLeakProtection = dnsSecurityResult.HasDns53BlockRule || (dnsSecurityResult.DnatProvidesFullCoverage && dnsSecurityResult.DnatRedirectTargetIsValid && dnsSecurityResult.DnatDestinationFilterIsValid),
+            DnsLeakProtection = (dnsSecurityResult.HasDns53BlockRule && dnsSecurityResult.Dns53ProvidesFullCoverage) || (dnsSecurityResult.DnatProvidesFullCoverage && dnsSecurityResult.DnatRedirectTargetIsValid && dnsSecurityResult.DnatDestinationFilterIsValid),
             HasDns53BlockRule = dnsSecurityResult.HasDns53BlockRule,
+            Dns53ProvidesFullCoverage = dnsSecurityResult.Dns53ProvidesFullCoverage,
             DotBlocked = dnsSecurityResult.HasDotBlockRule,
             DoqBlocked = dnsSecurityResult.HasDoqBlockRule,
             DohBypassBlocked = dnsSecurityResult.HasDohBlockRule,

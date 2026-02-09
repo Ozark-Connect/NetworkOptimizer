@@ -1,3 +1,5 @@
+using NetworkOptimizer.Core.Helpers;
+
 namespace NetworkOptimizer.Audit.Models;
 
 /// <summary>
@@ -196,6 +198,13 @@ public class FirewallRule
     /// </summary>
     public bool DestinationMatchOppositePorts { get; init; }
 
+    /// <summary>
+    /// Whether this rule has an unresolved destination port group reference.
+    /// When true, DestinationPort is null because the referenced port group could not be resolved,
+    /// not because the rule intentionally targets all ports.
+    /// </summary>
+    public bool HasUnresolvedDestinationPortGroup { get; init; }
+
     // === Connection State Matching ===
 
     /// <summary>
@@ -235,6 +244,32 @@ public class FirewallRule
     }
 
     /// <summary>
+    /// Returns true if the source targets all addresses (ANY or unspecified).
+    /// Handles both v2 API format (SourceMatchingTarget) and legacy format (SourceType/Source).
+    /// </summary>
+    public bool IsAnySource()
+    {
+        if (!string.IsNullOrEmpty(SourceMatchingTarget))
+            return SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
+
+        return SourceType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
+            || string.IsNullOrEmpty(Source);
+    }
+
+    /// <summary>
+    /// Returns true if the destination targets all addresses (ANY or unspecified).
+    /// Handles both v2 API format (DestinationMatchingTarget) and legacy format (DestinationType/Destination).
+    /// </summary>
+    public bool IsAnyDestination()
+    {
+        if (!string.IsNullOrEmpty(DestinationMatchingTarget))
+            return DestinationMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase);
+
+        return DestinationType?.Equals("any", StringComparison.OrdinalIgnoreCase) == true
+            || string.IsNullOrEmpty(Destination);
+    }
+
+    /// <summary>
     /// Returns true if this rule allows NEW connections (not just ESTABLISHED/RELATED).
     /// Rules with RESPOND_ONLY only allow return traffic, not new connections.
     /// </summary>
@@ -261,5 +296,56 @@ public class FirewallRule
 
         // Unknown type - be conservative and assume it might allow NEW
         return true;
+    }
+
+    /// <summary>
+    /// Returns true if this rule applies to traffic from a specific source network.
+    /// Checks zone matching, network ID matching (with Match Opposite), and IP/CIDR coverage.
+    /// Handles v2 API format (SourceMatchingTarget) and legacy format (Source).
+    /// </summary>
+    public bool AppliesToSourceNetwork(NetworkInfo network)
+    {
+        // Zone check: if rule has a source zone and network has a zone, they must match
+        if (!string.IsNullOrEmpty(SourceZoneId) && !string.IsNullOrEmpty(network.FirewallZoneId))
+        {
+            if (!string.Equals(SourceZoneId, network.FirewallZoneId, StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        // v2 API: Check SourceMatchingTarget
+        if (!string.IsNullOrEmpty(SourceMatchingTarget))
+        {
+            if (SourceMatchingTarget.Equals("ANY", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (SourceMatchingTarget.Equals("NETWORK", StringComparison.OrdinalIgnoreCase))
+            {
+                var networkIds = SourceNetworkIds ?? [];
+                return SourceMatchOppositeNetworks
+                    ? !networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase)
+                    : networkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (SourceMatchingTarget.Equals("IP", StringComparison.OrdinalIgnoreCase) &&
+                SourceIps?.Count > 0 && !string.IsNullOrEmpty(network.Subnet))
+            {
+                var cidrCovers = NetworkUtilities.AnyCidrCoversSubnet(SourceIps, network.Subnet);
+                return SourceMatchOppositeIps ? !cidrCovers : cidrCovers;
+            }
+
+            // CLIENT, etc. - doesn't match by network
+            return false;
+        }
+
+        // Legacy: check SourceNetworkIds if populated
+        if (SourceNetworkIds != null && SourceNetworkIds.Count > 0)
+        {
+            return SourceMatchOppositeNetworks
+                ? !SourceNetworkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase)
+                : SourceNetworkIds.Contains(network.Id, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // Legacy fallback
+        return string.Equals(Source, network.Id, StringComparison.OrdinalIgnoreCase);
     }
 }
