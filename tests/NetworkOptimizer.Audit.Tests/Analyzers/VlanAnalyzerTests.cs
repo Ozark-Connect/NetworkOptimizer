@@ -10,12 +10,16 @@ namespace NetworkOptimizer.Audit.Tests.Analyzers;
 public class VlanAnalyzerTests
 {
     private readonly VlanAnalyzer _analyzer;
+    private readonly FirewallRuleAnalyzer _firewallAnalyzer;
     private readonly Mock<ILogger<VlanAnalyzer>> _loggerMock;
 
     public VlanAnalyzerTests()
     {
         _loggerMock = new Mock<ILogger<VlanAnalyzer>>();
         _analyzer = new VlanAnalyzer(_loggerMock.Object);
+        _firewallAnalyzer = new FirewallRuleAnalyzer(
+            Mock.Of<ILogger<FirewallRuleAnalyzer>>(),
+            new FirewallRuleParser(Mock.Of<ILogger<FirewallRuleParser>>()));
     }
 
     #region AnalyzeNetworkIsolation Tests
@@ -1364,7 +1368,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1394,7 +1398,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because firewall effectively blocks internet
         issues.Should().BeEmpty();
@@ -1423,7 +1427,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because disabled rule doesn't block
         issues.Should().HaveCount(1);
@@ -1453,7 +1457,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because ALLOW rule doesn't block internet
         issues.Should().HaveCount(1);
@@ -1483,7 +1487,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because only TCP is blocked, not all traffic
         issues.Should().HaveCount(1);
@@ -1532,7 +1536,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because both networks have internet blocked via firewall
         issues.Should().BeEmpty();
@@ -1568,7 +1572,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Only one issue for the unblocked network
         issues.Should().HaveCount(1);
@@ -1646,7 +1650,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues, internet blocked via both methods
         issues.Should().BeEmpty();
@@ -1677,7 +1681,7 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - Issue returned because rule doesn't target WAN zone
         issues.Should().HaveCount(1);
@@ -1708,10 +1712,373 @@ public class VlanAnalyzerTests
         };
 
         // Act
-        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId);
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
 
         // Assert - No issues because DROP also blocks internet
         issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceExactCidrCoversSubnet_ReturnsNoIssues()
+    {
+        // Arrange - IP/CIDR source exactly matches the network's subnet
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "192.168.42.0/24" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because CIDR exactly covers the network subnet
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceBroaderCidrCoversSubnet_ReturnsNoIssues()
+    {
+        // Arrange - Broader CIDR (supernet) covers the network's subnet
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "192.168.0.0/16" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because /16 supernet covers the /24 subnet
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceMultipleCidrsOneCovering_ReturnsNoIssues()
+    {
+        // Arrange - Multiple CIDRs in source, one covers the network
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "10.0.0.0/8", "192.168.42.0/24", "172.16.0.0/12" },
+                LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because one of the CIDRs covers the subnet
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceBroadCidrCoversTwoNetworks_ReturnsNoIssues()
+    {
+        // Arrange - Single broad CIDR covers both Security and Management networks
+        var securityNetworkId = "security-network-001";
+        var mgmtNetworkId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: securityNetworkId),
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: mgmtNetworkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "192.168.0.0/16" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because /16 covers both 192.168.42.0/24 and 192.168.99.0/24
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceCidrsCoversThreeNetworks_ReturnsNoIssues()
+    {
+        // Arrange - Broad CIDR covers 2 Security + 1 Management network
+        var security1Id = "security-network-001";
+        var security2Id = "security-network-002";
+        var mgmtId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras 1", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: security1Id),
+            CreateNetwork("Security Cameras 2", NetworkPurpose.Security, vlanId: 43,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: security2Id),
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: mgmtId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "192.168.0.0/16" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because /16 covers all three network subnets
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceCidrCoversOnlyOneOfTwo_OneIssueReturned()
+    {
+        // Arrange - CIDR covers only one of two security networks
+        var coveredNetworkId = "security-network-001";
+        var uncoveredNetworkId = "security-network-002";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras 1", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: coveredNetworkId),
+            CreateNetwork("Security Cameras 2", NetworkPurpose.Security, vlanId: 43,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: uncoveredNetworkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // CIDR only covers vlan 42 (192.168.42.0/24), not vlan 43 (192.168.43.0/24)
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "192.168.42.0/24" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - One issue for the uncovered network
+        issues.Should().HaveCount(1);
+        issues[0].CurrentNetwork.Should().Be("Security Cameras 2");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_IpSourceCidrDoesNotCoverSubnet_ReturnsIssue()
+    {
+        // Arrange - CIDR is in a completely different range than the network
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        // 10.0.0.0/8 does NOT cover 192.168.42.0/24
+        var firewallRules = new List<FirewallRule>
+        {
+            CreateInternetBlockRuleWithIpSource(
+                new List<string> { "10.0.0.0/8" }, LanZoneId, WanZoneId)
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - Issue returned because CIDR doesn't cover the network subnet
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_CustomZoneRuleBlocksNetworkInSameZone_ReturnsNoIssues()
+    {
+        // Arrange - Rule on a custom zone blocks internet for a network in that same zone
+        var customZoneId = "custom-security-zone";
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: customZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Custom Zone Internet",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = customZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - No issues because rule's zone matches the network's zone
+        issues.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_CustomZoneRuleDoesNotApplyToNetworkInDifferentZone_ReturnsIssue()
+    {
+        // Arrange - Rule on a custom zone should NOT block internet for a network in Internal zone
+        var networkId = "security-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Security Cameras", NetworkPurpose.Security, vlanId: 42,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId),
+            CreateNetwork("WAN", NetworkPurpose.Unknown, vlanId: 0,
+                firewallZoneId: WanZoneId,
+                networkGroup: "WAN")
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new FirewallRule
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = "Block Custom Zone Internet",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = "custom-other-zone",
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - Issue returned because rule's zone doesn't match the network's zone
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("SECURITY_NETWORK_HAS_INTERNET");
+    }
+
+    [Fact]
+    public void AnalyzeInternetAccess_InvalidStateOnlyBlockRule_DoesNotCountAsInternetBlock()
+    {
+        // Arrange - "Block Invalid Traffic" rule blocks only INVALID state connections,
+        // not NEW connections, so it should NOT count as blocking internet access
+        var networkId = "mgmt-network-001";
+        var networks = new List<NetworkInfo>
+        {
+            CreateNetwork("Management", NetworkPurpose.Management, vlanId: 99,
+                internetAccessEnabled: true,
+                firewallZoneId: LanZoneId,
+                networkGroup: "LAN",
+                id: networkId)
+        };
+
+        var firewallRules = new List<FirewallRule>
+        {
+            new()
+            {
+                Id = "block-invalid",
+                Name = "Block Invalid Traffic",
+                Enabled = true,
+                Action = "BLOCK",
+                Protocol = "all",
+                Index = 30000,
+                ConnectionStateType = "CUSTOM",
+                ConnectionStates = new List<string> { "INVALID" },
+                SourceMatchingTarget = "ANY",
+                SourceZoneId = LanZoneId,
+                DestinationMatchingTarget = "ANY",
+                DestinationZoneId = WanZoneId
+            }
+        };
+
+        // Act
+        var issues = _analyzer.AnalyzeInternetAccess(networks, "Gateway", firewallRules, WanZoneId, _firewallAnalyzer);
+
+        // Assert - Issue returned because INVALID-only rule doesn't block new connections
+        issues.Should().HaveCount(1);
+        issues[0].Type.Should().Be("MGMT_NETWORK_HAS_INTERNET");
     }
 
     #endregion
@@ -1811,6 +2178,29 @@ public class VlanAnalyzerTests
             Protocol = protocol,
             SourceMatchingTarget = "NETWORK",
             SourceNetworkIds = new List<string> { networkId },
+            SourceZoneId = sourceZoneId,
+            DestinationMatchingTarget = "ANY",
+            DestinationZoneId = destinationZoneId
+        };
+    }
+
+    private static FirewallRule CreateInternetBlockRuleWithIpSource(
+        List<string> sourceIps,
+        string sourceZoneId,
+        string destinationZoneId,
+        bool enabled = true,
+        string action = "BLOCK",
+        string protocol = "all")
+    {
+        return new FirewallRule
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "Block Internet Access (IP Source)",
+            Enabled = enabled,
+            Action = action,
+            Protocol = protocol,
+            SourceMatchingTarget = "IP",
+            SourceIps = sourceIps,
             SourceZoneId = sourceZoneId,
             DestinationMatchingTarget = "ANY",
             DestinationZoneId = destinationZoneId

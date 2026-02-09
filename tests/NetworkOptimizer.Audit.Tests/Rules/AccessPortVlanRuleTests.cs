@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.Audit.Services;
 using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
@@ -9,10 +10,13 @@ namespace NetworkOptimizer.Audit.Tests.Rules;
 public class AccessPortVlanRuleTests
 {
     private readonly AccessPortVlanRule _rule;
+    private readonly DeviceTypeDetectionService _detectionService;
 
     public AccessPortVlanRuleTests()
     {
         _rule = new AccessPortVlanRule();
+        _detectionService = new DeviceTypeDetectionService();
+        _rule.SetDetectionService(_detectionService);
     }
 
     #region Rule Properties
@@ -142,18 +146,63 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
-    #region Ports That Should Be Skipped - No Device Evidence
+    #region No Device Evidence - Should Still Trigger for Trunk Ports
 
     [Fact]
-    public void Evaluate_TrunkPort_NoConnectedClient_NoOfflineData_ReturnsNull()
+    public void Evaluate_TrunkPort_NoConnectedClient_NoOfflineData_WithExcessiveVlans_ReturnsIssue()
     {
-        // No evidence of a single device attached
+        // Trunk port with no device evidence but excessive VLANs - should flag
         var port = CreateTrunkPort(excludedNetworkIds: null);
         var networks = CreateVlanNetworks(5);
 
         var result = _rule.Evaluate(port, networks);
 
-        result.Should().BeNull();
+        result.Should().NotBeNull("Trunk port with no device and excessive VLANs should be flagged");
+        result!.Message.Should().Contain("no device");
+        result.Metadata!["has_device_evidence"].Should().Be(false);
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_WithAcceptableVlans_ReturnsNull()
+    {
+        // Trunk port with no device but only 2 VLANs (at threshold) - should not flag
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButTwo = networks.Skip(2).Select(n => n.Id).ToList();
+        var port = CreateTrunkPort(excludedNetworkIds: excludeAllButTwo);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("Trunk port with 2 VLANs is at threshold and should not trigger");
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_AllowAll_ReturnsIssue()
+    {
+        // Trunk port with no device and "Allow All" VLANs - should flag
+        var port = CreateTrunkPort(excludedNetworkIds: null);
+        var networks = CreateVlanNetworks(5);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Metadata!["allows_all_vlans"].Should().Be(true);
+        result.Metadata["has_device_evidence"].Should().Be(false);
+        result.RecommendedAction.Should().Contain("Disable the port");
+    }
+
+    [Fact]
+    public void Evaluate_TrunkPort_NoDevice_ThreeVlans_ReturnsIssue()
+    {
+        // Trunk port with no device and 3 VLANs (above threshold) - should flag
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPort(excludedNetworkIds: excludeAllButThree);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.Metadata!["tagged_vlan_count"].Should().Be(3);
+        result.Metadata["has_device_evidence"].Should().Be(false);
     }
 
     [Fact]
@@ -305,6 +354,8 @@ public class AccessPortVlanRuleTests
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
+        result!.Metadata!["has_device_evidence"].Should().Be(true);
+        result.Message.Should().Contain("single device");
     }
 
     [Fact]
@@ -442,16 +493,30 @@ public class AccessPortVlanRuleTests
     }
 
     [Fact]
-    public void Evaluate_IssueContainsRecommendation()
+    public void Evaluate_IssueContainsRecommendation_AllowAll()
     {
         var networks = CreateVlanNetworks(5);
-        var port = CreateTrunkPortWithClient(excludedNetworkIds: null);
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: null); // Allow All
 
         var result = _rule.Evaluate(port, networks);
 
         result.Should().NotBeNull();
-        result!.Metadata.Should().ContainKey("recommendation");
-        ((string)result.Metadata!["recommendation"]).Should().Contain("Limit");
+        result!.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("Allow All");
+    }
+
+    [Fact]
+    public void Evaluate_IssueContainsRecommendation_ThresholdExceeded()
+    {
+        var networks = CreateVlanNetworks(5);
+        var excludeTwo = networks.Take(2).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeTwo); // 3 VLANs allowed
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull();
+        result!.RecommendedAction.Should().NotBeNullOrEmpty();
+        result.RecommendedAction.Should().Contain("single-device port");
     }
 
     [Fact]
@@ -604,6 +669,113 @@ public class AccessPortVlanRuleTests
 
     #endregion
 
+    #region Server Device Higher Threshold
+
+    [Fact]
+    public void Evaluate_ServerDevice_FiveVlans_AtThreshold_ReturnsNull()
+    {
+        // 5 VLANs is at the server threshold (5) - should not trigger
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: excludeAllButFive);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("5 VLANs is at the server threshold");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_SixVlans_ReturnsIssue()
+    {
+        // 6 VLANs exceeds the server threshold (5)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButSix = networks.Skip(6).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: excludeAllButSix);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("6 VLANs exceeds the server threshold of 5");
+        result!.Message.Should().Contain("Server port");
+        result.Metadata!["is_server_device"].Should().Be(true);
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_AllowAll_ReturnsIssue()
+    {
+        // Even servers should not have "Allow All" VLANs
+        var networks = CreateVlanNetworks(5);
+        var port = CreateTrunkPortWithServerClient("proxmox-host", excludedNetworkIds: null);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("'Allow All' should still trigger for servers");
+        result!.Message.Should().Contain("Server port");
+        result.Metadata!["is_server_device"].Should().Be(true);
+        result.Metadata["allows_all_vlans"].Should().Be(true);
+    }
+
+    [Theory]
+    [InlineData("proxmox-host")]
+    [InlineData("esxi-server")]
+    [InlineData("truenas-storage")]
+    [InlineData("unraid-server")]
+    [InlineData("docker-host")]
+    [InlineData("my-server")]
+    public void Evaluate_ServerDeviceByName_WithModerateVlans_ReturnsNull(string hostname)
+    {
+        // Various server-like hostnames should all get the higher threshold
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithServerClient(hostname, excludedNetworkIds: excludeAllButFive);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull($"'{hostname}' should be detected as a server and get higher threshold");
+    }
+
+    [Fact]
+    public void Evaluate_NonServerDevice_ThreeVlans_StillTriggersNormalThreshold()
+    {
+        // Non-server devices should still use the normal threshold (2)
+        var networks = CreateVlanNetworks(5);
+        var excludeAllButThree = networks.Skip(3).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButThree);
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().NotBeNull("non-server devices use the lower threshold of 2");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_WithFingerprint_DevCat56_ReturnsNull()
+    {
+        // Server detected via UniFi fingerprint (dev_cat=56 = Server)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButFive);
+        port.ConnectedClient!.DevCat = 56; // Server category in UniFi fingerprint
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("device with dev_cat=56 (Server) should get higher threshold");
+    }
+
+    [Fact]
+    public void Evaluate_ServerDevice_WithFingerprint_DevCat182_ReturnsNull()
+    {
+        // Server detected via UniFi fingerprint (dev_cat=182 = Virtual Machine)
+        var networks = CreateVlanNetworks(10);
+        var excludeAllButFive = networks.Skip(5).Select(n => n.Id).ToList();
+        var port = CreateTrunkPortWithClient(excludedNetworkIds: excludeAllButFive);
+        port.ConnectedClient!.DevCat = 182; // Virtual Machine category
+
+        var result = _rule.Evaluate(port, networks);
+
+        result.Should().BeNull("device with dev_cat=182 (Virtual Machine) should get higher threshold");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static List<NetworkInfo> CreateVlanNetworks(int count)
@@ -656,7 +828,7 @@ public class AccessPortVlanRuleTests
     }
 
     /// <summary>
-    /// Create a trunk port WITHOUT device data - should NOT trigger (no single device evidence)
+    /// Create a trunk port WITHOUT device data - will trigger if excessive VLANs (no device evidence)
     /// </summary>
     private static PortInfo CreateTrunkPort(
         List<string>? excludedNetworkIds = null,
@@ -780,6 +952,42 @@ public class AccessPortVlanRuleTests
             ConnectedClient = null,
             LastConnectionMac = null,
             AllowedMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" },
+            Switch = switchInfo
+        };
+    }
+
+    /// <summary>
+    /// Create a trunk port with a connected client that has a server-like hostname.
+    /// The DeviceTypeDetectionService should detect it as a Server category.
+    /// </summary>
+    private static PortInfo CreateTrunkPortWithServerClient(
+        string hostname,
+        List<string>? excludedNetworkIds = null)
+    {
+        var switchInfo = new SwitchInfo
+        {
+            Name = "Test Switch",
+            Capabilities = new SwitchCapabilities()
+        };
+
+        return new PortInfo
+        {
+            PortIndex = 1,
+            Name = "Port 1",
+            IsUp = true,
+            ForwardMode = "custom",
+            IsUplink = false,
+            IsWan = false,
+            ExcludedNetworkIds = excludedNetworkIds,
+            ConnectedDeviceType = null,
+            ConnectedClient = new UniFiClientResponse
+            {
+                Mac = "aa:bb:cc:dd:ee:ff",
+                Hostname = hostname,
+                Name = hostname
+            },
+            LastConnectionMac = null,
+            AllowedMacAddresses = null,
             Switch = switchInfo
         };
     }

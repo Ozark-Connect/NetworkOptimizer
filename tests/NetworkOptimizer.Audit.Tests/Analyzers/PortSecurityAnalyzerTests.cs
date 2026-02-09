@@ -385,6 +385,97 @@ public class PortSecurityAnalyzerTests
         result.Should().NotBeNull();
     }
 
+    [Fact]
+    public void AnalyzePorts_UxInApMode_SkipsAuditIssues()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 },
+            new() { Id = "net-2", Name = "IoT", VlanId = 20 }
+        };
+
+        // Create a placeholder switch first, then build ports referencing it
+        var uxSwitch = new SwitchInfo
+        {
+            Name = "Living Room UX7",
+            ModelName = "UX7",
+            IsAccessPoint = true,
+            IsGateway = false,
+            Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 16, SupportsIsolation = true }
+        };
+
+        var switchWithPorts = new SwitchInfo
+        {
+            Name = uxSwitch.Name,
+            ModelName = uxSwitch.ModelName,
+            IsAccessPoint = uxSwitch.IsAccessPoint,
+            IsGateway = uxSwitch.IsGateway,
+            Capabilities = uxSwitch.Capabilities,
+            Ports = new List<PortInfo>
+            {
+                new()
+                {
+                    PortIndex = 1,
+                    Name = "Port 1",
+                    IsUp = true,
+                    ForwardMode = "native",
+                    NativeNetworkId = "net-1",
+                    Switch = uxSwitch
+                }
+            }
+        };
+
+        switchWithPorts.HasUnmanageablePorts.Should().BeTrue();
+        var result = _engine.AnalyzePorts(new List<SwitchInfo> { switchWithPorts }, networks);
+
+        result.Should().BeEmpty("UX7 in AP mode has unmanageable ports");
+    }
+
+    [Fact]
+    public void AnalyzePorts_UxAsGateway_StillAudited()
+    {
+        var networks = new List<NetworkInfo>
+        {
+            new() { Id = "net-1", Name = "Default", VlanId = 1 }
+        };
+
+        var uxGateway = new SwitchInfo
+        {
+            Name = "Main Gateway UX7",
+            ModelName = "UX7",
+            IsAccessPoint = false,
+            IsGateway = true,
+            Capabilities = new SwitchCapabilities { MaxCustomMacAcls = 16, SupportsIsolation = true }
+        };
+
+        var gatewayWithPorts = new SwitchInfo
+        {
+            Name = uxGateway.Name,
+            ModelName = uxGateway.ModelName,
+            IsAccessPoint = uxGateway.IsAccessPoint,
+            IsGateway = uxGateway.IsGateway,
+            Capabilities = uxGateway.Capabilities,
+            Ports = new List<PortInfo>
+            {
+                new()
+                {
+                    PortIndex = 1,
+                    Name = "Port 1",
+                    IsUp = true,
+                    ForwardMode = "native",
+                    NativeNetworkId = "net-1",
+                    Switch = uxGateway
+                }
+            }
+        };
+
+        gatewayWithPorts.HasUnmanageablePorts.Should().BeFalse();
+        var result = _engine.AnalyzePorts(new List<SwitchInfo> { gatewayWithPorts }, networks);
+
+        // Should NOT be empty - the gateway's ports are manageable
+        result.Should().NotBeNull();
+    }
+
     #endregion
 
     #region AnalyzeHardening Tests

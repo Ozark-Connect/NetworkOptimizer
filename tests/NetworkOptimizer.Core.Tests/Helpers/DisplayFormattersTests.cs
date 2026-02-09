@@ -23,7 +23,7 @@ public class DisplayFormattersTests
     [InlineData("[Switch] Office", "Office")]
     [InlineData("[AP] Living Room", "Living Room")]
     [InlineData("[Router] Edge", "Edge")]
-    [InlineData("[Firewall] Security", "Security")]
+    [InlineData("[RTR] Edge", "Edge")]
     public void StripDevicePrefix_BracketedPrefix_StripsPrefix(string input, string expected)
     {
         var result = DisplayFormatters.StripDevicePrefix(input);
@@ -61,10 +61,10 @@ public class DisplayFormattersTests
     }
 
     [Theory]
-    [InlineData("Office Switch", "Office Switch")]
-    [InlineData("Main Gateway", "Main Gateway")]
     [InlineData("No Prefix Here", "No Prefix Here")]
-    public void StripDevicePrefix_NoPrefix_ReturnsOriginal(string input, string expected)
+    [InlineData("Just A Name", "Just A Name")]
+    [InlineData("Living Room", "Living Room")]
+    public void StripDevicePrefix_NoPrefixOrSuffix_ReturnsOriginal(string input, string expected)
     {
         var result = DisplayFormatters.StripDevicePrefix(input);
         result.Should().Be(expected);
@@ -74,7 +74,91 @@ public class DisplayFormattersTests
     [InlineData("[]", "[]")]
     [InlineData("[", "[")]
     [InlineData("(Random) Text", "(Random) Text")] // Random is not a device keyword
+    [InlineData("{Random} Text", "{Random} Text")] // Random is not a device keyword
     public void StripDevicePrefix_InvalidPrefixFormat_ReturnsOriginal(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("{AP} Living Room", "Living Room")]
+    [InlineData("{Switch} Office", "Office")]
+    [InlineData("{Gateway} Main", "Main")]
+    public void StripDevicePrefix_CurlyBracePrefix_StripsPrefix(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Office Switch", "Office")]
+    [InlineData("Living Room AP", "Living Room")]
+    [InlineData("Main Gateway", "Main")]
+    [InlineData("Edge Router", "Edge")]
+    [InlineData("Edge RTR", "Edge")]
+    public void StripDevicePrefix_PlainSuffix_StripsSuffix(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Office [Switch]", "Office")]
+    [InlineData("Living Room [AP]", "Living Room")]
+    [InlineData("Main [Gateway]", "Main")]
+    public void StripDevicePrefix_BracketedSuffix_StripsSuffix(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Office (Switch)", "Office")]
+    [InlineData("Living Room (AP)", "Living Room")]
+    [InlineData("Main (Gateway)", "Main")]
+    public void StripDevicePrefix_ParentheticalSuffix_StripsSuffix(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Office {Switch}", "Office")]
+    [InlineData("Living Room {AP}", "Living Room")]
+    [InlineData("Main {Gateway}", "Main")]
+    public void StripDevicePrefix_CurlyBraceSuffix_StripsSuffix(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("[AP] Living Room AP", "Living Room")] // Both prefix and suffix
+    [InlineData("(Switch) Office Switch", "Office")] // Both prefix and suffix
+    [InlineData("{Gateway} Main [Gateway]", "Main")] // Mixed prefix and suffix
+    public void StripDevicePrefix_BothPrefixAndSuffix_StripsBoth(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("ap - Living Room", "Living Room")] // lowercase
+    [InlineData("SWITCH - Office", "Office")] // uppercase
+    [InlineData("Office ap", "Office")] // lowercase suffix
+    [InlineData("Main GATEWAY", "Main")] // uppercase suffix
+    public void StripDevicePrefix_CaseInsensitive_StripsCorrectly(string input, string expected)
+    {
+        var result = DisplayFormatters.StripDevicePrefix(input);
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("Office (Model)", "Office (Model)")] // Model is not a device keyword
+    [InlineData("Living Room (U6-Pro)", "Living Room (U6-Pro)")] // Model suffix preserved
+    [InlineData("Main (UCG-Fiber)", "Main (UCG-Fiber)")] // Model suffix preserved
+    public void StripDevicePrefix_NonKeywordSuffix_PreservesSuffix(string input, string expected)
     {
         var result = DisplayFormatters.StripDevicePrefix(input);
         result.Should().Be(expected);

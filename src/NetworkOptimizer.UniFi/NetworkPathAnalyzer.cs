@@ -437,6 +437,9 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
                 return await CalculatePathAsync(targetHost, sourceIp, retryOnFailure: false, priorSnapshot, cancellationToken);
             }
 
+            // Set MLO status on AP hops based on which WLANs each AP broadcasts
+            await SetApMloStatusAsync(path.Hops, cancellationToken);
+
             // Calculate bottleneck
             CalculateBottleneck(path);
 
@@ -550,6 +553,71 @@ public class NetworkPathAnalyzer : INetworkPathAnalyzer
         _cache.Set(RawDevicesCacheKey, deviceDict, RawDevicesCacheDuration);
 
         return deviceDict;
+    }
+
+    /// <summary>
+    /// Sets MLO status on AP hops based on which WLANs each AP broadcasts.
+    /// </summary>
+    private async Task SetApMloStatusAsync(List<NetworkHop> hops, CancellationToken cancellationToken)
+    {
+        var apHops = hops.Where(h => h.Type == HopType.AccessPoint && !string.IsNullOrEmpty(h.DeviceMac)).ToList();
+        if (apHops.Count == 0)
+            return;
+
+        if (!_clientProvider.IsConnected || _clientProvider.Client == null)
+            return;
+
+        try
+        {
+            // Get WLAN configs and devices
+            var wlanConfigs = await _clientProvider.Client.GetWlanConfigurationsAsync(cancellationToken);
+            var devices = await _clientProvider.Client.GetDevicesAsync(cancellationToken);
+
+            // Build lookup of MLO-enabled WLAN names
+            var mloEnabledSsids = wlanConfigs
+                .Where(w => w.Enabled && w.MloEnabled)
+                .Select(w => w.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (mloEnabledSsids.Count == 0)
+            {
+                // No MLO-enabled WLANs, all APs are false
+                foreach (var hop in apHops)
+                    hop.MloEnabled = false;
+                return;
+            }
+
+            // Check each AP's vap_table and Wi-Fi 7 capability
+            foreach (var hop in apHops)
+            {
+                var device = devices.FirstOrDefault(d =>
+                    string.Equals(d.Mac, hop.DeviceMac, StringComparison.OrdinalIgnoreCase));
+
+                if (device?.VapTable == null || device.VapTable.Count == 0)
+                {
+                    hop.MloEnabled = false;
+                    continue;
+                }
+
+                // AP must be Wi-Fi 7 capable (have at least one radio with is_11be=true) for MLO
+                var isWifi7Capable = device.RadioTable?.Any(r => r.Is11Be) == true;
+                if (!isWifi7Capable)
+                {
+                    hop.MloEnabled = false;
+                    continue;
+                }
+
+                // Check if any broadcast SSID has MLO enabled
+                hop.MloEnabled = device.VapTable.Any(vap =>
+                    mloEnabledSsids.Contains(vap.Essid));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to check MLO status for AP hops");
+            foreach (var hop in apHops)
+                hop.MloEnabled = false;
+        }
     }
 
     /// <summary>

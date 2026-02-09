@@ -62,6 +62,14 @@ public class SwitchInfo
     public bool IsAccessPoint { get; init; }
 
     /// <summary>
+    /// Whether this device's ports are unmanageable in UniFi Port Manager.
+    /// UX and UX7 devices in AP mode don't expose their switch ports for configuration,
+    /// so port-level audit issues are not actionable.
+    /// </summary>
+    public bool HasUnmanageablePorts =>
+        IsAccessPoint && ModelName is "UX" or "UX7";
+
+    /// <summary>
     /// Switch capabilities
     /// </summary>
     public SwitchCapabilities Capabilities { get; init; } = new();

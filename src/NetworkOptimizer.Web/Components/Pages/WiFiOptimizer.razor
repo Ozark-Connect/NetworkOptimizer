@@ -1,0 +1,678 @@
+@page "/sites/{SiteId:int}/wifi-optimizer"
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+@inject NavigationManager NavigationManager
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Wi-Fi Optimizer - Network Optimizer</PageTitle>
+
+<div class="page-header">
+    <h1>Wi-Fi Optimizer</h1>
+    <p class="page-description">Site health scoring, signal analysis, and optimization recommendations</p>
+</div>
+
+@if (!ConnectionService.IsConnected(SiteId))
+{
+    <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "connection-error" : "")">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                @if (!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+                {
+                    <strong>Connection Error</strong>
+                    <span>@ConnectionService.GetLastError(SiteId)</span>
+                }
+                else
+                {
+                    <strong>Not Connected</strong>
+                    <span>Connect to your UniFi Console to analyze Wi-Fi data.</span>
+                }
+            </div>
+            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "Check Settings" : "Connect Now")</a>
+        </div>
+    </div>
+}
+
+@if (ConnectionService.IsConnected(SiteId))
+{
+    <!-- Quick Stats Row -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-icon wifi-health-icon @GetScoreClass(_summary?.HealthScore)">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span class="health-score-num">@(_summary?.HealthScore?.ToString() ?? "-")</span>
+                }
+            </div>
+            <div class="stat-content">
+                <div class="stat-value @GetScoreClass(_summary?.HealthScore)">
+                    @if (_loading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        @GetScoreLabel(_summary?.HealthScore)
+                    }
+                </div>
+                <div class="stat-label">Site Health</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" opacity="0.7"></path>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Zm4-10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" opacity="0.6"></path>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-1 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" style="fill: var(--primary-hover)"></path>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M22 12c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2s10 4.477 10 10Zm-1 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"></path>
+            </svg>
+            <div class="stat-content">
+                <div class="stat-value">
+                    @if (_loading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        @(_summary?.TotalAps ?? 0)
+                    }
+                </div>
+                <div class="stat-label">Access Points</div>
+            </div>
+        </div>
+
+        <div class="stat-card">
+            <svg class="stat-icon-svg stat-icon-sm" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+            </svg>
+            <div class="stat-content">
+                <div class="stat-value">
+                    @if (_loading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        @(_summary?.TotalClients ?? 0)
+                    }
+                </div>
+                <div class="stat-label">Wireless Clients</div>
+            </div>
+        </div>
+
+        <div class="stat-card @(_summary?.WeakSignalClients > 0 ? "stat-warning" : "")">
+            <svg class="stat-icon-svg stat-icon-sm" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/>
+            </svg>
+            <div class="stat-content">
+                <div class="stat-value">
+                    @if (_loading)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        @(_summary?.WeakSignalClients ?? 0)
+                    }
+                </div>
+                <div class="stat-label">Weak Signal</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Tabs -->
+    <div class="wifi-view-tabs">
+        <button class="wifi-view-tab @(_activeTab == "overview" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("overview"))">
+            Overview
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "metrics" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("metrics"))">
+            Metrics
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "spectrum" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("spectrum"))">
+            RF Environment
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "channels" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("channels"))">
+            Channels
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "client" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("client"))">
+            Client Stats
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "roaming" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("roaming"))">
+            Roaming
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "power" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("power"))">
+            Power/Coverage
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "loadbalance" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("loadbalance"))">
+            Load Balance
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "connectivity" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("connectivity"))">
+            Connectivity
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "bandsteering" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("bandsteering"))">
+            Band Steering
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "airtime" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("airtime"))">
+            Airtime
+        </button>
+        <button class="wifi-view-tab @(_activeTab == "environment" ? "active" : "")"
+                @onclick="@(() => SetActiveTab("environment"))">
+            Environment
+        </button>
+    </div>
+
+    @if (_activeTab == "metrics")
+    {
+        <!-- Metrics - Time Series Charts -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.Metrics SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "client")
+    {
+        <!-- Client Stats Timeline -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ClientTimeline SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "roaming")
+    {
+        <!-- Roaming Analytics -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.RoamingAnalytics SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "channels")
+    {
+        <!-- Channel Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ChannelAnalysis SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "spectrum")
+    {
+        <!-- Spectrum Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.SpectrumAnalysis SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "loadbalance")
+    {
+        <!-- AP Load Balance -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ApLoadBalance SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "power")
+    {
+        <!-- Power & Coverage Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.PowerCoverageAnalysis SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "bandsteering")
+    {
+        <!-- Band Steering Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.BandSteeringAnalysis SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "airtime")
+    {
+        <!-- Airtime Fairness Analysis -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.AirtimeFairness SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "environment")
+    {
+        <!-- Environmental Correlation -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.EnvironmentalCorrelation SiteId="SiteId" />
+            </div>
+        </div>
+    }
+    else if (_activeTab == "connectivity")
+    {
+        <!-- Connectivity Flow -->
+        <div class="card card-full-width">
+            <div class="card-body">
+                <NetworkOptimizer.Web.Components.Shared.WiFi.ConnectivityFlow SiteId="SiteId" />
+            </div>
+        </div>
+    }
+
+    <!-- Main Content (shown on Overview tab or always for context) -->
+    @if (_activeTab == "overview")
+    {
+    <div class="content-grid wifi-content-grid">
+        <!-- Health Score Card -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Site Health Score</h2>
+                <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_refreshing">
+                    @if (_refreshing)
+                    {
+                        <span class="spinner-sm"></span>
+                    }
+                    else
+                    {
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+            <div class="card-body">
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner"></span>
+                        <span>Loading health score...</span>
+                    </div>
+                }
+                else if (_healthScore == null)
+                {
+                    <div class="empty-state">
+                        <p>Unable to calculate health score. Ensure UniFi is connected and APs are online.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="health-score-display">
+                        <div class="health-score-main">
+                            <div class="score-circle @GetScoreClass(_healthScore.OverallScore)">
+                                <span class="score-value @(_healthScore.OverallScore == 100 ? "score-perfect" : "")">@_healthScore.OverallScore</span>
+                                <span class="score-max">/100</span>
+                            </div>
+                            <div class="score-label">@GetScoreLabel(_healthScore.OverallScore)</div>
+                            <div class="health-score-timestamp">
+                                Last updated: @_healthScore.Timestamp.ToLocalTime().ToString("h:mm tt")
+                            </div>
+                        </div>
+
+                        <div class="health-dimensions">
+                            @foreach (var dimension in GetDimensions())
+                            {
+                                <div class="dimension-row">
+                                    <div class="dimension-label">@dimension.Name</div>
+                                    <div class="dimension-bar-container">
+                                        <div class="dimension-bar @GetDimensionBarClass(dimension.Score)" style="width: @dimension.Score%"></div>
+                                    </div>
+                                    <div class="dimension-score">@dimension.Score</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Client Band Distribution Card -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Client Band Distribution</h2>
+            </div>
+            <div class="card-body">
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_summary?.TotalClients == 0)
+                {
+                    <div class="empty-state">
+                        <p>No wireless clients connected</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="band-distribution">
+                        <div class="band-item">
+                            <div class="band-bar-container">
+                                <div class="band-bar band-2ghz" style="height: @GetBandPercentage(_summary?.ClientsOn2_4GHz ?? 0)%"></div>
+                            </div>
+                            <div class="band-value">@(_summary?.ClientsOn2_4GHz ?? 0)</div>
+                            <div class="band-label">2.4 GHz</div>
+                        </div>
+                        <div class="band-item">
+                            <div class="band-bar-container">
+                                <div class="band-bar band-5ghz" style="height: @GetBandPercentage(_summary?.ClientsOn5GHz ?? 0)%"></div>
+                            </div>
+                            <div class="band-value">@(_summary?.ClientsOn5GHz ?? 0)</div>
+                            <div class="band-label">5 GHz</div>
+                        </div>
+                        <div class="band-item">
+                            <div class="band-bar-container">
+                                <div class="band-bar band-6ghz" style="height: @GetBandPercentage(_summary?.ClientsOn6GHz ?? 0)%"></div>
+                            </div>
+                            <div class="band-value">@(_summary?.ClientsOn6GHz ?? 0)</div>
+                            <div class="band-label">6 GHz</div>
+                        </div>
+                    </div>
+
+                    <div class="band-stats">
+                        @if (_summary?.AvgSatisfaction.HasValue == true)
+                        {
+                            <div class="band-stat">
+                                <span class="band-stat-label">Avg Satisfaction:</span>
+                                <span class="band-stat-value @GetSatisfactionClass(_summary.AvgSatisfaction.Value)">@_summary.AvgSatisfaction%</span>
+                            </div>
+                        }
+                        @if (_summary?.AvgSignal.HasValue == true)
+                        {
+                            <div class="band-stat">
+                                <span class="band-stat-label">Avg Signal:</span>
+                                <span class="band-stat-value @GetSignalClass(_summary.AvgSignal.Value)">@_summary.AvgSignal dBm</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Issues Card -->
+        <div class="card card-span-2">
+            <div class="card-header">
+                <h2 class="card-title">Health Issues</h2>
+                @if (_healthScore?.Issues.Count > 0)
+                {
+                    <span class="issue-count-sm">@_healthScore.Issues.Count issue@(_healthScore.Issues.Count != 1 ? "s" : "")</span>
+                }
+            </div>
+            <div class="card-body">
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading...</span>
+                    </div>
+                }
+                else if (_healthScore?.Issues.Any(i => i.ShowOnOverview) != true)
+                {
+                    <div class="empty-state success-state">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="48" height="48">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                        </svg>
+                        <p>No issues detected. Your Wi-Fi network is healthy!</p>
+                    </div>
+                }
+                else
+                {
+                    <IssuesList Issues="_healthScore?.Issues.Where(i => i.ShowOnOverview).ToList() ?? new List<HealthIssue>()" ShowDetails="true" />
+                }
+            </div>
+        </div>
+
+        <!-- Access Points Card -->
+        <div class="card card-span-2">
+            <div class="card-header">
+                <h2 class="card-title">Access Points</h2>
+            </div>
+            <div class="card-body">
+                @if (_loading)
+                {
+                    <div class="loading-state">
+                        <span class="spinner-sm"></span>
+                        <span>Loading access points...</span>
+                    </div>
+                }
+                else if (_accessPoints.Count == 0)
+                {
+                    <div class="empty-state">
+                        <p>No access points found</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="ap-list">
+                        @foreach (var ap in _accessPoints)
+                        {
+                            <div class="ap-card @(ap.IsOnline ? "" : "ap-offline")">
+                                <div class="ap-header">
+                                    <DeviceIcon Model="@ap.Model" Size="xl" />
+                                    <div class="ap-header-text">
+                                        <span class="ap-name">@ap.Name</span>
+                                        <span class="ap-model">@ap.Model</span>
+                                    </div>
+                                    <div class="ap-status">
+                                        <span class="status-dot @(ap.IsOnline ? "online" : "offline")"></span>
+                                        <span class="ap-status-text">@(ap.IsOnline ? "Online" : "Offline")</span>
+                                    </div>
+                                </div>
+                                <div class="ap-stats">
+                                    <div class="ap-stat">
+                                        <span class="ap-stat-value">@ap.TotalClients</span>
+                                        <span class="ap-stat-label">Clients</span>
+                                    </div>
+                                    @if (ap.Satisfaction.HasValue && ap.Satisfaction.Value >= 0 && ap.TotalClients > 0)
+                                    {
+                                        <div class="ap-stat">
+                                            <span class="ap-stat-value @GetSatisfactionClass(ap.Satisfaction.Value)">@ap.Satisfaction%</span>
+                                            <span class="ap-stat-label">Satisfaction</span>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="ap-radios">
+                                    @foreach (var radio in ap.Radios)
+                                    {
+                                        <div class="ap-radio">
+                                            <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                            <span class="radio-channel">Ch @radio.Channel</span>
+                                            @if (radio.ChannelUtilization.HasValue)
+                                            {
+                                                <span class="radio-util @GetUtilizationClass(radio.ChannelUtilization.Value)">@radio.ChannelUtilization%</span>
+                                            }
+                                            <span class="radio-clients">@radio.ClientCount clients</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+    } @* End of overview tab *@
+}
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private bool _refreshing = false;
+    private string _activeTab = "overview";
+
+    private void SetActiveTab(string tab)
+    {
+        _activeTab = tab;
+    }
+    private SiteHealthScore? _healthScore;
+    private WiFiSummary? _summary;
+    private List<AccessPointSnapshot> _accessPoints = new();
+
+    protected override void OnInitialized()
+    {
+        ConnectionService.OnConnectionChanged += OnConnectionChanged;
+        _ = LoadDataAsync();
+    }
+
+    private async void OnConnectionChanged(int siteId)
+    {
+        WiFiService.ClearCache();
+        await LoadDataAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            await ConnectionService.WaitForConnectionAsync(SiteId);
+
+            // Load all data in parallel
+            var summaryTask = WiFiService.GetSummaryAsync(SiteId);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId);
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId);
+
+            await Task.WhenAll(summaryTask, healthTask, apsTask);
+
+            _summary = await summaryTask;
+            _healthScore = await healthTask;
+            _accessPoints = await apsTask;
+        }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _refreshing = true;
+        StateHasChanged();
+
+        try
+        {
+            WiFiService.ClearCache();
+
+            var summaryTask = WiFiService.GetSummaryAsync(SiteId);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId, forceRefresh: true);
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId, forceRefresh: true);
+
+            await Task.WhenAll(summaryTask, healthTask, apsTask);
+
+            _summary = await summaryTask;
+            _healthScore = await healthTask;
+            _accessPoints = await apsTask;
+        }
+        finally
+        {
+            _refreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        ConnectionService.OnConnectionChanged -= OnConnectionChanged;
+    }
+
+    private IEnumerable<ScoreDimension> GetDimensions()
+    {
+        if (_healthScore == null) yield break;
+
+        yield return _healthScore.SignalQuality;
+        yield return _healthScore.ChannelHealth;
+        yield return _healthScore.ClientSatisfaction;
+        yield return _healthScore.AirtimeEfficiency;
+        yield return _healthScore.RoamingPerformance;
+        yield return _healthScore.CapacityHeadroom;
+    }
+
+    private string GetScoreClass(int? score) => score switch
+    {
+        >= 90 => "score-excellent",
+        >= 75 => "score-good",
+        >= 60 => "score-fair",
+        _ => "score-poor"
+    };
+
+    private string GetScoreLabel(int? score) => score switch
+    {
+        null => "-",
+        >= 90 => "Excellent",
+        >= 75 => "Good",
+        >= 60 => "Fair",
+        _ => "Needs Work"
+    };
+
+    private string GetDimensionBarClass(int score) => score switch
+    {
+        >= 80 => "bar-excellent",
+        >= 60 => "bar-good",
+        >= 40 => "bar-fair",
+        _ => "bar-poor"
+    };
+
+    private string GetSatisfactionClass(int satisfaction) => satisfaction switch
+    {
+        >= 80 => "satisfaction-excellent",
+        >= 60 => "satisfaction-good",
+        >= 40 => "satisfaction-fair",
+        _ => "satisfaction-poor"
+    };
+
+    private string GetSignalClass(int signal) => signal switch
+    {
+        >= -50 => "signal-excellent",
+        >= -60 => "signal-good",
+        >= -70 => "signal-fair",
+        _ => "signal-poor"
+    };
+
+    private string GetUtilizationClass(int utilization) => utilization switch
+    {
+        <= 30 => "util-low",
+        <= 60 => "util-medium",
+        _ => "util-high"
+    };
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private int GetBandPercentage(int count)
+    {
+        var total = _summary?.TotalClients ?? 0;
+        if (total == 0) return 0;
+        return (int)Math.Round((double)count / total * 100);
+    }
+}

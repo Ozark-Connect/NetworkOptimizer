@@ -20,7 +20,7 @@
                 <div class="device-meta">
                     <span class="device-type">@Device.TypeDisplayName</span>
                     <div class="device-status">
-                        <span class="status-dot"></span>
+                        <span class="status-dot @(Device.Status == "Online" ? "online" : "")"></span>
                         <span class="status-text">@Device.Status</span>
                     </div>
                 </div>
@@ -98,14 +98,19 @@
         return null;
     }
 
+    // Fallback icons when device image is unavailable
     private string GetDeviceIcon(DeviceType deviceType)
     {
         return deviceType switch
         {
             DeviceType.Gateway => "🌐",
-            DeviceType.Switch => "🔌",
+            DeviceType.Switch => "🔀",
             DeviceType.AccessPoint => "📡",
             DeviceType.CellularModem => "📶",
+            DeviceType.BuildingBridge => "🌉",
+            DeviceType.CloudKey => "☁️",
+            DeviceType.DeviceBridge => "🔗",
+            DeviceType.SmartPower => "⚡",
             _ => "🖥️"
         };
     }

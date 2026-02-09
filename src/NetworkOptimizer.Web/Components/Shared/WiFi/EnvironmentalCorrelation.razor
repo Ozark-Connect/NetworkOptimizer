@@ -1,0 +1,692 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="env-correlation-container wifi-sections">
+    <div class="env-header">
+        <h3>Environmental Correlation</h3>
+        <div class="env-controls">
+            <div class="filter-tabs band-tabs">
+                <button class="tab band-tab band-2ghz @(_selectedBand == RadioBand.Band2_4GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band2_4GHz)'>2.4 GHz</button>
+                <button class="tab band-tab band-5ghz @(_selectedBand == RadioBand.Band5GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band5GHz)'>5 GHz</button>
+                <button class="tab band-tab band-6ghz @(_selectedBand == RadioBand.Band6GHz ? "active" : "")" @onclick='() => SetBandFilter(RadioBand.Band6GHz)'>6 GHz</button>
+            </div>
+            <select class="time-range-select" @bind="_selectedTimeRange" @bind:after="OnTimeRangeChanged">
+                <option value="1d">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                @* <option value="30d">Last 30 Days</option> *@
+            </select>
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="env-loading">
+            <span class="spinner"></span>
+            <span>Loading environmental data...</span>
+        </div>
+    }
+    else if (_metrics.Count == 0)
+    {
+        <div class="env-empty">
+            <p>No historical data available. Metrics are collected every 5 minutes when connected to UniFi.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Time-of-Day Summary -->
+        <div class="env-section">
+            <div class="section-header">
+                <h4>Performance by Time of Day</h4>
+                <span class="section-hint">Identifying daily patterns</span>
+            </div>
+
+            <div class="time-of-day-grid">
+                @foreach (var period in _timeOfDayStats)
+                {
+                    var qualityClass = GetPeriodQualityClass(period);
+                    <div class="tod-card @qualityClass">
+                        <div class="tod-header">
+                            <span class="tod-name">@period.Name</span>
+                        </div>
+                        <div class="tod-hours">@period.TimeRange</div>
+                        <div class="tod-metrics">
+                            <div class="tod-metric">
+                                <span class="metric-label">Avg Interference</span>
+                                <span class="metric-value @GetInterferenceClass(period.AvgInterference)">@period.AvgInterference%</span>
+                            </div>
+                            <div class="tod-metric">
+                                <span class="metric-label">Avg Utilization</span>
+                                <span class="metric-value @GetUtilClass(period.AvgUtilization)">@period.AvgUtilization%</span>
+                            </div>
+                            <div class="tod-metric">
+                                <span class="metric-label">TX Retries</span>
+                                <span class="metric-value @GetRetryClass(period.AvgRetries)">@period.AvgRetries.ToString("F1")%</span>
+                            </div>
+                        </div>
+                        @if (period.IsPeakProblem)
+                        {
+                            <div class="tod-warning">Peak problem period</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Interference Heatmap (Hour x Day) -->
+        <div class="env-section">
+            <div class="section-header">
+                <h4>Weekly Interference Patterns</h4>
+                <span class="section-hint">Hour of day vs day of week</span>
+            </div>
+
+            <div class="heatmap-container">
+                <div class="heatmap-row header-row">
+                    <div class="heatmap-label"></div>
+                    @for (int h = 0; h < 24; h += 2)
+                    {
+                        <div class="heatmap-hour-label">@FormatHour(h)</div>
+                    }
+                </div>
+
+                @foreach (var day in _heatmapData.Where(d => d.Hours.Any(h => h.Count > 0)))
+                {
+                    <div class="heatmap-row">
+                        <div class="heatmap-label">@day.DayName</div>
+                        @foreach (var cell in day.Hours)
+                        {
+                            <div class="heatmap-cell @(cell.Count == 0 ? "heat-none" : "")"
+                                 style="@GetHeatmapCellStyle(cell)"
+                                 data-tooltip="@(cell.Count > 0 ? $"{day.DayName} {FormatHour(cell.Hour)}: {cell.Value}% interference" : $"{day.DayName} {FormatHour(cell.Hour)}: No data")"></div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="heatmap-legend">
+                <span class="legend-item"><span class="heat-color heat-low"></span>Low (&lt;20%)</span>
+                <span class="legend-item"><span class="heat-color heat-medium"></span>Medium (20-40%)</span>
+                <span class="legend-item"><span class="heat-color heat-high"></span>High (40-60%)</span>
+                <span class="legend-item"><span class="heat-color heat-critical"></span>Critical (&gt;60%)</span>
+            </div>
+        </div>
+
+        <!-- Identified Patterns -->
+        @if (_patterns.Count > 0)
+        {
+            <div class="env-section">
+                <div class="section-header">
+                    <h4>Detected Patterns</h4>
+                    <span class="section-hint">Recurring interference or congestion</span>
+                </div>
+
+                <div class="patterns-list">
+                    @foreach (var pattern in _patterns)
+                    {
+                        <div class="pattern-card @pattern.Type">
+                            <div class="pattern-icon">@pattern.Icon</div>
+                            <div class="pattern-content">
+                                <div class="pattern-title">@pattern.Title</div>
+                                <div class="pattern-description">@pattern.Description</div>
+                                <div class="pattern-timing">@pattern.Timing</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Band-Specific Analysis -->
+        <div class="env-section">
+            <div class="section-header">
+                <h4>Band Performance Over Time</h4>
+                <span class="section-hint">Interference and utilization by frequency band</span>
+            </div>
+
+            <div class="band-env-grid">
+                @foreach (var band in _bandStats)
+                {
+                    <div class="band-env-card @GetBandCssClass(band.Band)">
+                        <div class="band-env-header">
+                            <span class="band-name">@band.Band.ToDisplayString()</span>
+                        </div>
+
+                        <div class="band-env-metrics">
+                            <div class="band-env-metric">
+                                <div class="metric-row">
+                                    <span class="metric-label">Peak Interference</span>
+                                    <span class="metric-value @GetInterferenceClass(band.PeakInterference)">@band.PeakInterference%</span>
+                                </div>
+                                <div class="metric-bar">
+                                    <div class="metric-fill @GetInterferenceClass(band.PeakInterference)" style="width: @band.PeakInterference%"></div>
+                                </div>
+                            </div>
+
+                            <div class="band-env-metric">
+                                <div class="metric-row">
+                                    <span class="metric-label">Avg Interference</span>
+                                    <span class="metric-value">@band.AvgInterference%</span>
+                                </div>
+                                <div class="metric-bar">
+                                    <div class="metric-fill" style="width: @band.AvgInterference%"></div>
+                                </div>
+                            </div>
+
+                            <div class="band-env-metric">
+                                <div class="metric-row">
+                                    <span class="metric-label">Peak Utilization</span>
+                                    <span class="metric-value @GetUtilClass(band.PeakUtilization)">@band.PeakUtilization%</span>
+                                </div>
+                                <div class="metric-bar">
+                                    <div class="metric-fill @GetUtilClass(band.PeakUtilization)" style="width: @band.PeakUtilization%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        @if (band.PeakTime != null)
+                        {
+                            <div class="band-peak-time">Peak time: @band.PeakTime</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Recommendations -->
+        @if (_recommendations.Count > 0)
+        {
+            <div class="env-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <IssuesList Issues="_recommendations" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private string _selectedTimeRange = "7d";
+    private RadioBand _selectedBand = RadioBand.Band2_4GHz;
+    private List<SiteWiFiMetrics> _metrics = new();
+
+    // Analysis results
+    private List<TimeOfDayStats> _timeOfDayStats = new();
+    private List<HeatmapDay> _heatmapData = new();
+    private List<DetectedPattern> _patterns = new();
+    private List<BandEnvironmentStats> _bandStats = new();
+    private List<HealthIssue> _recommendations = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var (start, end, granularity) = GetTimeRange();
+            _metrics = await WiFiService.GetSiteMetricsAsync(SiteId, start, end, granularity);
+
+            AnalyzeTimeOfDay();
+            BuildHeatmap();
+            DetectPatterns();
+            AnalyzeBands();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task OnTimeRangeChanged()
+    {
+        await LoadDataAsync();
+    }
+
+    private void SetBandFilter(RadioBand band)
+    {
+        _selectedBand = band;
+        AnalyzeTimeOfDay();
+        BuildHeatmap();
+        DetectPatterns();
+        GenerateRecommendations();
+    }
+
+    private (DateTimeOffset start, DateTimeOffset end, MetricGranularity granularity) GetTimeRange()
+    {
+        var end = DateTimeOffset.UtcNow;
+        return _selectedTimeRange switch
+        {
+            "1d" => (end.AddDays(-1), end, MetricGranularity.FiveMinutes),
+            "7d" => (end.AddDays(-7), end, MetricGranularity.Hourly),
+            // "30d" => (end.AddDays(-30), end, MetricGranularity.Daily),
+            _ => (end.AddDays(-7), end, MetricGranularity.Hourly)
+        };
+    }
+
+    private void AnalyzeTimeOfDay()
+    {
+        _timeOfDayStats = new List<TimeOfDayStats>
+        {
+            new() { Name = "Morning", TimeRange = "6 AM - 12 PM", StartHour = 6, EndHour = 12 },
+            new() { Name = "Afternoon", TimeRange = "12 PM - 6 PM", StartHour = 12, EndHour = 18 },
+            new() { Name = "Evening", TimeRange = "6 PM - 12 AM", StartHour = 18, EndHour = 24 },
+            new() { Name = "Night", TimeRange = "12 AM - 6 AM", StartHour = 0, EndHour = 6 }
+        };
+
+        foreach (var period in _timeOfDayStats)
+        {
+            var periodMetrics = _metrics.Where(m =>
+            {
+                var hour = m.Timestamp.ToLocalTime().Hour;
+                return period.StartHour <= period.EndHour
+                    ? (hour >= period.StartHour && hour < period.EndHour)
+                    : (hour >= period.StartHour || hour < period.EndHour);
+            }).ToList();
+
+            if (periodMetrics.Any())
+            {
+                period.AvgInterference = (int)periodMetrics.Average(m => GetInterference(m));
+                period.AvgUtilization = (int)periodMetrics.Average(m => GetUtilization(m));
+                period.AvgRetries = periodMetrics.Average(m => GetRetries(m));
+            }
+        }
+
+        // Mark peak problem period
+        var maxInterference = _timeOfDayStats.Max(p => p.AvgInterference);
+        if (maxInterference > 30)
+        {
+            var peakPeriod = _timeOfDayStats.FirstOrDefault(p => p.AvgInterference == maxInterference);
+            if (peakPeriod != null) peakPeriod.IsPeakProblem = true;
+        }
+    }
+
+    private void BuildHeatmap()
+    {
+        var days = new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+        _heatmapData = days.Select((name, index) => new HeatmapDay
+        {
+            DayName = name,
+            DayOfWeek = (DayOfWeek)index,
+            Hours = Enumerable.Range(0, 12).Select(i => new HeatmapCell { Hour = i * 2, Value = 0 }).ToList()
+        }).ToList();
+
+        foreach (var metric in _metrics)
+        {
+            var localTime = metric.Timestamp.ToLocalTime();
+            var day = _heatmapData.FirstOrDefault(d => d.DayOfWeek == localTime.DayOfWeek);
+            if (day != null)
+            {
+                var hourBucket = localTime.Hour / 2;
+                var cell = day.Hours.FirstOrDefault(h => h.Hour == hourBucket * 2);
+                if (cell != null)
+                {
+                    cell.Count++;
+                    cell.Total += GetInterference(metric);
+                }
+            }
+        }
+
+        // Calculate averages
+        foreach (var day in _heatmapData)
+        {
+            foreach (var cell in day.Hours)
+            {
+                cell.Value = cell.Count > 0 ? (int)(cell.Total / cell.Count) : 0;
+            }
+        }
+    }
+
+    private void DetectPatterns()
+    {
+        _patterns.Clear();
+
+        // Evening spike pattern
+        var evening = _timeOfDayStats.FirstOrDefault(p => p.Name == "Evening");
+        var morning = _timeOfDayStats.FirstOrDefault(p => p.Name == "Morning");
+
+        if (evening != null && morning != null && evening.AvgInterference > morning.AvgInterference + 15)
+        {
+            _patterns.Add(new DetectedPattern
+            {
+                Icon = "~",
+                Type = "warning",
+                Title = "Evening Interference Spike",
+                Description = "Interference increases significantly in the evening. This often indicates neighbor Wi-Fi networks becoming active or household microwave/appliance usage.",
+                Timing = "6 PM - 12 AM"
+            });
+        }
+
+        // High weekend usage (only consider cells with data to avoid skewing from empty days)
+        var weekendCells = _heatmapData
+            .Where(d => d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday)
+            .SelectMany(d => d.Hours).Where(h => h.Count > 0).ToList();
+        var weekdayCells = _heatmapData
+            .Where(d => d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday)
+            .SelectMany(d => d.Hours).Where(h => h.Count > 0).ToList();
+
+        if (weekendCells.Count > 0 && weekdayCells.Count > 0)
+        {
+            var weekendAvg = weekendCells.Average(h => h.Value);
+            var weekdayAvg = weekdayCells.Average(h => h.Value);
+
+            if (weekendAvg > weekdayAvg + 10)
+            {
+                _patterns.Add(new DetectedPattern
+                {
+                    Icon = "W",
+                    Type = "info",
+                    Title = "Weekend Congestion",
+                    Description = "Wi-Fi interference is higher on weekends, likely due to increased neighbor activity or household streaming.",
+                    Timing = "Saturday - Sunday"
+                });
+            }
+        }
+
+        // Consistent high interference
+        var avgInterference = _metrics.Any() ? _metrics.Average(m => GetInterference(m)) : 0;
+        if (avgInterference > 40)
+        {
+            _patterns.Add(new DetectedPattern
+            {
+                Icon = "!",
+                Type = "warning",
+                Title = "Persistent High Interference",
+                Description = "Interference levels are consistently high. This may indicate a nearby persistent source like a competing network on the same channel.",
+                Timing = "Continuous"
+            });
+        }
+
+        // Night-time quiet period
+        var night = _timeOfDayStats.FirstOrDefault(p => p.Name == "Night");
+        if (night != null && evening != null && night.AvgInterference < evening.AvgInterference - 20)
+        {
+            _patterns.Add(new DetectedPattern
+            {
+                Icon = "Z",
+                Type = "info",
+                Title = "Night Quiet Period",
+                Description = "Interference drops significantly at night. This is the optimal time for channel changes or firmware updates.",
+                Timing = "12 AM - 6 AM"
+            });
+        }
+    }
+
+    private void AnalyzeBands()
+    {
+        var bands = new[] { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+        _bandStats = new List<BandEnvironmentStats>();
+
+        foreach (var band in bands)
+        {
+            var stat = new BandEnvironmentStats { Band = band };
+            var metricsWithBand = _metrics.Where(m => m.ByBand.ContainsKey(band)).ToList();
+
+            if (metricsWithBand.Any())
+            {
+                var interferences = metricsWithBand
+                    .Select(m => m.ByBand[band].Interference)
+                    .Where(v => v.HasValue)
+                    .Select(v => v!.Value)
+                    .ToList();
+
+                if (interferences.Any())
+                {
+                    stat.AvgInterference = (int)interferences.Average();
+                    stat.PeakInterference = (int)interferences.Max();
+                }
+
+                var utilizations = metricsWithBand
+                    .Select(m => m.ByBand[band].ChannelUtilization)
+                    .Where(v => v.HasValue)
+                    .Select(v => v!.Value)
+                    .ToList();
+
+                if (utilizations.Any())
+                {
+                    stat.AvgUtilization = (int)utilizations.Average();
+                    stat.PeakUtilization = (int)utilizations.Max();
+                }
+
+                var peakMetric = metricsWithBand
+                    .OrderByDescending(m => m.ByBand[band].Interference ?? 0)
+                    .FirstOrDefault();
+                stat.PeakTime = peakMetric?.Timestamp.ToLocalTime().ToString("ddd h tt");
+            }
+
+            _bandStats.Add(stat);
+        }
+    }
+
+    private void GenerateRecommendations()
+    {
+        _recommendations.Clear();
+
+        // Evening interference recommendation (Auto-Optimize Network removed from UniFi)
+        // var evening = _timeOfDayStats.FirstOrDefault(p => p.Name == "Evening");
+        // if (evening != null && evening.AvgInterference > 40)
+        // {
+        //     _recommendations.Add(new HealthIssue
+        //     {
+        //         Severity = HealthIssueSeverity.Warning,
+        //         Title = "Schedule Channel Changes During Off-Peak",
+        //         Description = "Evening interference is high. Schedule auto-channel optimization for early morning hours (2-4 AM) when interference is lowest.",
+        //         Recommendation = "In UniFi Network: Settings > WiFi > Global AP Settings > Auto-Optimize Network"
+        //     });
+        // }
+
+        // 2.4 GHz congestion
+        var band24 = _bandStats.FirstOrDefault(b => b.Band == RadioBand.Band2_4GHz);
+        if (band24 != null && band24.AvgInterference > 50)
+        {
+            _recommendations.Add(new HealthIssue
+            {
+                Severity = HealthIssueSeverity.Warning,
+                Title = "Consider 2.4 GHz Channel Width",
+                Description = "2.4 GHz shows high interference. Using 20 MHz channel width instead of 40 MHz can reduce overlap with neighbors.",
+                Recommendation = "In UniFi Network: Settings > WiFi > (SSID) > Advanced > 2.4 GHz Channel Width - set to 20 MHz"
+            });
+        }
+
+        // Pattern-based suggestions
+        if (_patterns.Any(p => p.Title.Contains("Evening")))
+        {
+            _recommendations.Add(new HealthIssue
+            {
+                Severity = HealthIssueSeverity.Info,
+                Title = "Avoid Bandwidth-Intensive Tasks in Evening",
+                Description = "Evening interference patterns suggest this is not the ideal time for speed tests or large backups. Early morning or midday may provide better performance."
+            });
+        }
+
+        // Suggest 6 GHz if available
+        var band6 = _bandStats.FirstOrDefault(b => b.Band == RadioBand.Band6GHz);
+        if (band24 != null && band6 != null && band6.AvgInterference < 20 && band24.AvgInterference > 30)
+        {
+            _recommendations.Add(new HealthIssue
+            {
+                Severity = HealthIssueSeverity.Info,
+                Title = "6 GHz Band Has Less Interference",
+                Description = "The 6 GHz band shows significantly lower interference. Ensure Wi-Fi 6E and Wi-Fi 7 clients are connecting to 6 GHz for best performance.",
+                Recommendation = "Enable band steering to prefer 6 GHz, or create a 6 GHz-only SSID for high-performance devices."
+            });
+        }
+    }
+
+    private string FormatHour(int hour)
+    {
+        if (hour == 0) return "12a";
+        if (hour == 12) return "12p";
+        if (hour < 12) return $"{hour}a";
+        return $"{hour - 12}p";
+    }
+
+    // Helper methods to get metrics for the selected band
+    private double GetInterference(SiteWiFiMetrics m)
+    {
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.Interference.HasValue)
+            return band.Interference.Value;
+        return 0;
+    }
+
+    private double GetUtilization(SiteWiFiMetrics m)
+    {
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.ChannelUtilization.HasValue)
+            return band.ChannelUtilization.Value;
+        return 0;
+    }
+
+    private double GetRetries(SiteWiFiMetrics m)
+    {
+        if (m.ByBand.TryGetValue(_selectedBand, out var band) && band.TxRetryPct.HasValue)
+            return band.TxRetryPct.Value;
+        return 0;
+    }
+
+    private string GetPeriodQualityClass(TimeOfDayStats period)
+    {
+        if (period.AvgInterference > 50) return "period-poor";
+        if (period.AvgInterference > 30) return "period-fair";
+        return "period-good";
+    }
+
+    private string GetInterferenceClass(int interference) => interference switch
+    {
+        > 50 => "interference-high",
+        > 30 => "interference-medium",
+        _ => "interference-low"
+    };
+
+    private string GetUtilClass(int util) => util switch
+    {
+        > 70 => "util-high",
+        > 50 => "util-medium",
+        _ => "util-low"
+    };
+
+    private string GetRetryClass(double retry) => retry switch
+    {
+        > 15 => "retry-high",
+        > 8 => "retry-medium",
+        _ => "retry-low"
+    };
+
+    private string GetHeatmapCellStyle(HeatmapCell cell)
+    {
+        if (cell.Count == 0) return "";
+        var v = Math.Clamp(cell.Value, 0, 100);
+        // Interpolate through legend colors at their breakpoints:
+        // 0% = #22c55e (green), 20% = #eab308 (yellow),
+        // 40% = #f97316 (orange), 60%+ = #ef4444 (red)
+        (int r, int g, int b) color;
+        if (v <= 20)
+        {
+            color = LerpColor((0x22, 0xc5, 0x5e), (0xea, 0xb3, 0x08), v / 20.0);
+        }
+        else if (v <= 40)
+        {
+            color = LerpColor((0xea, 0xb3, 0x08), (0xf9, 0x73, 0x16), (v - 20) / 20.0);
+        }
+        else if (v <= 60)
+        {
+            color = LerpColor((0xf9, 0x73, 0x16), (0xef, 0x44, 0x44), (v - 40) / 20.0);
+        }
+        else
+        {
+            color = (0xef, 0x44, 0x44);
+        }
+        return $"background: #{color.r:x2}{color.g:x2}{color.b:x2};";
+    }
+
+    private static (int r, int g, int b) LerpColor(
+        (int r, int g, int b) from, (int r, int g, int b) to, double t)
+    {
+        t = Math.Clamp(t, 0, 1);
+        return ((int)(from.r + (to.r - from.r) * t),
+                (int)(from.g + (to.g - from.g) * t),
+                (int)(from.b + (to.b - from.b) * t));
+    }
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private class TimeOfDayStats
+    {
+        public string Name { get; set; } = "";
+        public string TimeRange { get; set; } = "";
+        public int StartHour { get; set; }
+        public int EndHour { get; set; }
+        public int AvgInterference { get; set; }
+        public int AvgUtilization { get; set; }
+        public double AvgRetries { get; set; }
+        public bool IsPeakProblem { get; set; }
+    }
+
+    private class HeatmapDay
+    {
+        public string DayName { get; set; } = "";
+        public DayOfWeek DayOfWeek { get; set; }
+        public List<HeatmapCell> Hours { get; set; } = new();
+    }
+
+    private class HeatmapCell
+    {
+        public int Hour { get; set; }
+        public int Value { get; set; }
+        public int Count { get; set; }
+        public double Total { get; set; }
+    }
+
+    private class DetectedPattern
+    {
+        public string Icon { get; set; } = "";
+        public string Type { get; set; } = "info";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Timing { get; set; } = "";
+    }
+
+    private class BandEnvironmentStats
+    {
+        public RadioBand Band { get; set; }
+        public int AvgInterference { get; set; }
+        public int PeakInterference { get; set; }
+        public int AvgUtilization { get; set; }
+        public int PeakUtilization { get; set; }
+        public string? PeakTime { get; set; }
+    }
+
+}

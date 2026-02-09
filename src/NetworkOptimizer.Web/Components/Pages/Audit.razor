@@ -25,14 +25,22 @@
 
 @if (!ConnectionService.IsConnected(SiteId))
 {
-    <div class="connection-banner">
+    <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "connection-error" : "")">
         <div class="banner-content">
             <span class="banner-icon">!</span>
             <div class="banner-text">
-                <strong>Not Connected</strong>
-                <span>Connect to your UniFi Console to run security audits.</span>
+                @if (!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+                {
+                    <strong>Connection Error</strong>
+                    <span>@ConnectionService.GetLastError(SiteId)</span>
+                }
+                else
+                {
+                    <strong>Not Connected</strong>
+                    <span>Connect to your UniFi Console to run security audits.</span>
+                }
             </div>
-            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "Check Settings" : "Connect Now")</a>
         </div>
     </div>
 }
@@ -512,7 +520,7 @@
                             <tr>
                                 <td>DNS Leak Prevention (Port 53)</td>
                                 <td class="@(lastResult.DnsSecurity.DnsLeakProtection ? "status-success" : "status-warning")">
-                                    @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : "Unprotected")
+                                    @(lastResult.DnsSecurity.DnsLeakProtection ? "Protected" : (lastResult.DnsSecurity.HasDns53BlockRule ? "Partial" : "Unprotected"))
                                 </td>
                                 <td>@GetDnsLeakProtectionDetail()</td>
                             </tr>
@@ -1091,6 +1099,7 @@
                     DohConfigNames = lastResult.DnsSecurity.DohConfigNames.ToList(),
                     DnsLeakProtection = lastResult.DnsSecurity.DnsLeakProtection,
                     HasDns53BlockRule = lastResult.DnsSecurity.HasDns53BlockRule,
+                    Dns53ProvidesFullCoverage = lastResult.DnsSecurity.Dns53ProvidesFullCoverage,
                     DnatProvidesFullCoverage = lastResult.DnsSecurity.DnatProvidesFullCoverage,
                     DotBlocked = lastResult.DnsSecurity.DotBlocked,
                     DohBypassBlocked = lastResult.DnsSecurity.DohBypassBlocked,
@@ -1392,13 +1401,20 @@
         var dns = lastResult.DnsSecurity;
 
         if (!dns.DnsLeakProtection)
+        {
+            if (dns.HasDns53BlockRule)
+                return "External DNS queries partially blocked";
             return "Devices can bypass network DNS";
+        }
 
         var hasDnat = dns.DnatProvidesFullCoverage;
         var hasDns53 = dns.HasDns53BlockRule;
+        var dns53FullCoverage = dns.Dns53ProvidesFullCoverage;
 
-        if (hasDnat && hasDns53)
+        if (hasDnat && hasDns53 && dns53FullCoverage)
             return "External DNS queries redirected and leakage blocked";
+        if (hasDnat && hasDns53)
+            return "External DNS queries redirected and leakage partially blocked";
         if (hasDnat)
             return "External DNS queries redirected";
         return "External DNS queries blocked";

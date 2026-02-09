@@ -16,14 +16,22 @@
 
 @if (!ConnectionService.IsConnected(SiteId))
 {
-    <div class="connection-banner">
+    <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "connection-error" : "")">
         <div class="banner-content">
             <span class="banner-icon">!</span>
             <div class="banner-text">
-                <strong>Not Connected</strong>
-                <span>Connect to your UniFi Console to analyze your network.</span>
+                @if (!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+                {
+                    <strong>Connection Error</strong>
+                    <span>@ConnectionService.GetLastError(SiteId)</span>
+                }
+                else
+                {
+                    <strong>Not Connected</strong>
+                    <span>Connect to your UniFi Console to analyze your network.</span>
+                }
             </div>
-            <a href="/sites/@SiteId/settings" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "Check Settings" : "Connect Now")</a>
         </div>
     </div>
 }
@@ -313,8 +321,12 @@
     private const string WarningIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""";
     private const string InfoIcon = """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>""";
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        // Wait for auto-connect to complete (if credentials are saved)
+        // This prevents the button from staying disabled after a restart
+        await ConnectionService.WaitForConnectionAsync(SiteId);
+
         _result = DiagnosticsService.GetLastResult(SiteId);
         InitializeCollapsedState();
     }
@@ -323,22 +335,39 @@
     {
         if (_result == null) return;
 
-        // Collapse if empty, or if > 3 items with no recommendations
+        var apLockCount = _result.ApLockIssues.Count;
+        var trunkCount = _result.TrunkConsistencyIssues.Count;
+        var profileCount = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
+
+        // Count how many categories have items
+        var categoriesWithItems = (apLockCount > 0 ? 1 : 0) +
+                                  (trunkCount > 0 ? 1 : 0) +
+                                  (profileCount > 0 ? 1 : 0);
+
+        // If only one category has items, expand it (no point collapsing the only content)
+        if (categoriesWithItems == 1)
+        {
+            _apLockCollapsed = apLockCount == 0;
+            _trunkCollapsed = trunkCount == 0;
+            _portProfileCollapsed = profileCount == 0;
+            return;
+        }
+
+        // Otherwise, collapse if empty, or if > 3 items with no recommendations
         var hasApLockRecommendations = _result.ApLockIssues.Any(i => i.Severity == ApLockSeverity.Warning);
-        _apLockCollapsed = _result.ApLockIssues.Count == 0 ||
-                          (_result.ApLockIssues.Count > 3 && !hasApLockRecommendations);
+        _apLockCollapsed = apLockCount == 0 ||
+                          (apLockCount > 3 && !hasApLockRecommendations);
 
         var hasTrunkRecommendations = _result.TrunkConsistencyIssues.Any(i =>
             i.Confidence == DiagnosticConfidence.High || i.Confidence == DiagnosticConfidence.Medium);
-        _trunkCollapsed = _result.TrunkConsistencyIssues.Count == 0 ||
-                         (_result.TrunkConsistencyIssues.Count > 3 && !hasTrunkRecommendations);
+        _trunkCollapsed = trunkCount == 0 ||
+                         (trunkCount > 3 && !hasTrunkRecommendations);
 
-        var totalProfileSuggestions = _result.PortProfileSuggestions.Count + _result.PortProfile8021xIssues.Count;
         var hasProfileRecommendations = _result.PortProfileSuggestions.Any(s =>
             s.Severity == PortProfileSuggestionSeverity.Recommendation) ||
             _result.PortProfile8021xIssues.Count > 0; // 802.1X issues are always recommendations
-        _portProfileCollapsed = totalProfileSuggestions == 0 ||
-                               (totalProfileSuggestions > 3 && !hasProfileRecommendations);
+        _portProfileCollapsed = profileCount == 0 ||
+                               (profileCount > 3 && !hasProfileRecommendations);
     }
 
     private void ToggleApLockSection() => _apLockCollapsed = !_apLockCollapsed;

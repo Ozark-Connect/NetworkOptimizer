@@ -21,6 +21,11 @@ public class NamePatternDetector
         (new[] { "cync plug", "ge plug", "wyze plug" },
             ClientDeviceCategory.SmartPlug, 92),
 
+        // Security Systems (alarm panels, etc.) - CHECK BEFORE cameras
+        // These are non-camera security devices that should be on Security VLAN
+        (new[] { "security system", "alarm panel", "alarm system", "security panel", "access control" },
+            ClientDeviceCategory.SecuritySystem, 88),
+
         // Cameras (high confidence, specific patterns)
         // Note: "cam" with word boundary is handled in CheckObviousNameOverride (Priority 0)
         // Note: "protect" removed - UniFi Protect cameras are detected via API; "protect" also matches Nest Protect smoke alarms

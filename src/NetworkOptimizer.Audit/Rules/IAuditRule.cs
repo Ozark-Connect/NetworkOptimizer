@@ -245,9 +245,33 @@ public abstract class AuditRuleBase : IAuditRule
     protected bool IsAccessPointName(string? portName) => DeviceNameHints.IsAccessPointName(portName);
 
     /// <summary>
+    /// Check if the port has an intentional unrestricted access profile assigned.
+    /// This indicates the user has explicitly configured this as a multi-device port
+    /// (like hotel RJ45 jacks that need to accept any device).
+    /// </summary>
+    protected static bool HasIntentionalUnrestrictedProfile(PortInfo port)
+    {
+        var profile = port.AssignedPortProfile;
+        if (profile == null)
+            return false;
+
+        // Profile must be:
+        // - Access port mode (forward=native)
+        // - MAC restriction disabled (port_security_enabled=false)
+        // - Tagged VLANs blocked (tagged_vlan_mgmt=block_all)
+        return profile.Forward == "native"
+            && !profile.PortSecurityEnabled
+            && profile.TaggedVlanMgmt == "block_all";
+    }
+
+    /// <summary>
     /// Create an audit issue from this rule
     /// </summary>
-    protected AuditIssue CreateIssue(string message, PortInfo port, Dictionary<string, object>? metadata = null)
+    protected AuditIssue CreateIssue(
+        string message,
+        PortInfo port,
+        Dictionary<string, object>? metadata = null,
+        string? recommendedAction = null)
     {
         var deviceName = GetBestDeviceName(port);
 
@@ -261,6 +285,7 @@ public abstract class AuditRuleBase : IAuditRule
             Port = port.PortIndex.ToString(),
             PortName = port.Name,
             Metadata = metadata,
+            RecommendedAction = recommendedAction,
             RuleId = RuleId,
             ScoreImpact = ScoreImpact
         };

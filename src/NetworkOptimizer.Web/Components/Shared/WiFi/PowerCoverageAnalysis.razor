@@ -1,0 +1,573 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="power-coverage-container wifi-sections">
+    <div class="power-header">
+        <h3>Power & Coverage</h3>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="power-loading">
+            <span class="spinner"></span>
+            <span>Analyzing power and coverage...</span>
+        </div>
+    }
+    else if (_accessPoints.Count == 0)
+    {
+        <div class="power-empty">
+            <p>No access points found. Connect to UniFi to view power and coverage analysis.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="power-stats-row">
+            <div class="power-stat-card">
+                <div class="power-stat-value">@_totalClients</div>
+                <div class="power-stat-label">Total Clients</div>
+            </div>
+            <div class="power-stat-card @GetSignalClass(_avgSignal)">
+                <div class="power-stat-value">@(_avgSignal.HasValue ? $"{_avgSignal} dBm" : "N/A")</div>
+                <div class="power-stat-label">Avg Signal</div>
+            </div>
+            <div class="power-stat-card @(_weakSignalClients > 0 ? "stat-warning" : "stat-good")">
+                <div class="power-stat-value">@_weakSignalClients</div>
+                <div class="power-stat-label">Weak Signal (&lt;-70 dBm)</div>
+            </div>
+            <div class="power-stat-card">
+                <div class="power-stat-value">@_coverageScore%</div>
+                <div class="power-stat-label">Coverage Score</div>
+            </div>
+        </div>
+
+        <!-- Signal Distribution Chart -->
+        <div class="power-section">
+            <div class="section-header">
+                <h4>Signal Strength Distribution</h4>
+                <span class="section-hint">Higher is better</span>
+            </div>
+
+            <div class="signal-distribution">
+                <div class="signal-bars">
+                    @foreach (var bucket in _signalBuckets)
+                    {
+                        var heightPct = _maxBucketCount > 0 ? (double)bucket.Count / _maxBucketCount * 100 : 0;
+                        var barClass = GetSignalBucketClass(bucket.MinSignal);
+                        <div class="signal-bar-wrapper">
+                            <div class="signal-bar @barClass" style="height: @heightPct%"
+                                 data-tooltip="@bucket.Count clients at @bucket.Label">
+                                @if (bucket.Count > 0)
+                                {
+                                    <span class="bar-count">@bucket.Count</span>
+                                }
+                            </div>
+                            <div class="signal-bar-label">@bucket.Label</div>
+                        </div>
+                    }
+                </div>
+                <div class="signal-legend">
+                    <span class="legend-item"><span class="legend-color signal-poor"></span>Poor (&lt;-80)</span>
+                    <span class="legend-item"><span class="legend-color signal-weak"></span>Weak (-80 to -71)</span>
+                    <span class="legend-item"><span class="legend-color signal-fair"></span>Fair (-70 to -61)</span>
+                    <span class="legend-item"><span class="legend-color signal-good"></span>Good (-60 to -51)</span>
+                    <span class="legend-item"><span class="legend-color signal-excellent"></span>Excellent (-50+)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TX Power Overview by AP -->
+        <div class="power-section">
+            <div class="section-header">
+                <h4>TX Power by Access Point</h4>
+                <span class="section-hint">TX Power + Antenna Gain = EIRP</span>
+            </div>
+
+            <div class="ap-power-grid">
+                @foreach (var ap in _accessPoints)
+                {
+                    <div class="ap-power-card">
+                        <div class="ap-power-header">
+                            <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                            <span class="ap-model">@ap.Model</span>
+                        </div>
+
+                        <div class="radio-power-list">
+                            @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue).OrderBy(r => r.Band))
+                            {
+                                var txPowerPct = GetPowerPercentage(radio.TxPower ?? 0);
+                                var eirpPct = GetPowerPercentage(radio.Eirp ?? radio.TxPower ?? 0);
+                                var powerClass = GetPowerClass(radio);
+                                var hasGain = radio.AntennaGain.HasValue && radio.AntennaGain > 0;
+                                <div class="radio-power-item">
+                                    <div class="radio-info">
+                                        <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                        <span class="radio-channel">Ch @radio.Channel</span>
+                                    </div>
+                                    <div class="power-bar-container" data-tooltip="TX: @(radio.TxPower ?? 0) dBm@(hasGain ? $" + {radio.AntennaGain} dBi gain = {radio.Eirp} dBm EIRP" : "")">
+                                        <div class="power-bar-stack">
+                                            <div class="power-bar-tx @powerClass" style="width: @txPowerPct%"></div>
+                                            @if (hasGain)
+                                            {
+                                                <div class="power-bar-gain @powerClass" style="width: @(eirpPct - txPowerPct)%"></div>
+                                            }
+                                        </div>
+                                        <span class="power-values">
+                                            <span class="power-tx">@(radio.TxPower ?? 0)</span>
+                                            @if (hasGain)
+                                            {
+                                                <span class="power-eirp">→ @radio.Eirp</span>
+                                            }
+                                            <span class="power-unit">dBm</span>
+                                        </span>
+                                    </div>
+                                    <div class="power-mode">
+                                        @(radio.TxPowerMode ?? "auto")
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (ap.Radios.Any(r => r.TxPowerMode?.ToLower() == "high"))
+                        {
+                            <div class="power-warning">
+                                High power may cause co-channel interference
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Coverage by AP -->
+        <div class="power-section">
+            <div class="section-header">
+                <h4>Coverage Quality by AP</h4>
+                <span class="section-hint">Based on connected client signal strengths</span>
+            </div>
+
+            <div class="coverage-grid">
+                @foreach (var apCoverage in _apCoverageStats.OrderByDescending(a => a.WeakClientCount))
+                {
+                    var qualityClass = GetCoverageQualityClass(apCoverage);
+                    <div class="coverage-card @qualityClass">
+                        <div class="coverage-header">
+                            <span class="ap-name"><DeviceIcon Model="@apCoverage.ApModel" Size="md" /> @apCoverage.ApName</span>
+                            <span class="client-count">@apCoverage.ClientCount clients</span>
+                        </div>
+
+                        <div class="coverage-metrics">
+                            <div class="coverage-metric">
+                                <span class="metric-label">Avg Signal</span>
+                                <span class="metric-value @GetSignalClass(apCoverage.AvgSignal)">
+                                    @(apCoverage.AvgSignal.HasValue ? $"{apCoverage.AvgSignal} dBm" : "N/A")
+                                </span>
+                            </div>
+                            <div class="coverage-metric">
+                                <span class="metric-label">Weakest</span>
+                                <span class="metric-value @GetSignalClass(apCoverage.MinSignal)">
+                                    @(apCoverage.MinSignal.HasValue ? $"{apCoverage.MinSignal} dBm" : "N/A")
+                                </span>
+                            </div>
+                            <div class="coverage-metric">
+                                <span class="metric-label">Strongest</span>
+                                <span class="metric-value @GetSignalClass(apCoverage.MaxSignal)">
+                                    @(apCoverage.MaxSignal.HasValue ? $"{apCoverage.MaxSignal} dBm" : "N/A")
+                                </span>
+                            </div>
+                        </div>
+
+                        @if (apCoverage.WeakClientCount > 0)
+                        {
+                            <div class="weak-clients-warning">
+                                @apCoverage.WeakClientCount client(s) with weak signal
+                            </div>
+                        }
+
+                        <!-- Signal distribution mini-bar -->
+                        @if (apCoverage.ClientCount > 0)
+                        {
+                            <div class="coverage-distribution">
+                                @if (apCoverage.ExcellentCount > 0)
+                                {
+                                    <div class="dist-segment signal-excellent"
+                                         style="width: @((double)apCoverage.ExcellentCount / apCoverage.ClientCount * 100)%"
+                                         data-tooltip="Excellent: @apCoverage.ExcellentCount"></div>
+                                }
+                                @if (apCoverage.GoodCount > 0)
+                                {
+                                    <div class="dist-segment signal-good"
+                                         style="width: @((double)apCoverage.GoodCount / apCoverage.ClientCount * 100)%"
+                                         data-tooltip="Good: @apCoverage.GoodCount"></div>
+                                }
+                                @if (apCoverage.FairCount > 0)
+                                {
+                                    <div class="dist-segment signal-fair"
+                                         style="width: @((double)apCoverage.FairCount / apCoverage.ClientCount * 100)%"
+                                         data-tooltip="Fair: @apCoverage.FairCount"></div>
+                                }
+                                @if (apCoverage.WeakCount > 0)
+                                {
+                                    <div class="dist-segment signal-weak"
+                                         style="width: @((double)apCoverage.WeakCount / apCoverage.ClientCount * 100)%"
+                                         data-tooltip="Weak: @apCoverage.WeakCount"></div>
+                                }
+                                @if (apCoverage.PoorCount > 0)
+                                {
+                                    <div class="dist-segment signal-poor"
+                                         style="width: @((double)apCoverage.PoorCount / apCoverage.ClientCount * 100)%"
+                                         data-tooltip="Poor: @apCoverage.PoorCount"></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Co-Channel / Overlap Detection -->
+        @if (_overlapIssues.Count > 0)
+        {
+            <div class="power-section">
+                <div class="section-header">
+                    <h4>Potential Coverage Overlap</h4>
+                    <span class="section-hint">APs with high power on same channel</span>
+                </div>
+
+                <IssuesList Issues="_overlapIssues" />
+            </div>
+        }
+
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_signalQualityIssues.Count > 0)
+        {
+            <div class="power-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <IssuesList Issues="_signalQualityIssues" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private List<WirelessClientSnapshot> _clients = new();
+
+    // Summary stats
+    private int _totalClients;
+    private int? _avgSignal;
+    private int _weakSignalClients;
+    private int _coverageScore;
+
+    // Signal distribution
+    private List<SignalBucket> _signalBuckets = new();
+    private int _maxBucketCount;
+
+    // Per-AP coverage stats
+    private List<ApCoverageStats> _apCoverageStats = new();
+
+    // Issues and recommendations
+    private List<HealthIssue> _overlapIssues = new();
+    private List<HealthIssue> _signalQualityIssues = new();
+    private SiteHealthScore? _healthScore;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId);
+
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+            _healthScore = await healthTask;
+
+            CalculateStats();
+            AnalyzeCoverage();
+            DetectOverlapIssues();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId, forceRefresh: true);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId, forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId, forceRefresh: true);
+
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+            _healthScore = await healthTask;
+
+            CalculateStats();
+            AnalyzeCoverage();
+            DetectOverlapIssues();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CalculateStats()
+    {
+        // Filter to online clients only
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
+
+        var clientsWithSignal = onlineClients.Where(c => c.Signal.HasValue).ToList();
+        if (clientsWithSignal.Any())
+        {
+            _avgSignal = (int)clientsWithSignal.Average(c => c.Signal!.Value);
+        }
+        else
+        {
+            _avgSignal = null;
+        }
+
+        _weakSignalClients = onlineClients.Count(c => c.Signal.HasValue && c.Signal.Value < -70);
+
+        // Calculate coverage score (0-100) based on signal distribution
+        if (clientsWithSignal.Any())
+        {
+            var excellentPct = clientsWithSignal.Count(c => c.Signal >= -50) * 100.0 / clientsWithSignal.Count;
+            var goodPct = clientsWithSignal.Count(c => c.Signal >= -60 && c.Signal < -50) * 100.0 / clientsWithSignal.Count;
+            var fairPct = clientsWithSignal.Count(c => c.Signal >= -70 && c.Signal < -60) * 100.0 / clientsWithSignal.Count;
+            var weakPct = clientsWithSignal.Count(c => c.Signal >= -80 && c.Signal < -70) * 100.0 / clientsWithSignal.Count;
+            var poorPct = clientsWithSignal.Count(c => c.Signal < -80) * 100.0 / clientsWithSignal.Count;
+
+            // Weighted score: excellent=100, good=80, fair=60, weak=30, poor=0
+            _coverageScore = (int)(excellentPct * 1.0 + goodPct * 0.8 + fairPct * 0.6 + weakPct * 0.3 + poorPct * 0);
+        }
+        else
+        {
+            _coverageScore = 0;
+        }
+
+        // Build signal distribution buckets
+        _signalBuckets = new List<SignalBucket>
+        {
+            new SignalBucket { Label = "<-80", MinSignal = int.MinValue, MaxSignal = -81 },
+            new SignalBucket { Label = "-80", MinSignal = -80, MaxSignal = -76 },
+            new SignalBucket { Label = "-75", MinSignal = -75, MaxSignal = -71 },
+            new SignalBucket { Label = "-70", MinSignal = -70, MaxSignal = -66 },
+            new SignalBucket { Label = "-65", MinSignal = -65, MaxSignal = -61 },
+            new SignalBucket { Label = "-60", MinSignal = -60, MaxSignal = -56 },
+            new SignalBucket { Label = "-55", MinSignal = -55, MaxSignal = -51 },
+            new SignalBucket { Label = "-50", MinSignal = -50, MaxSignal = -46 },
+            new SignalBucket { Label = "-45", MinSignal = -45, MaxSignal = -41 },
+            new SignalBucket { Label = ">-40", MinSignal = -40, MaxSignal = int.MaxValue }
+        };
+
+        foreach (var client in clientsWithSignal)
+        {
+            var bucket = _signalBuckets.FirstOrDefault(b =>
+                client.Signal >= b.MinSignal && client.Signal <= b.MaxSignal);
+            if (bucket != null)
+            {
+                bucket.Count++;
+            }
+        }
+
+        _maxBucketCount = _signalBuckets.Max(b => b.Count);
+    }
+
+    private void AnalyzeCoverage()
+    {
+        _apCoverageStats.Clear();
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+
+        foreach (var ap in _accessPoints)
+        {
+            var apClients = onlineClients.Where(c => c.ApMac == ap.Mac).ToList();
+            var clientsWithSignal = apClients.Where(c => c.Signal.HasValue).ToList();
+
+            var stats = new ApCoverageStats
+            {
+                ApMac = ap.Mac,
+                ApName = ap.Name,
+                ApModel = ap.Model,
+                ClientCount = apClients.Count,
+                AvgSignal = clientsWithSignal.Any() ? (int?)clientsWithSignal.Average(c => c.Signal!.Value) : null,
+                MinSignal = clientsWithSignal.Any() ? clientsWithSignal.Min(c => c.Signal!.Value) : null,
+                MaxSignal = clientsWithSignal.Any() ? clientsWithSignal.Max(c => c.Signal!.Value) : null,
+                WeakClientCount = clientsWithSignal.Count(c => c.Signal < -70),
+                ExcellentCount = clientsWithSignal.Count(c => c.Signal >= -50),
+                GoodCount = clientsWithSignal.Count(c => c.Signal >= -60 && c.Signal < -50),
+                FairCount = clientsWithSignal.Count(c => c.Signal >= -70 && c.Signal < -60),
+                WeakCount = clientsWithSignal.Count(c => c.Signal >= -80 && c.Signal < -70),
+                PoorCount = clientsWithSignal.Count(c => c.Signal < -80)
+            };
+
+            _apCoverageStats.Add(stats);
+        }
+    }
+
+    private void DetectOverlapIssues()
+    {
+        _overlapIssues.Clear();
+
+        // Pull overlap-related issues from the health score engine
+        // HighPowerOverlapRule and CoChannelInterferenceRule handle this now
+        if (_healthScore != null)
+        {
+            _overlapIssues = _healthScore.Issues
+                .Where(i => i.Title.Contains("High Power Overlap") || i.Title.Contains("Co-Channel"))
+                .ToList();
+        }
+    }
+
+    private void GenerateRecommendations()
+    {
+        _signalQualityIssues.Clear();
+
+        // Pull Signal Quality and Roaming Performance issues from health score (single source of truth)
+        // Power & Coverage relates to both signal quality and roaming behavior
+        // Exclude overlap issues since they're shown in the overlap section above
+        if (_healthScore != null)
+        {
+            _signalQualityIssues = _healthScore.Issues
+                .Where(i => (i.Dimensions.Contains(HealthDimension.SignalQuality) ||
+                            i.Dimensions.Contains(HealthDimension.RoamingPerformance)) &&
+                           !i.Title.Contains("High Power Overlap") &&
+                           !i.Title.Contains("Co-Channel"))
+                .ToList();
+        }
+    }
+
+    private double GetPowerPercentage(int power)
+    {
+        // Typical AP TX power ranges from about 6-30 dBm, EIRP can go up to ~36 dBm
+        // Map to 0-100% for visualization
+        return Math.Min(100, Math.Max(0, (power - 6) / 30.0 * 100));
+    }
+
+    private string GetPowerClass(RadioSnapshot radio)
+    {
+        var mode = radio.TxPowerMode?.ToLower() ?? "auto";
+        return mode switch
+        {
+            "high" => "power-high",
+            "medium" => "power-medium",
+            "low" => "power-low",
+            _ => "power-auto"
+        };
+    }
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private string GetSignalClass(int? signal)
+    {
+        if (!signal.HasValue) return "";
+        return signal.Value switch
+        {
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -70 => "signal-fair",
+            >= -80 => "signal-weak",
+            _ => "signal-poor"
+        };
+    }
+
+    private string GetSignalBucketClass(int minSignal)
+    {
+        return minSignal switch
+        {
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -70 => "signal-fair",
+            >= -80 => "signal-weak",
+            _ => "signal-poor"
+        };
+    }
+
+    private string GetCoverageQualityClass(ApCoverageStats stats)
+    {
+        if (stats.ClientCount == 0) return "";
+        var weakPct = (double)stats.WeakClientCount / stats.ClientCount * 100;
+        return weakPct switch
+        {
+            >= 50 => "coverage-poor",
+            >= 25 => "coverage-fair",
+            _ => "coverage-good"
+        };
+    }
+
+    private class SignalBucket
+    {
+        public string Label { get; set; } = "";
+        public int MinSignal { get; set; }
+        public int MaxSignal { get; set; }
+        public int Count { get; set; }
+    }
+
+    private class ApCoverageStats
+    {
+        public string ApMac { get; set; } = "";
+        public string ApName { get; set; } = "";
+        public string ApModel { get; set; } = "";
+        public int ClientCount { get; set; }
+        public int? AvgSignal { get; set; }
+        public int? MinSignal { get; set; }
+        public int? MaxSignal { get; set; }
+        public int WeakClientCount { get; set; }
+        public int ExcellentCount { get; set; }
+        public int GoodCount { get; set; }
+        public int FairCount { get; set; }
+        public int WeakCount { get; set; }
+        public int PoorCount { get; set; }
+    }
+
+}

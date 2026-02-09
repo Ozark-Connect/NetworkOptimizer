@@ -48,6 +48,11 @@ public class MacRestrictionRule : AuditRuleBase
         if (port.PortSecurityEnabled || (port.AllowedMacAddresses?.Any() ?? false))
             return null; // Already has restrictions
 
+        // Check if port has an intentional unrestricted profile assigned
+        // (user has created an access port profile with MAC restriction explicitly disabled)
+        if (HasIntentionalUnrestrictedProfile(port))
+            return null;
+
         var network = GetNetwork(port.NativeNetworkId, networks);
 
         return CreateIssue(
@@ -55,9 +60,11 @@ public class MacRestrictionRule : AuditRuleBase
             port,
             new Dictionary<string, object>
             {
-                { "network", network?.Name ?? "Unknown" },
-                { "recommendation", "Restrict access ports to specific MAC addresses to prevent unauthorized devices" }
-            });
+                { "network", network?.Name ?? "Unknown" }
+            },
+            "Enable MAC-based port security to prevent unauthorized devices from connecting. " +
+            "In UniFi, set the port to 'Restricted' and add the device's MAC address to the allowed list. " +
+            "If this port is intended to be used by multiple devices, create an Ethernet Port Profile with MAC restriction disabled and assign it to this port.");
     }
 
     /// <summary>

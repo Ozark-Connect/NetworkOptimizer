@@ -417,7 +417,6 @@ public class FingerprintDetectorTests
     [InlineData(51)]  // Smart Device
     [InlineData(66)]  // IoT Device
     [InlineData(64)]  // Smart Garden Device
-    [InlineData(60)]  // Alarm System
     [InlineData(120)] // Garage Opener
     [InlineData(83)]  // Garage Door
     [InlineData(77)]  // Sprinkler Controller
@@ -1408,7 +1407,7 @@ public class FingerprintDetectorTests
     [InlineData("51", ClientDeviceCategory.IoTGeneric)]       // Smart Device
     [InlineData("66", ClientDeviceCategory.IoTGeneric)]       // IoT Device
     [InlineData("64", ClientDeviceCategory.IoTGeneric)]       // Smart Garden Device
-    [InlineData("60", ClientDeviceCategory.IoTGeneric)]       // Alarm System
+    [InlineData("60", ClientDeviceCategory.SecuritySystem)]    // Alarm System
     [InlineData("80", ClientDeviceCategory.SecuritySystem)]   // Smart Home Security System
     public void Detect_DevTypeId_GenericIoTTypes_MapsCorrectly(string devTypeId, ClientDeviceCategory expected)
     {

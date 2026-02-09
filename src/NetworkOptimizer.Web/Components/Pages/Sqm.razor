@@ -23,6 +23,20 @@
     <p class="page-description">Dynamic bandwidth optimization with dual-mode (Speedtest + Ping) adjustment. Uses 7-day congestion profiles tuned for your connection type to keep SQM tight and bufferbloat in check.</p>
 </div>
 
+@if (!ConnectionService.IsConnected(SiteId) && !string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+{
+    <div class="connection-banner connection-error">
+        <div class="banner-content">
+            <span class="banner-icon">!</span>
+            <div class="banner-text">
+                <strong>UniFi Connection Error</strong>
+                <span>@ConnectionService.GetLastError(SiteId) - WAN detection requires a working UniFi connection.</span>
+            </div>
+            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">Check Settings</a>
+        </div>
+    </div>
+}
+
 <div class="sqm-container">
     <!-- Deployment Status -->
     <div class="card">

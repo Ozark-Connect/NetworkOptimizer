@@ -765,7 +765,7 @@ public class VlanAnalyzer
                 continue;
 
             // Source must include this network
-            if (!FirewallRuleAnalyzer.AppliesToSourceNetwork(rule, network))
+            if (!rule.AppliesToSourceNetwork(network))
                 continue;
 
             // Destination must be all other internal networks
@@ -871,7 +871,8 @@ public class VlanAnalyzer
         List<NetworkInfo> networks,
         string gatewayName = "Gateway",
         List<FirewallRule>? firewallRules = null,
-        string? externalZoneId = null)
+        string? externalZoneId = null,
+        FirewallRuleAnalyzer? firewallAnalyzer = null)
     {
         var issues = new List<AuditIssue>();
 
@@ -887,7 +888,7 @@ public class VlanAnalyzer
                 continue;
 
             // Check if internet is effectively enabled (not disabled via setting OR firewall rule)
-            var hasEffectiveInternetAccess = HasEffectiveInternetAccess(network, firewallRules, externalZoneId);
+            var hasEffectiveInternetAccess = HasEffectiveInternetAccess(network, firewallRules, externalZoneId, firewallAnalyzer);
 
             // Check Security/Camera networks - should NOT have internet access
             if (network.Purpose == NetworkPurpose.Security && hasEffectiveInternetAccess)
@@ -948,7 +949,8 @@ public class VlanAnalyzer
     private bool HasEffectiveInternetAccess(
         NetworkInfo network,
         List<FirewallRule>? firewallRules,
-        string? externalZoneId)
+        string? externalZoneId,
+        FirewallRuleAnalyzer? firewallAnalyzer = null)
     {
         // If internet access is disabled in network config, it's blocked
         if (!network.InternetAccessEnabled)
@@ -963,69 +965,19 @@ public class VlanAnalyzer
             return network.InternetAccessEnabled;
         }
 
-        // Check if there's a firewall rule that blocks internet access for this network
-        var isBlockedByFirewall = IsInternetBlockedViaFirewall(network, firewallRules, externalZoneId);
-        if (isBlockedByFirewall)
+        // Delegate to FirewallRuleAnalyzer which uses FirewallRuleEvaluator for correct
+        // rule ordering and connection state checks (e.g., skipping INVALID-only rules)
+        if (firewallAnalyzer != null)
         {
-            _logger.LogDebug("Network '{Name}' has internet blocked via firewall rule", network.Name);
-            return false;
+            var isBlockedByFirewall = firewallAnalyzer.IsInternetBlockedViaFirewall(network, firewallRules, externalZoneId);
+            if (isBlockedByFirewall)
+            {
+                _logger.LogDebug("Network '{Name}' has internet blocked via firewall rule", network.Name);
+                return false;
+            }
         }
 
         return true;
-    }
-
-    /// <summary>
-    /// Check if a network has internet access blocked via a firewall rule.
-    /// A rule blocks internet if ALL conditions are met:
-    /// - Rule is enabled
-    /// - Action is block/drop/reject/deny
-    /// - Source matching target is "NETWORK" and network_ids contains this network's ID
-    /// - Destination zone ID matches the External zone
-    /// - Destination matching target is "ANY" (all destinations in the zone)
-    /// - Protocol is "all" (blocks all traffic, not just specific ports)
-    /// </summary>
-    private bool IsInternetBlockedViaFirewall(
-        NetworkInfo network,
-        List<FirewallRule> firewallRules,
-        string externalZoneId)
-    {
-        foreach (var rule in firewallRules)
-        {
-            // Rule must be enabled
-            if (!rule.Enabled)
-                continue;
-
-            // Action must be a block action
-            if (!rule.ActionType.IsBlockAction())
-                continue;
-
-            // Source must be NETWORK type with this network's ID in the list
-            if (!string.Equals(rule.SourceMatchingTarget, "NETWORK", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (rule.SourceNetworkIds == null || !rule.SourceNetworkIds.Contains(network.Id))
-                continue;
-
-            // Destination zone must be the External zone
-            if (!string.Equals(rule.DestinationZoneId, externalZoneId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Destination must target ANY (all destinations in the zone)
-            if (!string.Equals(rule.DestinationMatchingTarget, "ANY", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            // Protocol must be "all" to block ALL traffic (not just specific ports/protocols)
-            if (!string.Equals(rule.Protocol, "all", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            _logger.LogDebug(
-                "Found firewall rule '{RuleName}' that blocks internet for network '{NetworkName}'",
-                rule.Name, network.Name);
-
-            return true;
-        }
-
-        return false;
     }
 
     /// <summary>

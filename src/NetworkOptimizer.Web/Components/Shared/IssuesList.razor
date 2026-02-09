@@ -1,0 +1,130 @@
+@using NetworkOptimizer.WiFi
+
+@if (Issues.Count > 0)
+{
+    <div class="issues-list">
+        @foreach (var issue in Issues.OrderByDescending(i => i.Severity).ThenBy(i => i.Dimensions.FirstOrDefault()))
+        {
+            <div class="issue-item @GetSeverityClass(issue.Severity)">
+                <div class="issue-icon">
+                    @((MarkupString)GetSeverityIcon(issue.Severity))
+                </div>
+                <div class="issue-content">
+                    @if (ShowDetails && issue.Dimensions.Any())
+                    {
+                        <div class="issue-meta">
+                            <span class="issue-badge @GetSeverityClass(issue.Severity)">@GetSeverityLabel(issue.Severity)</span>
+                            <span class="issue-dimension">@FormatDimensions(issue.Dimensions)</span>
+                        </div>
+                    }
+                    <div class="issue-title">@issue.Title</div>
+                    <div class="issue-description">@issue.Description</div>
+                    @if (ShowDetails && !string.IsNullOrEmpty(issue.AffectedEntity))
+                    {
+                        <div class="issue-entity">Affected: @issue.AffectedEntity</div>
+                    }
+                    @if (!string.IsNullOrEmpty(issue.Recommendation))
+                    {
+                        <div class="issue-recommendation">@issue.Recommendation</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public List<HealthIssue> Issues { get; set; } = new();
+
+    [Parameter]
+    public bool ShowDetails { get; set; } = false;
+
+    private static string GetSeverityClass(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "critical",
+        HealthIssueSeverity.Warning => "warning",
+        _ => "info"
+    };
+
+    private static string GetSeverityLabel(HealthIssueSeverity severity) => severity switch
+    {
+        HealthIssueSeverity.Critical => "Critical",
+        HealthIssueSeverity.Warning => "Recommendation",
+        _ => "Info"
+    };
+
+    private static string GetSeverityIcon(HealthIssueSeverity severity) => severity switch
+    {
+        // Shield with exclamation - critical
+        HealthIssueSeverity.Critical => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12 2L3 7v6c0 5.25 3.85 10.15 9 11 5.15-.85 9-5.75 9-11V7l-9-5zm-1 14h2v2h-2v-2zm0-8h2v6h-2V8z" opacity="0.2"/><path d="M12 2L3 7v6c0 5.25 3.85 10.15 9 11 5.15-.85 9-5.75 9-11V7l-9-5zm0 2.18l7 3.89v5.43c0 4.14-3.01 8.05-7 8.88-3.99-.83-7-4.74-7-8.88V8.07l7-3.89zM11 8h2v6h-2V8zm0 8h2v2h-2v-2z"/></svg>""",
+        // Triangle with exclamation - warning
+        HealthIssueSeverity.Warning => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M1 21h22L12 2 1 21z" opacity="0.2"/><path d="M12 5.99L19.53 19H4.47L12 5.99M12 2L1 21h22L12 2zm1 14h-2v2h2v-2zm0-6h-2v4h2v-4z"/></svg>""",
+        // Circle with i - info
+        _ => """<svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><rect x="11" y="11" width="2" height="6"/><rect x="11" y="7" width="2" height="2"/></svg>"""
+    };
+
+    private static string FormatDimensions(HashSet<HealthDimension> dimensions)
+    {
+        if (dimensions == null || !dimensions.Any())
+            return "";
+
+        return string.Join(", ", dimensions.Select(d => d switch
+        {
+            HealthDimension.SignalQuality => "Signal",
+            HealthDimension.ChannelHealth => "Channel",
+            HealthDimension.RoamingPerformance => "Roaming",
+            HealthDimension.AirtimeEfficiency => "Airtime",
+            HealthDimension.ClientSatisfaction => "Satisfaction",
+            HealthDimension.CapacityHeadroom => "Capacity",
+            HealthDimension.BandSteering => "Band Steering",
+            _ => d.ToString()
+        }));
+    }
+}
+
+<style>
+    /* Scoped styles for IssuesList component */
+    .issue-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.25rem;
+    }
+
+    .issue-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        background: var(--bg-primary);
+    }
+
+    .issue-badge.critical {
+        color: var(--danger-color);
+        background: rgba(239, 68, 68, 0.15);
+    }
+
+    .issue-badge.warning {
+        color: var(--warning-color);
+        background: rgba(251, 191, 36, 0.15);
+    }
+
+    .issue-badge.info {
+        color: var(--info-color);
+        background: rgba(59, 130, 246, 0.15);
+    }
+
+    .issue-dimension {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+    }
+
+    .issue-entity {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
+    }
+</style>

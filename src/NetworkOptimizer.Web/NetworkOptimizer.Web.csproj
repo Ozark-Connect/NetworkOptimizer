@@ -18,9 +18,11 @@
     <ProjectReference Include="..\NetworkOptimizer.Monitoring\NetworkOptimizer.Monitoring.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Agents\NetworkOptimizer.Agents.csproj" />
     <ProjectReference Include="..\NetworkOptimizer.Reports\NetworkOptimizer.Reports.csproj" />
+    <ProjectReference Include="..\NetworkOptimizer.WiFi\NetworkOptimizer.WiFi.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Blazor-ApexCharts" Version="6.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

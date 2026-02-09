@@ -55,7 +55,7 @@ public class UniFiDiscovery
 
         var discoveredDevices = devices.Select(d =>
         {
-            var hardwareType = DeviceTypeExtensions.FromUniFiApiType(d.Type);
+            var hardwareType = DeviceTypeExtensions.FromUniFiApiType(d.Type, d.Model);
             var effectiveType = DetermineDeviceType(d, allDeviceMacs, _logger);
 
             return new DiscoveredDevice
@@ -98,7 +98,13 @@ public class UniFiDiscovery
                 LoadAverage = d.SystemStats?.LoadAvg1?.ToString("F2"),
                 TxBytes = d.Stats?.TxBytes ?? 0,
                 RxBytes = d.Stats?.RxBytes ?? 0,
-                PortCount = d.PortTable?.Count ?? 0
+                PortCount = d.PortTable?.Count ?? 0,
+                // Wi-Fi specific (APs only)
+                RadioTable = d.RadioTable,
+                RadioTableStats = d.RadioTableStats,
+                VapTable = d.VapTable,
+                Satisfaction = d.Satisfaction,
+                ScanRadioTable = d.ScanRadioTable
             };
         }).ToList();
 
@@ -110,6 +116,20 @@ public class UniFiDiscovery
         }
 
         return discoveredDevices;
+    }
+
+    /// <summary>
+    /// Discovers all devices with wireless radios for WiFi Optimizer.
+    /// Includes traditional APs (type=uap), UDM/UX mesh APs, and gateway-class devices
+    /// (UDR, UX, UDM) that have integrated wireless radios broadcasting Wi-Fi.
+    /// SmartPower devices (USP-Strip, USP-Plug) are excluded via DeviceType classification.
+    /// </summary>
+    public async Task<List<DiscoveredDevice>> DiscoverAccessPointsAsync(CancellationToken cancellationToken = default)
+    {
+        var devices = await DiscoverDevicesAsync(cancellationToken);
+        return devices.Where(d =>
+            d.Type == DeviceType.AccessPoint ||
+            (d.Type == DeviceType.Gateway && d.RadioTable is { Count: > 0 })).ToList();
     }
 
     /// <summary>
@@ -407,12 +427,12 @@ public class UniFiDiscovery
     /// has an uplink to another UniFi device, it's acting as a mesh AP, not the gateway.
     /// The actual gateway either has no uplink or uplinks to a non-UniFi device (ISP modem).
     /// </remarks>
-    internal static DeviceType DetermineDeviceType(
+    public static DeviceType DetermineDeviceType(
         UniFiDeviceResponse device,
         HashSet<string> allDeviceMacs,
         ILogger logger)
     {
-        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
+        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
 
         // Only apply special handling to UDM-family devices (type = udm, uxg, ucg, etc.)
         if (baseType != DeviceType.Gateway)
@@ -463,7 +483,7 @@ public class UniFiDiscovery
     /// <returns>The effective device type</returns>
     public static DeviceType GetEffectiveDeviceType(UniFiDeviceResponse device, IEnumerable<UniFiDeviceResponse> allDevices)
     {
-        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type);
+        var baseType = DeviceTypeExtensions.FromUniFiApiType(device.Type, device.Model);
 
         // Only apply special handling to gateway-class devices
         if (baseType != DeviceType.Gateway)
@@ -608,6 +628,47 @@ public class DiscoveredDevice
     public long TxBytes { get; set; }
     public long RxBytes { get; set; }
     public int PortCount { get; set; }
+
+    // Wi-Fi specific (APs only)
+    /// <summary>
+    /// Radio configuration table - per-radio settings (channel, tx_power, antenna).
+    /// Only present on access points.
+    /// </summary>
+    public List<RadioTableEntry>? RadioTable { get; set; }
+
+    /// <summary>
+    /// Radio statistics table - per-radio runtime stats (satisfaction, tx_retries).
+    /// Only present on access points.
+    /// </summary>
+    public List<RadioTableStats>? RadioTableStats { get; set; }
+
+    /// <summary>
+    /// Virtual AP table - per-SSID/radio statistics.
+    /// Only present on access points.
+    /// </summary>
+    public List<VapTableEntry>? VapTable { get; set; }
+
+    /// <summary>
+    /// Device satisfaction score (0-100). Higher is better.
+    /// </summary>
+    public int? Satisfaction { get; set; }
+
+    /// <summary>
+    /// Scan radio table - contains spectrum scan results and channel utilization data.
+    /// Only present on access points that support spectrum scanning.
+    /// </summary>
+    public List<ScanRadioEntry>? ScanRadioTable { get; set; }
+
+    /// <summary>
+    /// Whether this AP has a dedicated scan radio that can scan without disrupting clients.
+    /// </summary>
+    public bool HasDedicatedScanRadio =>
+        ScanRadioTable?.Any(s => s.Radio?.Equals("scan", StringComparison.OrdinalIgnoreCase) == true) ?? false;
+
+    /// <summary>
+    /// Whether this AP supports spectrum/RF environment scanning.
+    /// </summary>
+    public bool SupportsSpectrumScan => ScanRadioTable != null;
 }
 
 public class DiscoveredClient

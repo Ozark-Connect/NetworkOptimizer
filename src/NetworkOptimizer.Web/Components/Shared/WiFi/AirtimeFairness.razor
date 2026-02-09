@@ -1,0 +1,529 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="airtime-container wifi-sections">
+    <div class="airtime-header">
+        <h3>Airtime Fairness</h3>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="airtime-loading">
+            <span class="spinner"></span>
+            <span>Analyzing airtime usage...</span>
+        </div>
+    }
+    else if (_accessPoints.Count == 0)
+    {
+        <div class="airtime-empty">
+            <p>No access points found. Connect to UniFi to view airtime analysis.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="airtime-stats-row">
+            <div class="airtime-stat-card">
+                <div class="airtime-stat-value">@_totalClients</div>
+                <div class="airtime-stat-label">Total Clients</div>
+            </div>
+            <div class="airtime-stat-card @(_heavyAirtimeClients > 0 ? "stat-warning" : "")">
+                <div class="airtime-stat-value">@_heavyAirtimeClients</div>
+                <div class="airtime-stat-label">High Airtime Users</div>
+            </div>
+            <div class="airtime-stat-card">
+                <div class="airtime-stat-value">@_legacyClients</div>
+                <div class="airtime-stat-label">Legacy Clients</div>
+            </div>
+            <div class="airtime-stat-card">
+                <div class="airtime-stat-value">@_avgUtilization%</div>
+                <div class="airtime-stat-label">Avg Radio Utilization</div>
+            </div>
+        </div>
+
+        <!-- Concept Explanation -->
+        <div class="airtime-concept">
+            <div class="concept-icon">?</div>
+            <div class="concept-content">
+                <div class="concept-title">Why Airtime Matters</div>
+                <div class="concept-description">
+                    Wi-Fi is a shared medium - only one device can transmit at a time. A slow client at low rates
+                    can consume 10x more airtime than a fast client sending the same data. This affects ALL clients
+                    on that radio, not just the slow one.
+                </div>
+            </div>
+        </div>
+
+        <!-- Per-AP Radio Utilization -->
+        <div class="airtime-section">
+            <div class="section-header">
+                <h4>Radio Airtime Utilization</h4>
+                <span class="section-hint">Per-AP, per-radio channel utilization</span>
+            </div>
+
+            <div class="radio-utilization-grid">
+                @foreach (var ap in _accessPoints)
+                {
+                    <div class="radio-util-card">
+                        <div class="radio-util-header">
+                            <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                            <span class="client-count">@ap.TotalClients clients</span>
+                        </div>
+
+                        <div class="radio-util-list">
+                            @foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue).OrderBy(r => r.Band))
+                            {
+                                var utilPct = radio.ChannelUtilization ?? 0;
+                                var utilClass = GetUtilizationClass(utilPct);
+                                <div class="radio-util-row">
+                                    <div class="radio-info">
+                                        <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                                        <span class="radio-channel">Ch @radio.Channel</span>
+                                    </div>
+                                    <div class="radio-util-bar-container">
+                                        <div class="radio-util-bar @utilClass" style="width: @utilPct%"></div>
+                                        <span class="radio-util-value">@utilPct%</span>
+                                    </div>
+                                    <div class="radio-clients">@(radio.ClientCount ?? 0)</div>
+                                </div>
+                            }
+                        </div>
+
+                        @if (ap.Radios.Any(r => (r.ChannelUtilization ?? 0) > 70))
+                        {
+                            <div class="util-warning">
+                                High utilization - clients may experience slowdowns
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Airtime by Wi-Fi Generation -->
+        <div class="airtime-section">
+            <div class="section-header">
+                <h4>Airtime Impact by Wi-Fi Generation</h4>
+                <span class="section-hint">Lower generations consume more airtime for same data</span>
+            </div>
+
+            <div class="gen-airtime-chart">
+                @foreach (var gen in _wifiGenerationStats.OrderByDescending(g => g.Generation))
+                {
+                    var widthPct = _totalClients > 0 ? (double)gen.ClientCount / _totalClients * 100 : 0;
+                    var airtimeFactor = GetAirtimeFactor(gen.Generation);
+                    var genLabel = gen.Generation == 6 && gen.Count6GHz > 0 ? "Wi-Fi 6/6E" : $"Wi-Fi {gen.Generation}";
+                    <div class="gen-airtime-row">
+                        <div class="gen-label">
+                            <span class="gen-badge @GetGenBadgeCssClass(gen)">@genLabel</span>
+                            <span class="gen-factor">@airtimeFactor relative airtime</span>
+                        </div>
+                        <div class="gen-bar-container">
+                            @if (gen.Generation >= 6 && gen.ClientCount > 0)
+                            {
+                                @* Band-segmented bar for Wi-Fi 6+ *@
+                                var barTotal = gen.ClientCount;
+                                @if (gen.Generation == 6 && gen.Count2_4GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-2ghz" style="width: @(widthPct * gen.Count2_4GHz / barTotal)%" data-tooltip="2.4 GHz: @gen.Count2_4GHz"></div>
+                                }
+                                @if (gen.Count5GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-5ghz" style="width: @(widthPct * gen.Count5GHz / barTotal)%" data-tooltip="5 GHz: @gen.Count5GHz"></div>
+                                }
+                                @if (gen.Count6GHz > 0)
+                                {
+                                    <div class="gen-bar-segment band-6ghz" style="width: @(widthPct * gen.Count6GHz / barTotal)%" data-tooltip="6 GHz: @gen.Count6GHz"></div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="gen-bar @GetGenCssClass(gen.Generation)" style="width: @widthPct%"></div>
+                            }
+                        </div>
+                        <div class="gen-stats">
+                            <span class="gen-count">@gen.ClientCount</span>
+                            <span class="gen-impact @GetImpactClass(gen.Generation)">@GetImpactLabel(gen.Generation)</span>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="airtime-factor-legend">
+                <div class="factor-item">
+                    <span class="factor-gen">Wi-Fi 7/6</span>
+                    <span class="factor-value">1x (baseline)</span>
+                </div>
+                <div class="factor-item">
+                    <span class="factor-gen">Wi-Fi 5</span>
+                    <span class="factor-value">~1.5x airtime</span>
+                </div>
+                <div class="factor-item">
+                    <span class="factor-gen">Wi-Fi 4</span>
+                    <span class="factor-value">~3-5x airtime</span>
+                </div>
+                <div class="factor-item">
+                    <span class="factor-gen">Legacy</span>
+                    <span class="factor-value">~5-10x airtime</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- High Airtime Clients -->
+        @if (_highAirtimeClientsList.Count > 0)
+        {
+            <div class="airtime-section">
+                <div class="section-header">
+                    <h4>Potential Airtime Hogs</h4>
+                    <span class="section-hint">Clients likely consuming disproportionate airtime</span>
+                </div>
+
+                <div class="airtime-clients-list">
+                    @foreach (var client in _highAirtimeClientsList.Take(15))
+                    {
+                        <div class="airtime-client-card @GetClientAirtimeClass(client)">
+                            <div class="client-header">
+                                <span class="client-name">@client.Name</span>
+                                <span class="airtime-indicator">@GetAirtimeIndicator(client)</span>
+                            </div>
+                            <div class="client-details">
+                                <div class="client-detail">
+                                    <span class="detail-label">Wi-Fi</span>
+                                    <span class="detail-value">@(client.WifiProtocol ?? "Unknown")</span>
+                                </div>
+                                <div class="client-detail">
+                                    <span class="detail-label">Band</span>
+                                    <span class="detail-value @GetBandCssClass(client.Band)">@client.Band.ToDisplayString()</span>
+                                </div>
+                                <div class="client-detail">
+                                    <span class="detail-label">Signal</span>
+                                    <span class="detail-value @GetSignalClass(client.Signal)">@(client.Signal ?? 0) dBm</span>
+                                </div>
+                                <div class="client-detail">
+                                    <span class="detail-label">AP</span>
+                                    <span class="detail-value">@(client.ApName ?? "Unknown")</span>
+                                </div>
+                            </div>
+                            <div class="client-reason">@GetAirtimeReason(client)</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- TX Retries by AP -->
+        <div class="airtime-section">
+            <div class="section-header">
+                <h4>TX Retry Rates by Radio</h4>
+                <span class="section-hint">High retries consume additional airtime</span>
+            </div>
+
+            <div class="retry-rate-list">
+                @foreach (var ap in _accessPoints)
+                {
+                    foreach (var radio in ap.Radios.Where(r => r.Channel.HasValue && r.TxRetriesPct.HasValue))
+                    {
+                        var retryPct = radio.TxRetriesPct!.Value;
+                        var retryClass = GetRetryClass(retryPct);
+                        <div class="retry-row">
+                            <div class="retry-ap-info">
+                                <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                                <span class="radio-band @GetBandCssClass(radio.Band)">@radio.Band.ToDisplayString()</span>
+                            </div>
+                            <div class="retry-bar-container">
+                                <div class="retry-bar @retryClass" style="width: @Math.Min(100, retryPct * 2)%"></div>
+                            </div>
+                            <div class="retry-value @retryClass">@retryPct.ToString("F1")%</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_airtimeIssues.Count > 0)
+        {
+            <div class="airtime-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <IssuesList Issues="_airtimeIssues" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private List<WirelessClientSnapshot> _clients = new();
+    private List<WlanConfiguration> _wlanConfigs = new();
+
+    // Stats
+    private int _totalClients;
+    private int _heavyAirtimeClients;
+    private int _legacyClients;
+    private int _avgUtilization;
+
+    // Wi-Fi generation stats
+    private List<WifiGenStats> _wifiGenerationStats = new();
+
+    // High airtime clients
+    private List<WirelessClientSnapshot> _highAirtimeClientsList = new();
+
+    private List<HealthIssue> _airtimeIssues = new();
+    private SiteHealthScore? _healthScore;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId);
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync(SiteId);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId);
+
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
+
+            _accessPoints = (await apsTask).Where(ap => ap.IsOnline).ToList();
+            _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
+
+            AnalyzeAirtime();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId, forceRefresh: true);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId, forceRefresh: true);
+            var wlanTask = WiFiService.GetWlanConfigurationsAsync(SiteId, forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId, forceRefresh: true);
+
+            await Task.WhenAll(apsTask, clientsTask, wlanTask, healthTask);
+
+            _accessPoints = (await apsTask).Where(ap => ap.IsOnline).ToList();
+            _clients = await clientsTask;
+            _wlanConfigs = await wlanTask;
+            _healthScore = await healthTask;
+
+            AnalyzeAirtime();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AnalyzeAirtime()
+    {
+        // Filter to online clients only for airtime analysis
+        var onlineClients = _clients.Where(c => c.IsOnline).ToList();
+        _totalClients = onlineClients.Count;
+
+        // Calculate average utilization across all radios
+        var allRadios = _accessPoints.SelectMany(ap => ap.Radios)
+            .Where(r => r.Channel.HasValue && r.ChannelUtilization.HasValue)
+            .ToList();
+        _avgUtilization = allRadios.Any() ? (int)allRadios.Average(r => r.ChannelUtilization!.Value) : 0;
+
+        // Count legacy clients (Wi-Fi 4 or lower, or 2.4GHz only)
+        _legacyClients = onlineClients.Count(c =>
+            (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
+            (c.Band == RadioBand.Band2_4GHz && !c.Capabilities.Supports5GHz));
+
+        // Build Wi-Fi generation stats with band breakdown
+        _wifiGenerationStats = onlineClients
+            .GroupBy(c => c.WifiGeneration ?? 4)
+            .Select(g => new WifiGenStats
+            {
+                Generation = g.Key,
+                ClientCount = g.Count(),
+                Count2_4GHz = g.Count(c => c.Band == RadioBand.Band2_4GHz),
+                Count5GHz = g.Count(c => c.Band == RadioBand.Band5GHz),
+                Count6GHz = g.Count(c => c.Band == RadioBand.Band6GHz)
+            })
+            .ToList();
+
+        // Identify high airtime clients
+        // Criteria: legacy protocol, weak signal, or on 2.4GHz with weak signal
+        _highAirtimeClientsList = onlineClients
+            .Where(c =>
+                (c.WifiGeneration.HasValue && c.WifiGeneration <= 4) ||
+                (c.Signal.HasValue && c.Signal < -75) ||
+                (c.Band == RadioBand.Band2_4GHz && c.Signal.HasValue && c.Signal < -70))
+            .OrderBy(c => c.WifiGeneration ?? 4)
+            .ThenBy(c => c.Signal ?? 0)
+            .ToList();
+
+        _heavyAirtimeClients = _highAirtimeClientsList.Count;
+    }
+
+    private void GenerateRecommendations()
+    {
+        _airtimeIssues.Clear();
+
+        // Pull Airtime Efficiency issues from health score (single source of truth)
+        if (_healthScore != null)
+        {
+            _airtimeIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.AirtimeEfficiency))
+                .ToList();
+        }
+    }
+
+    private string GetAirtimeFactor(int generation) => generation switch
+    {
+        >= 6 => "1x",
+        5 => "~1.5x",
+        4 => "~3-5x",
+        _ => "~5-10x"
+    };
+
+    private string GetImpactLabel(int generation) => generation switch
+    {
+        >= 6 => "Efficient",
+        5 => "Good",
+        4 => "Moderate",
+        _ => "Heavy"
+    };
+
+    private string GetImpactClass(int generation) => generation switch
+    {
+        >= 6 => "impact-low",
+        5 => "impact-low",
+        4 => "impact-medium",
+        _ => "impact-high"
+    };
+
+    private string GetAirtimeIndicator(WirelessClientSnapshot client)
+    {
+        var gen = client.WifiGeneration ?? 4;
+        if (gen <= 3) return "High Impact";
+        if (gen == 4) return "Moderate Impact";
+        if (client.Signal.HasValue && client.Signal < -75) return "Weak Signal";
+        return "Review";
+    }
+
+    private string GetAirtimeReason(WirelessClientSnapshot client)
+    {
+        var reasons = new List<string>();
+
+        if (client.WifiGeneration.HasValue && client.WifiGeneration <= 4)
+            reasons.Add($"Wi-Fi {client.WifiGeneration} - slower protocol");
+
+        if (client.Signal.HasValue && client.Signal < -75)
+            reasons.Add($"Weak signal ({client.Signal} dBm) - lower data rates");
+
+        if (client.Band == RadioBand.Band2_4GHz && client.Capabilities.Supports5GHz)
+            reasons.Add("On 2.4 GHz but supports 5 GHz");
+
+        return reasons.Any() ? string.Join("; ", reasons) : "May be consuming above-average airtime";
+    }
+
+    private string GetClientAirtimeClass(WirelessClientSnapshot client)
+    {
+        var gen = client.WifiGeneration ?? 4;
+        if (gen <= 3) return "airtime-high";
+        if (gen == 4 || (client.Signal.HasValue && client.Signal < -75)) return "airtime-medium";
+        return "";
+    }
+
+    private string GetUtilizationClass(int util) => util switch
+    {
+        > 70 => "util-high",
+        > 50 => "util-medium",
+        _ => "util-low"
+    };
+
+    private string GetRetryClass(double retryPct) => retryPct switch
+    {
+        > 20 => "retry-high",
+        > 10 => "retry-medium",
+        _ => "retry-low"
+    };
+
+    private string GetBandCssClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private string GetGenCssClass(int generation) => generation switch
+    {
+        >= 7 => "gen-7",
+        6 => "gen-6",
+        5 => "gen-5",
+        4 => "gen-4",
+        _ => "gen-legacy"
+    };
+
+    private string GetGenBadgeCssClass(WifiGenStats gen)
+    {
+        if (gen.Generation == 6 && gen.Count6GHz > 0) return "gen-6e";
+        return GetGenCssClass(gen.Generation);
+    }
+
+    private string GetSignalClass(int? signal)
+    {
+        if (!signal.HasValue) return "";
+        return signal.Value switch
+        {
+            >= -50 => "signal-excellent",
+            >= -60 => "signal-good",
+            >= -70 => "signal-fair",
+            _ => "signal-poor"
+        };
+    }
+
+    private class WifiGenStats
+    {
+        public int Generation { get; set; }
+        public int ClientCount { get; set; }
+        public int Count2_4GHz { get; set; }
+        public int Count5GHz { get; set; }
+        public int Count6GHz { get; set; }
+    }
+}

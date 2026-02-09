@@ -117,6 +117,11 @@ public class DnsSecurityInfo
     public bool HasDns53BlockRule { get; set; }
 
     /// <summary>
+    /// Whether DNS port 53 blocking covers all networks
+    /// </summary>
+    public bool Dns53ProvidesFullCoverage { get; set; }
+
+    /// <summary>
     /// Whether DoT (TCP port 853) is blocked
     /// </summary>
     public bool DotBlocked { get; set; }

@@ -93,7 +93,95 @@ public class DeviceTypeClassificationTests
     [Theory]
     [InlineData("uck", DeviceType.CloudKey)]
     [InlineData("UCK", DeviceType.CloudKey)]
+    [InlineData("uas", DeviceType.CloudKey)]  // Application Server maps to CloudKey
+    [InlineData("UAS", DeviceType.CloudKey)]
     public void FromUniFiApiType_CloudKeyTypes_ReturnsCloudKey(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("udb", DeviceType.DeviceBridge)]
+    [InlineData("UDB", DeviceType.DeviceBridge)]
+    [InlineData("uacc", DeviceType.DeviceBridge)]  // Device Bridge accessory type
+    [InlineData("UACC", DeviceType.DeviceBridge)]
+    public void FromUniFiApiType_DeviceBridgeTypes_ReturnsDeviceBridge(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("unas", DeviceType.NAS)]
+    [InlineData("UNAS", DeviceType.NAS)]
+    public void FromUniFiApiType_NasTypes_ReturnsNAS(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("unvr", DeviceType.ProtectDevice)]
+    [InlineData("UNVR", DeviceType.ProtectDevice)]
+    public void FromUniFiApiType_NvrTypes_ReturnsProtectDevice(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("uph", DeviceType.TalkDevice)]
+    [InlineData("UPH", DeviceType.TalkDevice)]
+    public void FromUniFiApiType_PhoneTypes_ReturnsTalkDevice(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("usfp", DeviceType.Accessory)]
+    [InlineData("USFP", DeviceType.Accessory)]
+    public void FromUniFiApiType_AccessoryTypes_ReturnsAccessory(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("uci", DeviceType.CableModem)]
+    [InlineData("UCI", DeviceType.CableModem)]
+    public void FromUniFiApiType_CableModemTypes_ReturnsCableModem(string apiType, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("utr", DeviceType.TravelRouter)]
+    [InlineData("UTR", DeviceType.TravelRouter)]
+    public void FromUniFiApiType_TravelRouterTypes_ReturnsTravelRouter(string apiType, DeviceType expected)
     {
         // Act
         var result = DeviceTypeExtensions.FromUniFiApiType(apiType);
@@ -114,6 +202,133 @@ public class DeviceTypeClassificationTests
 
         // Assert
         result.Should().Be(DeviceType.Unknown);
+    }
+
+    #endregion
+
+    #region FromUniFiApiType With Model - Smart Power Device Exclusion
+
+    [Theory]
+    [InlineData("uap", "UP1", DeviceType.SmartPower)]         // USP-Plug
+    [InlineData("uap", "UP6", DeviceType.SmartPower)]         // USP-Strip
+    [InlineData("UAP", "UP6", DeviceType.SmartPower)]         // Case insensitive type
+    [InlineData("uap", "up1", DeviceType.SmartPower)]         // Case insensitive model
+    [InlineData("uap", "up6", DeviceType.SmartPower)]         // Case insensitive model
+    public void FromUniFiApiType_SmartPowerDevices_ReturnsSmartPower(string apiType, string model, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType, model);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("uap", "U6E", DeviceType.AccessPoint)]      // U6 Enterprise
+    [InlineData("uap", "U6-Pro", DeviceType.AccessPoint)]   // U6 Pro
+    [InlineData("uap", "U7-Pro", DeviceType.AccessPoint)]   // U7 Pro
+    [InlineData("uap", "UAP-AC-Pro", DeviceType.AccessPoint)] // AC Pro
+    [InlineData("uap", null, DeviceType.AccessPoint)]       // No model (fallback)
+    [InlineData("uap", "", DeviceType.AccessPoint)]         // Empty model (fallback)
+    public void FromUniFiApiType_RegularAccessPoints_ReturnsAccessPoint(string apiType, string? model, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType, model);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("udm", "UP6", DeviceType.Gateway)]   // Model filter only applies to "uap" type
+    [InlineData("usw", "UP6", DeviceType.Switch)]    // Model filter only applies to "uap" type
+    public void FromUniFiApiType_NonUapWithSmartPowerModel_UsesTypeClassification(string apiType, string model, DeviceType expected)
+    {
+        // Act
+        var result = DeviceTypeExtensions.FromUniFiApiType(apiType, model);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void UniFiDeviceResponse_DeviceType_UsesModelForClassification()
+    {
+        // Arrange - USP-Strip returns type="uap" but should not be classified as AP
+        var uspStrip = new UniFiDeviceResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Type = "uap",
+            Model = "UP6",
+            Name = "Smart Power Strip"
+        };
+
+        // Act
+        var deviceType = uspStrip.DeviceType;
+
+        // Assert - Should be SmartPower, not AccessPoint
+        deviceType.Should().Be(DeviceType.SmartPower);
+    }
+
+    [Fact]
+    public void UniFiDeviceResponse_DeviceType_RegularAp_ReturnsAccessPoint()
+    {
+        // Arrange - Regular AP
+        var ap = new UniFiDeviceResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Type = "uap",
+            Model = "U6E",
+            Name = "Office AP"
+        };
+
+        // Act
+        var deviceType = ap.DeviceType;
+
+        // Assert
+        deviceType.Should().Be(DeviceType.AccessPoint);
+    }
+
+    #endregion
+
+    #region DetermineDeviceType - Smart Power Devices
+
+    [Fact]
+    public void DetermineDeviceType_UspStrip_ReturnsSmartPower()
+    {
+        // Arrange - USP-Strip has type="uap" but model="UP6"
+        var device = new UniFiDeviceResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Type = "uap",
+            Model = "UP6",
+            Name = "Smart Power Strip"
+        };
+
+        // Act
+        var result = UniFiDiscovery.DetermineDeviceType(device, EmptyDeviceMacs, NullLogger);
+
+        // Assert - Should be SmartPower, not AccessPoint
+        result.Should().Be(DeviceType.SmartPower);
+    }
+
+    [Fact]
+    public void DetermineDeviceType_UspPlug_ReturnsSmartPower()
+    {
+        // Arrange - USP-Plug (model UP1)
+        var device = new UniFiDeviceResponse
+        {
+            Mac = "aa:bb:cc:dd:ee:ff",
+            Type = "uap",
+            Model = "UP1",
+            Name = "Smart Plug"
+        };
+
+        // Act
+        var result = UniFiDiscovery.DetermineDeviceType(device, EmptyDeviceMacs, NullLogger);
+
+        // Assert
+        result.Should().Be(DeviceType.SmartPower);
     }
 
     #endregion

@@ -223,12 +223,5 @@ public class DeviceInfo
     /// <summary>
     /// Get display name for the device type
     /// </summary>
-    public string TypeDisplayName => Type switch
-    {
-        DeviceType.Gateway => "Gateway",
-        DeviceType.Switch => "Switch",
-        DeviceType.AccessPoint => "Access Point",
-        DeviceType.CellularModem => "Cellular Modem",
-        _ => "Unknown"
-    };
+    public string TypeDisplayName => Type.ToDisplayName();
 }

@@ -1,0 +1,541 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="connectivity-flow-container wifi-sections">
+    <div class="flow-header">
+        <h3>Connectivity Flow</h3>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="flow-loading">
+            <span class="spinner"></span>
+            <span>Analyzing connectivity data...</span>
+        </div>
+    }
+    else if (_clients.Count == 0)
+    {
+        <div class="flow-empty">
+            <p>No wireless clients found. Connect to UniFi to view connectivity flow.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Connection Flow Diagram -->
+        <div class="flow-section">
+            <div class="section-header">
+                <h4>Wi-Fi Connection Stages</h4>
+                <span class="section-hint">Client journey from association to full connectivity</span>
+            </div>
+
+            <div class="flow-diagram">
+                <!-- Stage 1: Association -->
+                <div class="flow-stage">
+                    <div class="stage-header">
+                        <div class="stage-icon">1</div>
+                        <div class="stage-info">
+                            <span class="stage-name">Association</span>
+                            <span class="stage-desc">Client joins network</span>
+                        </div>
+                    </div>
+                    <div class="stage-metrics">
+                        <div class="stage-count success">@_associatedClients</div>
+                        <div class="stage-label">associated</div>
+                    </div>
+                    <div class="stage-bar">
+                        <div class="bar-fill success" style="width: 100%"></div>
+                    </div>
+                </div>
+
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    @if (_associationFailures > 0)
+                    {
+                        <div class="connector-drop" data-tooltip="@_associationFailures association failures">
+                            <span class="drop-count">-@_associationFailures</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Stage 2: Authentication -->
+                <div class="flow-stage">
+                    <div class="stage-header">
+                        <div class="stage-icon">2</div>
+                        <div class="stage-info">
+                            <span class="stage-name">Authentication</span>
+                            <span class="stage-desc">Security handshake</span>
+                        </div>
+                    </div>
+                    <div class="stage-metrics">
+                        <div class="stage-count @GetStageClass(_authenticatedClients, _associatedClients)">@_authenticatedClients</div>
+                        <div class="stage-label">authenticated</div>
+                    </div>
+                    <div class="stage-bar">
+                        <div class="bar-fill @GetStageClass(_authenticatedClients, _associatedClients)"
+                             style="width: @GetPercentage(_authenticatedClients, _associatedClients)%"></div>
+                    </div>
+                </div>
+
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    @if (_authFailures > 0)
+                    {
+                        <div class="connector-drop" data-tooltip="@_authFailures authentication failures">
+                            <span class="drop-count">-@_authFailures</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Stage 3: IP Assignment (DHCP) -->
+                <div class="flow-stage">
+                    <div class="stage-header">
+                        <div class="stage-icon">3</div>
+                        <div class="stage-info">
+                            <span class="stage-name">IP Assignment</span>
+                            <span class="stage-desc">DHCP lease obtained</span>
+                        </div>
+                    </div>
+                    <div class="stage-metrics">
+                        <div class="stage-count @GetStageClass(_ipAssignedClients, _associatedClients)">@_ipAssignedClients</div>
+                        <div class="stage-label">with IP</div>
+                    </div>
+                    <div class="stage-bar">
+                        <div class="bar-fill @GetStageClass(_ipAssignedClients, _associatedClients)"
+                             style="width: @GetPercentage(_ipAssignedClients, _associatedClients)%"></div>
+                    </div>
+                </div>
+
+                <div class="flow-connector">
+                    <div class="connector-line"></div>
+                    @if (_dhcpFailures > 0)
+                    {
+                        <div class="connector-drop" data-tooltip="@_dhcpFailures DHCP failures">
+                            <span class="drop-count">-@_dhcpFailures</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Stage 4: Full Connectivity -->
+                <div class="flow-stage">
+                    <div class="stage-header">
+                        <div class="stage-icon success-icon">✓</div>
+                        <div class="stage-info">
+                            <span class="stage-name">Connected</span>
+                            <span class="stage-desc">Full network access</span>
+                        </div>
+                    </div>
+                    <div class="stage-metrics">
+                        <div class="stage-count @GetStageClass(_fullyConnectedClients, _associatedClients)">@_fullyConnectedClients</div>
+                        <div class="stage-label">fully connected</div>
+                    </div>
+                    <div class="stage-bar">
+                        <div class="bar-fill @GetStageClass(_fullyConnectedClients, _associatedClients)"
+                             style="width: @GetPercentage(_fullyConnectedClients, _associatedClients)%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Success Rate -->
+            <div class="flow-success-rate">
+                <div class="success-rate-label">Overall Success Rate</div>
+                <div class="success-rate-value @GetSuccessRateClass(_successRate)">@_successRate%</div>
+            </div>
+        </div>
+
+        <!-- Connection Issues Breakdown -->
+        @if (_connectionIssues.Count > 0)
+        {
+            <div class="flow-section">
+                <div class="section-header">
+                    <h4>Connection Issues</h4>
+                    <span class="section-hint">Clients with connectivity problems</span>
+                </div>
+
+                <div class="issues-list">
+                    @foreach (var issue in _connectionIssues)
+                    {
+                        <div class="issue-item issue-@issue.Severity">
+                            <div class="issue-body">
+                                <div class="issue-header">
+                                    <span class="issue-severity">@issue.Title</span>
+                                    <span class="connection-issue-count">@issue.Count</span>
+                                </div>
+                                <div class="issue-description">@issue.Description</div>
+                            </div>
+                            @if (issue.AffectedClients.Any())
+                            {
+                                <div class="affected-clients">
+                                    @foreach (var client in issue.AffectedClients.Take(5))
+                                    {
+                                        <span class="affected-client">@client</span>
+                                    }
+                                    @if (issue.AffectedClients.Count > 5)
+                                    {
+                                        <span class="affected-more">+@(issue.AffectedClients.Count - 5) more</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Client Status Summary -->
+        <div class="flow-section">
+            <div class="section-header">
+                <h4>Client Status Summary</h4>
+                <span class="section-hint">Current state of all wireless clients</span>
+            </div>
+
+            <div class="status-grid">
+                <div class="status-card status-connected">
+                    <div class="status-value">@_fullyConnectedClients</div>
+                    <div class="status-label">Fully Connected</div>
+                    <div class="status-icon">✓</div>
+                </div>
+                <div class="status-card status-authorized">
+                    <div class="status-value">@_authorizedClients</div>
+                    <div class="status-label">Authorized</div>
+                    <div class="status-icon">🔓</div>
+                </div>
+                <div class="status-card status-guest">
+                    <div class="status-value">@_guestClients</div>
+                    <div class="status-label">Guest Network</div>
+                    <div class="status-icon">👤</div>
+                </div>
+                <div class="status-card status-issue">
+                    <div class="status-value">@_clientsWithIssues</div>
+                    <div class="status-label">With Issues</div>
+                    <div class="status-icon">!</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Per-AP Connection Stats -->
+        <div class="flow-section">
+            <div class="section-header">
+                <h4>Connection Success by AP</h4>
+                <span class="section-hint">Which APs have the best connectivity</span>
+            </div>
+
+            <div class="ap-success-list">
+                @foreach (var apStat in _apConnectionStats.OrderByDescending(a => a.SuccessRate))
+                {
+                    <div class="ap-success-row">
+                        <div class="ap-info">
+                            <span class="ap-name"><DeviceIcon Model="@apStat.ApModel" Size="md" /> @apStat.ApName</span>
+                            <span class="ap-clients">@apStat.TotalClients clients</span>
+                        </div>
+                        <div class="ap-success-bar-container">
+                            <div class="ap-success-bar @GetSuccessRateClass(apStat.SuccessRate)"
+                                 style="width: @apStat.SuccessRate%"></div>
+                        </div>
+                        <div class="ap-success-value @GetSuccessRateClass(apStat.SuccessRate)">
+                            @apStat.SuccessRate%
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Recommendations (from Health Score rules) -->
+        @if (_connectivityIssues.Count > 0)
+        {
+            <div class="flow-section">
+                <div class="section-header">
+                    <h4>Recommendations</h4>
+                </div>
+
+                <IssuesList Issues="_connectivityIssues" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private List<WirelessClientSnapshot> _clients = new();
+
+    // Flow metrics
+    private int _associatedClients;
+    private int _authenticatedClients;
+    private int _ipAssignedClients;
+    private int _fullyConnectedClients;
+
+    // Failures at each stage
+    private int _associationFailures;
+    private int _authFailures;
+    private int _dhcpFailures;
+
+    // Summary stats
+    private int _authorizedClients;
+    private int _guestClients;
+    private int _clientsWithIssues;
+    private int _successRate;
+
+    // Per-AP stats
+    private List<ApConnectionStats> _apConnectionStats = new();
+
+    // Issues and recommendations
+    private List<ConnectionIssue> _connectionIssues = new();
+    private List<HealthIssue> _connectivityIssues = new();
+    private SiteHealthScore? _healthScore;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId);
+
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+            _healthScore = await healthTask;
+
+            AnalyzeConnectivity();
+            IdentifyIssues();
+            CalculateApStats();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            var apsTask = WiFiService.GetAccessPointsAsync(SiteId, forceRefresh: true);
+            var clientsTask = WiFiService.GetWirelessClientsAsync(SiteId, forceRefresh: true);
+            var healthTask = WiFiService.GetSiteHealthScoreAsync(SiteId, forceRefresh: true);
+
+            await Task.WhenAll(apsTask, clientsTask, healthTask);
+
+            _accessPoints = await apsTask;
+            _clients = await clientsTask;
+            _healthScore = await healthTask;
+
+            AnalyzeConnectivity();
+            IdentifyIssues();
+            CalculateApStats();
+            GenerateRecommendations();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AnalyzeConnectivity()
+    {
+        // All clients we can see are associated (they wouldn't show up otherwise)
+        _associatedClients = _clients.Count;
+
+        // Authenticated = authorized (not blocked)
+        _authenticatedClients = _clients.Count(c => c.IsAuthorized);
+
+        // Has IP = successfully got DHCP
+        _ipAssignedClients = _clients.Count(c => !string.IsNullOrEmpty(c.Ip));
+
+        // Fully connected = has IP and is authorized
+        _fullyConnectedClients = _clients.Count(c => c.IsAuthorized && !string.IsNullOrEmpty(c.Ip));
+
+        // Calculate failures at each stage
+        _associationFailures = 0; // Can't detect - they don't show up
+        _authFailures = _associatedClients - _authenticatedClients;
+        _dhcpFailures = _authenticatedClients - _ipAssignedClients;
+
+        // Summary stats
+        _authorizedClients = _clients.Count(c => c.IsAuthorized);
+        _guestClients = _clients.Count(c => c.IsGuest);
+        _clientsWithIssues = _clients.Count(c => !c.IsAuthorized || string.IsNullOrEmpty(c.Ip) ||
+                                                  (c.Signal.HasValue && c.Signal < -75));
+
+        // Success rate
+        _successRate = _associatedClients > 0
+            ? (int)Math.Round((double)_fullyConnectedClients / _associatedClients * 100)
+            : 100;
+    }
+
+    private void IdentifyIssues()
+    {
+        _connectionIssues.Clear();
+
+        // Clients without IP (DHCP issue)
+        var noIpClients = _clients.Where(c => string.IsNullOrEmpty(c.Ip)).ToList();
+        if (noIpClients.Any())
+        {
+            _connectionIssues.Add(new ConnectionIssue
+            {
+                Icon = "⚠",
+                Severity = "warning",
+                Title = "No IP Address",
+                Description = "These clients connected but didn't receive an IP address. Check DHCP server capacity and lease availability.",
+                Count = noIpClients.Count,
+                AffectedClients = noIpClients.Select(c => c.Name).ToList()
+            });
+        }
+
+        // Unauthorized clients (blocked)
+        var blockedClients = _clients.Where(c => !c.IsAuthorized).ToList();
+        if (blockedClients.Any())
+        {
+            _connectionIssues.Add(new ConnectionIssue
+            {
+                Icon = "🚫",
+                Severity = "info",
+                Title = "Blocked/Unauthorized",
+                Description = "These clients are blocked from network access. This may be intentional.",
+                Count = blockedClients.Count,
+                AffectedClients = blockedClients.Select(c => c.Name).ToList()
+            });
+        }
+
+        // Weak signal clients (may have connectivity issues)
+        var weakSignalClients = _clients.Where(c => c.Signal.HasValue && c.Signal < -75).ToList();
+        if (weakSignalClients.Any())
+        {
+            _connectionIssues.Add(new ConnectionIssue
+            {
+                Icon = "📶",
+                Severity = "warning",
+                Title = "Weak Signal",
+                Description = "These clients have signal below -75 dBm and may experience intermittent connectivity or slow speeds.",
+                Count = weakSignalClients.Count,
+                AffectedClients = weakSignalClients.Select(c => c.Name).ToList()
+            });
+        }
+
+        // Legacy clients (potential compatibility issues)
+        var legacyClients = _clients.Where(c => c.WifiGeneration.HasValue && c.WifiGeneration <= 3).ToList();
+        if (legacyClients.Any())
+        {
+            _connectionIssues.Add(new ConnectionIssue
+            {
+                Icon = "📱",
+                Severity = "info",
+                Title = "Legacy Wi-Fi Clients",
+                Description = "These clients use older Wi-Fi standards and may have compatibility or performance issues.",
+                Count = legacyClients.Count,
+                AffectedClients = legacyClients.Select(c => c.Name).ToList()
+            });
+        }
+    }
+
+    private void CalculateApStats()
+    {
+        _apConnectionStats.Clear();
+
+        foreach (var ap in _accessPoints)
+        {
+            var apClients = _clients.Where(c => c.ApMac == ap.Mac).ToList();
+            var fullyConnected = apClients.Count(c => c.IsAuthorized && !string.IsNullOrEmpty(c.Ip));
+            var total = apClients.Count;
+
+            _apConnectionStats.Add(new ApConnectionStats
+            {
+                ApMac = ap.Mac,
+                ApName = ap.Name,
+                ApModel = ap.Model,
+                TotalClients = total,
+                FullyConnectedClients = fullyConnected,
+                SuccessRate = total > 0 ? (int)Math.Round((double)fullyConnected / total * 100) : 100
+            });
+        }
+    }
+
+    private void GenerateRecommendations()
+    {
+        _connectivityIssues.Clear();
+
+        // Pull Client Satisfaction issues from health score (single source of truth)
+        if (_healthScore != null)
+        {
+            _connectivityIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.ClientSatisfaction))
+                .ToList();
+        }
+    }
+
+    private int GetPercentage(int value, int total)
+    {
+        if (total == 0) return 100;
+        return (int)Math.Round((double)value / total * 100);
+    }
+
+    private string GetStageClass(int value, int total)
+    {
+        var pct = GetPercentage(value, total);
+        return pct switch
+        {
+            >= 95 => "success",
+            >= 80 => "warning",
+            _ => "danger"
+        };
+    }
+
+    private string GetSuccessRateClass(int rate) => rate switch
+    {
+        >= 95 => "rate-excellent",
+        >= 80 => "rate-good",
+        >= 60 => "rate-fair",
+        _ => "rate-poor"
+    };
+
+    private class ApConnectionStats
+    {
+        public string ApMac { get; set; } = "";
+        public string ApName { get; set; } = "";
+        public string ApModel { get; set; } = "";
+        public int TotalClients { get; set; }
+        public int FullyConnectedClients { get; set; }
+        public int SuccessRate { get; set; }
+    }
+
+    private class ConnectionIssue
+    {
+        public string Icon { get; set; } = "";
+        public string Severity { get; set; } = "info";
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public int Count { get; set; }
+        public List<string> AffectedClients { get; set; } = new();
+    }
+}

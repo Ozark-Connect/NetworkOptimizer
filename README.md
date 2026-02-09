@@ -6,7 +6,11 @@
 
 # Network Optimizer for UniFi
 
-> **Notice:** This project is under active development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Breaking changes may occur between updates, but I'm doing my best to avoid any.
+> **Notice:** This project is under rapid development. For the latest fixes and features, either pull the latest Docker image (`docker compose pull && docker compose up -d`) or [update from source](docker/DEPLOYMENT.md#upgrade-procedure). Releases and main are stable, but be careful testing any new feature branches you might find.
+
+## New: Wi-Fi Optimizer
+
+Site health scoring, RF environment analysis, channel optimization, client stats, roaming tracking, band steering, and airtime fairness across twelve analysis tabs. All recommendations include specific UniFi UI paths for applying changes.​​​​​​​​​​​​​​​​
 
 ## New: Proxmox LXC Installation
 
@@ -38,7 +42,13 @@ You've set up VLANs, configured firewall rules, maybe even deployed a Pi-hole fo
 
 Network Optimizer answers those questions. It connects to your UniFi controller, analyzes your configuration, and tells you what's working, what's broken, and what you should fix. No more guessing.
 
-## What It Does
+## Main Features
+
+### Wi-Fi Optimizer
+
+This feature brings comprehensive wireless network analysis to Network Optimizer. Twelve tabs cover everything from a 0-100 site health score and RF environment scanning to per-client signal history, roaming event timelines, and airtime fairness breakdowns. Channel recommendations use overlap-aware scoring against the full channel span at your AP’s configured width, pull available channels from the UniFi API so suggestions match what your country and hardware actually support, and filter to Preferred Scanning Channels on 6 GHz.
+
+On the client side, you get a sortable, searchable table view with online/offline filtering, per-client signal and roaming history, and band-segmented Wi-Fi generation breakdowns showing exactly where your airtime is going. Environmental correlation heatmaps surface interference patterns by time of day and day of week, and every recommendation includes the specific UniFi Network UI navigation path to apply the change - no guessing which settings page to dig through.​​​​​​​​​​​​​​​​
 
 ### Security Auditing
 
@@ -107,7 +117,7 @@ Without SSH access, Security Audit works fully, but you cannot run gateway/devic
 | Windows | Installer (recommended) | [Download from Releases](https://github.com/Ozark-Connect/NetworkOptimizer/releases) |
 | Linux Server | Docker (recommended) | [Deployment Guide](docker/DEPLOYMENT.md) |
 | Proxmox VE | LXC one-liner | [Proxmox Guide](scripts/proxmox/README.md) |
-| Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#nas-deployment) |
+| Synology/QNAP/Unraid | Docker | [NAS Deployment](docker/DEPLOYMENT.md#2-nas-deployment-docker) |
 | macOS | Native (best performance) | [macOS Installation](docs/MACOS-INSTALLATION.md) |
 | Linux | Native (no Docker) | [Linux Native](docker/NATIVE-DEPLOYMENT.md#linux-deployment) |
 

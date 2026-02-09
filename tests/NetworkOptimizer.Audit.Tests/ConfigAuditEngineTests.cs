@@ -229,7 +229,7 @@ public class ConfigAuditEngineTests
         var report = _engine.GenerateTextReport(auditResult);
 
         report.Should().Contain("SWITCH DETAILS");
-        report.Should().Contain("Main Switch");
+        report.Should().Contain("[Switch] Main");  // Name is stripped and prefixed with [Switch]
         report.Should().Contain("Switch 48 PoE");
     }
 
@@ -1308,7 +1308,8 @@ public class ConfigAuditEngineTests
                 Name = "Block DNS Bypass",
                 Action = "drop",
                 DestinationPort = "53",
-                Enabled = true
+                Enabled = true,
+                SourceMatchingTarget = "ANY"
             }
         };
 
@@ -1385,7 +1386,7 @@ public class ConfigAuditEngineTests
         [
             {
                 "key": "doh",
-                "state": "custom",
+                "state": "auto",
                 "server_names": ["cloudflare"]
             }
         ]
@@ -1478,6 +1479,34 @@ public class ConfigAuditEngineTests
         // This SHOULD trigger ACCESS-VLAN-001 (threshold is 2)
         result.Issues.Should().Contain(i => i.Type == "ACCESS-VLAN-001",
             because: "guest networks can be tagged so should be included in the count");
+    }
+
+    [Fact]
+    public async Task RunAudit_AccessPortVlanCount_IncludesVlanOnlyNetworks()
+    {
+        // vlan-only networks can be tagged on switch ports and must be counted
+        // They only appear in networkconf, not in device network_table
+
+        var deviceJson = CreateDeviceJsonWithMacRestrictedTrunkPort();
+        var networkConfigs = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "net-corp", Name = "Corporate", Vlan = 1, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-iot", Name = "IoT", Vlan = 20, Purpose = "corporate", Enabled = true },
+            new() { Id = "net-vlan-only", Name = "VLAN Only", Vlan = 222, Purpose = "vlan-only", Enabled = true },
+            new() { Id = "net-vlan-only2", Name = "VLAN Only 2", Vlan = 333, Purpose = "vlan-only", Enabled = true }
+        };
+
+        var result = await _engine.RunAuditAsync(new AuditRequest
+        {
+            DeviceDataJson = deviceJson,
+            NetworkConfigs = networkConfigs,
+            ClientName = "Test Site"
+        });
+
+        // With 2 corporate + 2 vlan-only = 4 selectable networks, native = 1, tagged = 3
+        // This SHOULD trigger ACCESS-VLAN-001 (threshold is 2)
+        result.Issues.Should().Contain(i => i.Type == "ACCESS-VLAN-001",
+            because: "vlan-only networks can be tagged so should be included in the count");
     }
 
     private static string CreateDeviceJsonWithMacRestrictedTrunkPort()

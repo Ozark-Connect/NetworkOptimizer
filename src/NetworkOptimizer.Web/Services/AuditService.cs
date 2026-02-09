@@ -626,6 +626,7 @@ public class AuditService
                 DohConfigNames = result.DnsSecurity.DohConfigNames.ToList(),
                 DnsLeakProtection = result.DnsSecurity.DnsLeakProtection,
                 HasDns53BlockRule = result.DnsSecurity.HasDns53BlockRule,
+                Dns53ProvidesFullCoverage = result.DnsSecurity.Dns53ProvidesFullCoverage,
                 DnatProvidesFullCoverage = result.DnsSecurity.DnatProvidesFullCoverage,
                 DotBlocked = result.DnsSecurity.DotBlocked,
                 DohBypassBlocked = result.DnsSecurity.DohBypassBlocked,
@@ -1460,6 +1461,7 @@ public class AuditService
                     .ToList(),
                 // DNS Leak Protection Details
                 HasDns53BlockRule = dns.HasDns53BlockRule,
+                Dns53ProvidesFullCoverage = dns.Dns53ProvidesFullCoverage,
                 // DNAT DNS Coverage
                 HasDnatDnsRules = dns.HasDnatDnsRules,
                 DnatProvidesFullCoverage = dns.DnatProvidesFullCoverage,
@@ -1623,7 +1625,9 @@ public class AuditService
                                 ? "IoT Device Allowed on VLAN"
                                 : (isInformational ? "IoT Device Possibly on Wrong VLAN" : "IoT Device on Wrong VLAN"),
             Audit.IssueTypes.CameraVlan or Audit.IssueTypes.WifiCameraVlan or "OFFLINE-CAMERA-VLAN" or "OFFLINE-CLOUD-CAMERA-VLAN" =>
-                isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN",
+                message.StartsWith("Security System")
+                    ? (isInformational ? "Security System Possibly on Wrong VLAN" : "Security System on Wrong VLAN")
+                    : (isInformational ? "Camera Possibly on Wrong VLAN" : "Camera on Wrong VLAN"),
             Audit.IssueTypes.InfraNotOnMgmt => "Infrastructure Device on Wrong VLAN",
 
             // Port security
@@ -1768,10 +1772,14 @@ public class AuditService
     {
         Audit.IssueTypes.FwAnyAny => "Replace with specific allow rules for required traffic",
         Audit.IssueTypes.PermissiveRule => "Tighten the rule to only allow necessary traffic",
+        Audit.IssueTypes.BroadRule => "Restrict the source or destination to specific networks or devices",
+        Audit.IssueTypes.InternetBlockBypassed => "Remove the allow rule or disable internet access restriction if internet is intended for this network",
+        Audit.IssueTypes.IsolationBypassed => "Delete this rule or restrict to specific ports/protocols if necessary",
         Audit.IssueTypes.OrphanedRule => "Remove rules that reference non-existent objects",
         Audit.IssueTypes.MacRestriction => "Consider enabling MAC-based port security on access ports where device churn is low",
         Audit.IssueTypes.UnusedPort => "Disable unused ports to reduce attack surface",
         Audit.IssueTypes.PortIsolation => "Enable port isolation for security devices",
+        Audit.IssueTypes.RoutingEnabled => "Disable inter-VLAN routing for this network unless cross-network access is required",
         Audit.IssueTypes.VlanSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match VLAN subnet",
         Audit.IssueTypes.WiredSubnetMismatch => "Reconnect device to obtain new DHCP lease, or update fixed IP assignment to match port's VLAN subnet",
         Audit.IssueTypes.IotVlan or Audit.IssueTypes.WifiIotVlan => "Move IoT devices to a dedicated IoT VLAN",
@@ -1872,6 +1880,7 @@ public class DnsSecurityReference
 
     // DNS Leak Protection Details
     public bool HasDns53BlockRule { get; set; }
+    public bool Dns53ProvidesFullCoverage { get; set; }
 
     // DNAT DNS Coverage
     public bool HasDnatDnsRules { get; set; }

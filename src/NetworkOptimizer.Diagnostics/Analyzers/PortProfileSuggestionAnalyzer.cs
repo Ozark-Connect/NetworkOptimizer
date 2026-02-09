@@ -6,12 +6,27 @@ using NetworkOptimizer.UniFi.Models;
 namespace NetworkOptimizer.Diagnostics.Analyzers;
 
 /// <summary>
-/// Analyzes trunk ports to find groups with identical configurations that could
-/// benefit from using a shared port profile.
+/// Analyzes ports to find groups with identical configurations that could
+/// benefit from using a shared port profile. Covers:
+/// - Trunk ports (existing analysis)
+/// - Disabled ports (new: suggest creating a common disabled port profile)
+/// - Unrestricted access ports (new: suggest creating a common access profile)
 /// </summary>
 public class PortProfileSuggestionAnalyzer
 {
     private readonly ILogger<PortProfileSuggestionAnalyzer>? _logger;
+
+    /// <summary>
+    /// Minimum number of ports before suggesting to apply an existing profile.
+    /// Lower threshold since applying an existing profile is low effort.
+    /// </summary>
+    private const int MinPortsForApplyExistingProfile = 2;
+
+    /// <summary>
+    /// Minimum number of ports before suggesting to create a new profile.
+    /// Higher threshold since creating a new profile requires more setup.
+    /// </summary>
+    private const int MinPortsForCreateNewProfile = 5;
 
     public PortProfileSuggestionAnalyzer(ILogger<PortProfileSuggestionAnalyzer>? logger = null)
     {
@@ -19,7 +34,8 @@ public class PortProfileSuggestionAnalyzer
     }
 
     /// <summary>
-    /// Analyze trunk ports for port profile simplification opportunities.
+    /// Analyze ports for port profile simplification opportunities.
+    /// Includes trunk ports, disabled ports, and unrestricted access ports.
     /// </summary>
     /// <param name="devices">All network devices with port tables</param>
     /// <param name="portProfiles">Existing port profiles</param>
@@ -55,6 +71,14 @@ public class PortProfileSuggestionAnalyzer
 
         // Collect all trunk ports with their effective configurations
         var trunkPorts = CollectTrunkPorts(devices, profilesById, networksById, allNetworkIds);
+
+        // Analyze disabled ports for profile suggestions
+        var disabledPortSuggestions = AnalyzeDisabledPorts(devices, profileList, networksById);
+        suggestions.AddRange(disabledPortSuggestions);
+
+        // Analyze unrestricted access ports for profile suggestions
+        var accessPortSuggestions = AnalyzeUnrestrictedAccessPorts(devices, profileList, networksById);
+        suggestions.AddRange(accessPortSuggestions);
 
         if (trunkPorts.Count == 0)
             return suggestions;
@@ -893,6 +917,343 @@ public class PortProfileSuggestionAnalyzer
         return $"{portCount} trunk ports share identical VLAN configuration ({vlanInfo}). " +
                "Create a port profile to ensure consistent configuration across all these ports " +
                "and simplify future maintenance.";
+    }
+
+    /// <summary>
+    /// Analyze disabled ports that don't use a shared profile.
+    /// Suggests creating a common "Disabled" profile if enough ports share similar configuration.
+    /// </summary>
+    private List<PortProfileSuggestion> AnalyzeDisabledPorts(
+        IEnumerable<UniFiDeviceResponse> devices,
+        List<UniFiPortProfile> profiles,
+        Dictionary<string, UniFiNetworkConfig> networksById)
+    {
+        var suggestions = new List<PortProfileSuggestion>();
+
+        // Find existing disabled port profiles
+        var disabledProfiles = profiles
+            .Where(p => p.Forward == "disabled")
+            .ToList();
+
+        _logger?.LogDebug("Found {Count} existing disabled port profiles", disabledProfiles.Count);
+        foreach (var dp in disabledProfiles)
+        {
+            _logger?.LogDebug("Disabled profile '{Name}': Forward={Forward}, PoeMode={PoeMode}",
+                dp.Name, dp.Forward, dp.PoeMode ?? "(null)");
+        }
+
+        // Collect all disabled ports without a profile
+        var disabledPortsWithoutProfile = new List<(PortReference Reference, string? PoeMode, bool SupportsPoe)>();
+
+        foreach (var device in devices)
+        {
+            if (device.PortTable == null)
+                continue;
+
+            foreach (var port in device.PortTable)
+            {
+                // Skip ports that already have a profile
+                if (!string.IsNullOrEmpty(port.PortConfId))
+                    continue;
+
+                // Only include disabled ports
+                if (port.Forward != "disabled")
+                    continue;
+
+                // Skip uplink ports (shouldn't normally be disabled, but just in case)
+                if (port.IsUplink)
+                    continue;
+
+                var reference = new PortReference
+                {
+                    DeviceMac = device.Mac,
+                    DeviceName = device.Name,
+                    PortIndex = port.PortIdx,
+                    PortName = port.Name
+                };
+
+                disabledPortsWithoutProfile.Add((reference, port.PoeMode, port.PortPoe));
+            }
+        }
+
+        _logger?.LogDebug("Found {Count} disabled ports without profiles", disabledPortsWithoutProfile.Count);
+
+        // Group by PoE capability - PoE-capable ports should get PoE-off profile,
+        // non-PoE ports can use a simpler profile
+        var poeCapablePorts = disabledPortsWithoutProfile.Where(p => p.SupportsPoe).ToList();
+        var nonPoePorts = disabledPortsWithoutProfile.Where(p => !p.SupportsPoe).ToList();
+
+        _logger?.LogDebug("Disabled ports: {PoECapable} PoE-capable, {NonPoE} non-PoE",
+            poeCapablePorts.Count, nonPoePorts.Count);
+
+        // Check if there's an existing disabled profile with PoE off
+        var existingDisabledPoeOff = disabledProfiles
+            .FirstOrDefault(p => p.PoeMode == "off");
+
+        _logger?.LogDebug("Existing disabled profile with PoE off: {Name}",
+            existingDisabledPoeOff?.Name ?? "(none found)");
+
+        // Use lower threshold if a matching profile exists (easier to apply existing)
+        var poeCapableThreshold = existingDisabledPoeOff != null
+            ? MinPortsForApplyExistingProfile
+            : MinPortsForCreateNewProfile;
+
+        // Create suggestion for PoE-capable disabled ports
+        if (poeCapablePorts.Count >= poeCapableThreshold)
+        {
+            // Disabled port suggestions are always Info - nice to have, not critical
+            var severity = PortProfileSuggestionSeverity.Info;
+
+            if (existingDisabledPoeOff != null)
+            {
+                // Suggest applying the existing profile
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.ApplyExisting,
+                    Severity = severity,
+                    MatchingProfileId = existingDisabledPoeOff.Id,
+                    MatchingProfileName = existingDisabledPoeOff.Name,
+                    Configuration = new PortConfigSignature { PoeMode = "off" },
+                    AffectedPorts = poeCapablePorts.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = poeCapablePorts.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{poeCapablePorts.Count} disabled PoE-capable ports could use the existing " +
+                        $"\"{existingDisabledPoeOff.Name}\" profile for consistent configuration. " +
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
+                });
+            }
+            else
+            {
+                // Suggest creating a new disabled profile
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.CreateNew,
+                    Severity = severity,
+                    SuggestedProfileName = "Disabled",
+                    Configuration = new PortConfigSignature { PoeMode = "off" },
+                    AffectedPorts = poeCapablePorts.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = poeCapablePorts.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{poeCapablePorts.Count} disabled PoE-capable ports share the same configuration. " +
+                        "A \"Disabled\" port profile with PoE off enables consistent configuration and bulk changes. " +
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
+                });
+            }
+
+            _logger?.LogDebug("Created disabled port profile suggestion for {Count} PoE-capable ports", poeCapablePorts.Count);
+        }
+
+        // Create suggestion for non-PoE disabled ports (less common, but still useful)
+        // For non-PoE ports, any disabled profile works (PoE setting is ignored)
+        // Prefer the PoE-off profile if we already found one, otherwise use any disabled profile
+        var existingDisabledAny = existingDisabledPoeOff ?? disabledProfiles.FirstOrDefault();
+        var nonPoeThreshold = existingDisabledAny != null
+            ? MinPortsForApplyExistingProfile
+            : MinPortsForCreateNewProfile;
+
+        if (nonPoePorts.Count >= nonPoeThreshold)
+        {
+            if (existingDisabledAny != null)
+            {
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.ApplyExisting,
+                    Severity = PortProfileSuggestionSeverity.Info,
+                    MatchingProfileId = existingDisabledAny.Id,
+                    MatchingProfileName = existingDisabledAny.Name,
+                    Configuration = new PortConfigSignature(),
+                    AffectedPorts = nonPoePorts.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = nonPoePorts.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{nonPoePorts.Count} disabled non-PoE ports could use the existing " +
+                        $"\"{existingDisabledAny.Name}\" profile for consistent configuration. " +
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
+                });
+            }
+            else if (poeCapablePorts.Count < poeCapableThreshold)
+            {
+                // Only suggest a simple disabled profile if we didn't already suggest a PoE-off one
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.CreateNew,
+                    Severity = PortProfileSuggestionSeverity.Info,
+                    SuggestedProfileName = "Disabled",
+                    Configuration = new PortConfigSignature(),
+                    AffectedPorts = nonPoePorts.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = nonPoePorts.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{nonPoePorts.Count} disabled ports share the same configuration. " +
+                        "A \"Disabled\" port profile enables consistent configuration and bulk changes. " +
+                        "Note: Currently more clicks in UniFi Network, but we expect this to improve."
+                });
+            }
+        }
+
+        return suggestions;
+    }
+
+    /// <summary>
+    /// Analyze unrestricted access ports (no MAC restriction) that don't use a shared profile.
+    /// These are access ports configured to accept any device - useful for hotel RJ45 jacks,
+    /// conference rooms, or guest areas.
+    /// </summary>
+    private List<PortProfileSuggestion> AnalyzeUnrestrictedAccessPorts(
+        IEnumerable<UniFiDeviceResponse> devices,
+        List<UniFiPortProfile> profiles,
+        Dictionary<string, UniFiNetworkConfig> networksById)
+    {
+        var suggestions = new List<PortProfileSuggestion>();
+        var profilesById = profiles.ToDictionary(p => p.Id);
+
+        // Find existing unrestricted access profiles
+        // Unrestricted = access port (forward=native) + no MAC restriction + blocked tagged VLANs
+        var unrestrictedAccessProfiles = profiles
+            .Where(p => p.Forward == "native" &&
+                       !p.PortSecurityEnabled &&
+                       p.TaggedVlanMgmt == "block_all")
+            .ToList();
+
+        _logger?.LogDebug("Found {Count} unrestricted access profiles", unrestrictedAccessProfiles.Count);
+
+        // Collect access ports without MAC restriction and without a profile
+        // Group by native VLAN since different VLANs need different profiles
+        var accessPortsByVlan = new Dictionary<string, List<(PortReference Reference, bool HasPoEEnabled)>>();
+
+        foreach (var device in devices)
+        {
+            if (device.PortTable == null)
+                continue;
+
+            foreach (var port in device.PortTable)
+            {
+                // Skip uplink and disabled ports
+                if (port.IsUplink || port.Forward == "disabled")
+                    continue;
+
+                // Check if this is an access port (native mode or block_all tagged VLANs)
+                var isAccessPort = port.Forward == "native" ||
+                    (port.TaggedVlanMgmt == "block_all" && port.Forward != "customize");
+
+                if (!isAccessPort)
+                    continue;
+
+                // Check if port has a profile
+                if (!string.IsNullOrEmpty(port.PortConfId))
+                {
+                    // Check if the profile is already an unrestricted access profile
+                    if (profilesById.TryGetValue(port.PortConfId, out var profile))
+                    {
+                        if (IsUnrestrictedAccessProfile(profile))
+                            continue; // Already using an appropriate profile
+                    }
+                    continue; // Has a profile, skip
+                }
+
+                // Check if port has MAC restriction configured directly (not via profile)
+                // If port has security enabled or has allowed MAC addresses, it's not unrestricted
+                if (port.PortSecurityEnabled || (port.PortSecurityMacAddresses?.Count > 0))
+                {
+                    continue; // Port has MAC restriction, not unrestricted
+                }
+
+                // Get the native VLAN ID
+                var nativeVlanId = port.NativeNetworkConfId ?? "default";
+
+                if (!accessPortsByVlan.TryGetValue(nativeVlanId, out var portList))
+                {
+                    portList = new List<(PortReference, bool)>();
+                    accessPortsByVlan[nativeVlanId] = portList;
+                }
+
+                var reference = new PortReference
+                {
+                    DeviceMac = device.Mac,
+                    DeviceName = device.Name,
+                    PortIndex = port.PortIdx,
+                    PortName = port.Name
+                };
+
+                var hasPoEEnabled = port.PortPoe && port.PoeEnable;
+                portList.Add((reference, hasPoEEnabled));
+            }
+        }
+
+        // Generate suggestions for each VLAN group that has enough ports
+        foreach (var (vlanId, ports) in accessPortsByVlan)
+        {
+            var vlanName = GetNetworkName(vlanId, networksById) ?? vlanId;
+
+            // Check if there's an existing unrestricted profile for this VLAN
+            var existingProfile = unrestrictedAccessProfiles
+                .FirstOrDefault(p => p.NativeNetworkId == vlanId);
+
+            // Use lower threshold if a matching profile exists (easier to apply existing)
+            var threshold = existingProfile != null
+                ? MinPortsForApplyExistingProfile
+                : MinPortsForCreateNewProfile;
+
+            if (ports.Count < threshold)
+                continue;
+
+            var signature = new PortConfigSignature
+            {
+                NativeNetworkId = vlanId,
+                NativeNetworkName = vlanName
+            };
+
+            if (existingProfile != null)
+            {
+                // Suggest applying the existing profile
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.ApplyExisting,
+                    Severity = PortProfileSuggestionSeverity.Recommendation,
+                    MatchingProfileId = existingProfile.Id,
+                    MatchingProfileName = existingProfile.Name,
+                    Configuration = signature,
+                    AffectedPorts = ports.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = ports.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{ports.Count} unrestricted access ports on the \"{vlanName}\" network " +
+                        $"could use the existing \"{existingProfile.Name}\" profile for consistent configuration."
+                });
+            }
+            else
+            {
+                // Suggest creating a new unrestricted access profile
+                var profileName = $"{vlanName} - Unrestricted";
+
+                suggestions.Add(new PortProfileSuggestion
+                {
+                    Type = PortProfileSuggestionType.CreateNew,
+                    Severity = PortProfileSuggestionSeverity.Recommendation,
+                    SuggestedProfileName = profileName,
+                    Configuration = signature,
+                    AffectedPorts = ports.Select(p => p.Reference).ToList(),
+                    PortsWithoutProfile = ports.Count,
+                    PortsAlreadyUsingProfile = 0,
+                    Recommendation = $"{ports.Count} access ports on the \"{vlanName}\" network have no MAC restriction " +
+                        "and no profile assigned. Create an unrestricted access port profile to standardize " +
+                        "configuration for ports that need to accept any device (e.g., conference rooms, guest areas)."
+                });
+            }
+
+            _logger?.LogDebug("Created unrestricted access profile suggestion for {Count} ports on VLAN {Vlan}",
+                ports.Count, vlanName);
+        }
+
+        return suggestions;
+    }
+
+    /// <summary>
+    /// Check if a port profile is configured as an unrestricted access profile.
+    /// Unrestricted = access mode + no MAC restriction + blocked tagged VLANs.
+    /// </summary>
+    private static bool IsUnrestrictedAccessProfile(UniFiPortProfile profile)
+    {
+        return profile.Forward == "native" &&
+               !profile.PortSecurityEnabled &&
+               profile.TaggedVlanMgmt == "block_all";
     }
 
 }

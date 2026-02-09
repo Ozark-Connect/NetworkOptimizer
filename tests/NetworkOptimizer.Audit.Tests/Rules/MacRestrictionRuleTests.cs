@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NetworkOptimizer.Audit.Models;
 using NetworkOptimizer.Audit.Rules;
+using NetworkOptimizer.UniFi.Models;
 using Xunit;
 
 namespace NetworkOptimizer.Audit.Tests.Rules;
@@ -301,6 +302,119 @@ public class MacRestrictionRuleTests
 
     #endregion
 
+    #region Intentional Unrestricted Profile Detection
+
+    [Fact]
+    public void Evaluate_PortWithUnrestrictedAccessProfile_ReturnsNull()
+    {
+        // Port has a profile that is an access port with MAC restriction explicitly disabled
+        // and tagged VLANs blocked - this indicates intentional unrestricted access (like hotel RJ45 jacks)
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-123",
+            Name = "[Access] Unrestricted",
+            Forward = "native",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "block_all"
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull("port has an intentional unrestricted access profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithProfileAllowingTaggedVlans_ReturnsIssue()
+    {
+        // Profile has tagged VLANs set to auto (allow all) - not an intentional unrestricted profile
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-789",
+            Name = "[Access] Unrestricted",
+            Forward = "native",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "auto"
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull("profile allows all tagged VLANs, not a proper unrestricted access profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithProfileForwardCustomize_ReturnsIssue()
+    {
+        // Profile has forward=customize (not native) - not an intentional unrestricted profile
+        // Port is native mode so it's evaluated as an access port
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-abc",
+            Name = "[Access] Unrestricted",
+            Forward = "customize",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "auto"
+        };
+        var port = CreatePort(isUp: true, forwardMode: "native", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull("profile has forward=customize, not an intentional unrestricted access profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithAccessProfileButSecurityEnabled_ReturnsNull()
+    {
+        // If profile has PortSecurityEnabled = true, the port would have PortSecurityEnabled resolved to true
+        // and would pass the earlier check (port already has MAC restrictions)
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-456",
+            Name = "[Access] Restricted",
+            Forward = "native",
+            PortSecurityEnabled = true
+        };
+        // Port's PortSecurityEnabled is resolved from profile
+        var port = CreatePort(isUp: true, forwardMode: "native", portSecurityEnabled: true, assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull("port has port security enabled via profile");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithTrunkProfileAndNoSecurity_ReturnsNull()
+    {
+        // Profile has forward=all (trunk) with no security - this is not an access port
+        // The rule should already skip trunk ports via the forwardMode check
+        var profile = new UniFiPortProfile
+        {
+            Id = "profile-789",
+            Name = "[Trunk] All VLANs",
+            Forward = "all",
+            PortSecurityEnabled = false
+        };
+        var port = CreatePort(isUp: true, forwardMode: "all", assignedProfile: profile);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().BeNull("trunk ports are skipped by the rule");
+    }
+
+    [Fact]
+    public void Evaluate_PortWithNoProfile_ReturnsIssue()
+    {
+        // Port has no profile assigned - should still trigger the issue
+        var port = CreatePort(isUp: true, forwardMode: "native", assignedProfile: null);
+
+        var result = _rule.Evaluate(port, new List<NetworkInfo>());
+
+        result.Should().NotBeNull("port without a profile should still be flagged");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static PortInfo CreatePort(
@@ -315,7 +429,8 @@ public class MacRestrictionRuleTests
         string portName = "Port 1",
         string switchName = "Test Switch",
         string? nativeNetworkId = null,
-        string? connectedDeviceType = null)
+        string? connectedDeviceType = null,
+        UniFiPortProfile? assignedProfile = null)
     {
         var switchInfo = new SwitchInfo
         {
@@ -338,7 +453,8 @@ public class MacRestrictionRuleTests
             AllowedMacAddresses = allowedMacs,
             NativeNetworkId = nativeNetworkId,
             ConnectedDeviceType = connectedDeviceType,
-            Switch = switchInfo
+            Switch = switchInfo,
+            AssignedPortProfile = assignedProfile
         };
     }
 

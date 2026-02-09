@@ -471,6 +471,11 @@ a:hover {
     grid-column: span 2;
 }
 
+.card-full-width {
+    width: 100%;
+    margin-bottom: 1.5rem;
+}
+
 /* Clickable card */
 .clickable-card {
     cursor: pointer;
@@ -668,6 +673,10 @@ a.stat-card-link:active {
     font-weight: 600;
 }
 
+.stat-value.cleanest-channels {
+    font-size: 1.25rem;
+}
+
 .stat-label {
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -721,11 +730,20 @@ a.stat-card-link:active {
     border-left-color: var(--danger-color);
 }
 
-.device-header {
+.device-header,
+.ap-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.6rem;
     margin-bottom: 0.75rem;
+}
+
+.device-header {
+    margin-left: -0.2rem;
+}
+
+.ap-header {
+    margin-left: -0.3rem;
 }
 
 .device-icon {
@@ -762,14 +780,19 @@ a.stat-card-link:active {
 }
 
 .status-dot {
+    display: inline-block;
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--text-muted);
+}
+
+.status-dot.online {
     background: var(--success-color);
 }
 
-.device-card.device-offline .status-dot {
-    background: var(--danger-color);
+.status-dot.offline {
+    background: var(--text-tertiary);
 }
 
 .device-body {
@@ -1768,8 +1791,18 @@ select.form-control {
     border-left-color: var(--warning-color);
 }
 
-.issue-item.issue-info {
+.issue-item.issue-info,
+.issue-item.info {
     border-left-color: var(--info-color);
+}
+
+/* Simplified severity classes (without issue- prefix) */
+.issue-item.critical {
+    border-left-color: var(--danger-color);
+}
+
+.issue-item.warning {
+    border-left-color: var(--warning-color);
 }
 
 .issue-icon {
@@ -1790,11 +1823,22 @@ select.form-control {
     color: var(--warning-color);
 }
 
-.issue-item.issue-info .issue-icon {
+.issue-item.issue-info .issue-icon,
+.issue-item.info .issue-icon {
     color: var(--info-color);
 }
 
-.issue-body {
+/* Simplified severity classes for icons */
+.issue-item.critical .issue-icon {
+    color: var(--danger-color);
+}
+
+.issue-item.warning .issue-icon {
+    color: var(--warning-color);
+}
+
+.issue-body,
+.issue-content {
     flex: 1;
     min-width: 0;
 }
@@ -2376,8 +2420,14 @@ select.form-control {
         padding-top: 0.05rem;
     }
 
-    .issue-body {
+    .issue-body,
+    .issue-content {
         display: contents;
+    }
+
+    .issue-meta {
+        grid-column: 1 / -1;
+        grid-row: 1;
     }
 
     .issue-header {
@@ -2407,6 +2457,11 @@ select.form-control {
         grid-column: 1 / -1;
         grid-row: 3;
         font-size: 0.8rem;
+    }
+
+    .issue-entity,
+    .issue-recommendation {
+        grid-column: 1 / -1;
     }
 
     .issue-context {
@@ -2585,6 +2640,17 @@ select.form-control {
 
 .connection-banner .btn-secondary:hover {
     background: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 768px) {
+    .connection-banner .banner-content {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .connection-banner .banner-content .banner-text {
+        flex-basis: calc(100% - 3.5rem);
+    }
 }
 
 /* Sponsorship Banner */
@@ -4410,6 +4476,16 @@ select.form-control {
     color: var(--info-color);
 }
 
+/* Compact issue count for card headers */
+.issue-count-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    color: var(--text-muted);
+}
+
 /* Audit Timestamp */
 .audit-timestamp {
     font-size: 0.875rem;
@@ -6158,5 +6234,5550 @@ select.form-control {
     .detail-row {
         flex-direction: column;
         gap: 0.125rem;
+    }
+}
+
+/* ================================
+   Wi-Fi Optimizer Page
+   ================================ */
+
+.wifi-content-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+}
+
+/* Override main dashboard min-height for WiFi overview cards */
+.wifi-content-grid > .card:nth-child(-n+4) {
+    min-height: auto;
+}
+
+@media (max-width: 1024px) {
+    .wifi-content-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .wifi-content-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+}
+
+/* Stat icon SVG */
+.stat-icon-svg {
+    width: 3rem;
+    height: 3rem;
+    opacity: 0.8;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.stat-icon-svg.stat-icon-sm {
+    width: 2.5rem;
+    height: 2.5rem;
+}
+
+/* Health score icon in stat card */
+.wifi-health-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+}
+
+.wifi-health-icon .health-score-num {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.wifi-health-icon.score-excellent {
+    border-color: var(--success-color);
+    color: var(--success-color);
+}
+
+.wifi-health-icon.score-good {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.wifi-health-icon.score-fair {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+}
+
+.wifi-health-icon.score-poor {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+}
+
+/* Score label colors and font for stat card */
+.stat-value.score-excellent,
+.stat-value.score-good,
+.stat-value.score-fair,
+.stat-value.score-poor {
+    font-size: 1.6rem;
+}
+.stat-value.score-excellent { color: var(--success-color); }
+.stat-value.score-good { color: var(--primary-color); }
+.stat-value.score-fair { color: var(--warning-color); }
+.stat-value.score-poor { color: var(--danger-color); }
+
+@media (max-width: 450px) {
+    .stat-value.score-excellent,
+    .stat-value.score-good,
+    .stat-value.score-fair,
+    .stat-value.score-poor {
+        font-size: 5.3vw;
+    }
+}
+
+/* Health Score Display */
+.health-score-display {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.health-score-main {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    justify-content: center;
+    column-gap: 1rem;
+    row-gap: 0;
+}
+
+.health-score-main .score-circle {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    width: 120px;
+    height: 120px;
+}
+
+.health-score-main .score-label {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    align-self: end;
+}
+
+.health-score-main .health-score-timestamp {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0;
+    align-self: start;
+}
+
+.health-score-main .score-value.score-perfect {
+    font-size: 2rem;
+}
+
+/* Health Dimensions */
+.health-dimensions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.dimension-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 40px;
+    gap: 1rem;
+    align-items: center;
+}
+
+.dimension-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.dimension-bar-container {
+    height: 8px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+}
+
+.dimension-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.dimension-bar.bar-excellent { background: #22c55e; }
+.dimension-bar.bar-good { background: #84cc16; }
+.dimension-bar.bar-fair { background: #fbbf24; }
+.dimension-bar.bar-poor { background: #ef4444; }
+
+.dimension-score {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-align: right;
+    color: var(--text-primary);
+}
+
+/* Band Distribution */
+.band-distribution {
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+    padding: 1rem 0;
+}
+
+.band-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.band-bar-container {
+    width: 60px;
+    height: 120px;
+    background: var(--bg-tertiary);
+    border-radius: 6px 6px 0 0;
+    overflow: hidden;
+    display: flex;
+    align-items: flex-end;
+}
+
+.band-bar {
+    width: 100%;
+    border-radius: 6px 6px 0 0;
+    transition: height 0.3s ease;
+    min-height: 4px;
+}
+
+.band-bar.band-2ghz { background: #fbbf24; }
+.band-bar.band-5ghz { background: #3b82f6; }
+.band-bar.band-6ghz { background: #a855f7; }
+
+.band-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.band-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.band-stats {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.band-stat {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.band-stat-label {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.band-stat-value {
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+/* Satisfaction/Signal colors */
+.satisfaction-excellent, .signal-excellent { color: #22c55e; }
+.satisfaction-good, .signal-good { color: #84cc16; }
+.satisfaction-fair, .signal-fair { color: #fbbf24; }
+.satisfaction-poor, .signal-poor { color: #ef4444; }
+
+/* WiFi Health Issues List */
+.wifi-issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.wifi-issue-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border-left: 4px solid var(--border-color);
+}
+
+.wifi-issue-item.issue-critical {
+    border-left-color: #ef4444;
+}
+
+.wifi-issue-item.issue-warning {
+    border-left-color: #fbbf24;
+}
+
+.wifi-issue-item.issue-info {
+    border-left-color: #3b82f6;
+}
+
+.wifi-issue-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.wifi-issue-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-primary);
+}
+
+.wifi-issue-item.issue-critical .wifi-issue-badge {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.wifi-issue-item.issue-warning .wifi-issue-badge {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.15);
+}
+
+.wifi-issue-item.issue-info .wifi-issue-badge {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.wifi-issue-dimension {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.wifi-issue-impact {
+    font-size: 0.75rem;
+    color: #ef4444;
+    font-weight: 500;
+}
+
+.wifi-issue-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.wifi-issue-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.wifi-issue-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.wifi-issue-entity {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.wifi-issue-action {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* WiFi Issues List Responsive */
+@media (max-width: 900px) {
+    .wifi-issue-item {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .wifi-issue-meta {
+        flex-wrap: wrap;
+    }
+
+    .wifi-issue-action {
+        justify-self: start;
+    }
+}
+
+/* Success State */
+.success-state {
+    color: #22c55e;
+}
+
+.success-state svg {
+    opacity: 0.6;
+}
+
+.success-state p {
+    color: var(--text-secondary);
+}
+
+/* Access Points List */
+.ap-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.ap-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.ap-card.ap-offline {
+    opacity: 0.5;
+}
+
+.ap-status {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.ap-status-text {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.ap-header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-model {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ap-stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+.ap-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.roaming-stat-value,
+.channel-stat-value,
+.load-stat-value,
+.power-stat-value,
+.airtime-stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.33;
+}
+
+.ap-stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.ap-radios {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.ap-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+}
+
+.radio-band {
+    font-weight: 600;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+}
+
+.radio-band.band-2ghz {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.radio-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.radio-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+}
+
+.radio-channel {
+    color: var(--text-secondary);
+}
+
+.radio-util {
+    font-weight: 500;
+}
+
+.radio-util.util-low { color: #22c55e; }
+.radio-util.util-medium { color: #fbbf24; }
+.radio-util.util-high { color: #ef4444; }
+
+.radio-clients {
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .dimension-row {
+        grid-template-columns: 100px 1fr 35px;
+        gap: 0.5rem;
+    }
+
+    .dimension-label {
+        font-size: 0.75rem;
+    }
+
+    .band-distribution {
+        gap: 1.5rem;
+    }
+
+    .band-bar-container {
+        width: 50px;
+        height: 100px;
+    }
+
+    .band-stats {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .ap-list {
+        grid-template-columns: 1fr;
+    }
+
+    .health-score-main .score-circle {
+        width: 100px;
+        height: 100px;
+    }
+
+    .health-score-main .score-value {
+        font-size: 2rem;
+    }
+
+    .health-score-main .score-value.score-perfect {
+        font-size: 1.75rem;
+    }
+}
+
+/* ================================
+   Metrics Component
+   ================================ */
+
+.metrics-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.metrics-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.metrics-title h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.metrics-subtitle {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+.metrics-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Pill selector - used for toggle buttons (time ranges, status filters, etc.) */
+.pill-selector,
+.time-refresh-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+@media (max-width: 768px) {
+    .time-refresh-group {
+        width: 100%;
+        justify-content: space-around;
+    }
+
+    .time-range-selector {
+        max-width: 400px;
+    }
+}
+
+.time-range-selector {
+    display: flex;
+    gap: 0.25rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    padding: 0.25rem;
+}
+
+/* Use secondary background when inside nested cards */
+.card .card .pill-selector,
+.card .card .time-range-selector,
+.card .card .band-tab,
+.card .card .btn-secondary,
+.card .card .btn-ghost {
+    background: var(--bg-secondary);
+}
+
+.pill-btn,
+.time-btn {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.pill-btn:hover,
+.time-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.pill-btn.active,
+.time-btn.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+.metrics-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.filter-group.metrics-filter-right {
+    margin-left: auto;
+}
+
+.metrics-filters .band-tabs,
+.env-controls .band-tabs {
+    margin-bottom: 0;
+}
+
+/* Band filter label colors */
+.filter-checkbox .checkbox-label.band-2ghz { color: #fbbf24; }
+.filter-checkbox .checkbox-label.band-5ghz { color: #3b82f6; }
+.filter-checkbox .checkbox-label.band-6ghz { color: #a855f7; }
+
+.filter-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.ap-filter-select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    min-width: 225px;
+}
+
+.ap-filter-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.ap-filter-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.filter-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    cursor: pointer;
+}
+
+.filter-checkbox input {
+    cursor: pointer;
+}
+
+.filter-checkbox .checkbox-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.filter-checkbox .checkbox-label.airtime { color: #2ba89a; }
+.filter-checkbox .checkbox-label.interference { color: #a78bfa; }
+.filter-checkbox .checkbox-label.retries { color: #ef5858; }
+
+.filter-checkboxes {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.metrics-loading,
+.metrics-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-muted);
+    gap: 1rem;
+}
+
+.band-charts-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 50vh;
+}
+
+@media (max-width: 768px) {
+    .band-charts-wrapper {
+        min-height: 70vh;
+    }
+}
+
+.band-chart-container {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    padding-bottom: 2.2rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.band-chart-container > div:last-child {
+    position: absolute;
+    top: 2rem;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.band-chart-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.band-chart-header .band-count {
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.band-chart-header .band-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.band-chart-header .band-label.band-2ghz {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.band-chart-header .band-label.band-5ghz {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.band-chart-header .band-label.band-6ghz {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+}
+
+/* ApexCharts dark theme overrides */
+.apexcharts-canvas {
+    background: transparent !important;
+}
+
+.apexcharts-text {
+    fill: #9ca3af !important;
+}
+
+.apexcharts-gridline {
+    stroke: #374151 !important;
+}
+
+.apexcharts-tooltip {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+.apexcharts-tooltip-title {
+    background: var(--bg-primary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+@media (max-width: 768px) {
+    .metrics-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .metrics-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .time-range-selector {
+        flex: 1;
+    }
+
+    .time-btn {
+        flex: 1;
+        padding: 0.5rem 0.25rem;
+    }
+
+    .filter-group {
+        flex-wrap: wrap;
+    }
+}
+
+/* ================================
+   Client Timeline Component
+   ================================ */
+
+.client-timeline-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.timeline-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.timeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.client-selector {
+    min-width: 250px;
+}
+
+.client-selector .form-select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    width: 100%;
+}
+
+.client-selector .form-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.timeline-loading,
+.timeline-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-muted);
+    gap: 1rem;
+}
+
+/* Sortable column headers */
+.data-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 1.5rem;
+}
+
+.data-table th.sortable:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.data-table th.sortable::after {
+    content: '↕';
+    position: absolute;
+    right: 0.5rem;
+    opacity: 0.3;
+    font-size: 0.75rem;
+}
+
+.data-table th.sortable.sort-asc::after {
+    content: '↑';
+    opacity: 1;
+}
+
+.data-table th.sortable.sort-desc::after {
+    content: '↓';
+    opacity: 1;
+}
+
+/* Client selector combo (View All + filterable select) */
+.client-selector-combo {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.client-selector-combo .view-all-btn {
+    padding: 0.5rem 0.75rem;
+    margin-right: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.client-selector-combo .view-all-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--primary-color);
+}
+
+/* Filterable select dropdown */
+.filterable-select {
+    position: relative;
+    min-width: 400px;
+    max-width: 400px;
+}
+
+@media (max-width: 768px) {
+    .filterable-select {
+        min-width: 80vw;
+        max-width: 80vw;
+    }
+}
+
+.filterable-select-input {
+    width: 100%;
+    height: 34px;
+    cursor: pointer;
+    padding: 0 2.5rem 0 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+}
+
+.filterable-select.open .filterable-select-input {
+    cursor: text;
+}
+
+.filterable-select-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.filterable-select-display {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: 100%;
+    height: 34px;
+    padding: 0 2.5rem 0 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.875rem center;
+}
+
+.filterable-select-display:hover {
+    border-color: var(--primary-color);
+}
+
+.filterable-select-display .option-text {
+    flex: 1;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filterable-select-display .option-mac {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+/* Overlay for click-outside-to-close */
+.filterable-select-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+}
+
+.filterable-select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 2px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.filterable-select-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+
+.filterable-select-option:hover {
+    background: rgba(59, 130, 246, 0.15);
+}
+
+.filterable-select-option.offline {
+    opacity: 0.7;
+}
+
+.filterable-select-option .option-text {
+    flex: 1;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filterable-select-option .option-mac {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.filterable-select-empty {
+    padding: 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+/* Client list table */
+.client-list-section {
+    margin-top: 1rem;
+}
+
+.client-list-section .table-responsive {
+    overflow-x: auto;
+}
+
+.client-list-section .data-table tbody tr {
+    cursor: pointer;
+}
+
+.client-list-section .data-table tbody tr:hover {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+/* Pagination (shared with SpectrumAnalysis) */
+.client-list-section .pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--border-color);
+    margin-top: 1rem;
+}
+
+.client-list-section .pagination-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.client-list-section .pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.client-list-section .page-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.client-list-section .page-btn:hover:not(:disabled) {
+    background: var(--bg-tertiary);
+    border-color: var(--primary-color);
+}
+
+.client-list-section .page-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.client-list-section .page-indicator {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    padding: 0 0.5rem;
+}
+
+.client-list-section .data-table td:first-child {
+    text-align: center;
+}
+
+.client-offline {
+    opacity: 0.7;
+}
+
+.client-info-banner {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.client-info-main {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+}
+
+.client-name {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.client-mac {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.client-info-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.info-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.info-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.info-value {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.band-badge {
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+.timeline-chart-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.chart-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.chart-filters {
+    display: flex;
+    gap: 1rem;
+}
+
+.chart-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.filter-checkbox .checkbox-label.signal { color: #3b82f6; }
+
+.events-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.events-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.events-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.events-count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.events-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.events-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.event-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.event-item:last-child {
+    border-bottom: none;
+}
+
+.event-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+    color: var(--text-muted);
+}
+
+.event-connect .event-icon {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+.event-disconnect .event-icon {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.event-roam .event-icon {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.event-warning .event-icon {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.event-success .event-icon {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+.event-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.event-title {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.event-details {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.125rem;
+}
+
+.event-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* Wi-Fi View Tabs */
+.wifi-view-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.wifi-view-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
+.wifi-view-tab {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.wifi-view-tab:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.wifi-view-tab.active {
+    background: var(--primary-color);
+    color: white;
+    border-radius: 4px;
+}
+
+/* ============================================
+   Roaming Analytics Component
+   ============================================ */
+
+
+.roaming-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.roaming-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.roaming-loading,
+.roaming-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Roaming Stats Row */
+.roaming-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.roaming-stat-card {
+    flex: 1;
+    min-width: 120px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+
+.roaming-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.roaming-stat-card.rate-excellent .roaming-stat-value { color: var(--success-color); }
+.roaming-stat-card.rate-good .roaming-stat-value { color: #3b82f6; }
+.roaming-stat-card.rate-fair .roaming-stat-value { color: var(--warning-color); }
+.roaming-stat-card.rate-poor .roaming-stat-value { color: var(--danger-color); }
+
+/* Topology Visualization */
+.roaming-topology-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.section-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.topology-graph {
+    width: 100%;
+    height: 300px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    overflow: hidden;
+    padding: 10px 0;
+}
+
+.topology-graph-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    margin-top: -15px;
+}
+
+.topology-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 40px;
+    height: 40px;
+}
+
+.node-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--primary-color);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.node-label {
+    position: absolute;
+    top: 100%;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: center;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.node-model {
+    position: absolute;
+    top: calc(100% + 1.1rem);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.topology-edges {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.topology-edge {
+    fill: none;
+    stroke-linecap: round;
+}
+
+.topology-edge.edge-excellent { stroke: var(--success-color); }
+.topology-edge.edge-good { stroke: #3b82f6; }
+.topology-edge.edge-fair { stroke: var(--warning-color); }
+.topology-edge.edge-poor { stroke: var(--danger-color); }
+
+.topology-legend {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.legend-line {
+    width: 24px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.legend-line.legend-excellent { background: var(--success-color); }
+.legend-line.legend-good { background: #3b82f6; }
+.legend-line.legend-fair { background: var(--warning-color); }
+.legend-line.legend-poor { background: var(--danger-color); }
+
+/* Roaming Paths Table */
+.roaming-paths-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.roaming-paths-table {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.paths-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.paths-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.paths-row:hover {
+    background: var(--bg-tertiary);
+}
+
+.path-col {
+    display: flex;
+    align-items: center;
+}
+
+.path-aps {
+    gap: 0.5rem;
+}
+
+.path-arrow {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.path-aps .ap-name {
+    font-weight: 500;
+}
+
+.path-rate.rate-excellent { color: var(--success-color); }
+.path-rate.rate-good { color: #3b82f6; }
+.path-rate.rate-fair { color: var(--warning-color); }
+.path-rate.rate-poor { color: var(--danger-color); }
+
+/* Edge Details */
+.edge-details-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--primary-color);
+}
+
+.edge-details-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.direction-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.direction-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-weight: 500;
+}
+
+.direction-arrow {
+    color: var(--primary-color);
+    font-size: 1.25rem;
+}
+
+.direction-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+}
+
+.direction-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.direction-stat .stat-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.direction-stat .stat-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.direction-stat .stat-value.rate-excellent { color: var(--success-color); }
+.direction-stat .stat-value.rate-good { color: #3b82f6; }
+.direction-stat .stat-value.rate-fair { color: var(--warning-color); }
+.direction-stat .stat-value.rate-poor { color: var(--danger-color); }
+
+.trigger-stats {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.trigger-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+/* Top Clients Section */
+.top-clients-section {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.top-clients-section h5 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+}
+
+.top-clients-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.top-client-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+}
+
+.top-client-item .client-name {
+    font-weight: 500;
+    flex: 1;
+}
+
+.top-client-item .client-mac {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+}
+
+.top-client-item .client-roams {
+    color: var(--text-secondary);
+}
+
+.top-client-item .client-rate.rate-excellent { color: var(--success-color); }
+.top-client-item .client-rate.rate-good { color: #3b82f6; }
+.top-client-item .client-rate.rate-fair { color: var(--warning-color); }
+.top-client-item .client-rate.rate-poor { color: var(--danger-color); }
+
+/* Roaming Clients Grid */
+.roaming-clients-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.clients-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.client-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.75rem;
+}
+
+.client-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.client-info .client-name {
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.client-info .client-mac {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
+.client-stats {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.client-stats .stat {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.client-stats .stat.rate-excellent { color: var(--success-color); }
+.client-stats .stat.rate-good { color: #3b82f6; }
+.client-stats .stat.rate-fair { color: var(--warning-color); }
+.client-stats .stat.rate-poor { color: var(--danger-color); }
+
+/* Responsive Roaming Analytics */
+@media (max-width: 768px) {
+    .roaming-stats-row {
+        flex-direction: column;
+    }
+
+    .roaming-stat-card {
+        min-width: unset;
+    }
+
+    .paths-header,
+    .paths-row {
+        grid-template-columns: 1.5fr 1fr 1fr;
+    }
+
+    .path-fast,
+    .paths-header .path-fast,
+    .path-success,
+    .paths-header .path-success {
+        display: none;
+    }
+
+    .edge-details-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .direction-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ============================================
+   Channel Analysis Component
+   ============================================ */
+
+
+.channel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.channel-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.channel-loading,
+.channel-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Channel Stats Row */
+.channel-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.channel-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.channel-stat-card.stat-warning .channel-stat-value { color: var(--warning-color); }
+.channel-stat-card.stat-danger .channel-stat-value { color: var(--danger-color); }
+
+
+.channel-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+/* Band Tabs */
+.band-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.band-tab {
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+.band-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.band-tab.active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: white;
+}
+
+/* Band-specific colors for active tabs */
+.band-tab.active.band-2ghz {
+    background: #fbbf24;
+    border-color: #fbbf24;
+    color: #1a1a1a;
+}
+
+.band-tab.active.band-5ghz {
+    background: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.band-tab.active.band-6ghz {
+    background: #a855f7;
+    border-color: #a855f7;
+}
+
+
+.band-tab .issue-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.65rem;
+    font-weight: 700;
+    margin-left: 0.5rem;
+}
+
+.band-tab .mesh-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: #3b82f6;
+    color: white;
+    border-radius: 50%;
+    font-size: 0.5rem;
+    font-weight: 700;
+    margin-left: 0.5rem;
+}
+
+/* Channel Map */
+.channel-map-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.channel-map {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 1rem 0;
+}
+
+.channel-slot {
+    width: 48px;
+    height: 64px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.channel-slot:hover {
+    border-color: var(--primary-color);
+}
+
+.channel-slot.occupied {
+    background: var(--bg-hover);
+    border-color: var(--primary-color);
+}
+
+.channel-slot.overlap {
+    border-color: var(--warning-color);
+    background: rgba(231, 150, 19, 0.1);
+}
+
+.channel-slot.mesh {
+    border-color: #60a5fa;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+/* Channel width grouping - shows bonded channels with alternating half-outlines */
+/* Odd groups: "hat" shape (top half) - horizontal top + vertical from 50% up */
+/* Even groups: "cup" shape (bottom half) - horizontal bottom + vertical from 50% down */
+.channel-slot.width-group {
+    position: relative;
+    --group-border-color: var(--success-color);
+}
+
+/* Band-specific colors matching the badge colors */
+.channel-slot.band-2ghz { --group-border-color: #fbbf24; }
+.channel-slot.band-5ghz { --group-border-color: #3b82f6; }
+.channel-slot.band-6ghz { --group-border-color: #a855f7; }
+
+/* Base styles for the outline pseudo-element */
+.channel-slot.width-group::before {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+}
+
+/* === ODD GROUPS: "Hat" shape (top half) === */
+
+/* Single channel - odd: top border + left/right from top to 50% */
+.channel-slot.group-single.group-odd::before {
+    left: 0;
+    right: 0;
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group-border-color);
+    border-left: 2px solid var(--group-border-color);
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 4px 4px 0 0;
+}
+
+/* Start of group - odd: top border extending right + left vertical from top to 50% */
+.channel-slot.group-start.group-odd::before {
+    left: 0;
+    right: calc(-0.5rem - 1px);
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group-border-color);
+    border-left: 2px solid var(--group-border-color);
+    border-radius: 4px 0 0 0;
+}
+
+/* Middle of group - odd: top border only */
+.channel-slot.group-middle.group-odd::before {
+    left: calc(-0.5rem - 1px);
+    right: calc(-0.5rem - 1px);
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group-border-color);
+}
+
+/* End of group - odd: top border extending left + right vertical from top to 50% */
+.channel-slot.group-end.group-odd::before {
+    left: calc(-0.5rem - 1px);
+    right: 0;
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group-border-color);
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 0 4px 0 0;
+}
+
+/* === EVEN GROUPS: "Cup" shape (bottom half) === */
+
+/* Single channel - even: bottom border + left/right from 50% to bottom */
+.channel-slot.group-single.group-even::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group-border-color);
+    border-left: 2px solid var(--group-border-color);
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 0 0 4px 4px;
+}
+
+/* Start of group - even: bottom border extending right + left vertical from 50% to bottom */
+.channel-slot.group-start.group-even::before {
+    left: 0;
+    right: calc(-0.5rem - 1px);
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group-border-color);
+    border-left: 2px solid var(--group-border-color);
+    border-radius: 0 0 0 4px;
+}
+
+/* Middle of group - even: bottom border only */
+.channel-slot.group-middle.group-even::before {
+    left: calc(-0.5rem - 1px);
+    right: calc(-0.5rem - 1px);
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group-border-color);
+}
+
+/* End of group - even: bottom border extending left + right vertical from 50% to bottom */
+.channel-slot.group-end.group-even::before {
+    left: calc(-0.5rem - 1px);
+    right: 0;
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group-border-color);
+    border-right: 2px solid var(--group-border-color);
+    border-radius: 0 0 4px 0;
+}
+
+/* Hatched pattern for overlapping width groups - applied via background on element */
+.channel-slot.width-overlap-hatched {
+    background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 3px,
+        var(--group-border-color) 3px,
+        var(--group-border-color) 5px
+    );
+    background-blend-mode: overlay;
+}
+
+/* === SECOND GROUP (has-group2): Renders via ::after === */
+/* Uses group2-* classes to determine band color and position */
+
+.channel-slot.has-group2 {
+    --group2-border-color: var(--success-color);
+}
+
+.channel-slot.has-group2.group2-band-2ghz { --group2-border-color: #fbbf24; }
+.channel-slot.has-group2.group2-band-5ghz { --group2-border-color: #3b82f6; }
+.channel-slot.has-group2.group2-band-6ghz { --group2-border-color: #a855f7; }
+
+.channel-slot.has-group2::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+}
+
+/* Second group ODD (hat/top) */
+.channel-slot.has-group2.group2-single.group2-group-odd::after {
+    left: 0;
+    right: 0;
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group2-border-color);
+    border-left: 2px solid var(--group2-border-color);
+    border-right: 2px solid var(--group2-border-color);
+    border-radius: 4px 4px 0 0;
+}
+
+.channel-slot.has-group2.group2-start.group2-group-odd::after {
+    left: 0;
+    right: calc(-0.5rem - 1px);
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group2-border-color);
+    border-left: 2px solid var(--group2-border-color);
+    border-radius: 4px 0 0 0;
+}
+
+.channel-slot.has-group2.group2-middle.group2-group-odd::after {
+    left: calc(-0.5rem - 1px);
+    right: calc(-0.5rem - 1px);
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group2-border-color);
+}
+
+.channel-slot.has-group2.group2-end.group2-group-odd::after {
+    left: calc(-0.5rem - 1px);
+    right: 0;
+    top: -3px;
+    bottom: 50%;
+    border-top: 2px solid var(--group2-border-color);
+    border-right: 2px solid var(--group2-border-color);
+    border-radius: 0 4px 0 0;
+}
+
+/* Second group EVEN (cup/bottom) */
+.channel-slot.has-group2.group2-single.group2-group-even::after {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group2-border-color);
+    border-left: 2px solid var(--group2-border-color);
+    border-right: 2px solid var(--group2-border-color);
+    border-radius: 0 0 4px 4px;
+}
+
+.channel-slot.has-group2.group2-start.group2-group-even::after {
+    left: 0;
+    right: calc(-0.5rem - 1px);
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group2-border-color);
+    border-left: 2px solid var(--group2-border-color);
+    border-radius: 0 0 0 4px;
+}
+
+.channel-slot.has-group2.group2-middle.group2-group-even::after {
+    left: calc(-0.5rem - 1px);
+    right: calc(-0.5rem - 1px);
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group2-border-color);
+}
+
+.channel-slot.has-group2.group2-end.group2-group-even::after {
+    left: calc(-0.5rem - 1px);
+    right: 0;
+    top: 50%;
+    bottom: -3px;
+    border-bottom: 2px solid var(--group2-border-color);
+    border-right: 2px solid var(--group2-border-color);
+    border-radius: 0 0 4px 0;
+}
+
+.channel-number {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.channel-aps {
+    display: flex;
+    gap: 2px;
+    margin-top: 4px;
+}
+
+.channel-ap-dot {
+    width: 10px;
+    height: 10px;
+    background: var(--primary-color);
+    border-radius: 50%;
+}
+
+.channel-ap-dot.dot-single {
+    width: 14px;
+    height: 14px;
+}
+
+/* Band-specific colors for AP dots */
+.channel-ap-dot.band-2ghz { background: #fbbf24; }
+.channel-ap-dot.band-5ghz { background: #3b82f6; }
+.channel-ap-dot.band-6ghz { background: #a855f7; }
+
+.channel-ap-more {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+}
+
+.channel-metrics {
+    margin-top: 4px;
+}
+
+.channel-util {
+    font-size: 0.65rem;
+}
+
+.channel-util.util-low { color: var(--success-color); }
+.channel-util.util-medium { color: var(--warning-color); }
+.channel-util.util-high { color: var(--danger-color); }
+
+.channel-recommendations {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.rec-channels {
+    font-weight: 600;
+    color: var(--success-color);
+}
+
+/* Channel Details Section */
+.channel-details-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--primary-color);
+}
+
+.overlap-warning {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(231, 150, 19, 0.1);
+    border: 1px solid var(--warning-color);
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: var(--warning-color);
+}
+
+.overlap-warning .warning-icon {
+    width: 20px;
+    height: 20px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.75rem;
+}
+
+.mesh-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid #60a5fa;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #60a5fa;
+}
+
+.mesh-info .mesh-icon {
+    width: 20px;
+    height: 20px;
+    background: #3b82f6;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.65rem;
+}
+
+.channel-aps-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.channel-ap-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.channel-ap-card .ap-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.channel-ap-card .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.channel-ap-card .ap-model {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ap-radio-details {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+}
+
+.ap-radio-details .detail-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-radio-details .detail-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.ap-radio-details .detail-value {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.ap-radio-details .detail-value.util-low { color: var(--success-color); }
+.ap-radio-details .detail-value.util-medium { color: var(--warning-color); }
+.ap-radio-details .detail-value.util-high { color: var(--danger-color); }
+
+.ap-radio-details .detail-value.interf-low { color: var(--success-color); }
+.ap-radio-details .detail-value.interf-medium { color: var(--warning-color); }
+.ap-radio-details .detail-value.interf-high { color: var(--danger-color); }
+
+.ap-radio-details .detail-value.sat-excellent { color: var(--success-color); }
+.ap-radio-details .detail-value.sat-good { color: #3b82f6; }
+.detail-value.sat-fair { color: var(--warning-color); }
+.detail-value.sat-poor { color: var(--danger-color); }
+
+/* APs Band Table */
+.aps-band-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.aps-band-table {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.aps-header {
+    display: grid;
+    grid-template-columns: 2fr 0.8fr 0.8fr 1fr 1.2fr 0.8fr 0.6fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.aps-row {
+    display: grid;
+    grid-template-columns: 2fr 0.8fr 0.8fr 1fr 1.2fr 0.8fr 0.6fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.875rem;
+    align-items: center;
+}
+
+.aps-row:hover {
+    background: var(--bg-tertiary);
+}
+
+.ap-name-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-name-col .ap-name {
+    font-weight: 500;
+}
+
+.ap-name-col .ap-model {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.channel-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.channel-badge.overlap {
+    background: rgba(231, 150, 19, 0.2);
+    color: var(--warning-color);
+}
+
+.channel-badge.mesh {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+}
+
+.power-value {
+    font-weight: 500;
+}
+
+.power-mode {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+}
+
+.util-bar-container {
+    width: 60px;
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 0 3px 3px 0;
+    overflow: hidden;
+    display: inline-block;
+    margin-right: 0.5rem;
+}
+
+.util-bar {
+    height: 100%;
+    border-radius: 0 3px 3px 0;
+    transition: width 0.3s ease;
+}
+
+.util-bar.util-low { background: var(--success-color); }
+.util-bar.util-medium { background: var(--warning-color); }
+.util-bar.util-high { background: var(--danger-color); }
+
+.util-value {
+    font-size: 0.75rem;
+}
+
+.ap-interf-col.interf-low { color: var(--success-color); }
+.ap-interf-col.interf-medium { color: var(--warning-color); }
+.ap-interf-col.interf-high { color: var(--danger-color); }
+
+/* Channel Issues Section - wrapper only, issue styling from IssuesList component */
+.channel-issues-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+/* Responsive Channel Analysis */
+@media (max-width: 768px) {
+    .channel-stats-row {
+        flex-direction: column;
+    }
+
+    .channel-stat-card {
+        min-width: unset;
+    }
+
+    .band-tabs {
+        flex-wrap: wrap;
+    }
+
+    .channel-map {
+        justify-content: center;
+    }
+
+    .aps-header,
+    .aps-row {
+        grid-template-columns: 1.5fr 0.8fr 0.8fr 1fr;
+    }
+
+    .ap-power-col,
+    .aps-header .ap-power-col,
+    .ap-interf-col,
+    .aps-header .ap-interf-col,
+    .ap-clients-col,
+    .aps-header .ap-clients-col {
+        display: none;
+    }
+
+    .ap-radio-details {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ============================================
+   AP Load Balance Component
+   ============================================ */
+
+
+.load-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.load-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.load-loading,
+.load-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Load Stats Row */
+.load-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.load-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+
+.load-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.load-stat-card.stat-good .load-stat-value { color: var(--success-color); }
+.load-stat-card.stat-warning .load-stat-value { color: var(--warning-color); }
+.load-stat-card.stat-danger .load-stat-value { color: var(--danger-color); }
+
+/* Load Chart Section */
+.load-chart-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.load-chart-section .chart-legend {
+    display: flex;
+    gap: 1rem;
+}
+
+.load-chart-section .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.load-chart-section .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.load-chart-section .legend-color.band-2ghz { background: #fbbf24; }
+.load-chart-section .legend-color.band-5ghz { background: #3b82f6; }
+.load-chart-section .legend-color.band-6ghz { background: #a855f7; }
+
+.load-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 0;
+}
+
+.load-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.load-bar-label {
+    width: 180px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.load-bar-label .ap-name {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.load-bar-label .ap-clients {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.load-bar-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.load-bar {
+    height: 24px;
+    border-radius: 0 4px 4px 0;
+    display: flex;
+    overflow: hidden;
+    min-width: 4px;
+}
+
+.load-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.load-segment.band-2ghz { background: #fbbf24; }
+.load-segment.band-5ghz { background: #3b82f6; }
+.load-segment.band-6ghz { background: #a855f7; }
+
+.overload-indicator {
+    width: 20px;
+    height: 20px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.ideal-line-container {
+    position: relative;
+    height: 24px;
+    margin-left: 196px;
+    border-top: 1px dashed var(--text-muted);
+}
+
+.ideal-marker {
+    position: absolute;
+    top: -8px;
+    transform: translateX(-50%);
+}
+
+.ideal-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+/* AP Details Section */
+.ap-details-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.ap-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.ap-detail-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border: 1px solid transparent;
+}
+
+.ap-detail-card.ap-overloaded {
+    border-color: var(--warning-color);
+}
+
+.ap-detail-card.ap-underloaded {
+    border-color: var(--info-color);
+    opacity: 0.8;
+}
+
+.ap-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.ap-detail-header .ap-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-detail-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-detail-header .ap-model {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ap-client-count {
+    text-align: right;
+}
+
+.ap-client-count .count-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-client-count .count-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    display: block;
+}
+
+.ap-radios-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.radio-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.8rem;
+}
+
+.radio-summary .radio-band {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.radio-summary .radio-band.band-2ghz {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.radio-summary .radio-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.radio-summary .radio-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.radio-summary .radio-clients {
+    color: var(--text-secondary);
+}
+
+.radio-summary .radio-util {
+    margin-left: auto;
+}
+
+.radio-summary .radio-util.util-low { color: var(--success-color); }
+.radio-summary .radio-util.util-medium { color: var(--warning-color); }
+.radio-summary .radio-util.util-high { color: var(--danger-color); }
+
+.ap-satisfaction {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+}
+
+.ap-satisfaction .sat-label {
+    color: var(--text-muted);
+}
+
+.ap-satisfaction .sat-value.sat-excellent { color: var(--success-color); }
+.ap-satisfaction .sat-value.sat-good { color: #3b82f6; }
+.ap-satisfaction .sat-value.sat-fair { color: var(--warning-color); }
+.ap-satisfaction .sat-value.sat-poor { color: var(--danger-color); }
+
+.ap-warning,
+.ap-info-msg {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+.ap-warning {
+    background: rgba(231, 150, 19, 0.1);
+    color: var(--warning-color);
+}
+
+.ap-info-msg {
+    background: rgba(71, 151, 255, 0.1);
+    color: var(--info-color);
+}
+
+/* Load Recommendations Section */
+.load-recommendations-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.recommendations-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.recommendation-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color);
+}
+
+.recommendation-item.warning {
+    border-left-color: var(--warning-color);
+}
+
+.recommendation-item.info {
+    border-left-color: var(--info-color);
+}
+
+.rec-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.recommendation-item.warning .rec-icon {
+    background: var(--warning-color);
+    color: white;
+}
+
+.recommendation-item.info .rec-icon {
+    background: var(--info-color);
+    color: white;
+}
+
+.rec-content {
+    flex: 1;
+}
+
+.rec-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.rec-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive AP Load Balance */
+@media (max-width: 768px) {
+    .load-stats-row {
+        flex-direction: column;
+    }
+
+    .load-stat-card {
+        min-width: unset;
+    }
+
+    .load-bar-label {
+        width: 120px;
+    }
+
+    .load-chart-section .chart-legend {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .ideal-line-container {
+        margin-left: 136px;
+    }
+}
+
+@media (max-width: 768px) {
+    .timeline-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .timeline-controls {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    .client-selector {
+        width: 100%;
+        min-width: unset;
+    }
+
+    .client-info-details {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+}
+
+/* ============================================
+   Power & Coverage Analysis Component
+   ============================================ */
+
+
+.power-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.power-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.power-loading,
+.power-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Power Stats Row */
+.power-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.power-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+
+.power-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.power-stat-card.stat-good .power-stat-value { color: var(--success-color); }
+.power-stat-card.stat-warning .power-stat-value { color: var(--warning-color); }
+.power-stat-card.stat-danger .power-stat-value { color: var(--danger-color); }
+
+/* Signal quality classes */
+.power-stat-card.signal-excellent .power-stat-value,
+.signal-excellent { color: #10b981; }
+.power-stat-card.signal-good .power-stat-value,
+.signal-good { color: #22c55e; }
+.power-stat-card.signal-fair .power-stat-value,
+.signal-fair { color: #eab308; }
+.power-stat-card.signal-weak .power-stat-value,
+.signal-weak { color: #f97316; }
+.power-stat-card.signal-poor .power-stat-value,
+.signal-poor { color: #ef4444; }
+
+/* WiFi Page Sections - Nested Card Colors */
+.wifi-sections .card {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .data-table tbody tr {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card .data-table tbody tr {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .card .card {
+    background: var(--bg-tertiary);
+}
+
+.wifi-sections .card .card .card .data-table tbody tr {
+    background: var(--bg-secondary);
+}
+
+.wifi-sections .card .card .card .card {
+    background: var(--bg-secondary);
+}
+
+/* Power Sections */
+.power-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+
+.power-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.power-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.power-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Signal Distribution Chart */
+.signal-distribution {
+    padding: 1rem 0;
+}
+
+.signal-bars {
+    display: flex;
+    align-items: flex-end;
+    height: 150px;
+    gap: 4px;
+    padding: 0 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.signal-bar-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    border-radius: 0 0 4px 4px;
+}
+
+.signal-bar {
+    width: 100%;
+    border-radius: 0 0 4px 4px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    min-height: 4px;
+    transition: height 0.3s ease;
+    position: relative;
+}
+
+.signal-bar .bar-count {
+    font-size: 0.65rem;
+    color: white;
+    font-weight: 600;
+    position: absolute;
+    top: 4px;
+}
+
+.signal-bar.signal-excellent { background: #10b981; }
+.signal-bar.signal-good { background: #22c55e; }
+.signal-bar.signal-fair { background: #eab308; }
+.signal-bar.signal-weak { background: #f97316; }
+.signal-bar.signal-poor { background: #ef4444; }
+
+.signal-bar-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.signal-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.signal-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.signal-legend .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.signal-legend .legend-color.signal-excellent { background: #10b981; }
+.signal-legend .legend-color.signal-good { background: #22c55e; }
+.signal-legend .legend-color.signal-fair { background: #eab308; }
+.signal-legend .legend-color.signal-weak { background: #f97316; }
+.signal-legend .legend-color.signal-poor { background: #ef4444; }
+
+/* TX Power Grid */
+.ap-power-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.ap-power-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.ap-power-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.ap-power-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ap-power-header .ap-model {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.radio-power-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.radio-power-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.radio-power-item .radio-info {
+    width: 80px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.radio-power-item .radio-band {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    width: fit-content;
+}
+
+.radio-power-item .radio-band.band-2ghz {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.radio-power-item .radio-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+}
+
+.radio-power-item .radio-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.2);
+    color: #a855f7;
+}
+
+.radio-power-item .radio-channel {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.power-bar-container {
+    flex: 1;
+    height: 20px;
+    background: var(--bg-secondary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.power-bar-stack {
+    display: flex;
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.power-bar-tx {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.power-bar-tx.power-high { background: linear-gradient(90deg, #f97316, #ea580c); }
+.power-bar-tx.power-medium { background: linear-gradient(90deg, #22c55e, #16a34a); }
+.power-bar-tx.power-low { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+.power-bar-tx.power-auto { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+
+.power-bar-gain {
+    height: 100%;
+    border-left: 1px dashed rgba(255, 255, 255, 0.3);
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.power-bar-gain.power-high {
+    background: repeating-linear-gradient(90deg, #f97316 0px, #f97316 3px, #ea580c 3px, #ea580c 6px);
+}
+.power-bar-gain.power-medium {
+    background: repeating-linear-gradient(90deg, #22c55e 0px, #22c55e 3px, #16a34a 3px, #16a34a 6px);
+}
+.power-bar-gain.power-low {
+    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
+}
+.power-bar-gain.power-auto {
+    background: repeating-linear-gradient(90deg, #3b82f6 0px, #3b82f6 3px, #2563eb 3px, #2563eb 6px);
+}
+
+.power-values {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    z-index: 1;
+}
+
+.power-tx {
+    color: var(--text-primary);
+}
+
+.power-eirp {
+    font-style: italic;
+}
+
+.power-unit {
+    margin-left: 2px;
+}
+
+.power-mode {
+    width: 50px;
+    text-align: right;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: capitalize;
+}
+
+.power-warning {
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(231, 150, 19, 0.1);
+    color: var(--warning-color);
+    font-size: 0.75rem;
+}
+
+/* Coverage Grid */
+.coverage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.coverage-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border: 1px solid transparent;
+}
+
+.coverage-card.coverage-poor {
+    border-color: var(--danger-color);
+}
+
+.coverage-card.coverage-fair {
+    border-color: var(--warning-color);
+}
+
+.coverage-card.coverage-good {
+    border-color: var(--success-color);
+}
+
+.coverage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coverage-header .client-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.coverage-metrics {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-metric {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.coverage-metric .metric-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.coverage-metric .metric-value {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.weak-clients-warning {
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.coverage-distribution {
+    height: 8px;
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg-secondary);
+}
+
+.dist-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.dist-segment.signal-excellent { background: #10b981; }
+.dist-segment.signal-good { background: #22c55e; }
+.dist-segment.signal-fair { background: #eab308; }
+.dist-segment.signal-weak { background: #f97316; }
+.dist-segment.signal-poor { background: #ef4444; }
+
+/* Overlap Issues */
+.overlap-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.overlap-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--warning-color);
+}
+
+.overlap-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--warning-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.overlap-content {
+    flex: 1;
+}
+
+.overlap-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.overlap-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Power/Coverage Recommendations */
+.power-section .recommendations-list .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Power/Coverage */
+@media (max-width: 768px) {
+    .power-stats-row {
+        flex-direction: column;
+    }
+
+    .power-stat-card {
+        min-width: unset;
+    }
+
+    .signal-bars {
+        height: 120px;
+    }
+
+    .signal-legend {
+        gap: 0.5rem;
+    }
+
+    .ap-power-grid,
+    .coverage-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .coverage-metrics {
+        flex-wrap: wrap;
+    }
+
+    .coverage-metric {
+        min-width: calc(50% - 0.5rem);
+    }
+}
+
+/* ============================================
+   Band Steering Analysis Component
+   ============================================ */
+
+
+.steering-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.steering-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-loading,
+.steering-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Steering Stats Row */
+.steering-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.steering-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.steering-stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.steering-stat-card.band-2ghz-card {
+    border-left: 3px solid #fbbf24;
+}
+.steering-stat-card.band-5ghz-card {
+    border-left: 3px solid #3b82f6;
+}
+.steering-stat-card.band-6ghz-card {
+    border-left: 3px solid #a855f7;
+}
+
+/* Steering Sections */
+.steering-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+
+.steering-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.steering-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.steering-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Steering Effectiveness Chart */
+.steering-effectiveness {
+    padding: 1rem 0;
+}
+
+.effectiveness-chart {
+    margin-bottom: 1rem;
+}
+
+.effectiveness-bar {
+    height: 32px;
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+}
+
+.eff-segment {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.eff-segment.optimal { background: #22c55e; }
+.eff-segment.suboptimal { background: #f97316; }
+.eff-segment.legacy { background: #6b7280; }
+
+.effectiveness-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.25rem;
+}
+
+.eff-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.effectiveness-legend {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.effectiveness-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.effectiveness-legend .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+.effectiveness-legend .legend-color.optimal { background: #22c55e; }
+.effectiveness-legend .legend-color.suboptimal { background: #f97316; }
+.effectiveness-legend .legend-color.legacy { background: #6b7280; }
+
+/* Steerable Groups */
+.steerable-group {
+    margin-bottom: 1rem;
+}
+
+.steerable-group:last-child {
+    margin-bottom: 0;
+}
+
+.steerable-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.steerable-band {
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.steerable-band.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.steerable-band.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.steerable-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.steerable-clients {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.steerable-client-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.steerable-client-row .client-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.steerable-client-row .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.steerable-client-row .client-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.steerable-client-row .client-current-band {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.steerable-client-row .current-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.band-badge {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.band-badge.band-2ghz {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.band-badge.band-5ghz {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.band-badge.band-6ghz {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.steerable-client-row .client-signal {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    min-width: 60px;
+    text-align: right;
+}
+
+.more-clients {
+    padding: 0.5rem;
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Wi-Fi Generation Breakdown */
+.wifi-gen-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wifi-gen-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.wifi-gen-label {
+    width: 130px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gen-badge {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.gen-badge.gen-7 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.gen-badge.gen-6 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+.gen-badge.gen-6e {
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(168, 85, 247, 0.15),
+        rgba(168, 85, 247, 0.15) 3px,
+        rgba(59, 130, 246, 0.15) 3px,
+        rgba(59, 130, 246, 0.15) 6px
+    );
+    color: #a855f7;
+}
+.gen-badge.gen-5 { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.gen-badge.gen-4 { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.gen-badge.gen-legacy { background: rgba(107, 114, 128, 0.15); color: #6b7280; }
+
+.gen-standard {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.wifi-gen-bar-container {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
+}
+
+.wifi-gen-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.wifi-gen-bar.gen-5, .gen-bar.gen-5 { background: #3b82f6; }
+.wifi-gen-bar.gen-4, .gen-bar.gen-4 { background: #fbbf24; }
+.wifi-gen-bar.gen-legacy, .gen-bar.gen-legacy { background: #6b7280; }
+
+.wifi-gen-count {
+    width: 40px;
+    text-align: right;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Legacy Clients */
+.legacy-clients-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.legacy-client-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.75rem;
+}
+
+.legacy-client-info {
+    margin-bottom: 0.5rem;
+}
+
+.legacy-client-info .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    display: block;
+}
+
+.legacy-client-info .client-manufacturer {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.legacy-client-stats {
+    display: flex;
+    gap: 1rem;
+}
+
+.legacy-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.legacy-stat .stat-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.legacy-stat .stat-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* Band Steering Recommendations */
+.steering-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Band Steering */
+@media (max-width: 768px) {
+    .steering-stats-row {
+        flex-direction: column;
+    }
+
+    .steering-stat-card {
+        min-width: unset;
+    }
+
+    .steerable-client-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .steerable-client-row .client-current-band {
+        margin-top: 0.25rem;
+    }
+
+    .steerable-client-row .client-signal {
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
+
+    .wifi-gen-label {
+        width: 100px;
+    }
+
+    .wifi-gen-bar-container {
+        flex: 1;
+    }
+
+    .legacy-clients-list {
+        grid-template-columns: 1fr;
+    }
+
+    .effectiveness-legend {
+        gap: 0.75rem;
+    }
+}
+
+/* ============================================
+   Airtime Fairness Component
+   ============================================ */
+
+
+.airtime-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.airtime-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.header-actions {
+    min-height: 34.5px;
+    display: flex;
+    align-items: center;
+}
+
+.airtime-loading,
+.airtime-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Airtime Stats Row */
+.airtime-stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.airtime-stat-card {
+    flex: 1;
+    min-width: 100px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+}
+
+.airtime-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+.airtime-stat-card.stat-warning .airtime-stat-value {
+    color: var(--warning-color);
+}
+
+/* Concept Explanation */
+.airtime-concept {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg-primary);
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid var(--info-color);
+}
+
+.airtime-concept .concept-icon {
+    width: 24px;
+    height: 24px;
+    background: var(--info-color);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.airtime-concept .concept-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.airtime-concept .concept-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+/* Airtime Sections */
+.airtime-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.airtime-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.airtime-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.airtime-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Radio Utilization Grid */
+.radio-utilization-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.radio-util-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.radio-util-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.radio-util-header .ap-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.radio-util-header .client-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.radio-util-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.radio-util-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.radio-util-row .radio-info {
+    width: 90px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.radio-util-row .radio-band {
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    width: fit-content;
+}
+
+.radio-util-row .radio-channel {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.radio-util-bar-container {
+    flex: 1;
+    height: 16px;
+    background: var(--bg-secondary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.radio-util-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.radio-util-bar.util-low { background: #22c55e; }
+.radio-util-bar.util-medium { background: #eab308; }
+.radio-util-bar.util-high { background: #ef4444; }
+
+.radio-util-value {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.radio-util-row .radio-clients {
+    width: 30px;
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.util-warning {
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.75rem;
+}
+
+/* Wi-Fi Generation Airtime Chart */
+.gen-airtime-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.gen-airtime-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.gen-airtime-row .gen-label {
+    width: 150px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.gen-airtime-row .gen-factor {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.gen-bar-container {
+    flex: 1;
+    height: 20px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+    font-size: 0;
+    white-space: nowrap;
+}
+
+.gen-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+/* Band-segmented bars for Wi-Fi 6/7 */
+.gen-bar-segment {
+    height: 100%;
+    display: inline-block;
+    vertical-align: top;
+    transition: width 0.3s ease;
+}
+
+.gen-bar-segment:first-child {
+    border-radius: 0;
+}
+
+.gen-bar-segment:last-child {
+    border-radius: 0 4px 4px 0;
+}
+
+.gen-bar-segment.band-2ghz {
+    background: #fbbf24;
+}
+
+.gen-bar-segment.band-5ghz {
+    background: #3b82f6;
+}
+
+.gen-bar-segment.band-6ghz {
+    background: #a855f7;
+}
+
+
+.gen-airtime-row .gen-stats {
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.gen-airtime-row .gen-count {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.gen-airtime-row .gen-impact {
+    font-size: 0.65rem;
+}
+
+.gen-impact.impact-low { color: var(--success-color); }
+.gen-impact.impact-medium { color: var(--warning-color); }
+.gen-impact.impact-high { color: var(--danger-color); }
+
+/* Airtime Factor Legend */
+.airtime-factor-legend {
+    display: flex;
+    gap: 1.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.factor-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.factor-gen {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.factor-value {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+/* Airtime Clients List */
+.airtime-clients-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 0.75rem;
+}
+
+.airtime-client-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 0.75rem;
+    border-left: 3px solid var(--border-color);
+}
+
+.airtime-client-card.airtime-high {
+    border-left-color: var(--danger-color);
+}
+
+.airtime-client-card.airtime-medium {
+    border-left-color: var(--warning-color);
+}
+
+.airtime-client-card .client-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.airtime-client-card .client-name {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.airtime-indicator {
+    font-size: 0.7rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+
+.airtime-client-card.airtime-high .airtime-indicator {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+}
+
+.airtime-client-card.airtime-medium .airtime-indicator {
+    background: rgba(234, 179, 8, 0.15);
+    color: var(--warning-color);
+}
+
+.airtime-client-card .client-details {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.airtime-client-card .client-detail {
+    display: flex;
+    flex-direction: column;
+}
+
+.airtime-client-card .detail-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+}
+
+.airtime-client-card .detail-value {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.airtime-client-card .client-reason {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* TX Retry Rates */
+.retry-rate-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.retry-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.retry-ap-info {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.retry-ap-info .ap-name {
+    flex: 1;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.retry-bar-container {
+    flex: 1;
+    height: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+}
+
+.retry-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.retry-bar.retry-low { background: #22c55e; }
+.retry-bar.retry-medium { background: #eab308; }
+.retry-bar.retry-high { background: #ef4444; }
+
+.retry-value {
+    width: 50px;
+    text-align: right;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.retry-value.retry-low { color: var(--success-color); }
+.retry-value.retry-medium { color: var(--warning-color); }
+.retry-value.retry-high { color: var(--danger-color); }
+
+/* Airtime Recommendations */
+.airtime-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Airtime */
+@media (max-width: 768px) {
+    .airtime-stats-row {
+        flex-direction: column;
+    }
+
+    .airtime-stat-card {
+        min-width: unset;
+    }
+
+    .radio-utilization-grid,
+    .airtime-clients-list {
+        grid-template-columns: 1fr;
+    }
+
+    .gen-airtime-row .gen-label {
+        width: 120px;
+    }
+
+    .gen-airtime-row .gen-stats {
+        width: 80px;
+    }
+
+    .retry-ap-info {
+        width: 180px;
+    }
+
+    .airtime-factor-legend {
+        gap: 0.75rem;
+    }
+}
+
+/* ============================================
+   Environmental Correlation Component
+   ============================================ */
+
+
+.env-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.env-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.env-controls .btn {
+    margin-top: 1px;
+}
+
+.time-range-select {
+    padding: 0.375rem 0.75rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.env-loading,
+.env-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Environmental Sections */
+.env-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.env-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.env-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Time of Day Grid */
+.time-of-day-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.tod-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border-left: 3px solid var(--border-color);
+}
+
+.tod-card.period-good { border-left-color: var(--success-color); }
+.tod-card.period-fair { border-left-color: var(--warning-color); }
+.tod-card.period-poor { border-left-color: var(--danger-color); }
+
+.tod-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.tod-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.tod-hours {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+}
+
+.tod-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.tod-metric {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+}
+
+.tod-metric .metric-label {
+    color: var(--text-muted);
+}
+
+.tod-metric .metric-value {
+    font-weight: 500;
+}
+
+.tod-warning {
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+    font-size: 0.7rem;
+    border-radius: 3px;
+    text-align: center;
+}
+
+/* Heatmap */
+.heatmap-container {
+    overflow-x: auto;
+}
+
+.heatmap-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 2px;
+}
+
+.heatmap-row.header-row {
+    margin-bottom: 4px;
+}
+
+.heatmap-label {
+    width: 40px;
+    flex-shrink: 0;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.heatmap-hour-label {
+    flex: 1;
+    min-width: 30px;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.heatmap-cell {
+    flex: 1;
+    min-width: 30px;
+    height: 24px;
+    border-radius: 3px;
+    cursor: default;
+}
+
+.heatmap-cell.heat-none { background: var(--bg-tertiary); }
+
+.heatmap-legend {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.heatmap-legend .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.heat-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.heat-color.heat-low { background: #22c55e; }
+.heat-color.heat-medium { background: #eab308; }
+.heat-color.heat-high { background: #f97316; }
+.heat-color.heat-critical { background: #ef4444; }
+
+/* Detected Patterns */
+.patterns-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pattern-card {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color);
+}
+
+.pattern-card.warning { border-left-color: var(--warning-color); }
+.pattern-card.info { border-left-color: var(--info-color); }
+
+.pattern-icon {
+    width: 28px;
+    height: 28px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.pattern-card.warning .pattern-icon {
+    background: var(--warning-color);
+    color: white;
+}
+
+.pattern-card.info .pattern-icon {
+    background: var(--info-color);
+    color: white;
+}
+
+.pattern-content {
+    flex: 1;
+}
+
+.pattern-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.pattern-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.pattern-timing {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Band Environment Grid */
+.band-env-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+}
+
+.band-env-card {
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+    padding: 1rem;
+    border-top: 3px solid var(--border-color);
+}
+
+.band-env-card.band-2ghz { border-top-color: #fbbf24; }
+.band-env-card.band-5ghz { border-top-color: #3b82f6; }
+.band-env-card.band-6ghz { border-top-color: #a855f7; }
+
+.band-env-header {
+    margin-bottom: 0.75rem;
+}
+
+.band-env-header .band-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.band-env-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.band-env-metric .metric-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+
+.band-env-metric .metric-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.band-env-metric .metric-value {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.band-env-metric .metric-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 0 3px 3px 0;
+    overflow: hidden;
+}
+
+.band-env-metric .metric-fill {
+    height: 100%;
+    border-radius: 0 3px 3px 0;
+    background: var(--text-muted);
+    transition: width 0.3s ease;
+}
+
+.band-env-metric .metric-fill.interference-low { background: #22c55e; }
+.band-env-metric .metric-fill.interference-medium { background: #eab308; }
+.band-env-metric .metric-fill.interference-high { background: #ef4444; }
+.band-env-metric .metric-fill.util-low { background: #22c55e; }
+.band-env-metric .metric-fill.util-medium { background: #eab308; }
+.band-env-metric .metric-fill.util-high { background: #ef4444; }
+
+.band-peak-time {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Interference/Util/Retry classes */
+.interference-low, .metric-value.interference-low { color: var(--success-color); }
+.interference-medium, .metric-value.interference-medium { color: var(--warning-color); }
+.interference-high, .metric-value.interference-high { color: var(--danger-color); }
+
+.util-low, .metric-value.util-low { color: var(--success-color); }
+.util-medium, .metric-value.util-medium { color: var(--warning-color); }
+.util-high, .metric-value.util-high { color: var(--danger-color); }
+
+.retry-low, .metric-value.retry-low { color: var(--success-color); }
+.retry-medium, .metric-value.retry-medium { color: var(--warning-color); }
+.retry-high, .metric-value.retry-high { color: var(--danger-color); }
+
+/* Environmental Recommendations */
+.env-section .rec-action {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    border-left: 2px solid var(--info-color);
+}
+
+/* Responsive Environmental */
+@media (max-width: 900px) {
+    .time-of-day-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .band-env-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .env-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .env-controls {
+        width: 100%;
+    }
+
+    .time-range-select {
+        flex: 1;
+    }
+
+    .time-of-day-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .heatmap-container {
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+    }
+
+    .heatmap-cell {
+        min-width: 24px;
+    }
+
+    .heatmap-legend {
+        gap: 0.5rem;
+    }
+}
+
+/* ============================================
+   Connectivity Flow Component
+   ============================================ */
+
+
+.flow-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.flow-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.flow-loading,
+.flow-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+/* Flow Sections */
+.flow-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.flow-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.flow-section .section-header h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.flow-section .section-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* Flow Diagram - Connection Stages */
+.flow-diagram {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    padding: 1rem 0;
+}
+
+.flow-stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    min-width: 140px;
+}
+
+.stage-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.stage-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--bg-secondary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.stage-icon.success-icon {
+    background: var(--success-color);
+    color: white;
+}
+
+.stage-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.stage-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.stage-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.stage-metrics {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.stage-count {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.stage-count.success { color: var(--success-color); }
+.stage-count.warning { color: var(--warning-color); }
+.stage-count.danger { color: var(--danger-color); }
+
+.stage-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.stage-bar {
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 0 3px 3px 0;
+    overflow: hidden;
+    margin-top: auto;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 0 3px 3px 0;
+    transition: width 0.3s ease;
+}
+
+.bar-fill.success { background: var(--success-color); }
+.bar-fill.warning { background: var(--warning-color); }
+.bar-fill.danger { background: var(--danger-color); }
+
+/* Flow Connector - scoped to connectivity-flow to avoid conflict with speed test trace */
+.connectivity-flow-container .flow-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.connectivity-flow-container .connector-line {
+    width: 100%;
+    height: 2px;
+    background: var(--border-color);
+    position: relative;
+}
+
+.connectivity-flow-container .connector-line::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left: 6px solid var(--border-color);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+}
+
+.connectivity-flow-container .connector-drop {
+    position: absolute;
+    top: calc(50% + 10px);
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Flow Success Rate */
+.flow-success-rate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 1rem;
+    margin-top: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.success-rate-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.success-rate-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.success-rate-value.rate-excellent { color: var(--success-color); }
+.success-rate-value.rate-good { color: #22c55e; }
+.success-rate-value.rate-fair { color: var(--warning-color); }
+.success-rate-value.rate-poor { color: var(--danger-color); }
+
+/* Connection Issues - WiFi specific additions */
+.connection-issue-count {
+    font-weight: 700;
+    font-size: 1.125rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.issue-item.issue-warning .connection-issue-count { color: var(--warning-color); }
+.issue-item.issue-info .connection-issue-count { color: var(--info-color); }
+.issue-item.issue-critical .connection-issue-count { color: var(--danger-color); }
+
+.affected-clients {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.affected-client {
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.affected-more {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Client Status Summary */
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+.status-card {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 1.25rem;
+    text-align: center;
+    position: relative;
+    border-top: 3px solid var(--border-color);
+}
+
+.status-card.status-connected { border-top-color: var(--success-color); }
+.status-card.status-authorized { border-top-color: var(--info-color); }
+.status-card.status-guest { border-top-color: #a855f7; }
+.status-card.status-issue { border-top-color: var(--warning-color); }
+
+.status-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.status-card.status-connected .status-value { color: var(--success-color); }
+.status-card.status-issue .status-value { color: var(--warning-color); }
+
+.status-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.status-card .status-icon {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+/* Per-AP Connection Stats */
+.ap-success-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ap-success-row {
+    display: grid;
+    grid-template-columns: 200px 1fr 60px;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 6px;
+}
+
+.ap-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.ap-info .ap-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.ap-info .ap-clients {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ap-success-bar-container {
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: 0 4px 4px 0;
+    overflow: hidden;
+}
+
+.ap-success-bar {
+    height: 100%;
+    border-radius: 0 4px 4px 0;
+    transition: width 0.3s ease;
+}
+
+.ap-success-bar.rate-excellent { background: var(--success-color); }
+.ap-success-bar.rate-good { background: #22c55e; }
+.ap-success-bar.rate-fair { background: var(--warning-color); }
+.ap-success-bar.rate-poor { background: var(--danger-color); }
+
+.ap-success-value {
+    font-weight: 600;
+    text-align: right;
+}
+
+.ap-success-value.rate-excellent { color: var(--success-color); }
+.ap-success-value.rate-good { color: #22c55e; }
+.ap-success-value.rate-fair { color: var(--warning-color); }
+.ap-success-value.rate-poor { color: var(--danger-color); }
+
+/* Responsive Connectivity Flow */
+@media (max-width: 1024px) {
+    .flow-diagram {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .flow-stage {
+        width: 100%;
+        flex-direction: row;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        border-radius: 0;
+    }
+
+    .flow-stage:first-child {
+        border-radius: 8px 8px 0 0;
+    }
+
+    .flow-stage:last-child {
+        border-radius: 0 0 8px 8px;
+    }
+
+    .stage-header {
+        margin-bottom: 0;
+        flex: 1;
+    }
+
+    .stage-metrics {
+        flex-direction: column;
+        align-items: flex-end;
+        margin-bottom: 0;
+        gap: 0;
+    }
+
+    .stage-bar {
+        display: none;
+    }
+
+    .connectivity-flow-container .flow-connector {
+        width: 100%;
+        height: 30px;
+        flex-direction: row;
+    }
+
+    .connectivity-flow-container .connector-line {
+        width: 2px;
+        height: 100%;
+    }
+
+    .connectivity-flow-container .connector-line::after {
+        right: 50%;
+        top: auto;
+        bottom: 0;
+        transform: translateX(50%);
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 6px solid var(--border-color);
+    }
+
+    .connectivity-flow-container .connector-drop {
+        top: auto;
+        left: calc(50% + 20px);
+    }
+
+    .status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .flow-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .flow-success-rate {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .ap-success-row {
+        grid-template-columns: 1fr;
+        gap: 0.5rem;
+    }
+
+    .ap-info {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .ap-success-value {
+        text-align: left;
+    }
+
+    .status-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .status-card {
+        padding: 1rem;
+    }
+
+    .status-value {
+        font-size: 1.5rem;
     }
 }

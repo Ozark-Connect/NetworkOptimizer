@@ -1,11 +1,14 @@
 using NetworkOptimizer.Audit.Models;
+using NetworkOptimizer.Core.Enums;
+
+using AuditSeverity = NetworkOptimizer.Audit.Models.AuditSeverity;
 
 namespace NetworkOptimizer.Audit.Rules;
 
 /// <summary>
-/// Detects access ports (single device attached) with excessive tagged VLANs.
-/// Ports connected to a single end-user device should not have many tagged VLANs
-/// or "Allow All" VLANs, as this exposes the port to unnecessary network access.
+/// Detects trunk ports with excessive tagged VLANs that appear to be access ports.
+/// Trunk ports with no device connected or only a single device should not have many
+/// tagged VLANs or "Allow All" VLANs, as this exposes the port to unnecessary network access.
 /// </summary>
 public class AccessPortVlanRule : AuditRuleBase
 {
@@ -21,6 +24,22 @@ public class AccessPortVlanRule : AuditRuleBase
     /// may indicate misconfiguration or unnecessary VLAN exposure.
     /// </summary>
     private const int MaxTaggedVlansThreshold = 2;
+
+    /// <summary>
+    /// Higher threshold for server/hypervisor devices (Proxmox, ESXi, TrueNAS, etc.).
+    /// These devices legitimately need multiple tagged VLANs to serve VMs/containers
+    /// on different networks, so a higher threshold avoids false positives.
+    /// </summary>
+    private const int MaxServerTaggedVlansThreshold = 5;
+
+    /// <summary>
+    /// Device categories that are considered servers/hypervisors and get the higher VLAN threshold.
+    /// </summary>
+    private static readonly HashSet<ClientDeviceCategory> ServerCategories = new()
+    {
+        ClientDeviceCategory.Server,
+        ClientDeviceCategory.NAS
+    };
 
     public override AuditIssue? Evaluate(PortInfo port, List<NetworkInfo> networks, List<NetworkInfo>? allNetworks = null)
     {
@@ -38,15 +57,26 @@ public class AccessPortVlanRule : AuditRuleBase
         if (IsNetworkFabricDevice(port.ConnectedDeviceType))
             return null;
 
-        // Skip if no single-device evidence
-        // We need either: connected client, single MAC restriction, or offline device data
-        if (port.ConnectedClient == null &&
-            !HasSingleDeviceMacRestriction(port) &&
-            !HasOfflineDeviceData(port))
-            return null;
+        // Check if we have evidence of a single device attached
+        // (connected client, single MAC restriction, or offline device data)
+        var hasSingleDeviceEvidence = port.ConnectedClient != null ||
+            HasSingleDeviceMacRestriction(port) ||
+            HasOfflineDeviceData(port);
 
-        // At this point we have a trunk port with a single device attached
-        // This is the misconfiguration we're looking for
+        // Detect if the connected device is a server/hypervisor (Proxmox, ESXi, TrueNAS, etc.)
+        // These legitimately need more tagged VLANs for VMs/containers on different networks
+        var isServerDevice = false;
+        if (hasSingleDeviceEvidence)
+        {
+            var detection = DetectDeviceType(port);
+            isServerDevice = ServerCategories.Contains(detection.Category);
+        }
+
+        var effectiveThreshold = isServerDevice ? MaxServerTaggedVlansThreshold : MaxTaggedVlansThreshold;
+
+        // At this point we have a trunk port that either:
+        // - Has a single device attached (misconfigured access port)
+        // - Has no device evidence (unused trunk port that should be disabled or reconfigured)
         // Use allNetworks (including disabled) for VLAN counting - disabled networks are dormant config
         var networksForCounting = allNetworks ?? networks;
         if (networksForCounting.Count == 0)
@@ -56,23 +86,63 @@ public class AccessPortVlanRule : AuditRuleBase
         var (taggedVlanCount, allowsAllVlans) = GetTaggedVlanInfo(port, networksForCounting);
 
         // Check if excessive
-        if (!allowsAllVlans && taggedVlanCount <= MaxTaggedVlansThreshold)
+        if (!allowsAllVlans && taggedVlanCount <= effectiveThreshold)
             return null; // Within acceptable range
 
         // Build the issue - short message like other audit rules
         var network = GetNetwork(port.NativeNetworkId, networks);
         var vlanDesc = allowsAllVlans ? "all VLANs tagged" : $"{taggedVlanCount} VLANs tagged";
 
+        // Build message and recommendation based on device evidence
+        string message;
+        string recommendation;
+
+        if (hasSingleDeviceEvidence)
+        {
+            if (isServerDevice)
+            {
+                // Server/hypervisor with excessive VLANs
+                message = $"Server port has {vlanDesc}";
+                recommendation = allowsAllVlans
+                    ? "Configure the port to allow only the specific VLANs this server's VMs/containers require. " +
+                      "'Allow All' automatically exposes any new VLANs added to your network."
+                    : $"This server port has {taggedVlanCount} tagged VLANs. " +
+                      "Restrict tagged VLANs to only those required by the server's VMs or containers.";
+            }
+            else
+            {
+                // Single device attached - misconfigured access port
+                message = $"Access port for single device has {vlanDesc}";
+                recommendation = allowsAllVlans
+                    ? "Configure the port to allow only the specific VLANs this device requires. " +
+                      "'Allow All' automatically exposes any new VLANs added to your network."
+                    : $"This single-device port has {taggedVlanCount} tagged VLANs. " +
+                      "Most devices only need their native VLAN - restrict tagged VLANs to those actually required.";
+            }
+        }
+        else
+        {
+            // No device evidence - unused trunk port
+            message = $"Trunk port with no device has {vlanDesc}";
+            recommendation = allowsAllVlans
+                ? "This port has no connected device but allows all VLANs. " +
+                  "Disable the port or configure it as an access port with only the required VLAN."
+                : $"This port has no connected device but has {taggedVlanCount} tagged VLANs. " +
+                  "Disable the port or configure it as an access port with only the required VLAN.";
+        }
+
         return CreateIssue(
-            $"Access port for single device has {vlanDesc}",
+            message,
             port,
             new Dictionary<string, object>
             {
                 { "network", network?.Name ?? "Unknown" },
                 { "tagged_vlan_count", taggedVlanCount },
                 { "allows_all_vlans", allowsAllVlans },
-                { "recommendation", "Limit tagged VLANs to only those required by this device" }
-            });
+                { "has_device_evidence", hasSingleDeviceEvidence },
+                { "is_server_device", isServerDevice }
+            },
+            recommendation);
     }
 
     /// <summary>

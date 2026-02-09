@@ -32,14 +32,22 @@
 
 @if (!ConnectionService.IsConnected(SiteId))
 {
-    <div class="connection-banner">
+    <div class="connection-banner @(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "connection-error" : "")">
         <div class="banner-content">
             <span class="banner-icon">!</span>
             <div class="banner-text">
-                <strong>Not Connected</strong>
-                <span>Connect to your UniFi Console (Controller) to view network data.</span>
+                @if (!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)))
+                {
+                    <strong>Connection Error</strong>
+                    <span>@ConnectionService.GetLastError(SiteId)</span>
+                }
+                else
+                {
+                    <strong>Not Connected</strong>
+                    <span>Connect to your UniFi Console (Controller) to view network data.</span>
+                }
             </div>
-            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">Connect Now</a>
+            <a href="/sites/@SiteId/settings#console-connection" class="btn btn-primary">@(!string.IsNullOrEmpty(ConnectionService.GetLastError(SiteId)) ? "Check Settings" : "Connect Now")</a>
         </div>
     </div>
 }

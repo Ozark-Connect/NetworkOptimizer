@@ -871,4 +871,287 @@ public class NetworkPathAnalyzerTests
     }
 
     #endregion
+
+    #region MLO Status Tests
+
+    [Fact]
+    public void NetworkHop_MloEnabled_DefaultsToNull()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP"
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeNull();
+    }
+
+    [Fact]
+    public void NetworkHop_MloEnabled_CanBeSetToTrue()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP",
+            MloEnabled = true
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void NetworkHop_MloEnabled_CanBeSetToFalse()
+    {
+        // Arrange & Act
+        var hop = new NetworkHop
+        {
+            Type = HopType.AccessPoint,
+            DeviceMac = "aa:bb:cc:dd:ee:ff",
+            DeviceName = "Test AP",
+            MloEnabled = false
+        };
+
+        // Assert
+        hop.MloEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void NetworkPath_WithMloEnabledAp_TracksMloStatus()
+    {
+        // Arrange
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.WirelessClient, DeviceName = "Client" },
+                new NetworkHop { Type = HopType.AccessPoint, DeviceName = "Test AP", MloEnabled = true },
+                new NetworkHop { Type = HopType.Switch, DeviceName = "Switch" },
+                new NetworkHop { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+
+        // Act
+        var apHop = path.Hops.FirstOrDefault(h => h.Type == HopType.AccessPoint);
+
+        // Assert
+        apHop.Should().NotBeNull();
+        apHop!.MloEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public void NetworkPath_WithMloDisabledAp_TracksMloStatus()
+    {
+        // Arrange
+        var path = new NetworkPath
+        {
+            Hops = new List<NetworkHop>
+            {
+                new NetworkHop { Type = HopType.WirelessClient, DeviceName = "Client" },
+                new NetworkHop { Type = HopType.AccessPoint, DeviceName = "Test AP", MloEnabled = false },
+                new NetworkHop { Type = HopType.Switch, DeviceName = "Switch" },
+                new NetworkHop { Type = HopType.Server, DeviceName = "Server" }
+            }
+        };
+
+        // Act
+        var apHop = path.Hops.FirstOrDefault(h => h.Type == HopType.AccessPoint);
+
+        // Assert
+        apHop.Should().NotBeNull();
+        apHop!.MloEnabled.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region MLO SSID Matching Tests
+
+    [Fact]
+    public void MloSsidMatching_ApBroadcastsMloSsid_ShouldBeTrue()
+    {
+        // Arrange - AP broadcasts "Network1" and "Network2", "Network1" has MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Network1" };
+        var vapTableEssids = new[] { "Network1", "Network2" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MloSsidMatching_ApDoesNotBroadcastMloSsid_ShouldBeFalse()
+    {
+        // Arrange - AP broadcasts "IoT" and "Guest", only "Main" has MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Main" };
+        var vapTableEssids = new[] { "IoT", "Guest" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloSsidMatching_CaseInsensitive_ShouldMatch()
+    {
+        // Arrange - Case mismatch between WLAN config and vap_table
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "HOMENETWORK", "IoT" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void MloSsidMatching_NoMloEnabledSsids_ShouldBeFalse()
+    {
+        // Arrange - No WLANs have MLO enabled
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var vapTableEssids = new[] { "Network1", "Network2" };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloSsidMatching_EmptyVapTable_ShouldBeFalse()
+    {
+        // Arrange - AP has no SSIDs in vap_table
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Network1" };
+        var vapTableEssids = Array.Empty<string>();
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+
+        // Assert
+        hasMloSsid.Should().BeFalse();
+    }
+
+    #endregion
+
+    #region Wi-Fi 7 (802.11be) Capability Tests
+
+    [Fact]
+    public void Wifi7Capability_ApWithIs11BeRadio_IsWifi7Capable()
+    {
+        // Arrange - AP has a Wi-Fi 7 capable radio
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = true },
+            new RadioTableEntry { Name = "wifi2", Radio = "6e", Is11Be = true }
+        };
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Wifi7Capability_ApWithoutIs11BeRadio_IsNotWifi7Capable()
+    {
+        // Arrange - AP has no Wi-Fi 7 capable radios (Wi-Fi 6 AP)
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = false }
+        };
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Wifi7Capability_EmptyRadioTable_IsNotWifi7Capable()
+    {
+        // Arrange
+        var radioTable = new List<RadioTableEntry>();
+
+        // Act
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Wifi7Capability_NullRadioTable_IsNotWifi7Capable()
+    {
+        // Arrange
+        List<RadioTableEntry>? radioTable = null;
+
+        // Act
+        var isWifi7Capable = radioTable?.Any(r => r.Is11Be) == true;
+
+        // Assert
+        isWifi7Capable.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloRequiresWifi7_NonWifi7ApWithMloSsid_ShouldNotEnableMlo()
+    {
+        // Arrange - Wi-Fi 6 AP broadcasting MLO-enabled SSID
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "HomeNetwork", "IoT" };
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = false }
+        };
+
+        // Act - Check both conditions: has MLO SSID AND is Wi-Fi 7 capable
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+        var shouldEnableMlo = hasMloSsid && isWifi7Capable;
+
+        // Assert - Even though AP broadcasts MLO SSID, it's not Wi-Fi 7 capable
+        hasMloSsid.Should().BeTrue();
+        isWifi7Capable.Should().BeFalse();
+        shouldEnableMlo.Should().BeFalse();
+    }
+
+    [Fact]
+    public void MloRequiresWifi7_Wifi7ApWithMloSsid_ShouldEnableMlo()
+    {
+        // Arrange - Wi-Fi 7 AP broadcasting MLO-enabled SSID
+        var mloEnabledSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HomeNetwork" };
+        var vapTableEssids = new[] { "HomeNetwork", "IoT" };
+        var radioTable = new List<RadioTableEntry>
+        {
+            new RadioTableEntry { Name = "wifi0", Radio = "ng", Is11Be = false },
+            new RadioTableEntry { Name = "wifi1", Radio = "na", Is11Be = true },
+            new RadioTableEntry { Name = "wifi2", Radio = "6e", Is11Be = true }
+        };
+
+        // Act
+        var hasMloSsid = vapTableEssids.Any(essid => mloEnabledSsids.Contains(essid));
+        var isWifi7Capable = radioTable.Any(r => r.Is11Be);
+        var shouldEnableMlo = hasMloSsid && isWifi7Capable;
+
+        // Assert
+        hasMloSsid.Should().BeTrue();
+        isWifi7Capable.Should().BeTrue();
+        shouldEnableMlo.Should().BeTrue();
+    }
+
+    #endregion
 }

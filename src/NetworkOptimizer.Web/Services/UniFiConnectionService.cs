@@ -239,6 +239,17 @@ public class UniFiConnectionService : IDisposable
 
             if (success)
             {
+                // Validate the site ID by making a site-specific call
+                var (siteValid, siteError) = await conn.Client.ValidateSiteAsync();
+                if (!siteValid)
+                {
+                    conn.LastError = siteError;
+                    _logger.LogWarning("Site validation failed for site {SiteId}: {Error}", siteId, siteError);
+                    conn.Client.Dispose();
+                    conn.Client = null;
+                    return false;
+                }
+
                 conn.IsConnected = true;
                 conn.LastConnectedAt = DateTime.UtcNow;
 
@@ -329,6 +340,17 @@ public class UniFiConnectionService : IDisposable
 
             if (success)
             {
+                // Validate the site ID by making a site-specific call
+                var (siteValid, siteError) = await conn.Client.ValidateSiteAsync();
+                if (!siteValid)
+                {
+                    conn.LastError = siteError;
+                    _logger.LogWarning("Site validation failed during reconnect for site {SiteId}: {Error}", siteId, siteError);
+                    conn.Client.Dispose();
+                    conn.Client = null;
+                    return false;
+                }
+
                 conn.IsConnected = true;
                 conn.LastConnectedAt = DateTime.UtcNow;
 
@@ -505,6 +527,14 @@ public class UniFiConnectionService : IDisposable
 
             if (success)
             {
+                // Validate the site ID by making a site-specific call
+                var (siteValid, siteError) = await testClient.ValidateSiteAsync();
+                if (!siteValid)
+                {
+                    return (false, siteError, null);
+                }
+
+                // Get system info for display
                 var sysInfo = await testClient.GetSystemInfoAsync();
                 var info = sysInfo != null
                     ? $"{sysInfo.Name} v{sysInfo.Version} ({(testClient.IsUniFiOs ? "UniFi OS" : "Standalone")})"

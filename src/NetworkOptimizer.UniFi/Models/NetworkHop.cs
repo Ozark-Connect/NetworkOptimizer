@@ -23,6 +23,12 @@ public class NetworkHop
     /// <summary>Firmware version of the device at test time</summary>
     public string? DeviceFirmware { get; set; }
 
+    /// <summary>
+    /// Whether MLO (Multi-Link Operation) is enabled on any SSID served by this AP.
+    /// Only populated for AccessPoint hop types.
+    /// </summary>
+    public bool? MloEnabled { get; set; }
+
     /// <summary>IP address of the device</summary>
     public string DeviceIp { get; set; } = "";
 

@@ -3983,4 +3983,664 @@ public class PortProfileSuggestionAnalyzerTests
     #endregion
 
     #endregion
+
+    #region Disabled Port Profile Suggestions
+
+    [Fact]
+    public void Analyze_DisabledPortsBelowThreshold_NoSuggestion()
+    {
+        // Arrange - only 4 disabled ports (threshold is 5)
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 4, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion since below threshold
+        result.Where(r => r.SuggestedProfileName?.Contains("Disabled") == true ||
+                          r.MatchingProfileName?.Contains("Disabled") == true).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_DisabledPoEPortsAtThreshold_CreateNewSuggestion()
+    {
+        // Arrange - 5 disabled PoE-capable ports
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 4, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 5, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest creating a disabled profile
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Disabled");
+
+        disabledSuggestion.Should().NotBeNull();
+        disabledSuggestion!.AffectedPorts.Should().HaveCount(5);
+        disabledSuggestion.Severity.Should().Be(Models.PortProfileSuggestionSeverity.Info);
+    }
+
+    [Fact]
+    public void Analyze_DisabledPortsWithExistingProfile_ApplyExistingSuggestion()
+    {
+        // Arrange - 5 disabled ports and an existing disabled profile
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 4, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 5, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var existingProfile = new UniFiPortProfile
+        {
+            Id = "profile-disabled-1",
+            Name = "My Disabled Profile",
+            Forward = "disabled",
+            PoeMode = "off"
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile> { existingProfile };
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest applying the existing profile
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.ApplyExisting &&
+            r.MatchingProfileId == "profile-disabled-1");
+
+        disabledSuggestion.Should().NotBeNull();
+        disabledSuggestion!.MatchingProfileName.Should().Be("My Disabled Profile");
+        disabledSuggestion.AffectedPorts.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void Analyze_TwoDisabledPortsWithExistingProfile_ApplyExistingSuggestion()
+    {
+        // Arrange - only 2 disabled ports, but an existing profile exists
+        // Lower threshold (2) should apply since we're suggesting ApplyExisting
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var existingProfile = new UniFiPortProfile
+        {
+            Id = "profile-disabled-1",
+            Name = "My Disabled Profile",
+            Forward = "disabled",
+            PoeMode = "off"
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile> { existingProfile };
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest applying the existing profile even with only 2 ports
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.ApplyExisting &&
+            r.MatchingProfileId == "profile-disabled-1");
+
+        disabledSuggestion.Should().NotBeNull();
+        disabledSuggestion!.AffectedPorts.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Analyze_TwoDisabledPortsWithoutExistingProfile_NoSuggestion()
+    {
+        // Arrange - only 2 disabled ports with no existing profile
+        // Higher threshold (5) applies for CreateNew, so no suggestion expected
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion since threshold for CreateNew is 5
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Disabled");
+
+        disabledSuggestion.Should().BeNull();
+    }
+
+    [Fact]
+    public void Analyze_FourDisabledPortsWithoutExistingProfile_NoSuggestion()
+    {
+        // Arrange - 4 disabled ports with no existing profile
+        // Higher threshold (5) applies for CreateNew, so no suggestion expected
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true, PoeEnable = false },
+                new() { PortIdx = 4, Forward = "disabled", PortPoe = true, PoeEnable = false }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion since threshold for CreateNew is 5
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Disabled");
+
+        disabledSuggestion.Should().BeNull();
+    }
+
+    [Fact]
+    public void Analyze_DisabledPortsWithExistingProfileAssigned_NoSuggestion()
+    {
+        // Arrange - disabled ports already using a profile
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true, PortConfId = "profile-1" },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true, PortConfId = "profile-1" },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true, PortConfId = "profile-1" },
+                new() { PortIdx = 4, Forward = "disabled", PortPoe = true, PortConfId = "profile-1" },
+                new() { PortIdx = 5, Forward = "disabled", PortPoe = true, PortConfId = "profile-1" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile-1", Name = "Disabled", Forward = "disabled" }
+        };
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion for disabled ports since they already have a profile
+        result.Where(r => r.SuggestedProfileName?.Contains("Disabled") == true).Should().BeEmpty();
+    }
+
+    #endregion
+
+    #region Unrestricted Access Port Profile Suggestions
+
+    [Fact]
+    public void Analyze_UnrestrictedAccessPortsBelowThreshold_NoSuggestion()
+    {
+        // Arrange - only 4 unrestricted access ports (threshold is 5)
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion since below threshold
+        result.Where(r => r.SuggestedProfileName?.Contains("Unrestricted") == true).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_UnrestrictedAccessPortsAtThreshold_CreateNewSuggestion()
+    {
+        // Arrange - 5 unrestricted access ports on the same VLAN
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest creating an unrestricted access profile
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Guest - Unrestricted");
+
+        accessSuggestion.Should().NotBeNull();
+        accessSuggestion!.AffectedPorts.Should().HaveCount(5);
+        accessSuggestion.Severity.Should().Be(Models.PortProfileSuggestionSeverity.Recommendation);
+        accessSuggestion.Configuration.NativeNetworkId.Should().Be("network-guest");
+    }
+
+    [Fact]
+    public void Analyze_UnrestrictedAccessPortsWithExistingProfile_ApplyExistingSuggestion()
+    {
+        // Arrange - 5 access ports and an existing unrestricted profile for that VLAN
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest" }
+            }
+        };
+
+        var existingProfile = new UniFiPortProfile
+        {
+            Id = "profile-access-guest",
+            Name = "[Access] Guest Unrestricted",
+            Forward = "native",
+            NativeNetworkId = "network-guest",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "block_all"
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile> { existingProfile };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest applying the existing profile
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.ApplyExisting &&
+            r.MatchingProfileId == "profile-access-guest");
+
+        accessSuggestion.Should().NotBeNull();
+        accessSuggestion!.MatchingProfileName.Should().Be("[Access] Guest Unrestricted");
+        accessSuggestion.AffectedPorts.Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void Analyze_TwoAccessPortsWithExistingProfile_ApplyExistingSuggestion()
+    {
+        // Arrange - only 2 access ports, but an existing profile exists
+        // Lower threshold (2) should apply since we're suggesting ApplyExisting
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" }
+            }
+        };
+
+        var existingProfile = new UniFiPortProfile
+        {
+            Id = "profile-access-guest",
+            Name = "[Access] Guest Unrestricted",
+            Forward = "native",
+            NativeNetworkId = "network-guest",
+            PortSecurityEnabled = false,
+            TaggedVlanMgmt = "block_all"
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile> { existingProfile };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should suggest applying the existing profile even with only 2 ports
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.ApplyExisting &&
+            r.MatchingProfileId == "profile-access-guest");
+
+        accessSuggestion.Should().NotBeNull();
+        accessSuggestion!.AffectedPorts.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Analyze_TwoAccessPortsWithoutExistingProfile_NoSuggestion()
+    {
+        // Arrange - only 2 access ports with no existing profile
+        // Higher threshold (5) applies for CreateNew, so no suggestion expected
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no suggestion since threshold for CreateNew is 5
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Guest - Unrestricted");
+
+        accessSuggestion.Should().BeNull();
+    }
+
+    [Fact]
+    public void Analyze_UnrestrictedAccessPortsDifferentVlans_SeparateSuggestions()
+    {
+        // Arrange - 5 ports on Guest, 5 ports on Conference - different VLANs
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Guest VLAN
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest" },
+                // Conference VLAN
+                new() { PortIdx = 6, Forward = "native", NativeNetworkConfId = "network-conference" },
+                new() { PortIdx = 7, Forward = "native", NativeNetworkConfId = "network-conference" },
+                new() { PortIdx = 8, Forward = "native", NativeNetworkConfId = "network-conference" },
+                new() { PortIdx = 9, Forward = "native", NativeNetworkConfId = "network-conference" },
+                new() { PortIdx = 10, Forward = "native", NativeNetworkConfId = "network-conference" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 },
+            new() { Id = "network-conference", Name = "Conference", Vlan = 200 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should have two separate suggestions for each VLAN
+        var guestSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Guest - Unrestricted");
+
+        var conferenceSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Conference - Unrestricted");
+
+        guestSuggestion.Should().NotBeNull();
+        guestSuggestion!.AffectedPorts.Should().HaveCount(5);
+        guestSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+
+        conferenceSuggestion.Should().NotBeNull();
+        conferenceSuggestion!.AffectedPorts.Should().HaveCount(5);
+        conferenceSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 6, 7, 8, 9, 10 });
+    }
+
+    [Fact]
+    public void Analyze_AccessPortsWithProfileAssigned_NoSuggestion()
+    {
+        // Arrange - access ports already using a profile
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest", PortConfId = "profile-1" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest", PortConfId = "profile-1" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest", PortConfId = "profile-1" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest", PortConfId = "profile-1" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest", PortConfId = "profile-1" }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>
+        {
+            new() { Id = "profile-1", Name = "Guest Access", Forward = "native" }
+        };
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - no unrestricted access suggestion since ports already have profiles
+        result.Where(r => r.SuggestedProfileName?.Contains("Unrestricted") == true).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Analyze_DisabledPortsAcrossMultipleSwitches_CombinedSuggestion()
+    {
+        // Arrange - disabled ports across multiple switches
+        var switch1 = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true },
+                new() { PortIdx = 3, Forward = "disabled", PortPoe = true }
+            }
+        };
+
+        var switch2 = new UniFiDeviceResponse
+        {
+            Id = "switch2",
+            Mac = "aa:bb:cc:00:00:02",
+            Name = "Switch 2",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                new() { PortIdx = 1, Forward = "disabled", PortPoe = true },
+                new() { PortIdx = 2, Forward = "disabled", PortPoe = true }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { switch1, switch2 };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>();
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - should combine ports from both switches (total 5)
+        var disabledSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Disabled");
+
+        disabledSuggestion.Should().NotBeNull();
+        disabledSuggestion!.AffectedPorts.Should().HaveCount(5);
+        disabledSuggestion.AffectedPorts.Select(p => p.DeviceName).Distinct().Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Analyze_AccessPortsWithDirectMacRestriction_ExcludedFromSuggestion()
+    {
+        // Arrange - 7 access ports, but 2 have MAC restriction enabled directly (not via profile)
+        var device = new UniFiDeviceResponse
+        {
+            Id = "switch1",
+            Mac = "aa:bb:cc:00:00:01",
+            Name = "Switch 1",
+            Type = "usw",
+            PortTable = new List<SwitchPort>
+            {
+                // Unrestricted ports (no MAC restriction)
+                new() { PortIdx = 1, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 2, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 3, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 4, Forward = "native", NativeNetworkConfId = "network-guest" },
+                new() { PortIdx = 5, Forward = "native", NativeNetworkConfId = "network-guest" },
+                // Restricted ports (have MAC restriction enabled directly)
+                new() { PortIdx = 6, Forward = "native", NativeNetworkConfId = "network-guest", PortSecurityEnabled = true },
+                new() { PortIdx = 7, Forward = "native", NativeNetworkConfId = "network-guest", PortSecurityMacAddresses = new List<string> { "aa:bb:cc:dd:ee:ff" } }
+            }
+        };
+
+        var devices = new List<UniFiDeviceResponse> { device };
+        var portProfiles = new List<UniFiPortProfile>();
+        var networks = new List<UniFiNetworkConfig>
+        {
+            new() { Id = "network-guest", Name = "Guest", Vlan = 100 }
+        };
+
+        // Act
+        var result = _analyzer.Analyze(devices, portProfiles, networks);
+
+        // Assert - only 5 unrestricted ports should be included, not the 2 with MAC restriction
+        var accessSuggestion = result.FirstOrDefault(r =>
+            r.Type == Models.PortProfileSuggestionType.CreateNew &&
+            r.SuggestedProfileName == "Guest - Unrestricted");
+
+        accessSuggestion.Should().NotBeNull();
+        accessSuggestion!.AffectedPorts.Should().HaveCount(5);
+        accessSuggestion.AffectedPorts.Select(p => p.PortIndex).Should().BeEquivalentTo(new[] { 1, 2, 3, 4, 5 });
+        // Ports 6 and 7 should NOT be included since they have MAC restriction
+        accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 6);
+        accessSuggestion.AffectedPorts.Should().NotContain(p => p.PortIndex == 7);
+    }
+
+    #endregion
 }

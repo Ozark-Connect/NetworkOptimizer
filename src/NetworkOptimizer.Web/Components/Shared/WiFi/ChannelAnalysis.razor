@@ -1,0 +1,973 @@
+@using NetworkOptimizer.Web.Services
+@using NetworkOptimizer.WiFi
+@using NetworkOptimizer.WiFi.Models
+@inject WiFiOptimizerService WiFiService
+@inject UniFiConnectionService ConnectionService
+
+<div class="channel-analysis-container wifi-sections">
+    <div class="channel-header">
+        <h3>Channel Analysis</h3>
+        <div class="header-actions">
+            <button class="btn btn-sm btn-secondary" @onclick="RefreshData" disabled="@_loading">
+                @if (_loading)
+                {
+                    <span class="spinner-sm"></span>
+                }
+                else
+                {
+                    <span>Refresh</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="channel-loading">
+            <span class="spinner"></span>
+            <span>Loading channel data...</span>
+        </div>
+    }
+    else if (_accessPoints.Count == 0)
+    {
+        <div class="channel-empty">
+            <p>No access points found. Connect to UniFi to analyze channel usage.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="channel-stats-row">
+            <div class="channel-stat-card @(_coChannelIssues > 0 ? "stat-warning" : "")">
+                <div class="channel-stat-value">@_coChannelIssues</div>
+                <div class="channel-stat-label">Co-Channel Issues</div>
+            </div>
+            <div class="channel-stat-card">
+                <div class="channel-stat-value">@_channelsInUse.Count</div>
+                <div class="channel-stat-label">Channels In Use</div>
+            </div>
+            <div class="channel-stat-card @GetUtilizationStatClass(_avgUtilization)">
+                <div class="channel-stat-value">@_avgUtilization%</div>
+                <div class="channel-stat-label">Avg Utilization</div>
+            </div>
+            <div class="channel-stat-card @GetInterferenceStatClass(_avgInterference)">
+                <div class="channel-stat-value">@_avgInterference%</div>
+                <div class="channel-stat-label">Avg Interference</div>
+            </div>
+        </div>
+
+        <!-- Band Tabs -->
+        <div class="band-tabs">
+            @foreach (var band in _bands)
+            {
+                var bandData = GetBandData(band);
+                <button class="band-tab @GetBandClass(band) @(_selectedBand == band ? "active" : "") @(bandData.HasIssues ? "has-issues" : "")"
+                        @onclick="() => { _selectedBand = band; _selectedChannel = null; }">
+                    @band.ToDisplayString()
+                    @if (bandData.HasIssues)
+                    {
+                        <span class="issue-indicator">!</span>
+                    }
+                    else if (bandData.HasMesh)
+                    {
+                        <span class="mesh-indicator" data-tooltip="Mesh APs sharing channel">M</span>
+                    }
+                </button>
+            }
+        </div>
+
+        <!-- Channel Map for Selected Band -->
+        <div class="channel-map-section">
+            <div class="section-header">
+                <h4>@_selectedBand.ToDisplayString() Channel Map</h4>
+                <span class="section-subtitle">@GetBandDescription(_selectedBand)</span>
+            </div>
+
+            <div class="channel-map">
+                @foreach (var channel in GetChannelsForBand(_selectedBand))
+                {
+                    var apsOnChannel = GetApsOnChannel(_selectedBand, channel);
+                    var isOccupied = apsOnChannel.Any();
+                    var hasActualOverlap = IsChannelOverlapped(_selectedBand, channel);
+                    var hasMeshPair = IsChannelMesh(_selectedBand, channel);
+                    var utilization = GetChannelUtilization(_selectedBand, channel);
+                    var interference = GetChannelInterference(_selectedBand, channel);
+
+                    <div class="channel-slot @(isOccupied ? "occupied" : "") @(hasActualOverlap ? "overlap" : hasMeshPair ? "mesh" : "") @GetChannelGroupClass(_selectedBand, channel)"
+                         @onclick="() => SelectChannel(_selectedBand, channel)">
+                        <div class="channel-number">@channel</div>
+                        @if (isOccupied)
+                        {
+                            <div class="channel-aps">
+                                @foreach (var ap in apsOnChannel.Take(3))
+                                {
+                                    <div class="channel-ap-dot @GetBandClass(_selectedBand) @(apsOnChannel.Count == 1 ? "dot-single" : "")" data-tooltip="@ap.Name"></div>
+                                }
+                                @if (apsOnChannel.Count > 3)
+                                {
+                                    <div class="channel-ap-more">+@(apsOnChannel.Count - 3)</div>
+                                }
+                            </div>
+                            <div class="channel-metrics">
+                                <span class="channel-util @GetUtilizationClass(utilization)">@utilization%</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Non-overlapping Channel Indicators (2.4 GHz only) -->
+            @if (_selectedBand == RadioBand.Band2_4GHz)
+            {
+                <div class="channel-recommendations">
+                    <span class="rec-label">Recommended non-overlapping:</span>
+                    <span class="rec-channels">1, 6, 11</span>
+                </div>
+            }
+        </div>
+
+        <!-- Selected Channel Details or AP List -->
+        @if (_selectedChannel != null)
+        {
+            var apsOnChannel = GetApsOnChannel(_selectedBand, _selectedChannel.Value);
+            var hasActualOverlap = IsChannelOverlapped(_selectedBand, _selectedChannel.Value);
+            var hasMeshPair = IsChannelMesh(_selectedBand, _selectedChannel.Value);
+            <div class="channel-details-section">
+                <div class="section-header">
+                    <h4>Channel @_selectedChannel Details</h4>
+                    <button class="btn btn-sm btn-ghost" @onclick="() => _selectedChannel = null">Close</button>
+                </div>
+
+                @if (hasActualOverlap)
+                {
+                    <div class="overlap-warning">
+                        <span class="warning-icon">!</span>
+                        <span>@apsOnChannel.Count APs are on the same channel - this may cause co-channel interference</span>
+                    </div>
+                }
+                else if (hasMeshPair)
+                {
+                    <div class="mesh-info">
+                        <span class="mesh-icon">M</span>
+                        <span>These APs are meshing on this channel - shared channel is expected for mesh uplink</span>
+                    </div>
+                }
+
+                <div class="channel-aps-list">
+                    @foreach (var ap in apsOnChannel)
+                    {
+                        var radio = ap.Radios.FirstOrDefault(r => r.Band == _selectedBand && r.Channel == _selectedChannel);
+                        <div class="channel-ap-card">
+                            <div class="ap-info">
+                                <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                                <span class="ap-model">@ap.Model</span>
+                            </div>
+                            <div class="ap-radio-details">
+                                @if (radio != null)
+                                {
+                                    <div class="detail-item">
+                                        <span class="detail-label">Width:</span>
+                                        <span class="detail-value">@(radio.ChannelWidth ?? 20) MHz</span>
+                                    </div>
+                                    @if (radio.ChannelWidth >= 40)
+                                    {
+                                        var span = GetChannelWidthSpan(radio.Band, radio.Channel!.Value, radio.ChannelWidth!.Value, radio.ExtChannel);
+                                        var spanOrdered = span.OrderBy(c => c).ToList();
+                                        <div class="detail-item">
+                                            <span class="detail-label">Bonded:</span>
+                                            @if (radio.Band == RadioBand.Band2_4GHz && radio.ExtChannel.HasValue)
+                                            {
+                                                var secondary = radio.ExtChannel.Value > 0 ? radio.Channel!.Value + 4 : radio.Channel!.Value - 4;
+                                                <span class="detail-value">Ch @(Math.Min(radio.Channel!.Value, secondary)) + @(Math.Max(radio.Channel!.Value, secondary))</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="detail-value">Ch @spanOrdered.First() - @spanOrdered.Last()</span>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="detail-item">
+                                        <span class="detail-label">TX Power:</span>
+                                        <span class="detail-value">@(radio.TxPower?.ToString() ?? "-") dBm</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Utilization:</span>
+                                        <span class="detail-value @GetUtilizationClass(radio.ChannelUtilization ?? 0)">
+                                            @(radio.ChannelUtilization?.ToString() ?? "-")%
+                                        </span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Interference:</span>
+                                        <span class="detail-value @GetInterferenceClass(radio.Interference ?? 0)">
+                                            @(radio.Interference?.ToString() ?? "-")%
+                                        </span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">Clients:</span>
+                                        <span class="detail-value">@(radio.ClientCount?.ToString() ?? "-")</span>
+                                    </div>
+                                    @if (radio.Satisfaction.HasValue && radio.Satisfaction.Value >= 0)
+                                    {
+                                        <div class="detail-item">
+                                            <span class="detail-label">Satisfaction:</span>
+                                            <span class="detail-value @GetSatisfactionClass(radio.Satisfaction.Value)">
+                                                @(radio.Satisfaction)%
+                                            </span>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- All APs Table for Selected Band -->
+            <div class="aps-band-section">
+                <div class="section-header">
+                    <h4>@_selectedBand.ToDisplayString() Radios</h4>
+                </div>
+
+                <div class="aps-band-table">
+                    <div class="aps-header">
+                        <div class="ap-col ap-name-col">Access Point</div>
+                        <div class="ap-col ap-channel-col">Channel</div>
+                        <div class="ap-col ap-width-col">Width</div>
+                        <div class="ap-col ap-power-col">TX Power</div>
+                        <div class="ap-col ap-util-col">Utilization</div>
+                        <div class="ap-col ap-interf-col">Interference</div>
+                        <div class="ap-col ap-clients-col">Clients</div>
+                    </div>
+                    @foreach (var ap in _accessPoints)
+                    {
+                        var radio = ap.Radios.FirstOrDefault(r => r.Band == _selectedBand);
+                        @if (radio != null)
+                        {
+                            <div class="aps-row">
+                                <div class="ap-col ap-name-col">
+                                    <span class="ap-name"><DeviceIcon Model="@ap.Model" Size="md" /> @ap.Name</span>
+                                    <span class="ap-model">@ap.Model</span>
+                                </div>
+                                <div class="ap-col ap-channel-col">
+                                    <span class="channel-badge @(IsChannelOverlapped(_selectedBand, radio.Channel) ? "overlap" : IsChannelMesh(_selectedBand, radio.Channel) ? "mesh" : "")">
+                                        @(radio.Channel?.ToString() ?? "-")
+                                    </span>
+                                </div>
+                                <div class="ap-col ap-width-col">@(radio.ChannelWidth ?? 20) MHz</div>
+                                <div class="ap-col ap-power-col">
+                                    <span class="power-value">@(radio.TxPower?.ToString() ?? "-")</span>
+                                    @if (!string.IsNullOrEmpty(radio.TxPowerMode))
+                                    {
+                                        <span class="power-mode">(@radio.TxPowerMode)</span>
+                                    }
+                                </div>
+                                <div class="ap-col ap-util-col">
+                                    <div class="util-bar-container">
+                                        <div class="util-bar @GetUtilizationClass(radio.ChannelUtilization ?? 0)"
+                                             style="width: @(radio.ChannelUtilization ?? 0)%"></div>
+                                    </div>
+                                    <span class="util-value">@(radio.ChannelUtilization?.ToString() ?? "-")%</span>
+                                </div>
+                                <div class="ap-col ap-interf-col @GetInterferenceClass(radio.Interference ?? 0)">
+                                    @(radio.Interference?.ToString() ?? "-")%
+                                </div>
+                                <div class="ap-col ap-clients-col">@(radio.ClientCount?.ToString() ?? "0")</div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Issues/Recommendations -->
+        @if (_channelIssues.Count > 0)
+        {
+            <div class="channel-issues-section">
+                <div class="section-header">
+                    <h4>Channel Issues</h4>
+                </div>
+
+                <IssuesList Issues="_channelIssues" />
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int SiteId { get; set; }
+
+    private bool _loading = true;
+    private List<AccessPointSnapshot> _accessPoints = new();
+    private RegulatoryChannelData? _regulatoryData;
+    private SiteHealthScore? _healthScore;
+    private RadioBand _selectedBand = RadioBand.Band5GHz;
+    private int? _selectedChannel;
+
+    // Calculated stats
+    private int _coChannelIssues;
+    private int _avgUtilization;
+    private int _avgInterference;
+    private HashSet<int> _channelsInUse = new();
+    private List<HealthIssue> _channelIssues = new();
+
+    // Width groups: maps (band, channel) -> group info for visual grouping (first group)
+    private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups = new();
+    // Maps (band, primaryChannel) -> group IDs for that AP's width group
+    private Dictionary<(RadioBand Band, int Channel), int> _primaryGroupIds = new();
+    // Full group data for accurate span rendering when filtering (avoids 2-slot-per-channel limit)
+    private Dictionary<(RadioBand Band, int GroupId), List<int>> _groupChannels = new();
+    // Second group for overlapping channels (renders bottom/cup when first group renders top/hat)
+    private Dictionary<(RadioBand Band, int Channel), WidthGroupInfo> _widthGroups2 = new();
+
+    private readonly RadioBand[] _bands = { RadioBand.Band2_4GHz, RadioBand.Band5GHz, RadioBand.Band6GHz };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            _accessPoints = await WiFiService.GetAccessPointsAsync(SiteId);
+            _regulatoryData = await WiFiService.GetRegulatoryChannelsAsync(SiteId);
+            _healthScore = await WiFiService.GetSiteHealthScoreAsync(SiteId);
+            AnalyzeChannels();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            _accessPoints = await WiFiService.GetAccessPointsAsync(SiteId, forceRefresh: true);
+            _regulatoryData = await WiFiService.GetRegulatoryChannelsAsync(SiteId);
+            _healthScore = await WiFiService.GetSiteHealthScoreAsync(SiteId, forceRefresh: true);
+            AnalyzeChannels();
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AnalyzeChannels()
+    {
+        _channelIssues.Clear();
+        _channelsInUse.Clear();
+        _coChannelIssues = 0;
+
+        var allRadios = _accessPoints.SelectMany(ap => ap.Radios).ToList();
+
+        // Calculate averages
+        var utilizationValues = allRadios.Where(r => r.ChannelUtilization.HasValue).Select(r => r.ChannelUtilization!.Value).ToList();
+        var interferenceValues = allRadios.Where(r => r.Interference.HasValue).Select(r => r.Interference!.Value).ToList();
+
+        _avgUtilization = utilizationValues.Count > 0 ? (int)utilizationValues.Average() : 0;
+        _avgInterference = interferenceValues.Count > 0 ? (int)interferenceValues.Average() : 0;
+
+        // Track channels in use
+        foreach (var radio in allRadios.Where(r => r.Channel.HasValue))
+        {
+            _channelsInUse.Add(radio.Channel!.Value);
+        }
+
+        // Calculate width groups for visual display
+        CalculateWidthGroups(allRadios);
+
+        // Count co-channel issues per band (for summary stats)
+        foreach (var band in _bands)
+        {
+            var radiosInBand = allRadios.Where(r => r.Band == band && r.Channel.HasValue).ToList();
+            var channelGroups = radiosInBand.GroupBy(r => r.Channel!.Value).Where(g => g.Count() > 1).ToList();
+
+            foreach (var group in channelGroups)
+            {
+                var apsOnChannel = _accessPoints
+                    .Where(ap => ap.Radios.Any(r => r.Band == band && r.Channel == group.Key))
+                    .ToList();
+
+                // Filter out mesh pairs - they MUST be on the same channel
+                var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
+
+                // Only count co-channel if there are 2+ APs that aren't mesh pairs
+                if (nonMeshAps.Count > 1)
+                {
+                    _coChannelIssues++;
+                }
+            }
+        }
+
+        // Pull channel-related issues from the health score engine
+        if (_healthScore != null)
+        {
+            _channelIssues = _healthScore.Issues
+                .Where(i => i.Dimensions.Contains(HealthDimension.ChannelHealth))
+                .ToList();
+        }
+    }
+
+    private void SelectChannel(RadioBand band, int channel)
+    {
+        var apsOnChannel = GetApsOnChannel(band, channel);
+        if (apsOnChannel.Any())
+        {
+            // Toggle same channel off, switch to different channel
+            _selectedChannel = _selectedChannel == channel ? null : channel;
+        }
+    }
+
+    private List<int> GetChannelsForBand(RadioBand band)
+    {
+        // Use regulatory data when available to only show channels valid for this domain
+        if (_regulatoryData != null)
+        {
+            // Use raw 20 MHz channel lists (GetChannels() applies PSC filtering for 6 GHz
+            // which would hide most channels from the map)
+            var dict = band switch
+            {
+                RadioBand.Band2_4GHz => _regulatoryData.Channels2_4GHz,
+                RadioBand.Band5GHz => _regulatoryData.Channels5GHz,
+                RadioBand.Band6GHz => _regulatoryData.Channels6GHz,
+                _ => null
+            };
+
+            if (dict != null && dict.TryGetValue(20, out var regChannels) && regChannels.Length > 0)
+                return regChannels.OrderBy(c => c).ToList();
+        }
+
+        // Fallback: show all possible channels (use 13 for 2.4 GHz since 14 is Japan-only)
+        return band switch
+        {
+            RadioBand.Band2_4GHz => Enumerable.Range(1, 13).ToList(),
+            RadioBand.Band5GHz => new List<int> { 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 },
+            RadioBand.Band6GHz => Enumerable.Range(0, 59).Select(i => 1 + i * 4).ToList(),
+            _ => new List<int>()
+        };
+    }
+
+    private List<AccessPointSnapshot> GetApsOnChannel(RadioBand band, int channel)
+    {
+        return _accessPoints
+            .Where(ap => ap.Radios.Any(r => r.Band == band && r.Channel == channel))
+            .ToList();
+    }
+
+    private int GetChannelUtilization(RadioBand band, int channel)
+    {
+        var radios = _accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Band == band && r.Channel == channel && r.ChannelUtilization.HasValue)
+            .ToList();
+
+        return radios.Count > 0 ? (int)radios.Average(r => r.ChannelUtilization!.Value) : 0;
+    }
+
+    private int GetChannelInterference(RadioBand band, int channel)
+    {
+        var radios = _accessPoints
+            .SelectMany(ap => ap.Radios)
+            .Where(r => r.Band == band && r.Channel == channel && r.Interference.HasValue)
+            .ToList();
+
+        return radios.Count > 0 ? (int)radios.Average(r => r.Interference!.Value) : 0;
+    }
+
+    private bool IsChannelOverlapped(RadioBand band, int? channel)
+    {
+        if (!channel.HasValue) return false;
+        var apsOnChannel = GetApsOnChannel(band, channel.Value);
+        if (apsOnChannel.Count <= 1) return false;
+
+        // Check if all overlap is from mesh pairs
+        var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, channel.Value);
+        return nonMeshAps.Count > 1;
+    }
+
+    private bool IsChannelMesh(RadioBand band, int? channel)
+    {
+        if (!channel.HasValue) return false;
+        var apsOnChannel = GetApsOnChannel(band, channel.Value);
+        if (apsOnChannel.Count <= 1) return false;
+
+        // Check if there are mesh pairs on this channel
+        return apsOnChannel.Any(ap =>
+            ap.IsMeshChild &&
+            !string.IsNullOrEmpty(ap.MeshParentMac) &&
+            ap.MeshUplinkBand == band &&
+            ap.MeshUplinkChannel == channel.Value &&
+            apsOnChannel.Any(parent => parent.Mac.Equals(ap.MeshParentMac, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private (bool HasIssues, bool HasMesh, int ChannelCount) GetBandData(RadioBand band)
+    {
+        var radiosInBand = _accessPoints.SelectMany(ap => ap.Radios).Where(r => r.Band == band && r.Channel.HasValue).ToList();
+        var channelGroups = radiosInBand.GroupBy(r => r.Channel!.Value).ToList();
+
+        bool hasActualOverlap = false;
+        bool hasMesh = false;
+
+        foreach (var group in channelGroups.Where(g => g.Count() > 1))
+        {
+            var apsOnChannel = GetApsOnChannel(band, group.Key);
+            var nonMeshAps = WiFiAnalysisHelpers.FilterOutMeshPairs(apsOnChannel, band, group.Key);
+
+            if (nonMeshAps.Count > 1)
+                hasActualOverlap = true;
+
+            if (apsOnChannel.Count > nonMeshAps.Count || (apsOnChannel.Count > 1 && nonMeshAps.Count == 0))
+                hasMesh = true;
+        }
+
+        return (hasActualOverlap, hasMesh, channelGroups.Count);
+    }
+
+    private string GetBandDescription(RadioBand band)
+    {
+        return band switch
+        {
+            RadioBand.Band2_4GHz => "2412-2484 MHz (20/40 MHz)",
+            RadioBand.Band5GHz => "5180-5885 MHz (20-160 MHz)",
+            RadioBand.Band6GHz => "5935-7115 MHz (20-320 MHz)",
+            _ => ""
+        };
+    }
+
+    private string GetUtilizationStatClass(int util) => util switch
+    {
+        > 70 => "stat-danger",
+        > 50 => "stat-warning",
+        _ => ""
+    };
+
+    private string GetInterferenceStatClass(int interf) => interf switch
+    {
+        > 30 => "stat-danger",
+        > 15 => "stat-warning",
+        _ => ""
+    };
+
+    private string GetUtilizationClass(int util) => util switch
+    {
+        > 70 => "util-high",
+        > 50 => "util-medium",
+        _ => "util-low"
+    };
+
+    private string GetInterferenceClass(int interf) => interf switch
+    {
+        > 30 => "interf-high",
+        > 15 => "interf-medium",
+        _ => "interf-low"
+    };
+
+    private string GetSatisfactionClass(int sat) => sat switch
+    {
+        >= 80 => "sat-excellent",
+        >= 60 => "sat-good",
+        >= 40 => "sat-fair",
+        _ => "sat-poor"
+    };
+
+    private string GetBandClass(RadioBand band) => band switch
+    {
+        RadioBand.Band2_4GHz => "band-2ghz",
+        RadioBand.Band5GHz => "band-5ghz",
+        RadioBand.Band6GHz => "band-6ghz",
+        _ => ""
+    };
+
+    private class WidthGroupInfo
+    {
+        public int Width { get; set; }          // Channel width in MHz
+        public int GroupId { get; set; }        // Unique ID for the group
+        public string Position { get; set; } = "single";  // "start", "middle", "end", "single"
+        public string ApName { get; set; } = "";
+        public RadioBand Band { get; set; }     // Band for color matching
+        public bool IsOddGroup => GroupId % 2 == 0;  // First group (0) is "odd", second (1) is "even", etc.
+    }
+
+    private void CalculateWidthGroups(List<RadioSnapshot> allRadios)
+    {
+        _widthGroups.Clear();
+        _widthGroups2.Clear();
+        _primaryGroupIds.Clear();
+        _groupChannels.Clear();
+
+        // Step 1: Collect width groups, de-duplicating by primary channel
+        // Same primary = same group (e.g., mesh APs both on channel 108)
+        // Different primaries in same span = separate groups to show overlap (e.g., 36 vs 64 in 160 MHz)
+        var uniqueGroups = new List<(RadioBand Band, int PrimaryChannel, List<int> Channels, int Width, string ApName)>();
+
+        foreach (var radio in allRadios.Where(r => r.Channel.HasValue && r.ChannelWidth.HasValue))
+        {
+            var band = radio.Band;
+            var primaryChannel = radio.Channel!.Value;
+            var width = radio.ChannelWidth!.Value;
+            var apName = _accessPoints.FirstOrDefault(ap => ap.Radios.Contains(radio))?.Name ?? "";
+
+            var spannedChannels = GetChannelWidthSpan(band, primaryChannel, width, radio.ExtChannel);
+            var orderedChannels = spannedChannels.OrderBy(c => c).ToList();
+
+            // De-duplicate by primary channel - same primary = same group
+            var alreadyExists = uniqueGroups.Any(g =>
+                g.Band == band &&
+                g.PrimaryChannel == primaryChannel);
+
+            if (!alreadyExists)
+            {
+                uniqueGroups.Add((band, primaryChannel, orderedChannels, width, apName));
+            }
+        }
+
+        // Step 2: Sort by band then primary channel, and assign group IDs PER BAND
+        var sortedGroups = uniqueGroups
+            .OrderBy(g => g.Band)
+            .ThenBy(g => g.PrimaryChannel)
+            .ToList();
+
+        // Step 3: Assign group IDs per band and populate _widthGroups
+        var groupIdPerBand = new Dictionary<RadioBand, int>();
+
+        foreach (var group in sortedGroups)
+        {
+            // Get or initialize group ID counter for this band
+            if (!groupIdPerBand.TryGetValue(group.Band, out var groupId))
+            {
+                groupId = 0;
+            }
+
+            var channels = group.Channels;
+
+            for (int i = 0; i < channels.Count; i++)
+            {
+                var ch = channels[i];
+                var position = channels.Count == 1 ? "single"
+                    : i == 0 ? "start"
+                    : i == channels.Count - 1 ? "end"
+                    : "middle";
+
+                var key = (group.Band, ch);
+                var groupInfo = new WidthGroupInfo
+                {
+                    Width = group.Width,
+                    GroupId = groupId,
+                    Position = position,
+                    ApName = group.ApName,
+                    Band = group.Band
+                };
+
+                if (!_widthGroups.ContainsKey(key))
+                {
+                    _widthGroups[key] = groupInfo;
+                }
+                else if (!_widthGroups2.ContainsKey(key))
+                {
+                    // Second group for this channel - store for additive rendering
+                    _widthGroups2[key] = groupInfo;
+                }
+                // Third+ groups ignored for now
+            }
+
+            // Map primary channel to its group ID and store full channel list
+            _primaryGroupIds[(group.Band, group.PrimaryChannel)] = groupId;
+            _groupChannels[(group.Band, groupId)] = channels;
+
+            // Increment group ID for this band
+            groupIdPerBand[group.Band] = groupId + 1;
+        }
+    }
+
+    private List<int> GetChannelWidthSpan(RadioBand band, int primaryChannel, int width, int? extChannel = null)
+    {
+        var channels = new List<int>();
+
+        if (band == RadioBand.Band2_4GHz)
+        {
+            // 2.4 GHz: 5 MHz channel spacing with ~22 MHz signal width means every
+            // channel overlaps its neighbors. Even 20 MHz spans ±2 channels.
+            // For 40 MHz, use the extension channel to determine exact bonded range,
+            // then add ±2 spectral overlap on each edge.
+            var validChannels = GetChannelsForBand(band);
+            int minCh = validChannels.First();
+            int maxCh = validChannels.Last();
+
+            int spanLow, spanHigh;
+            if (width >= 40 && extChannel.HasValue)
+            {
+                // ExtChannel is a direction flag: 1 = above (HT40+), -1 = below (HT40-)
+                int secondary = extChannel.Value > 0 ? primaryChannel + 4 : primaryChannel - 4;
+                int lo = Math.Min(primaryChannel, secondary);
+                int hi = Math.Max(primaryChannel, secondary);
+                spanLow = lo - 2;
+                spanHigh = hi + 2;
+            }
+            else if (width >= 40)
+            {
+                // No extension channel info - assume standard HT40 direction
+                // Lower channels (1-7): HT40+ (extension above), higher: HT40- (extension below)
+                int ext = primaryChannel <= 7 ? primaryChannel + 4 : primaryChannel - 4;
+                int lo = Math.Min(primaryChannel, ext);
+                int hi = Math.Max(primaryChannel, ext);
+                spanLow = lo - 2;
+                spanHigh = hi + 2;
+            }
+            else
+            {
+                // 20 MHz: ±2 spectral overlap (e.g. ch6 → 4-8)
+                spanLow = primaryChannel - 2;
+                spanHigh = primaryChannel + 2;
+            }
+
+            for (int ch = Math.Max(minCh, spanLow); ch <= Math.Min(maxCh, spanHigh); ch++)
+            {
+                if (validChannels.Contains(ch))
+                    channels.Add(ch);
+            }
+            return channels;
+        }
+
+        if (width <= 20)
+        {
+            channels.Add(primaryChannel);
+            return channels;
+        }
+        else
+        {
+            // 5 GHz and 6 GHz: 20 MHz channel spacing (4 channel numbers apart)
+            // Find the bonding group start based on width
+            int channelCount = width / 20;  // 40=2, 80=4, 160=8, 320=16
+            int groupSize = channelCount * 4;  // Channel number span
+
+            // Calculate the group start (channels align to bonding boundaries)
+            // For 5 GHz: 36-48 = UNII-1, 52-64 = UNII-2A, 100-144 = UNII-2C, 149-165 = UNII-3
+            int groupStart;
+
+            if (band == RadioBand.Band5GHz)
+            {
+                groupStart = Get5GHzGroupStart(primaryChannel, width);
+            }
+            else // 6 GHz
+            {
+                groupStart = Get6GHzGroupStart(primaryChannel, width);
+            }
+
+            // Add all channels in the group
+            for (int i = 0; i < channelCount; i++)
+            {
+                int ch = groupStart + (i * 4);
+                channels.Add(ch);
+            }
+        }
+
+        return channels;
+    }
+
+    private int Get5GHzGroupStart(int primaryChannel, int width)
+    {
+        // 5 GHz has non-contiguous channel ranges, need specific bonding rules
+        int channelCount = width / 20;
+
+        // Define valid 160 MHz groups
+        var groups160 = new List<(int start, int end)> { (36, 64), (100, 128) };
+
+        // Define valid 80 MHz groups
+        var groups80 = new List<(int start, int end)> { (36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161) };
+
+        // Define valid 40 MHz groups
+        var groups40 = new List<(int start, int end)>
+        {
+            (36, 40), (44, 48), (52, 56), (60, 64),
+            (100, 104), (108, 112), (116, 120), (124, 128), (132, 136), (140, 144),
+            (149, 153), (157, 161)
+        };
+
+        List<(int start, int end)> groups = width switch
+        {
+            160 => groups160,
+            80 => groups80,
+            _ => groups40
+        };
+
+        foreach (var (start, end) in groups)
+        {
+            if (primaryChannel >= start && primaryChannel <= end)
+            {
+                return start;
+            }
+        }
+
+        // Fallback: just use the primary channel
+        return primaryChannel;
+    }
+
+    private int Get6GHzGroupStart(int primaryChannel, int width)
+    {
+        // 6 GHz has regulatory boundaries that affect 320 MHz bonding
+        // UNII-5 ends around channel 93, UNII-6/7 starts around channel 97
+        // 320 MHz blocks don't cross the UNII-5/UNII-6 boundary
+
+        if (width == 320)
+        {
+            // 320 MHz blocks based on US regulatory boundaries
+            var groups320 = new List<(int start, int end)>
+            {
+                (1, 61),      // UNII-5 (channels 1-61)
+                (97, 157),    // UNII-6/7 lower (channels 97-157)
+                (161, 221)    // UNII-7/8 (channels 161-221)
+            };
+
+            foreach (var (start, end) in groups320)
+            {
+                if (primaryChannel >= start && primaryChannel <= end)
+                {
+                    return start;
+                }
+            }
+        }
+        else if (width == 160)
+        {
+            // 160 MHz blocks (8 channels each, 32 channel number span)
+            var groups160 = new List<(int start, int end)>
+            {
+                (1, 29), (33, 61), (65, 93), (97, 125),
+                (129, 157), (161, 189), (193, 221), (225, 253)
+            };
+
+            foreach (var (start, end) in groups160)
+            {
+                if (primaryChannel >= start && primaryChannel <= end)
+                {
+                    return start;
+                }
+            }
+        }
+        else if (width == 80)
+        {
+            // 80 MHz blocks (4 channels each, 16 channel number span)
+            int offset = primaryChannel - 1;
+            int groupIndex = offset / 16;
+            return 1 + (groupIndex * 16);
+        }
+        else // 40 MHz
+        {
+            // 40 MHz blocks (2 channels each, 8 channel number span)
+            int offset = primaryChannel - 1;
+            int groupIndex = offset / 8;
+            return 1 + (groupIndex * 8);
+        }
+
+        // Fallback
+        return primaryChannel;
+    }
+
+    private string GetChannelGroupClass(RadioBand band, int channel)
+    {
+        var key = (band, channel);
+        if (_widthGroups.TryGetValue(key, out var info))
+        {
+            // Determine which groups to show when a channel is selected
+            // Use primary channel lookup to find the correct group for the clicked AP
+            int? selectedGroupId = null;
+            if (_selectedChannel.HasValue)
+            {
+                var primaryKey = (band, _selectedChannel.Value);
+                selectedGroupId = _primaryGroupIds.TryGetValue(primaryKey, out var gid) ? gid : -1;
+            }
+
+            bool showGroup1 = !_selectedChannel.HasValue || info.GroupId == selectedGroupId;
+            bool hasGroup2 = _widthGroups2.TryGetValue(key, out var info2);
+            bool showGroup2 = hasGroup2 && (!_selectedChannel.HasValue || info2!.GroupId == selectedGroupId);
+
+            // Neither group matches the selection - check if this channel was dropped as 3rd+ group
+            if (!showGroup1 && !showGroup2)
+                return GetDroppedGroupClass(band, channel, selectedGroupId);
+
+            // If only group2 matches, promote it to primary rendering (::before)
+            if (!showGroup1 && showGroup2)
+            {
+                info = info2!;
+                showGroup2 = false;
+            }
+
+            var bandClass = info.Band switch
+            {
+                RadioBand.Band2_4GHz => "band-2ghz",
+                RadioBand.Band5GHz => "band-5ghz",
+                RadioBand.Band6GHz => "band-6ghz",
+                _ => ""
+            };
+            // Keep original top/bottom position for consistency
+            var oddEvenClass = info.IsOddGroup ? "group-odd" : "group-even";
+
+            // Both groups visible - render as overlapping
+            if (showGroup2)
+            {
+                var bandClass2 = info2!.Band switch
+                {
+                    RadioBand.Band2_4GHz => "band-2ghz",
+                    RadioBand.Band5GHz => "band-5ghz",
+                    RadioBand.Band6GHz => "band-6ghz",
+                    _ => ""
+                };
+                var oddEvenClass2 = info2.IsOddGroup ? "group-odd" : "group-even";
+                return $"width-group {bandClass} group-{info.Position} {oddEvenClass} " +
+                       $"has-group2 group2-{bandClass2} group2-{info2.Position} group2-{oddEvenClass2} width-overlap-hatched";
+            }
+
+            return $"width-group {bandClass} group-{info.Position} {oddEvenClass}";
+        }
+
+        // Channel not in _widthGroups at all - check if it belongs to the selected group (dropped as 3rd+)
+        if (_selectedChannel.HasValue)
+        {
+            var primaryKey = (band, _selectedChannel.Value);
+            var selGid = _primaryGroupIds.TryGetValue(primaryKey, out var gid) ? gid : -1;
+            return GetDroppedGroupClass(band, channel, selGid);
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// Renders a channel that was dropped from _widthGroups (3rd+ overlapping group)
+    /// by reconstructing its position from the group's full channel list.
+    /// </summary>
+    private string GetDroppedGroupClass(RadioBand band, int channel, int? selectedGroupId)
+    {
+        if (!selectedGroupId.HasValue) return "";
+
+        var groupKey = (band, selectedGroupId.Value);
+        if (!_groupChannels.TryGetValue(groupKey, out var channels) || !channels.Contains(channel))
+            return "";
+
+        var bandClass = band switch
+        {
+            RadioBand.Band2_4GHz => "band-2ghz",
+            RadioBand.Band5GHz => "band-5ghz",
+            RadioBand.Band6GHz => "band-6ghz",
+            _ => ""
+        };
+        var oddEvenClass = selectedGroupId.Value % 2 == 0 ? "group-odd" : "group-even";
+        var position = channels.Count == 1 ? "single"
+            : channel == channels[0] ? "start"
+            : channel == channels[^1] ? "end"
+            : "middle";
+
+        return $"width-group {bandClass} group-{position} {oddEvenClass}";
+    }
+}

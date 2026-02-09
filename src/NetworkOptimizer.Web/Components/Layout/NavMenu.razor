@@ -16,6 +16,12 @@
             </NavLink>
         </li>
         <li class="nav-item" @onclick="HandleNavClick">
+            <NavLink class="nav-link" href="@GetSiteUrl("/wifi-optimizer")">
+                <img src="/icons/wifi-optimizer.png" alt="" class="nav-icon-img" />
+                <span class="nav-text">Wi-Fi Optimizer</span>
+            </NavLink>
+        </li>
+        <li class="nav-item" @onclick="HandleNavClick">
             <NavLink class="nav-link" href="@GetSiteUrl("/audit")">
                 <img src="/icons/shield-v2.png" alt="" class="nav-icon-img" />
                 <span class="nav-text">Security Audit</span>
@@ -101,6 +107,7 @@
         {
             "" => "/",
             "/config-optimizer" => "/config-optimizer",
+            "/wifi-optimizer" => "/wifi-optimizer",
             "/audit" => "/audit",
             "/upnp-inspector" => "/upnp-inspector",
             "/sqm" => "/sqm",

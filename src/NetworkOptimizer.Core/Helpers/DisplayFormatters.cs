@@ -8,16 +8,25 @@ public static class DisplayFormatters
 {
     #region Device Name Formatting
 
-    // Known network device type keywords for prefix stripping
-    private static readonly string[] DeviceTypeKeywords = { "Gateway", "Switch", "AP", "Router", "Firewall" };
+    // Known network device type keywords for prefix/suffix stripping
+    // Note: Avoided "SW" as it commonly means "Southwest" in location names
+    private static readonly string[] DeviceTypeKeywords = { "Gateway", "Switch", "AP", "Router", "RTR", "Firewall" };
 
     /// <summary>
-    /// Strip any existing device type prefix from a name.
-    /// Handles various prefix formats:
+    /// Strip any existing device type prefix or suffix from a name.
+    /// Handles various formats:
+    /// Prefixes:
     /// - "[Switch] Office" → "Office"
     /// - "(Switch) Office" → "Office"
+    /// - "{AP} Office" → "Office"
     /// - "Switch - Office" → "Office"
     /// - "Switch: Office" → "Office"
+    /// Suffixes:
+    /// - "Office AP" → "Office"
+    /// - "Office Switch" → "Office"
+    /// - "Office (AP)" → "Office"
+    /// - "Office [AP]" → "Office"
+    /// - "Office {AP}" → "Office"
     /// </summary>
     public static string StripDevicePrefix(string? deviceName)
     {
@@ -32,12 +41,11 @@ public static class DisplayFormatters
             var closeBracket = name.IndexOf(']');
             if (closeBracket > 0 && closeBracket < name.Length - 1)
             {
-                return name[(closeBracket + 1)..].TrimStart();
+                name = name[(closeBracket + 1)..].TrimStart();
             }
         }
-
         // Pattern 2: Parenthetical prefix like (Switch), (AP)
-        if (name.StartsWith("("))
+        else if (name.StartsWith("("))
         {
             var closeParen = name.IndexOf(')');
             if (closeParen > 0 && closeParen < name.Length - 1)
@@ -45,25 +53,96 @@ public static class DisplayFormatters
                 var prefix = name[1..closeParen];
                 if (IsDeviceTypeKeyword(prefix))
                 {
-                    return name[(closeParen + 1)..].TrimStart();
+                    name = name[(closeParen + 1)..].TrimStart();
+                }
+            }
+        }
+        // Pattern 3: Curly brace prefix like {AP}, {Switch}
+        else if (name.StartsWith("{"))
+        {
+            var closeBrace = name.IndexOf('}');
+            if (closeBrace > 0 && closeBrace < name.Length - 1)
+            {
+                var prefix = name[1..closeBrace];
+                if (IsDeviceTypeKeyword(prefix))
+                {
+                    name = name[(closeBrace + 1)..].TrimStart();
+                }
+            }
+        }
+        else
+        {
+            // Pattern 4: Keyword followed by separator like "Switch - ", "AP: "
+            foreach (var keyword in DeviceTypeKeywords)
+            {
+                // "Switch - Name" or "Switch: Name"
+                var dashPattern = $"{keyword} - ";
+                if (name.StartsWith(dashPattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    name = name[dashPattern.Length..].TrimStart();
+                    break;
+                }
+
+                var colonPattern = $"{keyword}: ";
+                if (name.StartsWith(colonPattern, StringComparison.OrdinalIgnoreCase))
+                {
+                    name = name[colonPattern.Length..].TrimStart();
+                    break;
                 }
             }
         }
 
-        // Pattern 3: Keyword followed by separator like "Switch - ", "AP: "
-        foreach (var keyword in DeviceTypeKeywords)
+        // Now check for suffixes
+        // Pattern 5: Bracketed suffix like "Office [AP]"
+        if (name.EndsWith("]"))
         {
-            // "Switch - Name" or "Switch: Name"
-            var dashPattern = $"{keyword} - ";
-            if (name.StartsWith(dashPattern, StringComparison.OrdinalIgnoreCase))
+            var openBracket = name.LastIndexOf('[');
+            if (openBracket > 0)
             {
-                return name[dashPattern.Length..].TrimStart();
+                var suffix = name[(openBracket + 1)..^1];
+                if (IsDeviceTypeKeyword(suffix))
+                {
+                    name = name[..openBracket].TrimEnd();
+                }
             }
-
-            var colonPattern = $"{keyword}: ";
-            if (name.StartsWith(colonPattern, StringComparison.OrdinalIgnoreCase))
+        }
+        // Pattern 6: Parenthetical suffix like "Office (AP)"
+        else if (name.EndsWith(")"))
+        {
+            var openParen = name.LastIndexOf('(');
+            if (openParen > 0)
             {
-                return name[colonPattern.Length..].TrimStart();
+                var suffix = name[(openParen + 1)..^1];
+                if (IsDeviceTypeKeyword(suffix))
+                {
+                    name = name[..openParen].TrimEnd();
+                }
+            }
+        }
+        // Pattern 7: Curly brace suffix like "Office {AP}"
+        else if (name.EndsWith("}"))
+        {
+            var openBrace = name.LastIndexOf('{');
+            if (openBrace > 0)
+            {
+                var suffix = name[(openBrace + 1)..^1];
+                if (IsDeviceTypeKeyword(suffix))
+                {
+                    name = name[..openBrace].TrimEnd();
+                }
+            }
+        }
+        else
+        {
+            // Pattern 8: Plain suffix like "Office AP", "Office Switch"
+            foreach (var keyword in DeviceTypeKeywords)
+            {
+                var suffix = $" {keyword}";
+                if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    name = name[..^suffix.Length].TrimEnd();
+                    break;
+                }
             }
         }
 
