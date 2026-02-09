@@ -857,6 +857,61 @@ app.MapPut("/api/upnp/notes", async (HttpContext context, NetworkOptimizerDbCont
     return Results.Ok(new { success = true });
 });
 
+// AP Location API endpoints
+app.MapGet("/api/ap-locations", async (NetworkOptimizerDbContext db) =>
+{
+    var locations = await db.ApLocations.ToListAsync();
+    return Results.Ok(locations);
+});
+
+app.MapPut("/api/ap-locations/{mac}", async (string mac, HttpContext context, NetworkOptimizerDbContext db) =>
+{
+    var request = await context.Request.ReadFromJsonAsync<ApLocationRequest>();
+    if (request == null)
+    {
+        return Results.BadRequest(new { error = "Request body is required" });
+    }
+
+    // Normalize MAC to lowercase for consistent matching
+    var normalizedMac = mac.ToLowerInvariant();
+
+    var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+    if (existing != null)
+    {
+        existing.Latitude = request.Latitude;
+        existing.Longitude = request.Longitude;
+        existing.UpdatedAt = DateTime.UtcNow;
+    }
+    else
+    {
+        var location = new ApLocation
+        {
+            ApMac = normalizedMac,
+            Latitude = request.Latitude,
+            Longitude = request.Longitude,
+            UpdatedAt = DateTime.UtcNow
+        };
+        db.ApLocations.Add(location);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { success = true });
+});
+
+app.MapDelete("/api/ap-locations/{mac}", async (string mac, NetworkOptimizerDbContext db) =>
+{
+    var normalizedMac = mac.ToLowerInvariant();
+    var existing = await db.ApLocations.FirstOrDefaultAsync(a => a.ApMac == normalizedMac);
+    if (existing == null)
+    {
+        return Results.NotFound();
+    }
+
+    db.ApLocations.Remove(existing);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+
 // Demo mode masking endpoint (returns mappings from DEMO_MODE_MAPPINGS env var)
 app.MapGet("/api/demo-mappings", () =>
 {
@@ -933,3 +988,6 @@ static Dictionary<string, string?> LoadWindowsRegistrySettings()
 
 // Request DTO for UPnP notes
 record UpnpNoteRequest(string HostIp, string Port, string Protocol, string? Note);
+
+// Request DTO for AP location upsert
+record ApLocationRequest(double Latitude, double Longitude);
