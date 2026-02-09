@@ -233,6 +233,8 @@ public class DnsSecurityAnalyzer
                         Enabled = true,
                         IsCustom = false
                     });
+                    _logger.LogDebug("DoH built-in server: name={Name}, provider={Provider}",
+                        serverName, provider?.Name ?? "not identified");
                 }
             }
         }
